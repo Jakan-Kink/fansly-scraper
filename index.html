@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="description" content="Content scraping and archival tool for Fansly — with a continuous monitoring daemon, PostgreSQL metadata store, and optional Stash integration." /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/" />
+      <link rel="shortcut icon" href="img/favicon.ico" />
+    <title>Fansly Downloader NG</title>
+    <link rel="stylesheet" href="css/theme.css" />
+    <link rel="stylesheet" href="css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Home";
+        var mkdocs_page_input_path = "index.md";
+        var mkdocs_page_url = "/fansly-scraper/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="./search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Home</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#whats-where">What's where</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#project-home">Project home</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#related-projects">Related projects</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href=".">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Home</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/index.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-downloader-ng-documentation">Fansly Downloader NG Documentation<a class="headerlink" href="#fansly-downloader-ng-documentation" title="Permanent link">&para;</a></h1>
+<p>Content scraping and archival tool for Fansly. Download photos, videos,
+audio, and other media — in bulk or selectively — from timelines,
+messages, walls, stories, collections, and individual posts. The v0.13
+release adds a continuous monitoring daemon that watches creators in
+near real time via Fansly's WebSocket and a calibrated polling fallback.</p>
+<p>See <a href="https://github.com/Jakan-Kink/fansly-scraper/blob/main/README.md">the README on GitHub</a>
+for install + quickstart. The pages in this docs site cover architecture,
+reference material, planning docs, and testing guidelines.</p>
+<h2 id="whats-where">What's where<a class="headerlink" href="#whats-where" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="guide/manual-token-extraction/">Guide</a></strong> — user-facing how-tos
+  (setup fallbacks, troubleshooting)</li>
+<li><strong><a href="reference/architecture/">Reference</a></strong> — canonical architecture
+  docs, protocol breakdowns, and data-mapping tables. Start with
+  <a href="reference/architecture/">Architecture</a> for the big picture and
+  <a href="reference/monitoring-cadence/">Monitoring Daemon Cadence</a> for the
+  polling / anti-detection rationale.</li>
+<li><strong><a href="planning/monitoring-daemon-architecture/">Planning</a></strong> — design
+  documents for in-progress or partially-complete initiatives (monitoring
+  daemon architecture, Stash ORM migration phases)</li>
+<li><strong><a href="testing/TESTING_REQUIREMENTS/">Testing</a></strong> — testing requirements,
+  migration trackers, and patterns (mocking boundaries, RESPX rules,
+  fixture conventions)</li>
+<li><strong>Archive</strong> — historical planning docs retained for context (e.g., the
+  hard-cutover PostgreSQL migration plan that shipped in v0.11.0)</li>
+</ul>
+<h2 id="project-home">Project home<a class="headerlink" href="#project-home" title="Permanent link">&para;</a></h2>
+<p><a href="https://github.com/Jakan-Kink/fansly-scraper">Jakan-Kink/fansly-scraper</a> on
+GitHub. The original upstream (<a href="https://github.com/prof79/fansly-downloader-ng">prof79/fansly-downloader-ng</a>)
+has been dormant since June 2024 and is retained only for git
+archaeology.</p>
+<h2 id="related-projects">Related projects<a class="headerlink" href="#related-projects" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="https://github.com/Jakan-Kink/stash-graphql-client">stash-graphql-client</a></strong>
+  — maintained by the same author; provides the async GraphQL client,
+  Pydantic types, and <code>StashEntityStore</code> used by this project's Stash
+  integration. The <code>PostgresEntityStore</code> design in this codebase
+  follows the same identity-map + dirty-tracking patterns, and the two
+  projects cross-pollinate ideas over each release cycle.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="changelog/" class="btn btn-neutral float-right" title="Changelog">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+    
+      <span><a href="changelog/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = ".";</script>
+    <script src="js/theme_extra.js"></script>
+    <script src="js/theme.js"></script>
+      <script src="search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
+
+<!--
+MkDocs version : 1.6.1
+Build Date UTC : 2026-04-23 01:15:15.316850+00:00
+-->

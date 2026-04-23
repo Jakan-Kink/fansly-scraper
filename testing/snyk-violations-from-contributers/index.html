@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/testing/snyk-violations-from-contributers/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Snyk Violations (derived) - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Snyk Violations (derived)";
+        var mkdocs_page_input_path = "testing/snyk-violations-from-contributers.md";
+        var mkdocs_page_url = "/fansly-scraper/testing/snyk-violations-from-contributers/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Snyk Violations (derived)</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#pr-18-fix-dedupe-filename-handling-legacy-hash2-migration-bundle-hardening">PR #18 – Fix dedupe filename handling, legacy hash2 migration, bundle hardening</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#current-snyk-scan-jan-12-2026">Current Snyk scan (Jan 12, 2026)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#remediations-applied-now">Remediations applied now</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#outstanding-not-addressed-in-this-batch">Outstanding (not addressed in this batch)</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Testing</li>
+      <li class="breadcrumb-item active">Snyk Violations (derived)</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/testing/snyk-violations-from-contributers.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="snyk-violations-by-contributor-pr-derived">Snyk violations by contributor PR (derived)<a class="headerlink" href="#snyk-violations-by-contributor-pr-derived" title="Permanent link">&para;</a></h1>
+<h2 id="pr-18-fix-dedupe-filename-handling-legacy-hash2-migration-bundle-hardening">PR #18 – Fix dedupe filename handling, legacy hash2 migration, bundle hardening<a class="headerlink" href="#pr-18-fix-dedupe-filename-handling-legacy-hash2-migration-bundle-hardening" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added <code>db_init_scratch.py</code> and <code>migrate_from_ng.py</code>; Snyk flags medium path-traversal risks in <code>db_init_scratch.py</code> (CLI args flow into <code>os.walk</code>/<code>Path</code> without sanitization). Not addressed in this batch.</li>
+<li>No code we touched today came from this PR.</li>
+</ul>
+<h2 id="current-snyk-scan-jan-12-2026">Current Snyk scan (Jan 12, 2026)<a class="headerlink" href="#current-snyk-scan-jan-12-2026" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Open issues (selection):</li>
+<li>Low: “Use of Hardcoded Credentials” in tests (<code>tests/stash/processing/unit/gallery/test_gallery_creation.py</code>, <code>test_base.py</code>, <code>test_gallery_methods.py</code>, <code>test_studio_mixin.py</code>).</li>
+<li>Medium: Path traversal in <code>db_init_scratch.py</code>, <code>scripts/migrate_to_postgres.py</code>; potential <code>os.utime</code>/path misuse flagged in older <code>download/single.py</code> (not reproducible in current file contents).</li>
+<li>Medium: SQL injection warnings in <code>config/browser.py</code>, <code>scripts/migrate_to_postgres.py</code>, <code>db_init_scratch.py</code>.</li>
+</ul>
+<h2 id="remediations-applied-now">Remediations applied now<a class="headerlink" href="#remediations-applied-now" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Replaced hardcoded usernames/strings in tests with faker-generated values to avoid false-positive credential flags:</li>
+<li><code>tests/stash/processing/unit/test_base.py</code></li>
+<li><code>tests/stash/processing/unit/gallery/test_gallery_creation.py</code></li>
+<li><code>tests/stash/processing/unit/test_gallery_methods.py</code></li>
+<li><code>tests/stash/processing/unit/test_studio_mixin.py</code></li>
+</ul>
+<h2 id="outstanding-not-addressed-in-this-batch">Outstanding (not addressed in this batch)<a class="headerlink" href="#outstanding-not-addressed-in-this-batch" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Path traversal &amp; SQL injection warnings in <code>db_init_scratch.py</code> and <code>scripts/migrate_to_postgres.py</code> (per request, left untouched).</li>
+<li>Verify if Snyk still flags <code>download/single.py</code> in future scans; current file has no <code>os.utime</code> or path writes.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../V0_10_MOCK_PATTERNS/" class="btn btn-neutral float-left" title="v0.10 Mock Patterns (archive)"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../archive/hardCut-PostgreSQL-Implementation-Plan/" class="btn btn-neutral float-right" title="Hard-Cut PostgreSQL Implementation Plan">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../V0_10_MOCK_PATTERNS/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../archive/hardCut-PostgreSQL-Implementation-Plan/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

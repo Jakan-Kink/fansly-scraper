@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-mapping/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Fansly-to-Stash Mapping - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Fansly-to-Stash Mapping";
+        var mkdocs_page_input_path = "reference/Fansly-Stash-mapping.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-Stash-mapping/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Fansly-to-Stash Mapping</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#data-structure-overview">Data Structure Overview</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#fansly-core-types">Fansly Core Types</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fansly-relationships">Fansly Relationships</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#core-entity-mappings">Core Entity Mappings</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#direct-one-to-one-mappings">Direct One-to-One Mappings</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#similarindirect-mappings">Similar/Indirect Mappings</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#tag-system">Tag System</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#taghashtag-relationships">Tag/Hashtag Relationships</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#tag-matching-rules">Tag Matching Rules</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#taghashtag-examples">Tag/Hashtag Examples</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#implementation-strategy">Implementation Strategy</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#database-integration">Database Integration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#data-flow">Data Flow</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#field-selection-philosophy">Field Selection Philosophy</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#stash-integration">Stash Integration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#essential-fields">Essential Fields</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#relationship-handling">Relationship Handling</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#content-mapping-rules">Content Mapping Rules</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#data-flow-and-transformations">Data Flow and Transformations</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#studio-context">Studio Context</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#studio-mapping">Studio Mapping</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#studio-organization">Studio Organization</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#content-organization">Content Organization</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#studio-usage-example">Studio Usage Example</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#file-organization">File Organization</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#notes">Notes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#folder-usage">Folder Usage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#access-control">Access Control</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#data-integrity">Data Integrity</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Fansly-to-Stash Mapping</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-Stash-mapping.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-to-stash-mapping">Fansly to Stash Mapping<a class="headerlink" href="#fansly-to-stash-mapping" title="Permanent link">&para;</a></h1>
+<h2 id="data-structure-overview">Data Structure Overview<a class="headerlink" href="#data-structure-overview" title="Permanent link">&para;</a></h2>
+<h3 id="fansly-core-types">Fansly Core Types<a class="headerlink" href="#fansly-core-types" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Account</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// snowflake ID (18-digit string)</span>
+<span class="w">  </span><span class="nx">username</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;example_creator&quot;</span>
+<span class="w">  </span><span class="nx">displayName</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;Example Creator&quot;</span>
+<span class="w">  </span><span class="nx">about</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// Profile description</span>
+<span class="w">  </span><span class="nx">location</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">flags</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">version</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">createdAt</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// Unix timestamp</span>
+<span class="w">  </span><span class="nx">following</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">avatar</span><span class="o">:</span><span class="w"> </span><span class="kt">Media</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">banner</span><span class="o">:</span><span class="w"> </span><span class="kt">Media</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">timelineStats</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">imageCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">videoCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">bundleCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">bundleImageCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">bundleVideoCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ol>
+<li>Media</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">  </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// 1 = image, 2 = video</span>
+<span class="w">  </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">accountId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">mimetype</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;image/jpeg&quot;</span>
+<span class="w">  </span><span class="nx">flags</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">location</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// Path to file</span>
+<span class="w">  </span><span class="nx">width</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">height</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">metadata</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// JSON string with additional info</span>
+<span class="w">  </span><span class="nx">variants</span><span class="o">:</span><span class="w"> </span><span class="kt">Array</span><span class="o">&lt;</span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Different resolutions</span>
+<span class="w">    </span><span class="nx">width</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">height</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">location</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<ol>
+<li>Post</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">accountId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">  </span><span class="nx">flags</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span>
+<span class="w">  </span><span class="nx">createdAt</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span>
+<span class="w">  </span><span class="nx">attachments</span><span class="o">:</span><span class="w"> </span><span class="kt">Media</span><span class="p">[]</span>
+<span class="w">  </span><span class="nx">hashtags</span><span class="o">:</span><span class="w"> </span><span class="kt">Hashtag</span><span class="p">[]</span>
+<span class="p">}</span>
+</code></pre></div>
+<ol>
+<li>Message</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">groupId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">senderId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">  </span><span class="nx">attachments</span><span class="o">:</span><span class="w"> </span><span class="kt">Media</span><span class="p">[]</span>
+<span class="w">  </span><span class="nx">createdAt</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span>
+<span class="p">}</span>
+</code></pre></div>
+<ol>
+<li>Wall</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">accountId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">  </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">  </span><span class="nx">posts</span><span class="o">:</span><span class="w"> </span><span class="kt">Post</span><span class="p">[]</span>
+<span class="w">  </span><span class="nx">createdAt</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="fansly-relationships">Fansly Relationships<a class="headerlink" href="#fansly-relationships" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Content Organization:</p>
+</li>
+<li>
+<p>Account -&gt; Posts (one-to-many)</p>
+</li>
+<li>Account -&gt; Messages (one-to-many)</li>
+<li>Account -&gt; Walls (one-to-many)</li>
+<li>Account -&gt; Avatar/Banner (one-to-one)</li>
+<li>Post -&gt; Media (one-to-many)</li>
+<li>Message -&gt; Media (one-to-many)</li>
+<li>
+<p>Wall -&gt; Posts (one-to-many)</p>
+</li>
+<li>
+<p>Reference Relationships:</p>
+</li>
+<li>
+<p>Media -&gt; Account (many-to-one)</p>
+</li>
+<li>Post -&gt; Account (many-to-one)</li>
+<li>Message -&gt; Account (many-to-one)</li>
+<li>
+<p>Wall -&gt; Account (many-to-one)</p>
+</li>
+<li>
+<p>Tag Relationships:</p>
+</li>
+<li>Post -&gt; Hashtags (many-to-many)</li>
+<li>Media -&gt; Hashtags (many-to-many)</li>
+<li>Account -&gt; Hashtags (many-to-many)</li>
+</ol>
+<h2 id="core-entity-mappings">Core Entity Mappings<a class="headerlink" href="#core-entity-mappings" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph LR
+    subgraph Fansly
+        A[Account&lt;br/&gt;id&lt;br/&gt;username&lt;br/&gt;displayName&lt;br/&gt;stash_id]
+        M[Media&lt;br/&gt;id&lt;br/&gt;type&lt;br/&gt;location&lt;br/&gt;stash_id]
+        AMB[AccountMediaBundle&lt;br/&gt;id&lt;br/&gt;accountId&lt;br/&gt;stash_id]
+        H[Hashtag&lt;br/&gt;id&lt;br/&gt;name&lt;br/&gt;stash_id]
+    end
+    subgraph Stash
+        P[Performer&lt;br/&gt;id&lt;br/&gt;name&lt;br/&gt;details]
+        S[Scene&lt;br/&gt;id&lt;br/&gt;title&lt;br/&gt;path]
+        G[Gallery&lt;br/&gt;id&lt;br/&gt;title&lt;br/&gt;files]
+        T[Tag&lt;br/&gt;id&lt;br/&gt;name&lt;br/&gt;aliases]
+    end
+    A --&gt;|stash_id| P
+    M --&gt;|stash_id| S
+    AMB --&gt;|stash_id| G
+    H --&gt;|stash_id| T
+    style A fill:#f9f,stroke:#333
+    style M fill:#f9f,stroke:#333
+    style AMB fill:#f9f,stroke:#333
+    style H fill:#f9f,stroke:#333
+    style P fill:#bbf,stroke:#333
+    style S fill:#bbf,stroke:#333
+    style G fill:#bbf,stroke:#333
+    style T fill:#bbf,stroke:#333</code></pre>
+<h3 id="direct-one-to-one-mappings">Direct One-to-One Mappings<a class="headerlink" href="#direct-one-to-one-mappings" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Account -&gt; Performer</p>
+</li>
+<li>
+<p>username -&gt; name</p>
+</li>
+<li>displayName -&gt; details</li>
+<li>about -&gt; details (appended)</li>
+<li>
+<p>avatar -&gt; image</p>
+</li>
+<li>
+<p>Media -&gt; Scene/Image</p>
+</li>
+<li>
+<p>id -&gt; external_id</p>
+</li>
+<li>location -&gt; path</li>
+<li>type -&gt; determines Scene vs Image</li>
+<li>
+<p>metadata -&gt; details</p>
+</li>
+<li>
+<p>Post -&gt; Scene/Gallery</p>
+</li>
+<li>id -&gt; external_id</li>
+<li>content -&gt; details</li>
+<li>attachments -&gt; files</li>
+<li>createdAt -&gt; created_at</li>
+</ol>
+<h3 id="similarindirect-mappings">Similar/Indirect Mappings<a class="headerlink" href="#similarindirect-mappings" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Wall -&gt; Gallery with Chapters</p>
+</li>
+<li>
+<p>description -&gt; details</p>
+</li>
+<li>posts -&gt; chapters</li>
+<li>
+<p>Each post becomes a chapter</p>
+</li>
+<li>
+<p>Message -&gt; Scene/Gallery</p>
+</li>
+<li>
+<p>content -&gt; details</p>
+</li>
+<li>attachments -&gt; files</li>
+<li>Single video -&gt; Scene</li>
+<li>
+<p>Multiple media -&gt; Gallery</p>
+</li>
+<li>
+<p>AccountMediaBundle -&gt; Gallery</p>
+</li>
+<li>All media from bundle -&gt; files</li>
+<li>Bundle info -&gt; details</li>
+</ol>
+<h2 id="tag-system">Tag System<a class="headerlink" href="#tag-system" title="Permanent link">&para;</a></h2>
+<h3 id="taghashtag-relationships">Tag/Hashtag Relationships<a class="headerlink" href="#taghashtag-relationships" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>graph LR
+    subgraph "Direct Matches"
+        H1[Hashtag: latex] --&gt; T1[Tag: Latex]
+    end
+
+    subgraph "Space Handling"
+        H2[Hashtag: latexmodel] --&gt; T2[Tag: Latex Model]
+    end
+
+    subgraph "Multiple Aliases"
+        H3[Hashtag: lesbiandomination] --&gt; T3[Tag: Lesbian Domination]
+        H4[Hashtag: lesdom] --&gt; T3
+    end
+
+    subgraph "Regional Variants"
+        H5[Hashtag: nederland] --&gt; T4[Tag: Netherlands]
+        H6[Hashtag: nederlands] --&gt; T4
+    end
+
+    subgraph "Tags &amp; References"
+        H[Hashtag] --&gt; T[Tag]
+        T --&gt; |nested| T
+        T --&gt; |aliases| H
+    end
+</code></pre>
+<p>Key characteristics:</p>
+<ul>
+<li>Hashtags cannot contain spaces, but Stash Tags can</li>
+<li>A hashtag can map to either:</li>
+<li>A Tag's primary name (direct match)</li>
+<li>A Tag's alias (indirect match)</li>
+<li>
+<p>Examples:</p>
+</li>
+<li>
+<p>Direct primary name matches:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latex&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex&quot;</span><span class="p">)</span>
+</code></pre></div>
+</li>
+<li>
+<p>Space handling:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Model&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">])</span>
+</code></pre></div>
+</li>
+<li>
+<p>Multiple hashtags to one tag via aliases:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">])</span>
+<span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesdom&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">])</span>
+</code></pre></div>
+</li>
+<li>
+<p>Regional variants:</p>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederland&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Netherlands&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;nederland&quot;</span><span class="p">,</span> <span class="s2">&quot;nederlands&quot;</span><span class="p">])</span>
+</code></pre></div>
+</li>
+</ul>
+<h3 id="tag-matching-rules">Tag Matching Rules<a class="headerlink" href="#tag-matching-rules" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Direct Primary Name Matches</p>
+</li>
+<li>
+<p>Case-insensitive matching (e.g., "latex" -&gt; "Latex")</p>
+</li>
+<li>
+<p>Similar concepts might be separate tags (e.g., "latexmodel" -&gt; "LatexModel")</p>
+</li>
+<li>
+<p>Alias Matches</p>
+</li>
+<li>
+<p>Hashtags can match Tag aliases</p>
+</li>
+<li>Multiple hashtags can map to same Tag via aliases</li>
+<li>Regional/language variants (e.g., "nederland", "nederlands" -&gt; "Netherlands")</li>
+<li>Common abbreviations (e.g., "lesdom" -&gt; "Lesbian Domination")</li>
+<li>
+<p>Tags can have aliases that don't match any hashtags (e.g., "rubber" for "Latex")</p>
+</li>
+<li>
+<p>Space Handling</p>
+</li>
+<li>
+<p>Hashtags: Cannot contain spaces</p>
+</li>
+<li>Tags: Both name and aliases can contain spaces</li>
+<li>
+<p>Example: "latexmodel" hashtag -&gt; "Latex Model" tag</p>
+</li>
+<li>
+<p>Hierarchical Relationships</p>
+</li>
+<li>Only in Stash Tags (not in Fansly hashtags)</li>
+<li>Parent/child relationships</li>
+<li>Example: "Stockings" parent of "Fishnets"</li>
+</ol>
+<h3 id="taghashtag-examples">Tag/Hashtag Examples<a class="headerlink" href="#taghashtag-examples" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Fansly side - hashtags cannot contain spaces</span>
+<span class="n">hashtags</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latex&quot;</span><span class="p">),</span>           <span class="c1"># Maps to Tag &quot;Latex&quot;</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">),</span>      <span class="c1"># Could map to various Tags (see below)</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexfetish&quot;</span><span class="p">),</span>     <span class="c1"># Maps to Tag &quot;Latex Fetish&quot;</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">),</span> <span class="c1"># Maps to Tag &quot;Lesbian Domination&quot; via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesdom&quot;</span><span class="p">),</span>          <span class="c1"># Maps to Tag &quot;Lesbian Domination&quot; via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;netherlands&quot;</span><span class="p">),</span>      <span class="c1"># Maps to Tag &quot;Netherlands&quot;</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederland&quot;</span><span class="p">),</span>       <span class="c1"># Maps to Tag &quot;Netherlands&quot; via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederlands&quot;</span><span class="p">),</span>      <span class="c1"># Maps to Tag &quot;Netherlands&quot; via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;stockings&quot;</span><span class="p">),</span>       <span class="c1"># Maps to Tag &quot;Stockings&quot;</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;fishnets&quot;</span><span class="p">),</span>        <span class="c1"># Maps to Tag &quot;Fishnets&quot; (child of &quot;Stockings&quot;)</span>
+<span class="p">]</span>
+
+<span class="c1"># Stash side - both names and aliases can have spaces</span>
+<span class="n">tags</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex&quot;</span><span class="p">,</span>  <span class="c1"># Capitalized name</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rubber&quot;</span><span class="p">,</span> <span class="s2">&quot;Latex Clothing&quot;</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Model&quot;</span><span class="p">,</span>  <span class="c1"># Name with space</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">,</span> <span class="s2">&quot;Latex Models&quot;</span><span class="p">],</span>  <span class="c1"># Mix of spaced and unspaced</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Fetish&quot;</span><span class="p">,</span>  <span class="c1"># Name with space</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Latex Fetishism&quot;</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">],</span>  <span class="c1"># Multiple hashtags map via aliases</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Netherlands&quot;</span><span class="p">,</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;nederland&quot;</span><span class="p">,</span> <span class="s2">&quot;nederlands&quot;</span><span class="p">,</span> <span class="s2">&quot;dutch&quot;</span><span class="p">],</span>  <span class="c1"># Regional variants</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Stockings&quot;</span><span class="p">,</span>  <span class="c1"># Parent tag</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[],</span>
+    <span class="p">),</span>
+    <span class="n">Tag</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Fishnets&quot;</span><span class="p">,</span>  <span class="c1"># Child tag</span>
+        <span class="n">parent_tags</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Stockings&quot;</span><span class="p">],</span>  <span class="c1"># Hierarchical relationship</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[],</span>
+    <span class="p">),</span>
+<span class="p">]</span>
+</code></pre></div>
+<h2 id="implementation-strategy">Implementation Strategy<a class="headerlink" href="#implementation-strategy" title="Permanent link">&para;</a></h2>
+<h3 id="database-integration">Database Integration<a class="headerlink" href="#database-integration" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Metadata Module</strong> (<code>metadata/</code>)</li>
+<li>Pydantic + asyncpg EntityStore (PostgreSQL)</li>
+<li>Identity-map + dirty-tracking design</li>
+<li>
+<p>Handles local data persistence — see
+     <a href="../architecture/">architecture.md</a> for the full stack</p>
+</li>
+<li>
+<p><strong>Stash Module</strong> (<code>stash/</code>)</p>
+</li>
+<li>GraphQL backend interface via
+     <a href="https://github.com/Jakan-Kink/stash-graphql-client"><code>stash-graphql-client</code></a>
+     (&gt;= v0.12.0)</li>
+<li>Remote data source; pushes metadata from our local DB to Stash</li>
+<li>Real-time data access</li>
+</ol>
+<h3 id="data-flow">Data Flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>graph LR
+    F[Fansly API] --&gt; M[Metadata DB]
+    M --&gt; S[Stash GraphQL]
+
+    subgraph "Local Storage"
+        M
+    end
+
+    subgraph "Remote Storage"
+        S
+    end</code></pre>
+<h3 id="field-selection-philosophy">Field Selection Philosophy<a class="headerlink" href="#field-selection-philosophy" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>Only store fields needed for:</p>
+</li>
+<li>
+<p>Content identification</p>
+</li>
+<li>Relationship maintenance</li>
+<li>Essential metadata</li>
+<li>
+<p>Stash integration</p>
+</li>
+<li>
+<p>Omitted Fields:</p>
+</li>
+<li>UI-specific flags</li>
+<li>Temporary state</li>
+<li>Derived/calculated values</li>
+<li>Access control (handled by Stash)</li>
+<li>User preferences</li>
+<li>Analytics/stats (except where needed)</li>
+</ol>
+<h3 id="stash-integration">Stash Integration<a class="headerlink" href="#stash-integration" title="Permanent link">&para;</a></h3>
+<p>Each Fansly-side entity that maps to a Stash counterpart carries a
+nullable <code>stash_id: int | None</code> field. This is the link from the
+Fansly metadata row to the Stash-side entity (Performer, Scene,
+Gallery, Tag).</p>
+<h3 id="essential-fields">Essential Fields<a class="headerlink" href="#essential-fields" title="Permanent link">&para;</a></h3>
+<p>The minimum useful fields on each Fansly entity:</p>
+<ul>
+<li><strong>Account</strong> — <code>id</code> (PK), <code>username</code>, <code>displayName?</code>, <code>stash_id?</code> → <code>Performer</code></li>
+<li><strong>Media</strong> — <code>id</code> (PK), <code>type</code> (1 = image, 2 = video), <code>location</code> (CDN
+  path), <code>stash_id?</code> → <code>Scene</code>/<code>Image</code></li>
+<li><strong>Post</strong> — <code>id</code> (PK), <code>accountId</code>, <code>content?</code>, attachments, <code>stash_id?</code> →
+  <code>Scene</code>/<code>Gallery</code> (see mapping rules below)</li>
+<li><strong>Wall</strong> — <code>id</code> (PK), <code>accountId</code>, <code>description?</code>, posts, <code>stash_id?</code> →
+  <code>Gallery</code></li>
+</ul>
+<p>Full Pydantic field definitions live in
+<a href="https://github.com/Jakan-Kink/fansly-scraper/blob/main/metadata/models.py"><code>metadata/models.py</code></a>;
+the table schema (used only by Alembic, not at runtime) is in
+<a href="https://github.com/Jakan-Kink/fansly-scraper/blob/main/metadata/tables.py"><code>metadata/tables.py</code></a>.
+See
+<a href="../architecture/#database-architecture">architecture.md</a> for the
+model/storage split.</p>
+<h3 id="relationship-handling">Relationship Handling<a class="headerlink" href="#relationship-handling" title="Permanent link">&para;</a></h3>
+<p><strong>Direct references</strong> (many-to-one): junction-style entities like
+<code>AccountMedia</code> carry foreign keys to both sides (accountId, mediaId)
+plus a <code>stash_id</code> linking to the Stash-side entity (Scene/Image) that
+the junction represents.</p>
+<p><strong>Many-to-many</strong> relationships (e.g., post ↔ hashtag, media ↔
+hashtag) are persisted in dedicated junction tables. These are
+managed through the <code>_sync_associations</code> / <code>sync_junction()</code> path
+on the Pydantic models — see
+<a href="../architecture/#junction-table-sync-via-sync_junction">architecture.md</a>
+for the mechanics.</p>
+<h3 id="content-mapping-rules">Content Mapping Rules<a class="headerlink" href="#content-mapping-rules" title="Permanent link">&para;</a></h3>
+<p><strong>Post → Scene vs Gallery</strong>: a <code>Post</code> maps to a <code>Scene</code> when it has
+exactly one attachment and that attachment is a video. Posts with
+multiple attachments, or with non-video attachments, map to a
+<code>Gallery</code>. The <code>Post.stash_id</code> field stores the Stash side's ID of
+whichever entity type was created.</p>
+<p>Concretely, per <code>Post</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Attachments</th>
+<th>Maps to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exactly one video</td>
+<td><code>Scene</code></td>
+</tr>
+<tr>
+<td>one image</td>
+<td><code>Gallery</code></td>
+</tr>
+<tr>
+<td>multiple media (any combination)</td>
+<td><code>Gallery</code></td>
+</tr>
+<tr>
+<td>no attachments</td>
+<td>(skipped)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Content text → details</strong>: <code>Post.content</code> becomes <code>Scene.details</code> or
+<code>Gallery.details</code>. Hashtags parsed from content map to <code>Tag</code>
+references on the Stash side (see Tag System above).</p>
+<h2 id="data-flow-and-transformations">Data Flow and Transformations<a class="headerlink" href="#data-flow-and-transformations" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    subgraph "Posts &amp; Content"
+        P[Post] --&gt;|single video| S[Scene]
+        P --&gt;|multiple media| G[Gallery]
+        P --&gt;|via wall_posts| W[Wall]
+        W --&gt;|chapters| GC[GalleryChapter]
+        M[Message] --&gt;|single video| S
+        M --&gt;|multiple media| G
+    end
+
+    subgraph "Profile Media"
+        AA[account_avatar] -.-&gt;|similar to| PI[Performer.image]
+    end</code></pre>
+<h2 id="studio-context">Studio Context<a class="headerlink" href="#studio-context" title="Permanent link">&para;</a></h2>
+<h3 id="studio-mapping">Studio Mapping<a class="headerlink" href="#studio-mapping" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>graph TD
+    subgraph "Download Context"
+        C[Creator/Username]
+        D[Downloader]
+    end
+
+    subgraph "Stash"
+        S[Studio]
+        P[Performer]
+    end
+
+    C --&gt;|becomes| S
+    C --&gt;|becomes| P
+    S --&gt;|has| P</code></pre>
+<h3 id="studio-organization">Studio Organization<a class="headerlink" href="#studio-organization" title="Permanent link">&para;</a></h3>
+<p>When in normal/timeline/message/wall download mode:</p>
+<ul>
+<li>Studio represents the creator/user being downloaded</li>
+<li>All content from that creator is linked to their Studio</li>
+<li>This helps organize content by source</li>
+<li>The Studio name matches the username from config</li>
+<li>Studio details include download source information</li>
+</ul>
+<h3 id="content-organization">Content Organization<a class="headerlink" href="#content-organization" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p>By Creator:</p>
+</li>
+<li>
+<p>Each creator gets their own Studio</p>
+</li>
+<li>All their content is linked to that Studio</li>
+<li>
+<p>Consistent naming and organization</p>
+</li>
+<li>
+<p>By Content Type:</p>
+</li>
+<li>Scenes for videos</li>
+<li>Galleries for images/sets</li>
+<li>Each properly linked to Studio</li>
+</ol>
+<h3 id="studio-usage-example">Studio Usage Example<a class="headerlink" href="#studio-usage-example" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Download configuration</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span>
+    <span class="n">user_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;creator&quot;</span><span class="p">],</span>
+    <span class="c1"># ...</span>
+<span class="p">)</span>
+
+<span class="c1"># Creates in Stash:</span>
+<span class="n">studio</span> <span class="o">=</span> <span class="n">Studio</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;creator&quot;</span><span class="p">,</span>
+    <span class="n">details</span><span class="o">=</span><span class="s2">&quot;Content from creator on Fansly&quot;</span><span class="p">,</span>
+    <span class="n">parent_studio</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># Top-level studio</span>
+<span class="p">)</span>
+
+<span class="c1"># All downloaded content gets linked</span>
+<span class="n">scene</span> <span class="o">=</span> <span class="n">Scene</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Post 12345&quot;</span><span class="p">,</span>
+    <span class="n">studio</span><span class="o">=</span><span class="n">studio</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/path/to/video.mp4&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="file-organization">File Organization<a class="headerlink" href="#file-organization" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p>Media Files:</p>
+</li>
+<li>
+<p>Original files preserved</p>
+</li>
+<li>Variants stored with predictable naming</li>
+<li>Path information stored in database</li>
+<li>
+<p>File integrity checked on import</p>
+</li>
+<li>
+<p>Path Management:</p>
+</li>
+<li>Relative paths preferred</li>
+<li>Absolute paths stored when needed</li>
+<li>Path validation on import</li>
+<li>Path normalization for cross-platform</li>
+</ol>
+<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<h3 id="folder-usage">Folder Usage<a class="headerlink" href="#folder-usage" title="Permanent link">&para;</a></h3>
+<p>While not directly mapped, Folder in Stash might be useful for:</p>
+<ul>
+<li>Checking if Stash knows the path to a file</li>
+<li>Organizing content by source/creator</li>
+<li>Managing file system structure</li>
+<li>Tracking file locations</li>
+</ul>
+<h3 id="access-control">Access Control<a class="headerlink" href="#access-control" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fansly access control not mapped to Stash</li>
+<li>PPV/subscription status tracked in metadata only</li>
+<li>All downloaded content accessible in Stash</li>
+</ul>
+<h3 id="data-integrity">Data Integrity<a class="headerlink" href="#data-integrity" title="Permanent link">&para;</a></h3>
+<ul>
+<li>File checksums verified</li>
+<li>Metadata consistency checked</li>
+<li>Relationships validated</li>
+<li>Missing data handled gracefully</li>
+</ul>
+<pre class="mermaid"><code>graph TD
+    subgraph "Posts &amp; Content"
+        P[Post] --&gt;|single video| S[Scene]
+        P --&gt;|multiple media| G[Gallery]
+        W[Wall] --&gt;|contains| P
+        W --&gt;|becomes| G2[Gallery]
+        G2 --&gt;|per post| GC[GalleryChapter]
+    end
+
+    subgraph "Tags &amp; References"
+        H1[Hashtag 1] --&gt;|maps to name| T[Tag]
+        H2[Hashtag 2] --&gt;|maps to alias| T
+        H3[Hashtag 3] --&gt;|maps to alias| T
+    end
+
+    style P fill:#f9f,stroke:#333
+    style W fill:#f9f,stroke:#333
+    style S fill:#bbf,stroke:#333
+    style G fill:#bbf,stroke:#333
+    style G2 fill:#bbf,stroke:#333
+    style GC fill:#bbf,stroke:#333
+    style H1 fill:#f9f,stroke:#333
+    style H2 fill:#f9f,stroke:#333
+    style H3 fill:#f9f,stroke:#333
+    style T fill:#bbf,stroke:#333</code></pre>
+<ol>
+<li>Posts to Scenes/Galleries:</li>
+</ol>
+<pre class="mermaid"><code>graph TD
+    subgraph "Fansly Post"
+        P[Post]
+        C[Content/Text]
+        H[Hashtags]
+        A[Attachments]
+    end
+
+    subgraph "Stash Scene"
+        S[Scene]
+        D[Details]
+        T[Tags]
+        F[Files]
+    end
+
+    C --&gt;|becomes| D
+    H --&gt;|become| T
+    A --&gt;|become| F
+    P --&gt;|links to| S</code></pre>
+<ol>
+<li>Messages to Scenes/Galleries:</li>
+</ol>
+<pre class="mermaid"><code>graph TD
+    subgraph "Fansly Message"
+        M[Message]
+        C[Content]
+        A[Attachments]
+    end
+
+    subgraph "Stash"
+        S[Scene/Gallery]
+        D[Details]
+        F[Files]
+    end
+
+    C --&gt;|becomes| D
+    A --&gt;|become| F
+    M --&gt;|links to| S</code></pre>
+<ol>
+<li>Wall to Gallery:</li>
+</ol>
+<pre class="mermaid"><code>graph TD
+    subgraph "Fansly Wall"
+        W[Wall]
+        P[Posts]
+        C[Content]
+    end
+
+    subgraph "Stash Gallery"
+        G[Gallery]
+        CH[Chapters]
+        D[Details]
+    end
+
+    W --&gt;|becomes| G
+    P --&gt;|becomes| G
+    W --&gt; P --&gt;|if in a wall| CH
+    C --&gt;|becomes| D</code></pre>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-WebSocket-Protocol/" class="btn btn-neutral float-left" title="Fansly WebSocket Protocol"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-Stash-performer-mapping/" class="btn btn-neutral float-right" title="Performer Mapping">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-WebSocket-Protocol/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-Stash-performer-mapping/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

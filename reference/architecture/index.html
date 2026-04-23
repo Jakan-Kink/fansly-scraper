@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/architecture/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Architecture - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Architecture";
+        var mkdocs_page_input_path = "reference/architecture.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/architecture/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Architecture</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#high-level-flow">High-Level Flow</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#module-structure">Module Structure</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#config-configuration-management">config/ — Configuration management</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#api-fansly-api-client">api/ — Fansly API client</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#daemon-post-batch-monitoring-loop">daemon/ — Post-batch monitoring loop</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#download-download-orchestration">download/ — Download orchestration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#metadata-database-models-and-operations">metadata/ — Database models and operations</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#stash-stash-integration-optional">stash/ — Stash integration (optional)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fileio-file-operations">fileio/ — File operations</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#supporting-modules">Supporting modules</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#core-design-patterns">Core Design Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#pydantic-entitystore-database-pattern">Pydantic + EntityStore database pattern</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#identity-map-via-wrap-validator">Identity map via wrap validator</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#dirty-tracking-via-__tracked_fields__">Dirty tracking via __tracked_fields__</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#junction-table-sync-via-sync_junction">Junction table sync via sync_junction()</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_store-singleton">get_store() singleton</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#_write_excluded-inverse-only-fields">_WRITE_EXCLUDED — inverse-only fields</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#native-pydantic-serdes">Native Pydantic SerDes</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#entitystore-filter-syntax">EntityStore Filter Syntax</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#database-architecture">Database Architecture</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#stack">Stack</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#design-heritage">Design heritage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#timestamp-handling">Timestamp handling</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#foreign-key-constraints">Foreign key constraints</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#medialocationlocationid-is-a-cdn-type-code-not-a-snowflake-id">MediaLocation.locationId is a CDN type code, not a Snowflake ID</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#stash-integration">Stash Integration</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#stashclient-external-dependency">StashClient (external dependency)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#stashprocessing-our-mixin-layer">StashProcessing (our mixin layer)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#deduplication-system">Deduplication System</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#current-database-stored-content-hash">Current: database-stored content hash</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#historical-hash-formats-migration-aware">Historical hash formats (migration-aware)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#migration-strategy">Migration strategy</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#async-context-managers">Async Context Managers</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#exit-codes">Exit Codes</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#performance-considerations">Performance Considerations</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Architecture</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/architecture.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="architecture-reference">Architecture Reference<a class="headerlink" href="#architecture-reference" title="Permanent link">&para;</a></h1>
+<p>High-level architecture of Fansly Downloader NG as of v0.13.0. This
+document is the canonical public reference for the module layout, core
+design patterns, and cross-cutting concerns. Contributor-facing LLM
+guidance lives alongside this in <code>.claude/CLAUDE.md</code> (not tracked in
+the repo); that file references this one for architecture details
+rather than duplicating them.</p>
+<h2 id="high-level-flow">High-Level Flow<a class="headerlink" href="#high-level-flow" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Configuration</strong> (<code>config/</code>) — Load settings from <code>config.yaml</code>
+   (legacy <code>config.ini</code> auto-migrated), command-line args, and browser
+   tokens</li>
+<li><strong>API</strong> (<code>api/</code>) — Interact with Fansly API (HTTP + WebSocket) to
+   fetch creator data</li>
+<li><strong>Download</strong> (<code>download/</code>) — Download media files with deduplication</li>
+<li><strong>Metadata</strong> (<code>metadata/</code>) — Store and manage metadata via Pydantic
+   models + asyncpg EntityStore</li>
+<li><strong>Stash</strong> (<code>stash/</code>) — Optional integration to push metadata to a
+   Stash media server</li>
+<li><strong>Daemon</strong> (<code>daemon/</code>) — Post-batch monitoring loop; WebSocket event
+   dispatch + timeline/story polling</li>
+</ol>
+<h2 id="module-structure">Module Structure<a class="headerlink" href="#module-structure" title="Permanent link">&para;</a></h2>
+<h3 id="config-configuration-management"><code>config/</code> — Configuration management<a class="headerlink" href="#config-configuration-management" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>fanslyconfig.py</code> — Main configuration class</li>
+<li><code>schema.py</code> — Pydantic <code>ConfigSchema</code> + all section models (YAML source of truth)</li>
+<li><code>loader.py</code> — YAML load + one-shot <code>.ini</code> → <code>.yaml</code> migration with backup</li>
+<li><code>args.py</code> — Command-line argument parsing</li>
+<li><code>browser.py</code> — Browser token extraction</li>
+<li><code>modes.py</code> — Download mode enums</li>
+<li><code>validation.py</code> — Config validation and adjustment</li>
+</ul>
+<h3 id="api-fansly-api-client"><code>api/</code> — Fansly API client<a class="headerlink" href="#api-fansly-api-client" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>fansly.py</code> — HTTP API wrapper with rate limiting and session management</li>
+<li><code>websocket.py</code> — <code>FanslyWebSocket</code> — bidirectional WS client with cookie
+  sync and event handler registration</li>
+<li><code>rate_limiter.py</code> / <code>rate_limiter_display.py</code> — Token-bucket rate
+  limiter + Rich progress display</li>
+</ul>
+<h3 id="daemon-post-batch-monitoring-loop"><code>daemon/</code> — Post-batch monitoring loop<a class="headerlink" href="#daemon-post-batch-monitoring-loop" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>runner.py</code> — Orchestrator; owns <code>FanslyWebSocket</code>, <code>ActivitySimulator</code>,
+  and the work queue</li>
+<li><code>simulator.py</code> — <code>ActivitySimulator</code>; three-tier state machine
+  (active → idle → hidden) driving poll cadence (see
+  <a href="../monitoring-cadence/">monitoring-cadence</a> for intervals)</li>
+<li><code>polling.py</code> — <code>poll_home_timeline()</code>, <code>poll_story_states()</code> —
+  lightweight fallback when WS is silent</li>
+<li><code>handlers.py</code> — WebSocket event → <code>WorkItem</code> translators
+  (<code>dispatch_ws_event</code>)</li>
+<li><code>filters.py</code> — <code>should_process_creator()</code> — skips creators whose
+  timeline's first page hasn't advanced (see
+  <a href="../monitoring-cadence/">monitoring-cadence</a> for the rationale)</li>
+<li><code>state.py</code> — <code>MonitorState</code> persistence (<code>lastHasActiveStories</code>,
+  <code>lastSeenAtAtLastRun</code>, <code>lastRunAt</code>)</li>
+<li><code>bootstrap.py</code> — Daemon setup + teardown lifecycle</li>
+<li><code>dashboard.py</code> — Rich live dashboard renderable</li>
+</ul>
+<h3 id="download-download-orchestration"><code>download/</code> — Download orchestration<a class="headerlink" href="#download-download-orchestration" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>core.py</code> — Main download functions for different modes</li>
+<li><code>media.py</code> — Media file downloading</li>
+<li><code>downloadstate.py</code> — Per-creator download state tracking</li>
+<li><code>globalstate.py</code> — Cross-creator statistics</li>
+</ul>
+<h3 id="metadata-database-models-and-operations"><code>metadata/</code> — Database models and operations<a class="headerlink" href="#metadata-database-models-and-operations" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>models.py</code> — Pydantic <code>BaseModel</code> subclasses with identity map
+  (<code>model_validator(mode="wrap")</code>), bidirectional relationship sync,
+  dirty tracking, auto-coercion of API data (str IDs → int, int
+  timestamps → datetime)</li>
+<li><code>entity_store.py</code> — <code>PostgresEntityStore</code>; two-tier store (local dict
+  identity map + asyncpg pool)</li>
+<li><code>tables.py</code> — SQLAlchemy <code>Table</code> definitions (used by Alembic for
+  schema migrations, not at runtime)</li>
+<li><code>database.py</code> — Database connection and pool management</li>
+<li><code>account.py</code>, <code>media.py</code>, <code>post.py</code>, <code>messages.py</code>, <code>story.py</code>,
+  <code>wall.py</code>, etc. — Processing functions for each entity type</li>
+</ul>
+<h3 id="stash-stash-integration-optional"><code>stash/</code> — Stash integration (optional)<a class="headerlink" href="#stash-stash-integration-optional" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Uses <code>stash-graphql-client</code> (external PyPI package, &gt;= v0.12.0) for
+  <code>StashClient</code>, Pydantic types, and <code>StashEntityStore</code></li>
+<li><code>processing/</code> — <code>StashProcessing</code> with mixin pattern for high-level
+  workflows</li>
+<li><code>base.py</code> — <code>StashProcessingBase</code> class</li>
+<li><code>protocols.py</code> — Protocol definitions</li>
+<li><code>mixins/</code> — account, batch, content, gallery, media, studio, tag
+    operations (7 mixins)</li>
+<li><code>logging.py</code> — Stash-related logging utilities</li>
+</ul>
+<h3 id="fileio-file-operations"><code>fileio/</code> — File operations<a class="headerlink" href="#fileio-file-operations" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>dedupe.py</code> — Deduplication logic using content hashing</li>
+<li><code>mp4.py</code> — Video hashing (PyAV-based)</li>
+</ul>
+<h3 id="supporting-modules">Supporting modules<a class="headerlink" href="#supporting-modules" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>helpers/</code> — Utility functions</li>
+<li><code>textio/</code> — Console output and logging</li>
+<li><code>pathio/</code> — Path management</li>
+<li><code>errors/</code> — Custom exceptions and exit codes</li>
+</ul>
+<h2 id="core-design-patterns">Core Design Patterns<a class="headerlink" href="#core-design-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="pydantic-entitystore-database-pattern">Pydantic + EntityStore database pattern<a class="headerlink" href="#pydantic-entitystore-database-pattern" title="Permanent link">&para;</a></h3>
+<p>All entity operations follow this shape:</p>
+<div class="highlight"><pre><span></span><code><span class="n">store</span> <span class="o">=</span> <span class="n">get_store</span><span class="p">()</span>
+
+<span class="c1"># model_validate handles identity map dedup via model_validator(mode=&quot;wrap&quot;).</span>
+<span class="c1"># Auto-coerces str IDs → int, int timestamps → datetime. Unknown fields</span>
+<span class="c1"># from the API are silently ignored (`extra=&quot;ignore&quot;`).</span>
+<span class="n">obj</span> <span class="o">=</span> <span class="n">Model</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span><span class="n">api_dict</span><span class="p">)</span>
+
+<span class="c1"># Save related entities first if FK constraints require it.</span>
+<span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">related_entity</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">related_entity</span><span class="p">)</span>
+
+<span class="c1"># save() detects `_is_new` (INSERT) vs. `is_dirty()` (UPDATE dirty fields</span>
+<span class="c1"># only). Recursive saves for related entities in junction tables are</span>
+<span class="c1"># handled automatically.</span>
+<span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="identity-map-via-wrap-validator">Identity map via wrap validator<a class="headerlink" href="#identity-map-via-wrap-validator" title="Permanent link">&para;</a></h3>
+<p>Every model defines:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;wrap&quot;</span><span class="p">)</span>
+<span class="nd">@classmethod</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_identity_map_check</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">handler</span><span class="p">:</span> <span class="n">ValidatorFunctionWrapHandler</span><span class="p">):</span>
+    <span class="c1"># If ID already in the store&#39;s identity map, return the cached</span>
+    <span class="c1"># instance and merge incoming fields into it. Otherwise, construct</span>
+    <span class="c1"># a new instance and register it.</span>
+    <span class="o">...</span>
+</code></pre></div>
+<p>This means the same entity ID always returns the same Python object
+instance across queries — a read of <code>Account(id=123)</code> returns the
+<em>same</em> object whether fetched via <code>store.get()</code>, traversed through a
+relationship, or rehydrated from a nested API dict.</p>
+<h3 id="dirty-tracking-via-__tracked_fields__">Dirty tracking via <code>__tracked_fields__</code><a class="headerlink" href="#dirty-tracking-via-__tracked_fields__" title="Permanent link">&para;</a></h3>
+<p>Each model declares a <code>__tracked_fields__: ClassVar[frozenset[str]]</code>
+covering every field that should participate in change detection
+(including relationship fields like <code>posts</code>, <code>avatar</code>, <code>variants</code>,
+<code>hashtags</code>, <code>mentions</code>). On save, only fields that differ from the
+snapshot are written. Relationship field changes trigger
+<code>_sync_associations</code> for junction tables.</p>
+<h3 id="junction-table-sync-via-sync_junction">Junction table sync via sync_junction()<a class="headerlink" href="#junction-table-sync-via-sync_junction" title="Permanent link">&para;</a></h3>
+<p>A single method handles all junction patterns via kwargs. The primary
+mode is DELETE all for the owner + re-INSERT with arbitrary columns
+per row, which covers:</p>
+<ul>
+<li>Simple junctions (post_hashtags, post_attachments)</li>
+<li>Ordered junctions (attachments with <code>pos</code> column)</li>
+<li>Extra-column junctions (e.g., pinned_posts with <code>createdAt</code>)</li>
+</ul>
+<p>For scalar 1:1 associations (account_avatar, account_banner),
+<code>_sync_associations</code> detects <code>is_list=False</code> + <code>assoc_table</code> and
+applies the same DELETE + INSERT pattern against a single-row
+association.</p>
+<h3 id="get_store-singleton"><code>get_store()</code> singleton<a class="headerlink" href="#get_store-singleton" title="Permanent link">&para;</a></h3>
+<p><code>get_store()</code> in <code>metadata/models.py</code> returns the <code>FanslyObject._store</code>
+module-scoped singleton. All processing functions use it instead of
+passing a <code>store</code> parameter — eliminates threading the store through
+every call site. This is a deliberate choice: there is exactly one
+<code>PostgresEntityStore</code> per process for this codebase.</p>
+<h3 id="_write_excluded-inverse-only-fields"><code>_WRITE_EXCLUDED</code> — inverse-only fields<a class="headerlink" href="#_write_excluded-inverse-only-fields" title="Permanent link">&para;</a></h3>
+<p>Some fields are populated by bidirectional sync but have no corresponding
+DB column. These are declared in <code>_WRITE_EXCLUDED: ClassVar[frozenset[str]]</code>
+and skipped by <code>save()</code>. Examples:</p>
+<ul>
+<li><code>Account.posts</code>, <code>Account.sent_messages</code>, <code>Account.received_messages</code>,
+  <code>Account.timelineStats</code>, <code>Account.mediaStoryState</code></li>
+</ul>
+<h3 id="native-pydantic-serdes">Native Pydantic SerDes<a class="headerlink" href="#native-pydantic-serdes" title="Permanent link">&para;</a></h3>
+<p>API responses go directly into <code>Model.model_validate(api_dict)</code> —
+there's no intermediate <code>process_data()</code> layer. The key enablers:</p>
+<ul>
+<li><code>model_config = ConfigDict(extra="ignore")</code> — unknown API fields
+  are silently dropped (matches the shape-evolving Fansly API)</li>
+<li><code>_coerce_api_types</code> <code>model_validator(mode="before")</code> — converts
+  <code>*At</code> int timestamps (both seconds and milliseconds) to <code>datetime</code></li>
+<li>Field aliases for API field renames:</li>
+<li><code>Media.meta_info: Field(alias="metadata")</code> — <code>metadata</code> is a
+    reserved attribute on Pydantic BaseModel</li>
+<li><code>Post.fypFlag: Field(alias="fypFlags")</code> — alias fix for a
+    plural→singular inconsistency</li>
+<li><code>_extract_video_dimensions</code> on <code>Media</code> — unpacks <code>width</code>/<code>height</code>/
+  <code>duration</code> from the JSON <code>metadata</code> string into typed fields</li>
+<li><code>_enrich_child_dict</code> in <code>_process_nested_cache_lookups</code> — injects
+  parent context (accountId, FK columns) into nested relationship
+  dicts before delegating to their models</li>
+</ul>
+<h2 id="entitystore-filter-syntax">EntityStore Filter Syntax<a class="headerlink" href="#entitystore-filter-syntax" title="Permanent link">&para;</a></h2>
+<p>Queries mirror the Django ORM / <code>stash-graphql-client</code> filter DSL:</p>
+<div class="highlight"><pre><span></span><code><span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">is_downloaded</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>            <span class="c1"># EQUALS (default)</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">mimetype__contains</span><span class="o">=</span><span class="s2">&quot;video&quot;</span><span class="p">)</span>    <span class="c1"># ILIKE</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">duration__gte</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>             <span class="c1"># &gt;=</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Post</span><span class="p">,</span> <span class="n">id__in</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>              <span class="c1"># = ANY(...)</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">content_hash__null</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>      <span class="c1"># IS NULL</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">updatedAt__between</span><span class="o">=</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span> <span class="n">t1</span><span class="p">))</span>  <span class="c1"># BETWEEN</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Account</span><span class="p">,</span> <span class="n">username__iexact</span><span class="o">=</span><span class="s2">&quot;ALICE&quot;</span><span class="p">)</span>    <span class="c1"># ILIKE (case-insensitive exact)</span>
+</code></pre></div>
+<p>Additional operations:</p>
+<ul>
+<li><code>store.get(Model, id)</code> — single-entity lookup with identity map</li>
+<li><code>store.get_many(Model, ids=[...])</code> — bulk lookup</li>
+<li><code>store.save(obj)</code> — INSERT or UPSERT dirty fields</li>
+<li><code>store.delete(obj)</code> / <code>store.delete_many(Model, ids=...)</code></li>
+<li><code>store.filter(Model, predicate=lambda m: ...)</code> — in-memory filter
+  over the identity-map cache</li>
+</ul>
+<h2 id="database-architecture">Database Architecture<a class="headerlink" href="#database-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="stack">Stack<a class="headerlink" href="#stack" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Models</strong>: Pydantic <code>BaseModel</code> subclasses in <code>metadata/models.py</code> —
+  identity map, bidirectional relationship sync, dirty tracking</li>
+<li><strong>Storage</strong>: <code>PostgresEntityStore</code> (<code>metadata/entity_store.py</code>) — two
+  tiers: local dict for sync identity-map access + asyncpg pool for
+  stateless DB transport</li>
+<li><strong>Schema</strong>: SQLAlchemy <code>Table</code> definitions in <code>metadata/tables.py</code>
+  (used by Alembic only, not at runtime)</li>
+<li><strong>Migrations</strong>: Alembic migrations in <code>alembic/versions/</code></li>
+</ul>
+<h3 id="design-heritage">Design heritage<a class="headerlink" href="#design-heritage" title="Permanent link">&para;</a></h3>
+<p>The local <code>PostgresEntityStore</code> is modeled on <code>stash-graphql-client</code>'s
+<code>StashEntityStore</code>, which pioneered the Pydantic identity-map + wrap
+validator + dirty-tracking pattern used here. Both stores share the
+same conceptual shape:</p>
+<ul>
+<li>Pydantic <code>BaseModel</code> subclasses as the canonical in-memory entity type</li>
+<li>A <code>model_validator(mode="wrap")</code> that routes construction through a
+  per-type identity map, so the same ID always yields the same Python
+  instance</li>
+<li>Snapshot-based dirty tracking — <code>save()</code> writes only changed fields</li>
+<li>Relationship sync helpers for bidirectional updates</li>
+</ul>
+<p>The difference is the backend: <code>StashEntityStore</code> talks GraphQL, while
+<code>PostgresEntityStore</code> talks asyncpg against a local PostgreSQL
+database. Both are maintained by the same author
+(<a href="https://github.com/Jakan-Kink">Jakan-Kink</a>), and the two projects
+have cross-pollinated ideas in both directions over several release
+cycles:</p>
+<ul>
+<li>Early identity-map and UNSET-pattern work landed in
+  <code>stash-graphql-client</code> first, then informed the design of
+  <code>PostgresEntityStore</code> during the v0.11 PostgreSQL hard-cut here.</li>
+<li>Lessons learned driving fansly-downloader-ng's large-scale batch
+  processing (millions of media rows, per-creator orchestration)
+  surfaced ergonomic gaps — query filter syntax, <code>filter()</code> predicate
+  access over the identity-map cache, bulk <code>get_many</code> / <code>delete_many</code>,
+  JSONB codec handling — that fed back into
+  <code>stash-graphql-client</code>'s public API.</li>
+<li>The SGC v0.12 batched-mutation work (<code>save_batch</code>,
+  <code>execute_batch</code>, <code>save_all</code>) was motivated in part by profiling this
+  project's per-creator Stash push workload; adoption in
+  fansly-downloader-ng is tracked in the
+  <a href="../../planning/STASH_ORM_MIGRATION_GUIDE/#phase-4-advanced-features">Stash ORM Migration Guide Phase 4</a>.</li>
+</ul>
+<p>If you're learning one store's API, the other's will feel familiar —
+aside from the backend-specific operators (GraphQL filter types vs.
+Postgres operators), the public surface is intentionally aligned.</p>
+<h3 id="timestamp-handling">Timestamp handling<a class="headerlink" href="#timestamp-handling" title="Permanent link">&para;</a></h3>
+<p>Pydantic models auto-coerce timestamps. Fields ending in <code>At</code> are
+automatically converted from int/float/string to <code>datetime</code> via the
+<code>_parse_timestamp()</code> validator — no manual conversion in processing
+code. Both seconds (Fansly API default for some fields) and
+milliseconds (WebSocket event timestamps) are accepted.</p>
+<h3 id="foreign-key-constraints">Foreign key constraints<a class="headerlink" href="#foreign-key-constraints" title="Permanent link">&para;</a></h3>
+<p>Processing modules save related entities <strong>before</strong> the parent to
+satisfy FK constraints — e.g., save avatar <code>Media</code> before <code>Account</code>.
+The EntityStore's <code>save()</code> also handles recursive related-entity
+saves for junction tables automatically.</p>
+<h3 id="medialocationlocationid-is-a-cdn-type-code-not-a-snowflake-id"><code>MediaLocation.locationId</code> is a CDN type code, not a Snowflake ID<a class="headerlink" href="#medialocationlocationid-is-a-cdn-type-code-not-a-snowflake-id" title="Permanent link">&para;</a></h3>
+<p><code>MediaLocation.locationId</code> values are CDN delivery type enums, <strong>not</strong>
+entity IDs:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Delivery type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code></td>
+<td>Direct CDN (standard HTTP delivery)</td>
+</tr>
+<tr>
+<td><code>102</code></td>
+<td>HLS (HTTP Live Streaming)</td>
+</tr>
+<tr>
+<td><code>103</code></td>
+<td>DASH (Dynamic Adaptive Streaming over HTTP)</td>
+</tr>
+</tbody>
+</table>
+<p>The DB column is <code>BigInteger</code> for historical reasons, but actual
+values are small integers. This field pairs with the <code>location</code> URL
+as a composite PK in the <code>media_locations</code> table. Do not type this
+as <code>SnowflakeId</code>; keep it as plain <code>int</code> (or refactor to <code>IntEnum</code>).</p>
+<h2 id="stash-integration">Stash Integration<a class="headerlink" href="#stash-integration" title="Permanent link">&para;</a></h2>
+<h3 id="stashclient-external-dependency">StashClient (external dependency)<a class="headerlink" href="#stashclient-external-dependency" title="Permanent link">&para;</a></h3>
+<p>Provided by the <code>stash-graphql-client</code> PyPI package (&gt;= v0.12.0):</p>
+<ul>
+<li>Async GraphQL client with <code>gql</code> + httpx transport</li>
+<li>Pydantic types for all Stash entities (Performer, Scene, Gallery,
+  Studio, Tag, etc.)</li>
+<li><code>StashEntityStore</code> — same identity-map + dirty-tracking design as
+  the local <code>PostgresEntityStore</code>, but backed by GraphQL queries</li>
+<li>Server capability detection via <code>__schema</code> introspection at connect
+  time; dynamic fragment store rebuilds version-gated fields only
+  when supported</li>
+</ul>
+<h3 id="stashprocessing-our-mixin-layer">StashProcessing (our mixin layer)<a class="headerlink" href="#stashprocessing-our-mixin-layer" title="Permanent link">&para;</a></h3>
+<p><code>stash/processing/</code> wraps the external client with domain-specific
+workflows for pushing Fansly metadata into Stash:</p>
+<ul>
+<li><code>StashProcessingBase</code> in <code>processing/base.py</code> — core workflows</li>
+<li>Mixins in <code>processing/mixins/</code> — <code>account</code>, <code>batch</code>, <code>content</code>,
+  <code>gallery</code>, <code>media</code>, <code>studio</code>, <code>tag</code></li>
+<li><code>StashProcessing</code> inherits all mixins for clean composition</li>
+<li>StashClient itself (22 entity-specific mixins) is in the external
+  package</li>
+</ul>
+<p>See <a href="../../planning/STASH_ORM_MIGRATION_GUIDE/#phase-4-advanced-features"><code>docs/planning/STASH_ORM_MIGRATION_GUIDE.md</code></a>
+for the planned migration to SGC v0.12's batched mutations,
+<code>__side_mutations__</code> mechanism, and ActiveRecord-style relationship DSL.</p>
+<h2 id="deduplication-system">Deduplication System<a class="headerlink" href="#deduplication-system" title="Permanent link">&para;</a></h2>
+<h3 id="current-database-stored-content-hash">Current: database-stored content hash<a class="headerlink" href="#current-database-stored-content-hash" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Hash stored in <code>Media.content_hash</code></li>
+<li>Filenames are clean (no hash embedded)</li>
+<li><code>fileio/dedupe.py</code> compares hashes to skip re-downloads</li>
+<li><code>fileio/mp4.py</code> handles video hashing via PyAV</li>
+</ul>
+<h3 id="historical-hash-formats-migration-aware">Historical hash formats (migration-aware)<a class="headerlink" href="#historical-hash-formats-migration-aware" title="Permanent link">&para;</a></h3>
+<p>Older filename-based hash formats are automatically migrated:</p>
+<ul>
+<li><code>_hash_</code> — original format</li>
+<li><code>_hash1_</code> — improved video hashing</li>
+<li><code>_hash2_</code> — fixed video hashing (last pre-database format; values
+  preserved as trusted when migrating)</li>
+</ul>
+<h3 id="migration-strategy">Migration strategy<a class="headerlink" href="#migration-strategy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Preserve <code>hash2</code> values as trusted source (same algorithm as current
+  database-stored hashes)</li>
+<li>Recalculate hashes for older formats on discovery</li>
+<li>Support both filename and hash-based lookups during transition</li>
+</ul>
+<h2 id="async-context-managers">Async Context Managers<a class="headerlink" href="#async-context-managers" title="Permanent link">&para;</a></h2>
+<p>Resource safety patterns used throughout:</p>
+<ul>
+<li><code>async with</code> for database sessions (asyncpg connection acquire)</li>
+<li><code>async with</code> for API rate limiting (token bucket)</li>
+<li><code>async with</code> for WebSocket session lifetime</li>
+<li><code>async with</code> for the StashClient initialization + teardown</li>
+</ul>
+<h2 id="exit-codes">Exit Codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<p>The downloader uses distinct exit codes for automation integration:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>Success</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>Config error</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>API error</td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td>Download error</td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td>Some users failed</td>
+</tr>
+<tr>
+<td><code>10</code></td>
+<td>Unexpected error</td>
+</tr>
+<tr>
+<td><code>255</code></td>
+<td>User abort (SIGINT)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="performance-considerations">Performance Considerations<a class="headerlink" href="#performance-considerations" title="Permanent link">&para;</a></h2>
+<ul>
+<li>EntityStore uses two-tier caching (local dict identity map + asyncpg
+  connection pool)</li>
+<li>Batch operations where possible (<code>get_many()</code>, <code>save()</code> with recursive
+  related entities)</li>
+<li>asyncpg connection pooling for concurrent database access</li>
+<li>Dirty tracking avoids unnecessary writes (only changed fields are
+  UPSERTed)</li>
+<li>Stash-side batch operations (once adopted per the ORM migration
+  guide) will collapse N sequential mutations into single aliased
+  HTTP requests</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../../guide/manual-token-extraction/" class="btn btn-neutral float-left" title="Manual Token Extraction"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../monitoring-cadence/" class="btn btn-neutral float-right" title="Monitoring Daemon Cadence">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../../guide/manual-token-extraction/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../monitoring-cadence/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

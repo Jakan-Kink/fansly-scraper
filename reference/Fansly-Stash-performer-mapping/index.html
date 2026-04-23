@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-performer-mapping/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Performer Mapping - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Performer Mapping";
+        var mkdocs_page_input_path = "reference/Fansly-Stash-performer-mapping.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-Stash-performer-mapping/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Performer Mapping</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#single-account-single-performer">Single Account → Single Performer</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#single-account-multiple-performers">Single Account → Multiple Performers</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#primary-performer">Primary Performer</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#secondary-performers">Secondary Performer(s)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#field-usage-guidelines">Field Usage Guidelines</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#name-field">Name Field</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#disambiguation-field">Disambiguation Field</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#aliases-list">Aliases List</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#urls-list">URLs List</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#details-field">Details Field</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#example-three-performer-account">Example: Three-Performer Account</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#primary-content-creator">Primary Content Creator</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#partner-performer">Partner Performer</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#additional-performer">Additional Performer</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#scenegallery-assignment">Scene/Gallery Assignment</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Performer Mapping</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-Stash-performer-mapping.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-to-stash-performer-mapping">Fansly to Stash Performer Mapping<a class="headerlink" href="#fansly-to-stash-performer-mapping" title="Permanent link">&para;</a></h1>
+<h2 id="single-account-single-performer">Single Account → Single Performer<a class="headerlink" href="#single-account-single-performer" title="Permanent link">&para;</a></h2>
+<p>Basic mapping for a standalone account:</p>
+<div class="highlight"><pre><span></span><code><span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">],</span>  <span class="c1"># Original username always in aliases</span>
+    <span class="n">details</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">about</span><span class="p">,</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">],</span>
+    <span class="n">country</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="single-account-multiple-performers">Single Account → Multiple Performers<a class="headerlink" href="#single-account-multiple-performers" title="Permanent link">&para;</a></h2>
+<p>When multiple performers share an account (e.g., couples, groups):</p>
+<h3 id="primary-performer">Primary Performer<a class="headerlink" href="#primary-performer" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">primary</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="s2">&quot;Primary Name&quot;</span><span class="p">,</span>  <span class="c1"># Personal name if known</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Shows which account they&#39;re from</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Original account name</span>
+        <span class="s2">&quot;display name variations&quot;</span><span class="p">,</span>  <span class="c1"># Any known variations</span>
+    <span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">,</span>
+        <span class="c1"># Additional personal social links if known</span>
+    <span class="p">],</span>
+    <span class="n">details</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">about</span><span class="p">,</span>  <span class="c1"># Can include personal details</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="secondary-performers">Secondary Performer(s)<a class="headerlink" href="#secondary-performers" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">secondary</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Personal Name&quot;</span><span class="p">,</span>  <span class="c1"># Their individual name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Same as primary to show relationship</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">],</span>  <span class="c1"># Include shared account name</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">,</span>
+        <span class="c1"># Their personal links if known</span>
+    <span class="p">],</span>
+    <span class="n">details</span><span class="o">=</span><span class="s2">&quot;Role or relationship description&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="field-usage-guidelines">Field Usage Guidelines<a class="headerlink" href="#field-usage-guidelines" title="Permanent link">&para;</a></h2>
+<h3 id="name-field">Name Field<a class="headerlink" href="#name-field" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Use personal/stage name when known</li>
+<li>Fall back to username if no display name</li>
+<li>Should be unique among performers</li>
+<li>Can be changed if better name discovered</li>
+</ul>
+<h3 id="disambiguation-field">Disambiguation Field<a class="headerlink" href="#disambiguation-field" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Used to show account relationship</li>
+<li>Same value for all performers from same account</li>
+<li>Helps identify related performers</li>
+<li>Usually the account username</li>
+</ul>
+<h3 id="aliases-list">Aliases List<a class="headerlink" href="#aliases-list" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Always include original username</li>
+<li>Include known variations</li>
+<li>Include display names if different</li>
+<li>Shared across account performers</li>
+<li>Used for searching/matching</li>
+</ul>
+<h3 id="urls-list">URLs List<a class="headerlink" href="#urls-list" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Primary platform URL always included</li>
+<li>Can include personal social links</li>
+<li>Same account URL can be on multiple performers</li>
+<li>Helps track performer across platforms</li>
+</ul>
+<h3 id="details-field">Details Field<a class="headerlink" href="#details-field" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Can include personal information</li>
+<li>Can describe role in group</li>
+<li>Can include relationship details</li>
+<li>Can have performer-specific content</li>
+</ul>
+<h2 id="example-three-performer-account">Example: Three-Performer Account<a class="headerlink" href="#example-three-performer-account" title="Permanent link">&para;</a></h2>
+<p>Illustrative example of a shared-account pattern (two partners plus a
+supporting performer, all posting under one Fansly handle). Names and
+handles below are placeholders — substitute the actual account's values
+when processing real data.</p>
+<h3 id="primary-content-creator">Primary Content Creator<a class="headerlink" href="#primary-content-creator" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">performer_1</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Alex&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Shared account name</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span>
+        <span class="s2">&quot;Example Couple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;alex_example&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;example_couple&quot;</span><span class="p">,</span>
+    <span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
+        <span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;https://linktr.ee/alex_example&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;https://x.com/alex_example&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;https://fansly.com/example-couple&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;https://www.manyvids.com/Profile/0000000000/example-couple/Store/Videos&quot;</span><span class="p">,</span>
+    <span class="p">],</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;FEMALE&quot;</span><span class="p">,</span>
+    <span class="n">hair_color</span><span class="o">=</span><span class="s2">&quot;Brown&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="partner-performer">Partner Performer<a class="headerlink" href="#partner-performer" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">performer_2</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Jordan&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Same as primary</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;example-couple&quot;</span><span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">],</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;MALE&quot;</span><span class="p">,</span>
+    <span class="n">details</span><span class="o">=</span><span class="p">(</span>
+        <span class="s2">&quot;Partner in a shared creator account. Per-performer details can</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="s2">&quot;describe role, pronouns, content niche, or anything else that</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="s2">&quot;disambiguates this person from the other performers mapped to the</span><span class="se">\n</span><span class="s2">&quot;</span>
+        <span class="s2">&quot;same underlying Fansly account.&quot;</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="additional-performer">Additional Performer<a class="headerlink" href="#additional-performer" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">performer_3</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Sam&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Same as others</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;example-couple&quot;</span><span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">],</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;FEMALE&quot;</span><span class="p">,</span>
+    <span class="n">hair_color</span><span class="o">=</span><span class="s2">&quot;Blond&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="scenegallery-assignment">Scene/Gallery Assignment<a class="headerlink" href="#scenegallery-assignment" title="Permanent link">&para;</a></h2>
+<p>When processing content from shared accounts:</p>
+<ol>
+<li>Check content description/tags for performer hints</li>
+<li>Look for performer-specific tags or mentions</li>
+<li>Default to including all account performers if unclear</li>
+<li>Allow manual correction of performer assignments</li>
+<li>Consider using tags to mark performer roles</li>
+</ol>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_post_performers</span><span class="p">(</span>
+    <span class="n">post</span><span class="p">:</span> <span class="n">Post</span><span class="p">,</span>
+    <span class="n">account_performers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Performer</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Performer</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Determine which performers are in a post.&quot;&quot;&quot;</span>
+    <span class="n">performers</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Always include mentioned performers</span>
+    <span class="k">for</span> <span class="n">mention</span> <span class="ow">in</span> <span class="n">post</span><span class="o">.</span><span class="n">accountMentions</span><span class="p">:</span>
+        <span class="n">performer</span> <span class="o">=</span> <span class="n">find_performer_by_account</span><span class="p">(</span><span class="n">mention</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">performer</span><span class="p">:</span>
+            <span class="n">performers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
+
+    <span class="c1"># Check content for performer hints</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">performer</span> <span class="ow">in</span> <span class="n">account_performers</span><span class="p">:</span>
+        <span class="c1"># Check performer names/aliases in content</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">alias</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="n">content</span> <span class="k">for</span> <span class="n">alias</span> <span class="ow">in</span> <span class="n">performer</span><span class="o">.</span><span class="n">aliases</span><span class="p">):</span>
+            <span class="n">performers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
+
+    <span class="c1"># If no specific performers found, include all account performers</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">performers</span><span class="p">:</span>
+        <span class="n">performers</span> <span class="o">=</span> <span class="n">account_performers</span>
+
+    <span class="k">return</span> <span class="n">performers</span>
+</code></pre></div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-Stash-mapping/" class="btn btn-neutral float-left" title="Fansly-to-Stash Mapping"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-Stash-field-transformations/" class="btn btn-neutral float-right" title="Stash Field Transformations">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-Stash-mapping/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-Stash-field-transformations/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

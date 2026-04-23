@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/changelog/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Changelog - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Changelog";
+        var mkdocs_page_input_path = "changelog.md";
+        var mkdocs_page_url = "/fansly-scraper/changelog/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Changelog</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#unreleased">Unreleased</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added">Added</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#changed">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#0130-2026-04-22">0.13.0 - 2026-04-22</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#deprecated">Deprecated</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Changelog</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/changelog.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<!-- markdownlint-configure-file { "MD024": { "siblings_only": true } } -->
+
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<blockquote>
+<p><strong>Prior history:</strong> Releases before v0.13.0 are documented in
+<a href="https://github.com/Jakan-Kink/fansly-scraper/blob/main/ReleaseNotes.md"><code>ReleaseNotes.md</code></a>
+in the project's original prose-style format. The v0.13.0 entry is
+mirrored here in Keep-a-Changelog form and is the canonical structure
+for all subsequent releases.</p>
+</blockquote>
+<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h2 id="0130-2026-04-22"><a href="https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0">0.13.0</a> - 2026-04-22<a class="headerlink" href="#0130-2026-04-22" title="Permanent link">&para;</a></h2>
+<p>First release under the Keep-a-Changelog format. Flagship feature: the
+post-batch monitoring daemon. Also rolls up every notable change landed
+since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Post-batch monitoring daemon</strong> (<code>--daemon</code> / <code>-d</code> / <code>--monitor</code>) — continuous
+  WebSocket-driven event dispatch for new posts, stories, PPV messages,
+  message edits/deletes, subscription changes, and profile updates. Decoded
+  <code>ServiceEvent</code> dicts are translated into typed <code>WorkItem</code>s
+  (<code>DownloadTimelineOnly</code>, <code>DownloadStoriesOnly</code>, <code>DownloadMessagesForGroup</code>,
+  <code>FullCreatorDownload</code>, <code>CheckCreatorAccess</code>, <code>RedownloadCreatorMedia</code>)</li>
+<li><strong><code>ActivitySimulator</code></strong> — three-tier state machine (active → idle → hidden)
+  calibrated from real browser-session profiling drives the daemon's polling
+  cadence</li>
+<li>Timeline + story polling fallback for when the WebSocket is quiet;
+  timeline-first-page probe short-circuits inactive creators
+  (<code>lastCheckedAt</code> vs <code>post.createdAt</code>)</li>
+<li>Persistent <code>MonitorState</code> table — daemon restarts don't re-trigger every
+  story or cold-scan every timeline</li>
+<li>Live Rich dashboard with per-creator state, WS health, queued work, and
+  simulator phase</li>
+<li>Single shared <code>FanslyWebSocket</code> instance for both batch-sync and the
+  daemon loop, with bidirectional cookie sync</li>
+<li>Clean SIGINT drain — <code>Ctrl-C</code> stops the queue and tears down the WS
+  connection without dropping in-flight work</li>
+<li><strong>YAML configuration</strong> (<code>config.yaml</code>) — new primary config format;
+  legacy <code>config.ini</code> files auto-migrate on first run and are backed up
+  as <code>config.ini.bak.&lt;timestamp&gt;</code>. Comments in user-edited YAML are
+  preserved across load → modify → save cycles via <code>ruamel.yaml</code></li>
+<li><code>config.sample.yaml</code> template</li>
+<li>New <code>[monitoring]</code> config section for activity-simulator phase durations
+  and per-phase polling intervals</li>
+<li><strong>New documentation</strong>:</li>
+<li><a href="../reference/architecture/">Architecture</a> — canonical public architecture reference</li>
+<li><a href="../reference/monitoring-cadence/">Monitoring Daemon Cadence</a> — polling intervals + anti-detection rationale</li>
+<li><a href="../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a> — full daemon design document (intervals, endpoints, behaviors verified against production <code>main.js</code>)</li>
+<li><a href="../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a> — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints</li>
+<li><a href="../guide/manual-token-extraction/">Manual Token Extraction</a> — fallback browser-token extraction guide (salvaged from prof79 wiki)</li>
+<li><code>CHANGELOG.md</code> (this file) — new Keep-a-Changelog format going forward</li>
+<li>MkDocs + readthedocs-themed docs site with GHA deploy workflow to <code>gh-pages</code></li>
+<li>Daemon dispatch: explicit no-op handler pattern (<code>_handle_noop_events</code> + <code>_NOOP_DESCRIPTIONS</code> in <code>daemon/handlers.py</code>) distinguishes "known event, deliberately ignored" from "unknown event, coverage gap" in logs.</li>
+<li><code>daemon.handlers.has_handler(svc, type)</code> helper exposed for callers that need to differentiate handled-returned-None from no-handler-registered.</li>
+<li><code>download/messages.py::download_messages_for_group</code> — daemon entry point that downloads a DM group by id, resolving creator identity from the group. Batch-path <code>download_messages</code> unchanged.</li>
+<li><code>DownloadMessagesForGroup.sender_id</code> — optional field carrying the WS <code>senderId</code> so the runner can pre-populate creator identity.</li>
+</ul>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Dependency floor</strong>: <code>stash-graphql-client</code> bumped from <code>&gt;=0.11.0</code> to
+  <code>&gt;=0.12.0</code>, unlocking batched GraphQL mutations (<code>save_batch</code>,
+  <code>execute_batch</code>, <code>save_all</code>), <code>__side_mutations__</code> mechanism, and
+  ActiveRecord-style relationship DSL. <strong>Transitively requires Stash
+  server v0.30.0+</strong> (appSchema 75+).</li>
+<li>README rewritten to cover the daemon, YAML config, and the fork's new
+  canonical home at <code>Jakan-Kink/fansly-scraper</code>. Repo URLs and issue
+  references throughout updated from <code>prof79/fansly-downloader-ng</code>.</li>
+<li>Loguru / Rich color schema split; built-in level colors updated for
+  consistent palette across log streams and live display</li>
+<li>Emoji throughout standardized to <code>Emoji_Presentation=Yes</code> (width-2, no
+  VS16 selector hacks required by any modern terminal)</li>
+<li>Stash ORM Migration Guide refreshed — Phase 4 (advanced features) is
+  now <strong>Ready to Start</strong>, with the SGC v0.12 batch APIs identified as
+  primary adoption targets</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Rich Live display corruption from stdout prints — stable frame
+  rendering under concurrent logging</li>
+<li>Silent Rich handler errors on catch-all exceptions — now surfaced to
+  the log instead of being swallowed</li>
+<li>Pydantic config validation errors now readable + tolerant of
+  retired-field upgrades (legacy configs with dropped fields load
+  without raising)</li>
+<li>Signal / bridge / logging race conditions on daemon teardown — errors
+  no longer leak past the thread boundary</li>
+<li>WebSocket logger split so daemon and sync-path WS traffic don't
+  interleave in the same log level</li>
+<li>Two WebSocket / tempfile bugs closed during retired-flag cleanup</li>
+<li>Daemon messages handler no longer emits <code>"Could not find a chat history with None"</code> — <code>_handle_messages_item</code> now resolves creator from <code>item.sender_id</code> and calls <code>download_messages_for_group</code>, so attachments on incoming DMs actually download.</li>
+<li>Daemon <code>_on_service_event</code> "not mapped" DEBUG log only fires for genuinely unknown <code>(svc, type)</code> tuples now, not handled-returned-None.</li>
+</ul>
+<h3 id="deprecated">Deprecated<a class="headerlink" href="#deprecated" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Classic prose-style <code>ReleaseNotes.md</code> is frozen at v0.13.0. New
+  releases are authored in this file (<code>CHANGELOG.md</code>) going forward.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Retired settings</strong> (silently dropped from legacy configs — no
+  runtime code branches on them):</li>
+<li><code>db_sync_commits</code>, <code>db_sync_seconds</code>, <code>db_sync_min_size</code> — SQLite-era
+    <code>BackgroundSync</code> workaround, obsolete under PostgreSQL</li>
+<li><code>metadata_handling</code> — no-op since the Pydantic EntityStore rewrite</li>
+<li><code>separate_metadata</code> — SQLite-era flag</li>
+<li><code>updater/</code> module (pycache-only remnant from the prof79-era
+  self-updater, no tracked source)</li>
+<li><code>config.sample.ini</code> — YAML migration makes the INI sample redundant</li>
+<li>Stale documentation pruned: pre-Pydantic test migration tracker,
+  SA-ORM code examples from the Stash mapping reference, pre-work Stash
+  integration analyses, rejected side-by-side PostgreSQL plan,
+  abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
+  (superseded by PyAV for mp4 hashing)</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../guide/manual-token-extraction/" class="btn btn-neutral float-right" title="Manual Token Extraction">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href=".." style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../guide/manual-token-extraction/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

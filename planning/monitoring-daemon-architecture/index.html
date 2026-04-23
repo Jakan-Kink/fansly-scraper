@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/planning/monitoring-daemon-architecture/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Monitoring Daemon Architecture - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Monitoring Daemon Architecture";
+        var mkdocs_page_input_path = "planning/monitoring-daemon-architecture.md";
+        var mkdocs_page_url = "/fansly-scraper/planning/monitoring-daemon-architecture/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Monitoring Daemon Architecture</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#agreed-architecture-decisions-2026-04-16">Agreed Architecture Decisions (2026-04-16)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#invocation-model-flag-not-mode">Invocation model — flag, not mode</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#creator-scope-respects-existing-flags">Creator scope — respects existing flags</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#package-layout-new-daemon-top-level-package">Package layout — new daemon/ top-level package</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#event-routing-register_handler-not-monitor_events">Event routing — register_handler, not monitor_events</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#persistent-state-monitorstate-table">Persistent state — MonitorState table</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#test-strategy-tdd-with-full-coverage">Test strategy — TDD with full coverage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#file-map-implementation-scope">File map (implementation scope)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#spike-configini-yaml-migration-in-scope-for-this-branch">Spike: config.ini → YAML migration (in-scope for this branch)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#why-fold-this-in-now">Why fold this in now</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#library-choice-ruamelyaml">Library choice — ruamel.yaml</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#schema-pydantic-model-layer">Schema — Pydantic model layer</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#retire-config_argsini-in-the-same-pass">Retire config_args.ini in the same pass</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#migration-path-for-existing-users">Migration path for existing users</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#tactical-note-do-the-conversion-first-then-add-monitoring-keys">Tactical note — do the conversion FIRST, then add monitoring keys</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#file-map-additions-for-the-yaml-spike">File map additions for the YAML spike</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#risks-and-mitigations">Risks and mitigations</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#event-detection-architecture">Event Detection Architecture</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#what-the-websocket-can-detect-account-scoped-real-time">What the WebSocket CAN detect (account-scoped, real-time)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#what-the-websocket-cannot-detect-requires-polling">What the WebSocket CANNOT detect (requires polling)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#polling-cadence-matching-real-browser-behavior">Polling Cadence (matching real browser behavior)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-1-home-timeline-diffing">Optimization 1: Home Timeline Diffing</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#api-method-needed">API method needed</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-2-story-state-diffing">Optimization 2: Story State Diffing</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#api-method-needed_1">API method needed</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-3-timeline-post-timestamp-skip">Optimization 3: Timeline Post-Timestamp Skip</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#background-signals-we-investigated-and-rejected">Background — signals we investigated and rejected</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#design-first-page-timeline-probe">Design: first-page timeline probe</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#monitorstate-column-lastcheckedat">MonitorState column: lastCheckedAt</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#session-baseline-override">Session baseline override</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#cold-start-semantics">Cold-start semantics</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#prefetch-as-filter-optimization-future">Prefetch-as-filter optimization (future)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#what-this-optimization-does-not-guarantee">What this optimization does NOT guarantee</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#important-story-view-tracking">Important: Story View Tracking</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-4-websocket-triggered-downloads">Optimization 4: WebSocket-Triggered Downloads</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#message-download-on-ws-event">Message download on WS event</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#subscription-triggered-full-download">Subscription-triggered full download</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#ppv-purchase-re-download">PPV purchase re-download</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-5-three-tier-activity-simulation">Optimization 5: Three-Tier Activity Simulation</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#config-settings-cli-configini">Config settings (CLI + config.ini)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#on-state-transitions">On state transitions</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#ws-events-interrupt-hidden-state">WS events interrupt hidden state</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#complete-event-to-action-map">Complete Event-to-Action Map</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#api-calls-per-cycle-optimized">API Calls Per Cycle (optimized)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#config-surface-configyaml">Config Surface (config.yaml)</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Planning</li>
+      <li class="breadcrumb-item active">Monitoring Daemon Architecture</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/planning/monitoring-daemon-architecture.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="monitoring-daemon-architecture-plan">Monitoring Daemon Architecture Plan<a class="headerlink" href="#monitoring-daemon-architecture-plan" title="Permanent link">&para;</a></h1>
+<p>Based on reverse-engineering Fansly's <code>main.js</code> frontend, live WebSocket traffic analysis,
+and overnight monitoring tests. All intervals, endpoints, and behaviors are confirmed
+against the actual production code.</p>
+<h2 id="agreed-architecture-decisions-2026-04-16">Agreed Architecture Decisions (2026-04-16)<a class="headerlink" href="#agreed-architecture-decisions-2026-04-16" title="Permanent link">&para;</a></h2>
+<p>These decisions are the implementation contract; subsequent sections describe
+the <em>behaviors</em>, this section pins down the <em>shape</em>.</p>
+<h3 id="invocation-model-flag-not-mode">Invocation model — flag, not mode<a class="headerlink" href="#invocation-model-flag-not-mode" title="Permanent link">&para;</a></h3>
+<p>The daemon is <strong>not</strong> a <code>DownloadMode</code>. It is a flag that appends a monitoring
+phase after a normal batch download completes. This lets <code>-dm normal -u alice
+--daemon</code> mean "download everything once, then watch forever."</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Alias</th>
+<th>Alias</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-d</code></td>
+<td><code>--daemon</code></td>
+<td><code>--monitor</code></td>
+<td>Enter daemon loop after the batch download completes. Runs until SIGINT.</td>
+</tr>
+</tbody>
+</table>
+<p>Empirically verified: <code>-d</code> coexists with existing <code>-dir</code> and <code>-dm</code> because
+argparse matches option strings exactly (tested 2026-04-16).</p>
+<h3 id="creator-scope-respects-existing-flags">Creator scope — respects existing flags<a class="headerlink" href="#creator-scope-respects-existing-flags" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>-u alice,bob</code> → daemon monitors only alice and bob</li>
+<li><code>-uf</code> / <code>-ufp</code> → daemon monitors the full following list</li>
+<li>The following list is <strong>refreshed</strong> on <code>svc=15 type=5 status=3</code>
+  (subscription confirmed) events so newly-subscribed creators join the
+  watch set mid-run without a restart</li>
+</ul>
+<h3 id="package-layout-new-daemon-top-level-package">Package layout — new <code>daemon/</code> top-level package<a class="headerlink" href="#package-layout-new-daemon-top-level-package" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>daemon/
+├── __init__.py          # public API: run_daemon()
+├── runner.py            # orchestrator loop; owns FanslyWebSocket + ActivitySimulator + queue
+├── simulator.py         # ActivitySimulator (three-tier state machine)
+├── polling.py           # poll_home_timeline(), poll_story_states()
+├── filters.py           # should_process_creator() — lastSeenAt short-circuit
+├── handlers.py          # WS event → work-item translators
+└── state.py             # MonitorState persistence helpers
+</code></pre></div>
+<p><code>daemon/</code> parallels <code>download/</code>, <code>metadata/</code>, <code>api/</code>, <code>config/</code>, etc.</p>
+<h3 id="event-routing-register_handler-not-monitor_events">Event routing — <code>register_handler</code>, not <code>monitor_events</code><a class="headerlink" href="#event-routing-register_handler-not-monitor_events" title="Permanent link">&para;</a></h3>
+<p><code>FanslyWebSocket.monitor_events=True</code> is for human-readable protocol
+discovery (the <code>scripts/ws_monitor.py</code> tool). The daemon instead calls
+<code>ws.register_handler(MSG_SERVICE_EVENT, daemon_dispatcher)</code> to receive
+decoded events and act on them. These two mechanisms must not be conflated.</p>
+<h3 id="persistent-state-monitorstate-table">Persistent state — <code>MonitorState</code> table<a class="headerlink" href="#persistent-state-monitorstate-table" title="Permanent link">&para;</a></h3>
+<p>Scoped schema — the identity map already tracks <code>Post</code> existence via
+<code>store.get_from_cache(Post, id)</code> (see <code>download/common.py::check_page_duplicates</code>),
+so <strong>no <code>lastPostIdSeen</code> column</strong> is needed. The table stores only state that
+has no existing home:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>creatorId</code></td>
+<td><code>BigInteger</code> PK</td>
+<td>The creator this state is for</td>
+</tr>
+<tr>
+<td><code>lastHasActiveStories</code></td>
+<td><code>Boolean</code></td>
+<td>Prior value of <code>hasActiveStories</code> (drives flip detection)</td>
+</tr>
+<tr>
+<td><code>lastSeenAtAtLastRun</code></td>
+<td><code>DateTime</code></td>
+<td>Snapshot of <code>Account.lastSeenAt</code> at last daemon tick (Optimization 3)</td>
+</tr>
+<tr>
+<td><code>lastRunAt</code></td>
+<td><code>DateTime</code></td>
+<td>When daemon last processed this creator</td>
+</tr>
+<tr>
+<td><code>updatedAt</code></td>
+<td><code>DateTime</code></td>
+<td>Row modification time</td>
+</tr>
+</tbody>
+</table>
+<p>Persistence also means a daemon restart doesn't re-trigger every story or
+re-scan the full <code>check_page_duplicates</code> sequence against a cold cache.</p>
+<h3 id="test-strategy-tdd-with-full-coverage">Test strategy — TDD with full coverage<a class="headerlink" href="#test-strategy-tdd-with-full-coverage" title="Permanent link">&para;</a></h3>
+<p>Target ≥ 90% coverage for <code>daemon/</code> module per RULE 0 and the
+<code>tests-to-100</code> effort. Test layout follows the existing convention:</p>
+<div class="highlight"><pre><span></span><code>tests/daemon/
+├── unit/
+│   ├── test_simulator.py            # ActivitySimulator state transitions (inject time)
+│   ├── test_polling.py              # poll_home_timeline / poll_story_states (RESPX)
+│   ├── test_filters.py              # should_process_creator (real EntityStore + factories)
+│   ├── test_handlers.py             # WS event → work-item translation (decoded dicts)
+│   ├── test_monitor_state.py        # MonitorState model + EntityStore round-trips
+│   └── test_runner_wiring.py        # simulator/handler/queue interactions
+└── integration/
+    └── test_runner_e2e.py           # Full daemon loop: RESPX + injected WS events + real DB
+</code></pre></div>
+<p>Plus updates to existing tests:</p>
+<ul>
+<li><code>tests/api/</code> — new tests for <code>get_home_timeline</code>, <code>get_story_states_following</code></li>
+<li><code>tests/download/unit/test_stories.py</code> — cover <code>mark_viewed=False</code> branch</li>
+<li><code>tests/fixtures/metadata/metadata_factories.py</code> — <code>MonitorStateFactory</code></li>
+<li><code>tests/conftest.py</code> — possibly a <code>daemon_sandbox</code> fixture</li>
+</ul>
+<h3 id="file-map-implementation-scope">File map (implementation scope)<a class="headerlink" href="#file-map-implementation-scope" title="Permanent link">&para;</a></h3>
+<p>New files:</p>
+<ul>
+<li><code>daemon/__init__.py</code>, <code>daemon/runner.py</code>, <code>daemon/simulator.py</code>,
+  <code>daemon/polling.py</code>, <code>daemon/filters.py</code>, <code>daemon/handlers.py</code>,
+  <code>daemon/state.py</code></li>
+<li><code>alembic/versions/&lt;id&gt;_add_monitor_state.py</code></li>
+<li><code>tests/daemon/__init__.py</code>, <code>tests/daemon/unit/__init__.py</code>,
+  <code>tests/daemon/integration/__init__.py</code>, plus 7 test files listed above</li>
+</ul>
+<p>Modified files:</p>
+<ul>
+<li><code>api/fansly.py</code> — two new methods</li>
+<li><code>download/stories.py</code> — <code>mark_viewed</code> param</li>
+<li><code>config/args.py</code> — <code>-d</code>/<code>--daemon</code>/<code>--monitor</code> flag + <code>[Monitoring]</code> CLI overrides</li>
+<li><code>config/fanslyconfig.py</code> — <code>daemon_mode</code>, daemon duration fields</li>
+<li><code>config/validation.py</code> — daemon flag validation</li>
+<li><code>config/config.ini.example</code> (or equivalent) — <code>[Monitoring]</code> section</li>
+<li><code>fansly_downloader_ng.py</code> — post-batch daemon hook</li>
+<li><code>metadata/models.py</code> — <code>MonitorState</code> Pydantic model</li>
+<li><code>metadata/tables.py</code> — <code>MonitorState</code> Table</li>
+<li><code>metadata/entity_store.py</code> — <code>_TYPE_REGISTRY</code> entry</li>
+<li><code>metadata/__init__.py</code> — re-export <code>MonitorState</code></li>
+<li><code>tests/fixtures/metadata/metadata_factories.py</code> — <code>MonitorStateFactory</code></li>
+<li><code>tests/api/</code> — two new test modules (or additions to existing)</li>
+<li><code>tests/download/unit/test_stories.py</code> — new branch coverage</li>
+</ul>
+<p>Expected total: ~25 files touched (10+ new production, 10+ new tests,
+several modified). The plan is intentionally multi-commit within the
+<code>feat/websocket-monitoring</code> branch.</p>
+<h2 id="spike-configini-yaml-migration-in-scope-for-this-branch">Spike: config.ini → YAML migration (in-scope for this branch)<a class="headerlink" href="#spike-configini-yaml-migration-in-scope-for-this-branch" title="Permanent link">&para;</a></h2>
+<h3 id="why-fold-this-in-now">Why fold this in now<a class="headerlink" href="#why-fold-this-in-now" title="Permanent link">&para;</a></h3>
+<p>Adding a <code>[Monitoring]</code> section to <code>config.ini</code> with ~8 new keys (durations,
+intervals, enable flags, WS event interrupt list) would compound an existing
+problem: the current config has ~131 individual <code>configparser._parser.get*()</code>
+call sites with string→bool/int coercion scattered across <code>config/config.py</code>
+and <code>config/fanslyconfig.py</code>. Adding a whole subsystem's worth of options on
+top of that coercion soup is technical debt we don't want to ship. Converting
+to YAML before adding monitoring keys gives us:</p>
+<ul>
+<li>Native typed values (booleans, ints, lists, nested maps) — no <code>getboolean</code>/<code>getint</code> ceremony</li>
+<li>Nested structure — <code>monitoring.activity.active_duration</code> instead of <code>[Monitoring] active_duration</code></li>
+<li>Lists as first-class (the <code>INTERRUPT_EVENTS</code> set, the creator scope list when <code>-u</code> isn't passed)</li>
+<li>Round-trip-safe comments for the user-facing config file</li>
+</ul>
+<h3 id="library-choice-ruamelyaml">Library choice — <code>ruamel.yaml</code><a class="headerlink" href="#library-choice-ruamelyaml" title="Permanent link">&para;</a></h3>
+<p><strong><code>ruamel.yaml</code></strong> is actively maintained (0.18.x series, regular PyPI
+releases since 2014). It's YAML 1.2 compliant (PyYAML is still YAML 1.1,
+with quirks like <code>yes</code>/<code>no</code>/<code>on</code>/<code>off</code> parsed as booleans). Most important
+for this project: ruamel preserves comments, key order, and whitespace on
+load → modify → dump cycles.</p>
+<p>The app <strong>writes config back</strong> on first-run setup (captures token, user
+agent, device ID from the browser). PyYAML destroys user comments and
+reorders keys on dump — not acceptable for a human-edited file that gets
+mutated.</p>
+<p><code>pydantic-yaml</code> is the wrong tool for this job: its comments are generated
+from the Pydantic schema model (<code>Field(description=…)</code> / class docstrings),
+NOT from the user's YAML file. Every writeback would replace the user's
+hand-edited comments with schema-defined ones.</p>
+<p>Decision: pull <code>ruamel.yaml</code> only. Load → dict → <code>ConfigSchema.model_validate()</code>
+on read. <code>schema.model_dump(mode="python")</code> → ruamel dump on write. The
+initial <code>config.sample.yaml</code> is hand-authored with section-level comments
+so fresh installs still get a well-documented file.</p>
+<div class="highlight"><pre><span></span><code>poetry<span class="w"> </span>add<span class="w"> </span>ruamel.yaml
+</code></pre></div>
+<h3 id="schema-pydantic-model-layer">Schema — Pydantic model layer<a class="headerlink" href="#schema-pydantic-model-layer" title="Permanent link">&para;</a></h3>
+<p>The project already uses Pydantic for its metadata models. Replace the
+scattered <code>_parser.getX(section, key, fallback=…)</code> pattern with a single
+Pydantic <code>ConfigSchema</code> that loads from YAML once and exposes typed
+attributes:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># config/schema.py (new)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MonitoringSection</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">active_duration_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span>
+    <span class="n">idle_duration_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">120</span>
+    <span class="n">hidden_duration_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span>
+    <span class="n">timeline_poll_active_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">180</span>
+    <span class="n">timeline_poll_idle_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">600</span>
+    <span class="n">story_poll_active_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+    <span class="n">story_poll_idle_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span>
+    <span class="n">interrupt_events</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
+        <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">7</span><span class="p">),</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ConfigSchema</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">targeted_creator</span><span class="p">:</span> <span class="n">TargetedCreatorSection</span>
+    <span class="n">my_account</span><span class="p">:</span> <span class="n">MyAccountSection</span>
+    <span class="n">options</span><span class="p">:</span> <span class="n">OptionsSection</span>
+    <span class="n">postgres</span><span class="p">:</span> <span class="n">PostgresSection</span>
+    <span class="n">monitoring</span><span class="p">:</span> <span class="n">MonitoringSection</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">MonitoringSection</span><span class="p">)</span>
+    <span class="n">logic</span><span class="p">:</span> <span class="n">LogicSection</span>
+</code></pre></div>
+<p><code>FanslyConfig.from_yaml(path)</code> constructs the schema, then copies attributes
+onto <code>FanslyConfig</code> using the existing attribute names (for transition
+simplicity — call sites keep working). Later passes can migrate call sites
+to read <code>config.schema.monitoring.active_duration_minutes</code> directly.</p>
+<h3 id="retire-config_argsini-in-the-same-pass">Retire <code>config_args.ini</code> in the same pass<a class="headerlink" href="#retire-config_argsini-in-the-same-pass" title="Permanent link">&para;</a></h3>
+<p><code>config_args.ini</code> is a workaround from the pre-fork original design. When
+CLI args override config values, the app swaps <code>config.config_path</code> from
+<code>config.ini</code> to a temporary <code>config_args.ini</code>, then calls
+<code>save_config_or_raise()</code> so that CLI overrides get written to the throwaway
+file instead of clobbering the user's authoritative <code>config.ini</code>
+(see <code>config/args.py:816-820</code>, <code>RewriteNotes.md:23</code>). Token writebacks
+route through <code>_save_token_to_original_config</code> using the preserved
+<code>original_config_path</code>.</p>
+<p>The whole dance exists because <strong>"in-memory state" and "disk state" share
+one mutable object</strong> — any <code>save_config_or_raise()</code> necessarily hits disk,
+so CLI overrides had to be misdirected to a decoy file to keep them out of
+the real config.</p>
+<p>The YAML migration is the natural moment to retire this. The schema-driven
+architecture models the two layers explicitly:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Load once from disk — treated as read-only for the run</span>
+<span class="n">disk_schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">load_yaml</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+
+<span class="c1"># CLI overlays live only in-memory; never written back</span>
+<span class="n">runtime_schema</span> <span class="o">=</span> <span class="n">disk_schema</span><span class="o">.</span><span class="n">model_copy</span><span class="p">(</span><span class="n">update</span><span class="o">=</span><span class="n">cli_overrides</span><span class="p">,</span> <span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># Legitimate writebacks (fresh token from browser login) mutate disk_schema</span>
+<span class="c1"># targeted at the file, with no CLI overlay involvement:</span>
+<span class="k">if</span> <span class="n">token_captured_this_run</span><span class="p">:</span>
+    <span class="c1"># Re-read in case of external edits, patch the single field, write</span>
+    <span class="n">disk_schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">load_yaml</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+    <span class="n">disk_schema</span><span class="o">.</span><span class="n">my_account</span><span class="o">.</span><span class="n">token</span> <span class="o">=</span> <span class="n">new_token</span>
+    <span class="n">disk_schema</span><span class="o">.</span><span class="n">dump_yaml</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Result: no temp file, no <code>original_config_path</code>, no <code>_save_token_to_original_config</code>
+/ <code>_save_checkkey_to_original_config</code> helpers. CLI args behave like CLI args
+in every other well-designed Python tool — they shape the run, they don't
+touch disk.</p>
+<p>Files to remove/simplify:</p>
+<ul>
+<li><code>config_args.ini</code> entry in <code>.gitignore</code></li>
+<li><code>config.original_config_path</code> field in <code>FanslyConfig</code></li>
+<li><code>_save_token_to_original_config</code>, <code>_save_checkkey_to_original_config</code> helpers</li>
+<li>The path-swap block in <code>config/args.py:816-820</code> and its callers</li>
+</ul>
+<h3 id="migration-path-for-existing-users">Migration path for existing users<a class="headerlink" href="#migration-path-for-existing-users" title="Permanent link">&para;</a></h3>
+<p>Existing installations have <code>config.ini</code>. A hard cutover would break
+automation. The migration is one-shot and silent:</p>
+<ol>
+<li>On startup, <code>config/loader.py</code> checks for <code>config.yaml</code> first</li>
+<li>If <code>config.yaml</code> missing and <code>config.ini</code> exists:</li>
+<li>Read <code>config.ini</code> via existing <code>ConfigParser</code> logic</li>
+<li>Project onto <code>ConfigSchema</code></li>
+<li>Dump to <code>config.yaml</code> with section-level comments</li>
+<li>Rename <code>config.ini</code> → <code>config.ini.bak.&lt;timestamp&gt;</code></li>
+<li>Log a one-liner telling the user what happened</li>
+<li>Subsequent runs use <code>config.yaml</code> only</li>
+</ol>
+<p>Writeback (<code>save_config_or_raise</code>) becomes <code>schema.dump(path)</code> — a single
+ruamel call instead of the current 30+ <code>_parser.set()</code> calls.</p>
+<h3 id="tactical-note-do-the-conversion-first-then-add-monitoring-keys">Tactical note — do the conversion FIRST, then add monitoring keys<a class="headerlink" href="#tactical-note-do-the-conversion-first-then-add-monitoring-keys" title="Permanent link">&para;</a></h3>
+<p>Order of operations within this branch:</p>
+<ol>
+<li>Land YAML conversion as a standalone commit (no behavior change — every
+   existing key reads the same value from <code>config.yaml</code> as it did from
+   <code>config.ini</code>)</li>
+<li>Add the <code>[Monitoring]</code> → <code>monitoring:</code> section in a second commit</li>
+<li>Daemon work (tasks #2-#12) builds on top</li>
+</ol>
+<p>This keeps diffs reviewable: conversion and new behavior aren't tangled in
+the same commit.</p>
+<h3 id="file-map-additions-for-the-yaml-spike">File map additions for the YAML spike<a class="headerlink" href="#file-map-additions-for-the-yaml-spike" title="Permanent link">&para;</a></h3>
+<p>New files:</p>
+<ul>
+<li><code>config/schema.py</code> — Pydantic <code>ConfigSchema</code> + all section models</li>
+<li><code>config/loader.py</code> — YAML load + one-shot <code>.ini</code> migration</li>
+<li><code>config/writer.py</code> — round-trip YAML dump (or fold into loader)</li>
+<li><code>config.sample.yaml</code> — template (replaces the retired <code>config.sample.ini</code>)</li>
+<li><code>tests/config/unit/test_schema.py</code> — Pydantic validation, defaults</li>
+<li><code>tests/config/unit/test_loader.py</code> — YAML load, missing-file handling</li>
+<li><code>tests/config/integration/test_ini_migration.py</code> — end-to-end <code>.ini</code> → <code>.yaml</code>
+  migration with real files (comment preservation, backup creation, value parity)</li>
+</ul>
+<p>Modified files:</p>
+<ul>
+<li><code>pyproject.toml</code> / <code>poetry.lock</code> — add <code>ruamel.yaml</code></li>
+<li><code>config/config.py</code> — replace ~60 <code>_parser.*</code> calls with schema reads</li>
+<li><code>config/fanslyconfig.py</code> — replace ~71 <code>_parser.*</code> calls; drop <code>_parser</code> field</li>
+<li><code>config/validation.py</code> — keep validation logic, point it at schema</li>
+<li><code>config/__init__.py</code> — re-export <code>ConfigSchema</code></li>
+<li><code>fansly_downloader_ng.py</code> — startup: prefer YAML, one-shot migrate if only <code>.ini</code> present</li>
+<li><code>.gitignore</code> — add <code>config.yaml</code>, <code>config.ini.bak.*</code></li>
+</ul>
+<p>Rough size: 10+ new files, ~8 modifications. This spike alone is comparable
+in scope to the daemon itself — the user expectation of "much more than 7
+files" applies squarely here.</p>
+<h3 id="risks-and-mitigations">Risks and mitigations<a class="headerlink" href="#risks-and-mitigations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User has a heavily-customized <code>config.ini</code> → migration silently loses something</td>
+<td>Dump YAML, then re-parse it into <code>ConfigSchema</code>, and compare to the in-memory state loaded from <code>.ini</code>. On any mismatch, abort migration and print a diff.</td>
+</tr>
+<tr>
+<td>Automation runs overlap the migration (two processes see <code>.ini</code>, both try to write <code>.yaml</code>)</td>
+<td>Acquire <code>config.ini.migrating.lock</code> via exclusive file open before migrating</td>
+</tr>
+<tr>
+<td>Pydantic validation rejects edge cases present in prod <code>.ini</code> files (blank strings, unusual types)</td>
+<td>First migration uses <code>BaseModel</code> with permissive validators; tighten in a follow-up</td>
+</tr>
+<tr>
+<td>Comment loss / reorder on writeback despite <code>ruamel.yaml</code></td>
+<td>Integration test asserts comment preservation across a full load→modify→dump→reload cycle</td>
+</tr>
+</tbody>
+</table>
+<h2 id="event-detection-architecture">Event Detection Architecture<a class="headerlink" href="#event-detection-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="what-the-websocket-can-detect-account-scoped-real-time">What the WebSocket CAN detect (account-scoped, real-time)<a class="headerlink" href="#what-the-websocket-can-detect-account-scoped-real-time" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Service</th>
+<th>Type</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>New DM received</td>
+<td>MessageService (5)</td>
+<td>1</td>
+<td>Download message + attachments for that group</td>
+</tr>
+<tr>
+<td>Message with attachment</td>
+<td>MessageService (5)</td>
+<td>1</td>
+<td>Check <code>attachments[]</code> for contentType 1/2, download media</td>
+</tr>
+<tr>
+<td>Message deleted</td>
+<td>MessageService (5)</td>
+<td>10</td>
+<td>Mark media as removed (optional)</td>
+</tr>
+<tr>
+<td>New subscription confirmed</td>
+<td>SubscriptionService (15)</td>
+<td>5 (status=3)</td>
+<td>Queue full download for newly-accessible creator</td>
+</tr>
+<tr>
+<td>PPV media purchased</td>
+<td>MediaService (2)</td>
+<td>7</td>
+<td>Re-download that creator's media (now accessible)</td>
+</tr>
+<tr>
+<td>PPV bundle purchased</td>
+<td>MediaService (2)</td>
+<td>8</td>
+<td>Re-download that creator's bundles</td>
+</tr>
+<tr>
+<td>New follow</td>
+<td>FollowerService (3)</td>
+<td>2</td>
+<td>Permission flag 2 added — some content may be newly accessible</td>
+</tr>
+<tr>
+<td>Wallet credited</td>
+<td>WalletService (6)</td>
+<td>2</td>
+<td>Informational — balance available for purchases</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-the-websocket-cannot-detect-requires-polling">What the WebSocket CANNOT detect (requires polling)<a class="headerlink" href="#what-the-websocket-cannot-detect-requires-polling" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Content</th>
+<th>Why</th>
+<th>Detection method</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>New posts from creators</td>
+<td>Server doesn't push followed creators' posts</td>
+<td>Home timeline poll</td>
+</tr>
+<tr>
+<td>New stories from creators</td>
+<td>Server doesn't push story state changes</td>
+<td>Story state poll</td>
+</tr>
+<tr>
+<td>New wall posts</td>
+<td>Only pushed for YOUR walls via PostService type=9</td>
+<td>Home timeline poll</td>
+</tr>
+<tr>
+<td>Creator profile changes</td>
+<td>No push for followed accounts</td>
+<td>Following list refresh</td>
+</tr>
+</tbody>
+</table>
+<h3 id="polling-cadence-matching-real-browser-behavior">Polling Cadence (matching real browser behavior)<a class="headerlink" href="#polling-cadence-matching-real-browser-behavior" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│                    MONITORING DAEMON LOOP                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WebSocket (persistent)                                          │
+│  ├── Ping every 20-25s (jittered)                               │
+│  ├── Message events → immediate download                         │
+│  ├── Subscription events → queue creator download                │
+│  └── PPV purchase events → re-download creator media             │
+│                                                                  │
+│  Story State Poll (every 30s active / 5min idle)                 │
+│  ├── GET /mediastories/following?limit=100&amp;offset=0              │
+│  ├── Compare hasActiveStories against last known state           │
+│  └── If flipped true → download_stories(creator)                 │
+│                                                                  │
+│  Home Timeline Poll (every 3min + jitter active / 10min idle)    │
+│  ├── GET /timeline/home?before=0&amp;after=0&amp;mode=0                  │
+│  ├── Compare post IDs against last-seen set                      │
+│  ├── Identify which creators have new posts                      │
+│  └── For each new-content creator → download_timeline(creator)   │
+│                                                                  │
+│  Anti-Detection: simulate idle periods                           │
+│  ├── After 30min of no new content: switch to idle intervals     │
+│  ├── After 3hr: pause all polling for 5-10min (tab-hidden sim)   │
+│  └── On resume: assertWebsocketConnection() first, then poll     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<h2 id="optimization-1-home-timeline-diffing">Optimization 1: Home Timeline Diffing<a class="headerlink" href="#optimization-1-home-timeline-diffing" title="Permanent link">&para;</a></h2>
+<p>Instead of downloading every creator's timeline on every poll, use the home
+timeline to identify WHICH creators posted new content.</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">poll_home_timeline</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">last_seen_post_ids</span><span class="p">:</span> <span class="nb">set</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Poll home timeline, return set of creator IDs with new posts.&quot;&quot;&quot;</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_api</span><span class="p">()</span><span class="o">.</span><span class="n">get_home_timeline</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_api</span><span class="p">()</span><span class="o">.</span><span class="n">get_json_response_contents</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+
+    <span class="n">new_creator_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="n">new_post_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">post</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;posts&quot;</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">post_id</span> <span class="o">=</span> <span class="n">post</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">post_id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">last_seen_post_ids</span><span class="p">:</span>
+            <span class="n">new_creator_ids</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">post</span><span class="p">[</span><span class="s2">&quot;accountId&quot;</span><span class="p">])</span>
+            <span class="n">new_post_ids</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">post_id</span><span class="p">)</span>
+
+    <span class="n">last_seen_post_ids</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">new_post_ids</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">new_creator_ids</span>
+</code></pre></div>
+<p>One API call detects new content across ALL followed creators. Only creators
+with new posts need their timeline downloaded.</p>
+<h3 id="api-method-needed">API method needed<a class="headerlink" href="#api-method-needed" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_home_timeline</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch home timeline for all followed creators.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_with_ngsw</span><span class="p">(</span>
+        <span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/timeline/home&quot;</span><span class="p">,</span>
+        <span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;before&quot;</span><span class="p">:</span> <span class="s2">&quot;0&quot;</span><span class="p">,</span> <span class="s2">&quot;after&quot;</span><span class="p">:</span> <span class="s2">&quot;0&quot;</span><span class="p">,</span> <span class="s2">&quot;mode&quot;</span><span class="p">:</span> <span class="s2">&quot;0&quot;</span><span class="p">},</span>
+    <span class="p">)</span>
+</code></pre></div>
+<h2 id="optimization-2-story-state-diffing">Optimization 2: Story State Diffing<a class="headerlink" href="#optimization-2-story-state-diffing" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">poll_story_states</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">last_story_states</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Poll story states, return creator IDs with new active stories.&quot;&quot;&quot;</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_api</span><span class="p">()</span><span class="o">.</span><span class="n">get_story_states_following</span><span class="p">()</span>
+    <span class="n">states</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_api</span><span class="p">()</span><span class="o">.</span><span class="n">get_json_response_contents</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+
+    <span class="n">creators_with_new_stories</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states</span><span class="p">:</span>
+        <span class="n">account_id</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;accountId&quot;</span><span class="p">]</span>
+        <span class="n">was_active</span> <span class="o">=</span> <span class="n">last_story_states</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">account_id</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;hasActiveStories&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="n">is_active</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;hasActiveStories&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="ow">or</span> <span class="n">state</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;storyCount&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="n">is_active</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">was_active</span><span class="p">:</span>
+            <span class="n">creators_with_new_stories</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">account_id</span><span class="p">)</span>
+
+        <span class="n">last_story_states</span><span class="p">[</span><span class="n">account_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
+
+    <span class="k">return</span> <span class="n">creators_with_new_stories</span>
+</code></pre></div>
+<h3 id="api-method-needed_1">API method needed<a class="headerlink" href="#api-method-needed_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_story_states_following</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch story states for all followed creators.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_with_ngsw</span><span class="p">(</span>
+        <span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/mediastories/following&quot;</span><span class="p">,</span>
+        <span class="n">params</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;limit&quot;</span><span class="p">:</span> <span class="s2">&quot;100&quot;</span><span class="p">,</span> <span class="s2">&quot;offset&quot;</span><span class="p">:</span> <span class="s2">&quot;0&quot;</span><span class="p">},</span>
+    <span class="p">)</span>
+</code></pre></div>
+<h2 id="optimization-3-timeline-post-timestamp-skip">Optimization 3: Timeline Post-Timestamp Skip<a class="headerlink" href="#optimization-3-timeline-post-timestamp-skip" title="Permanent link">&para;</a></h2>
+<h3 id="background-signals-we-investigated-and-rejected">Background — signals we investigated and rejected<a class="headerlink" href="#background-signals-we-investigated-and-rejected" title="Permanent link">&para;</a></h3>
+<p>The original plan proposed skipping creators whose <code>Account.lastSeenAt</code>
+hadn't advanced since the last run. Two alternative signals were
+considered. All three had disqualifying flaws:</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Source</th>
+<th>Why it fails as a skip criterion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Account.lastSeenAt</code></td>
+<td>Fansly API presence field</td>
+<td><strong>Privacy opt-out returns 0.</strong> main.js line 16014: <code>t.lastSeenAt = e.lastSeenAt \|\| 0</code>. Creators with last-seen visibility off return <code>0</code> forever → compared as 1970-01-01 → stuck-skipped indefinitely.</td>
+</tr>
+<tr>
+<td><code>TimelineStats.fetchedAt</code></td>
+<td>Timeline stats metadata</td>
+<td><strong>Not a content-change timestamp.</strong> Empirical evidence (user observation): <code>fetchedAt = 1774849061652</code> (ms, = 2026-04-27) appeared ~18 h AFTER the creator's most recent <code>createdAt</code> (1774783936 s, = 2026-04-26) with no new content in between. main.js evidence: client NEVER reads <code>timelineStats.fetchedAt</code> for any purpose; it's server cache-regeneration metadata, not post-event metadata.</td>
+</tr>
+<tr>
+<td>Fansly <code>lastPostedAt</code> equivalent</td>
+<td>N/A</td>
+<td><strong>Does not exist.</strong> Zero hits for <code>lastPosted</code>, <code>latestPost</code>, <code>postCount</code>, <code>mostRecent</code> in main.js. If Fansly tracked "when did this creator last post?" anywhere, the client UI would surface it — it doesn't.</td>
+</tr>
+</tbody>
+</table>
+<p>The only safe "did the creator post new content since we last checked?"
+signal Fansly exposes is the actual <code>post.createdAt</code> value on each
+timeline entry.</p>
+<h3 id="design-first-page-timeline-probe">Design: first-page timeline probe<a class="headerlink" href="#design-first-page-timeline-probe" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">should_process_creator</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span>
+    <span class="n">creator_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">session_baseline</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Skip creators whose most recent non-pinned post is older than the</span>
+<span class="sd">    effective baseline.</span>
+
+<span class="sd">    Baseline resolution:</span>
+<span class="sd">      effective = session_baseline</span>
+<span class="sd">                  if session_baseline is not None</span>
+<span class="sd">                  else MonitorState.lastCheckedAt</span>
+<span class="sd">      If effective is None → True (creator has never been processed).</span>
+
+<span class="sd">    Fetches the creator&#39;s first timeline page (one API call). Filters</span>
+<span class="sd">    pinned posts — creators can re-pin old content at any time, so a</span>
+<span class="sd">    pinned post&#39;s timestamp tells us nothing about new activity. Returns</span>
+<span class="sd">    True on API failure (err toward processing) and False when the</span>
+<span class="sd">    timeline contains only pinned or no posts.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<p>Paired with:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">mark_creator_processed</span><span class="p">(</span><span class="n">creator_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Set MonitorState.lastCheckedAt = datetime.now(UTC). Creates the</span>
+<span class="sd">    MonitorState row if absent (no-ops if Account FK doesn&#39;t yet exist).&quot;&quot;&quot;</span>
+</code></pre></div>
+<h3 id="monitorstate-column-lastcheckedat">MonitorState column: <code>lastCheckedAt</code><a class="headerlink" href="#monitorstate-column-lastcheckedat" title="Permanent link">&para;</a></h3>
+<p>Renamed from <code>lastSeenAtAtLastRun</code> (which meant "snapshot of the
+creator's Account.lastSeenAt at our last run") to <code>lastCheckedAt</code>
+("wall-clock time when we last verified this creator had no new
+content"). Semantically cleaner — this is about OUR poll cadence, not a
+snapshot of a Fansly field.</p>
+<h3 id="session-baseline-override">Session baseline override<a class="headerlink" href="#session-baseline-override" title="Permanent link">&para;</a></h3>
+<p>CLI and config can supply a per-run override that ignores stored
+<code>MonitorState.lastCheckedAt</code> values:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Equivalent</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--monitor-since 2026-01-01T00:00:00Z</code></td>
+<td><code>session_baseline=&lt;iso&gt;</code></td>
+<td>Cherry-pick a precise re-sync window (e.g., after a known-bad period)</td>
+</tr>
+<tr>
+<td><code>--full-pass</code></td>
+<td><code>session_baseline=2000-01-01T00:00:00Z</code></td>
+<td>Zero-friction "download everything that's new since epoch"</td>
+</tr>
+</tbody>
+</table>
+<p>Mutually exclusive at CLI. Persisted via <code>[Monitoring] session_baseline</code>
+in YAML (null by default). Session baseline takes precedence over
+per-creator <code>lastCheckedAt</code> when non-None.</p>
+<h3 id="cold-start-semantics">Cold-start semantics<a class="headerlink" href="#cold-start-semantics" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fresh install: no <code>MonitorState</code> rows → <code>should_process_creator</code> returns
+  True for every creator → first pass downloads everything available.</li>
+<li>Existing install with baseline override: <code>--full-pass</code> effectively
+  resets to "re-check every creator's posts since year 2000."</li>
+<li>Existing install without override: each creator checked against own
+  <code>lastCheckedAt</code>; skipped if nothing new since.</li>
+</ul>
+<h3 id="prefetch-as-filter-optimization-future">Prefetch-as-filter optimization (future)<a class="headerlink" href="#prefetch-as-filter-optimization-future" title="Permanent link">&para;</a></h3>
+<p><code>should_process_creator</code> already fetches the first timeline page. When
+it returns True, <code>download_timeline</code> will re-fetch the same page. A
+simple in-memory cache passed via state could eliminate the duplicate
+call. Not implemented in the initial daemon runner — noted as a
+follow-up for Task #10.</p>
+<h3 id="what-this-optimization-does-not-guarantee">What this optimization does NOT guarantee<a class="headerlink" href="#what-this-optimization-does-not-guarantee" title="Permanent link">&para;</a></h3>
+<p>If Fansly's first timeline page returns stale cached data (CDN
+lag, server-side delay), we might skip a creator who just posted. The
+home-timeline poll + WS subscription events are the stronger signals;
+Optimization 3 is a cheap pre-filter layered on top.</p>
+<h2 id="important-story-view-tracking">Important: Story View Tracking<a class="headerlink" href="#important-story-view-tracking" title="Permanent link">&para;</a></h2>
+<p>The monitoring daemon should NOT call <code>mark_story_viewed()</code> when downloading
+stories. Marking stories as viewed would affect the user's real Fansly
+experience — they'd see story rings as "already watched" in the browser.</p>
+<p><code>mark_story_viewed()</code> should only be called in explicit download mode
+(<code>-dm stories</code> or as part of <code>-dm normal</code>), not in the monitoring daemon.
+The <code>download_stories()</code> function needs a <code>mark_viewed: bool = True</code> parameter
+that the daemon sets to <code>False</code>.</p>
+<h2 id="optimization-4-websocket-triggered-downloads">Optimization 4: WebSocket-Triggered Downloads<a class="headerlink" href="#optimization-4-websocket-triggered-downloads" title="Permanent link">&para;</a></h2>
+<h3 id="message-download-on-ws-event">Message download on WS event<a class="headerlink" href="#message-download-on-ws-event" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_new_message</span><span class="p">(</span><span class="n">event_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;WebSocket svc=5 type=1 handler — download message attachments.&quot;&quot;&quot;</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">event_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;message&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">group_id</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;groupId&quot;</span><span class="p">)</span>
+    <span class="n">attachments</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;attachments&quot;</span><span class="p">,</span> <span class="p">[])</span>
+
+    <span class="k">if</span> <span class="n">attachments</span><span class="p">:</span>
+        <span class="c1"># Has media — trigger message download for this group</span>
+        <span class="k">await</span> <span class="n">download_messages_for_group</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">group_id</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="subscription-triggered-full-download">Subscription-triggered full download<a class="headerlink" href="#subscription-triggered-full-download" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_subscription_confirmed</span><span class="p">(</span><span class="n">event_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;WebSocket svc=15 type=5 status=3 handler — new creator accessible.&quot;&quot;&quot;</span>
+    <span class="n">subscription</span> <span class="o">=</span> <span class="n">event_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subscription&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">if</span> <span class="n">subscription</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">return</span>  <span class="c1"># Only act on confirmed (status=3), not pending (status=2)</span>
+
+    <span class="n">creator_id</span> <span class="o">=</span> <span class="n">subscription</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;accountId&quot;</span><span class="p">)</span>
+    <span class="c1"># Queue full download for this creator — first time access</span>
+    <span class="k">await</span> <span class="n">download_timeline</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">download_stories</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">download_messages</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">download_wall</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="ppv-purchase-re-download">PPV purchase re-download<a class="headerlink" href="#ppv-purchase-re-download" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_ppv_purchase</span><span class="p">(</span><span class="n">event_data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;WebSocket svc=2 type=7/8 handler — media now accessible.&quot;&quot;&quot;</span>
+    <span class="n">order</span> <span class="o">=</span> <span class="n">event_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;order&quot;</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="n">creator_id</span> <span class="o">=</span> <span class="n">order</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;correlationAccountId&quot;</span><span class="p">)</span>
+    <span class="c1"># PPV content appears in both timelines AND messages</span>
+    <span class="c1"># Re-process both paths for this creator</span>
+    <span class="k">await</span> <span class="n">download_timeline</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">download_messages</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="optimization-5-three-tier-activity-simulation">Optimization 5: Three-Tier Activity Simulation<a class="headerlink" href="#optimization-5-three-tier-activity-simulation" title="Permanent link">&para;</a></h2>
+<p>The daemon cycles through three states to mimic real browser behavior.
+All durations are configurable via CLI args and config.ini.</p>
+<div class="highlight"><pre><span></span><code>┌──────────┐     after active_duration      ┌──────────┐     after idle_duration      ┌──────────┐
+│  ACTIVE  │ ──────────────────────────────→ │   IDLE   │ ──────────────────────────→  │  HIDDEN  │
+│ (3min TL)│                                 │(10min TL)│                               │ (no poll)│
+│ (30s ST) │                                 │ (5min ST)│                               │(WS pings)│
+└──────────┘                                 └──────────┘                               └──────────┘
+      ↑                                                                                      │
+      └──────────────────────── after hidden_duration ────────────────────────────────────────┘
+                              (assertWebsocketConnection first)
+</code></pre></div>
+<h3 id="config-settings-cli-configini">Config settings (CLI + config.ini)<a class="headerlink" href="#config-settings-cli-configini" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[Monitoring]</span>
+<span class="c1"># Duration of each activity state (minutes)</span>
+<span class="na">active_duration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">60</span><span class="w">        </span><span class="c1"># Time in &quot;active&quot; mode (frequent polling)</span>
+<span class="na">idle_duration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">120</span><span class="w">         </span><span class="c1"># Time in &quot;idle&quot; mode (reduced polling)</span>
+<span class="na">hidden_duration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">300</span><span class="w">       </span><span class="c1"># Time in &quot;hidden&quot; mode (no polling, WS only)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ActivitySimulator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Three-tier activity simulation matching real browser behavior.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">active_min</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">idle_min</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span> <span class="n">hidden_min</span><span class="o">=</span><span class="mi">300</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">active_duration</span> <span class="o">=</span> <span class="n">active_min</span> <span class="o">*</span> <span class="mi">60</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idle_duration</span> <span class="o">=</span> <span class="n">idle_min</span> <span class="o">*</span> <span class="mi">60</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hidden_duration</span> <span class="o">=</span> <span class="n">hidden_min</span> <span class="o">*</span> <span class="mi">60</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;active&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last_new_content</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">timeline_interval</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">180</span> <span class="o">+</span> <span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>  <span class="c1"># 3 min + jitter</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;idle&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">600</span> <span class="o">+</span> <span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>  <span class="c1"># 10 min + jitter</span>
+        <span class="k">return</span> <span class="mi">0</span>  <span class="c1"># hidden — no polling</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">story_interval</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">30</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;idle&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">300</span>
+        <span class="k">return</span> <span class="mi">0</span>  <span class="c1"># hidden — no polling</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_poll</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="s2">&quot;hidden&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">on_new_content</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Reset to active when new content is discovered.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last_new_content</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;active&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">tick</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check for state transition. Returns new state or None.&quot;&quot;&quot;</span>
+        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span>
+        <span class="n">old_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;active&quot;</span> <span class="ow">and</span> <span class="n">elapsed</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">active_duration</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;idle&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;idle&quot;</span> <span class="ow">and</span> <span class="n">elapsed</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">idle_duration</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;hidden&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;hidden&quot;</span> <span class="ow">and</span> <span class="n">elapsed</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">hidden_duration</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;active&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">return</span> <span class="s2">&quot;unhide&quot;</span>  <span class="c1"># Signal to reconnect WS first</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">old_state</span> <span class="k">else</span> <span class="kc">None</span>
+</code></pre></div>
+<h3 id="on-state-transitions">On state transitions<a class="headerlink" href="#on-state-transitions" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>active → idle</strong>: Reduce polling frequency, keep everything running</li>
+<li><strong>idle → hidden</strong>: Stop ALL polling, keep WS pings alive (real browser behavior)</li>
+<li><strong>hidden → active</strong>: Call <code>assertWebsocketConnection()</code> first, brief delay, then resume polling</li>
+<li><strong>Any → active</strong>: New content detected resets to active regardless of current state</li>
+</ul>
+<h3 id="ws-events-interrupt-hidden-state">WS events interrupt hidden state<a class="headerlink" href="#ws-events-interrupt-hidden-state" title="Permanent link">&para;</a></h3>
+<p>The hidden duration is a MAX, not a fixed sleep. WS events still arrive
+during hidden state (pings keep the connection alive). Certain events
+should break out of hidden immediately:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Events that interrupt hidden → active</span>
+<span class="n">INTERRUPT_EVENTS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>   <span class="c1"># New message — someone sent a DM</span>
+    <span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>  <span class="c1"># Subscription confirmed — new content accessible</span>
+    <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">7</span><span class="p">),</span>   <span class="c1"># PPV purchased — locked content now available</span>
+    <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span>   <span class="c1"># PPV bundle purchased</span>
+<span class="p">}</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_ws_event_during_hidden</span><span class="p">(</span><span class="n">service_id</span><span class="p">,</span> <span class="n">event_type</span><span class="p">,</span> <span class="n">simulator</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if a WS event should wake from hidden state.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">simulator</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s2">&quot;hidden&quot;</span> <span class="ow">and</span> <span class="p">(</span><span class="n">service_id</span><span class="p">,</span> <span class="n">event_type</span><span class="p">)</span> <span class="ow">in</span> <span class="n">INTERRUPT_EVENTS</span><span class="p">:</span>
+        <span class="n">simulator</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="s2">&quot;active&quot;</span>
+        <span class="n">simulator</span><span class="o">.</span><span class="n">state_entered_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="c1"># assertWebsocketConnection already live — just resume polling</span>
+</code></pre></div>
+<p>This matches real browser behavior: a desktop notification (new message)
+causes the user to switch back to the Fansly tab, resuming all activity.</p>
+<h2 id="complete-event-to-action-map">Complete Event-to-Action Map<a class="headerlink" href="#complete-event-to-action-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Event</th>
+<th>Download Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Home timeline poll</td>
+<td>New post ID detected</td>
+<td><code>download_timeline(creator)</code></td>
+</tr>
+<tr>
+<td>Story state poll</td>
+<td><code>hasActiveStories</code> flipped true</td>
+<td><code>download_stories(creator)</code></td>
+</tr>
+<tr>
+<td>WS svc=5 type=1</td>
+<td>New message with attachments</td>
+<td><code>download_messages(group)</code></td>
+</tr>
+<tr>
+<td>WS svc=15 type=5 status=3</td>
+<td>Subscription confirmed</td>
+<td>Full download for creator</td>
+</tr>
+<tr>
+<td>WS svc=2 type=7</td>
+<td>PPV media purchased</td>
+<td>Re-download creator media</td>
+</tr>
+<tr>
+<td>WS svc=2 type=8</td>
+<td>PPV bundle purchased</td>
+<td>Re-download creator bundles</td>
+</tr>
+<tr>
+<td>WS svc=3 type=2</td>
+<td>New follow</td>
+<td>Check for newly-accessible content</td>
+</tr>
+<tr>
+<td>WS svc=6 type=2</td>
+<td>Wallet credited</td>
+<td>Informational only</td>
+</tr>
+</tbody>
+</table>
+<h2 id="api-calls-per-cycle-optimized">API Calls Per Cycle (optimized)<a class="headerlink" href="#api-calls-per-cycle-optimized" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>API Calls</th>
+<th>Frequency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Story state check</td>
+<td>1 call</td>
+<td>Every 30s-5min</td>
+</tr>
+<tr>
+<td>Home timeline check</td>
+<td>1 call</td>
+<td>Every 3-10min</td>
+</tr>
+<tr>
+<td>Per-creator timeline download</td>
+<td>N calls (only creators with new posts)</td>
+<td>On demand</td>
+</tr>
+<tr>
+<td>Per-creator story download</td>
+<td>N calls (only creators with new stories)</td>
+<td>On demand</td>
+</tr>
+<tr>
+<td>Message download</td>
+<td>On WS event only</td>
+<td>Real-time</td>
+</tr>
+</tbody>
+</table>
+<p>Worst case with 50 followed creators: ~2 polling calls per cycle + targeted
+per-creator downloads. Compare to naive approach: 50+ calls per cycle.</p>
+<h2 id="config-surface-configyaml">Config Surface (config.yaml)<a class="headerlink" href="#config-surface-configyaml" title="Permanent link">&para;</a></h2>
+<p>All daemon tunables live under <code>monitoring:</code> in <code>config.yaml</code>. They are
+optional — defaults are calibrated for the three-tier active/idle/hidden
+profile described above. Set any subset in <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">monitoring</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Daemon enablement — CLI flag (-d / --daemon / --monitor) is equivalent.</span>
+<span class="w">  </span><span class="nt">daemon_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+
+<span class="w">  </span><span class="c1"># Simulator state durations (minutes).</span>
+<span class="w">  </span><span class="nt">active_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">idle_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span>
+<span class="w">  </span><span class="nt">hidden_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+
+<span class="w">  </span><span class="c1"># Poll cadence per state (seconds). The active/idle split mirrors the</span>
+<span class="w">  </span><span class="c1"># browser&#39;s own cadence; hidden = 0 (polls suspended).</span>
+<span class="w">  </span><span class="nt">timeline_poll_active_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
+<span class="w">  </span><span class="nt">timeline_poll_idle_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span>
+<span class="w">  </span><span class="nt">story_poll_active_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">story_poll_idle_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+
+<span class="w">  </span><span class="c1"># Optional per-run baseline override. When set, the very first</span>
+<span class="w">  </span><span class="c1"># should_process_creator call per creator uses this value instead of</span>
+<span class="w">  </span><span class="c1"># MonitorState.lastCheckedAt. A very old value (e.g. 2000-01-01)</span>
+<span class="w">  </span><span class="c1"># forces a full pass for every creator this session.</span>
+<span class="w">  </span><span class="nt">session_baseline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w"> </span><span class="c1"># ISO-8601 datetime or null</span>
+
+<span class="w">  </span><span class="c1"># Fatal-error escalation: if NO successful daemon operation has</span>
+<span class="w">  </span><span class="c1"># happened for this many seconds, exit with DAEMON_UNRECOVERABLE (-8).</span>
+<span class="w">  </span><span class="c1"># Rate-limited / transient 5xx / network blips don&#39;t escalate as long</span>
+<span class="w">  </span><span class="c1"># as *some* op (poll, WS ping-pong, dispatch) still succeeds.</span>
+<span class="w">  </span><span class="nt">unrecoverable_error_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+
+<span class="w">  </span><span class="c1"># Rich-based live dashboard (simulator state + per-loop countdown bars).</span>
+<span class="w">  </span><span class="c1"># Set False when piping output through tools that don&#39;t render ANSI</span>
+<span class="w">  </span><span class="c1"># cleanly (e.g. pagers, logs-only collection).</span>
+<span class="w">  </span><span class="nt">dashboard_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>Runtime-only flags (not written to <code>config.yaml</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-d</code> / <code>--daemon</code> / <code>--monitor</code></td>
+<td>Enter daemon loop after batch download completes</td>
+</tr>
+<tr>
+<td><code>-u alice,bob</code></td>
+<td>Restrict daemon scope to these creators (same flag as the batch download)</td>
+</tr>
+<tr>
+<td><code>-uf</code> / <code>-ufp</code></td>
+<td>Daemon watches the full following list; refreshed on subscription-confirmed events</td>
+</tr>
+</tbody>
+</table>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../../reference/CHECKKEY_JSPYBRIDGE/" class="btn btn-neutral float-left" title="CheckKey Extraction"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../STASH_ORM_MIGRATION_GUIDE/" class="btn btn-neutral float-right" title="Stash ORM Migration Guide">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../../reference/CHECKKEY_JSPYBRIDGE/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../STASH_ORM_MIGRATION_GUIDE/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

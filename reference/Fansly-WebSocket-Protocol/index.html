@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-WebSocket-Protocol/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Fansly WebSocket Protocol - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Fansly WebSocket Protocol";
+        var mkdocs_page_input_path = "reference/Fansly-WebSocket-Protocol.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-WebSocket-Protocol/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Fansly WebSocket Protocol</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#endpoints">Endpoints</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#authentication-handshake">Authentication Handshake</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#client-request-t1">Client Request (t=1)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#server-response-t1">Server Response (t=1)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#encoding">Encoding</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#message-types-top-level-t-field">Message Types (top-level t field)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#ping-protocol">Ping Protocol</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#reconnection">Reconnection</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#service-ids-within-serviceevent-t10000">Service IDs (within ServiceEvent t=10000)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#complete-event-type-schema-from-mainjs-handleevent-methods">Complete Event Type Schema (from main.js handleEvent methods)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid1-postservice">serviceId=1 — PostService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid2-mediaservice">serviceId=2 — MediaService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid3-followerservice">serviceId=3 — FollowerService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid4-groupservice">serviceId=4 — GroupService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid5-messageservice">serviceId=5 — MessageService</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#new-message-type1">New Message (type=1)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#message-reaction-type3">Message Reaction (type=3)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#typing-indicator-type22">Typing Indicator (type=22)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid6-walletservice">serviceId=6 — WalletService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid7-tippingservice">serviceId=7 — TippingService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid8-onlinestatusservice">serviceId=8 — OnlineStatusService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid9-notificationservice">serviceId=9 — NotificationService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid15-subscriptionservice">serviceId=15 — SubscriptionService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid16-paymentservice">serviceId=16 — PaymentService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid8-onlinestatusservice_1">serviceId=8 — OnlineStatusService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid10-profileservice">serviceId=10 — ProfileService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid11-ignoreservice">serviceId=11 — IgnoreService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid12-accountservice">serviceId=12 — AccountService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid17-ccbillservice">serviceId=17 — CCBillService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid26-inovioservice">serviceId=26 — InovioService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid32-storyservice">serviceId=32 — StoryService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid42-pollsservice">serviceId=42 — PollsService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid44-contentdiscoveryservice">serviceId=44 — ContentDiscoveryService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid45-streamingservice">serviceId=45 — StreamingService</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid46-chatroomservice-chatws-only">serviceId=46 — ChatRoomService (chatws only)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid1000-internal">serviceId=1000 — INTERNAL</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid42-polls">serviceId=42 — Polls</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#serviceid46-chat-chatws-only">serviceId=46 — Chat (chatws only)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#price-encoding">Price Encoding</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#timestamp-formats">Timestamp Formats</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#connection-headers">Connection Headers</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#anti-detection-notes">Anti-Detection Notes</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#full-subscription-purchase-flow-observed">Full Subscription Purchase Flow (observed)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#platform-infrastructure-notes">Platform Infrastructure Notes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#livestreaming-aws-ivs">Livestreaming — AWS IVS</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#lovense-integration">Lovense Integration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#analytics-amplitude">Analytics — Amplitude</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Fansly WebSocket Protocol</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-WebSocket-Protocol.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-websocket-protocol-reference">Fansly WebSocket Protocol Reference<a class="headerlink" href="#fansly-websocket-protocol-reference" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from browser DevTools captures and <code>main.js</code> EventService.
+All observations verified against live traffic on 2026-04-15.</p>
+<h2 id="endpoints">Endpoints<a class="headerlink" href="#endpoints" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>wss://wsv3.fansly.com/?v=3</code></td>
+<td>Main event bus — session, pings, service events</td>
+</tr>
+<tr>
+<td><code>wss://chatws.fansly.com/?v=3</code></td>
+<td>Livestream chat — chat room messages</td>
+</tr>
+</tbody>
+</table>
+<p>Both share the same authentication handshake. The session response from <code>chatws</code>
+includes <code>ip</code> and <code>metadata</code> (user agent) fields that <code>wsv3</code> returns as null.</p>
+<h2 id="authentication-handshake">Authentication Handshake<a class="headerlink" href="#authentication-handshake" title="Permanent link">&para;</a></h2>
+<h3 id="client-request-t1">Client Request (t=1)<a class="headerlink" href="#client-request-t1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">&quot;t&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;d&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;token\&quot;: \&quot;&lt;BASE64_TOKEN&gt;\&quot;, \&quot;v\&quot;: 3}&quot;</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>The token is base64-encoded and decodes to <code>&lt;sessionId&gt;:1:2:&lt;hex&gt;</code>.</p>
+<h3 id="server-response-t1">Server Response (t=1)<a class="headerlink" href="#server-response-t1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;t&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;d&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;session\&quot;: {</span>
+<span class="s2">    \&quot;id\&quot;: \&quot;&lt;sessionId&gt;\&quot;,</span>
+<span class="s2">    \&quot;token\&quot;: \&quot;&lt;refreshed_token&gt;\&quot;,</span>
+<span class="s2">    \&quot;accountId\&quot;: \&quot;&lt;accountId&gt;\&quot;,</span>
+<span class="s2">    \&quot;deviceId\&quot;: null,</span>
+<span class="s2">    \&quot;status\&quot;: 2,</span>
+<span class="s2">    \&quot;ip\&quot;: null,</span>
+<span class="s2">    \&quot;lastUsed\&quot;: 1776222201000,</span>
+<span class="s2">    \&quot;twofa_at\&quot;: null,</span>
+<span class="s2">    \&quot;metadata\&quot;: null,</span>
+<span class="s2">    \&quot;createdAt\&quot;: 1763047608000,</span>
+<span class="s2">    \&quot;checkToken\&quot;: null,</span>
+<span class="s2">    \&quot;websocketSessionId\&quot;: \&quot;&lt;wsSessionId&gt;\&quot;</span>
+<span class="s2">  }}&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Notable: The response <code>token</code> is different (refreshed) from what was sent.
+The <code>chatws</code> endpoint populates <code>ip</code> and <code>metadata</code> (stringified JSON with user agent).</p>
+<h2 id="encoding">Encoding<a class="headerlink" href="#encoding" title="Permanent link">&para;</a></h2>
+<p>All messages use double-JSON encoding: <code>{"t": &lt;int&gt;, "d": "&lt;stringified JSON&gt;"}</code>.
+ServiceEvents (t=10000) use triple-JSON: outer envelope -&gt; <code>{serviceId, event}</code> -&gt; payload.
+Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
+<h2 id="message-types-top-level-t-field">Message Types (top-level <code>t</code> field)<a class="headerlink" href="#message-types-top-level-t-field" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+<th>Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>ErrorEvent</td>
+<td>Server</td>
+<td>Error with <code>code</code> field (401=unauthorized, 429=rate limited)</td>
+</tr>
+<tr>
+<td>1</td>
+<td>SessionEvent</td>
+<td>Both</td>
+<td>Client: auth request. Server: session verified.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>PingResponse</td>
+<td>Server</td>
+<td>Response to client's bare <code>"p"</code> ping</td>
+</tr>
+<tr>
+<td>10000</td>
+<td>ServiceEvent</td>
+<td>Server</td>
+<td>Real-time notifications (see Service IDs below)</td>
+</tr>
+<tr>
+<td>10001</td>
+<td>Batch</td>
+<td>Server</td>
+<td>Array of messages, recursively unpacked</td>
+</tr>
+<tr>
+<td>46001</td>
+<td>ChatRoomJoin</td>
+<td>Client</td>
+<td>Chat room subscribe request: <code>{chatRoomId}</code> (= <code>1000 * SVC_CHATROOM + 1</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ping-protocol">Ping Protocol<a class="headerlink" href="#ping-protocol" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Client sends bare string <code>"p"</code> every 20-25 seconds (randomized jitter)</li>
+<li>Server responds with <code>{"t": 2, "d": "{\"lastPing\": &lt;ms_timestamp&gt;}"}</code></li>
+<li>If no response within 1.2x the ping interval, client resets connection</li>
+<li>These constants match <code>main.js</code>: <code>pingInterval_</code>, <code>pingTimeout_ = 1.2 * pingInterval_</code></li>
+</ul>
+<h3 id="reconnection">Reconnection<a class="headerlink" href="#reconnection" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Exponential backoff: 1.5s base, 2x per attempt, capped at 15s</li>
+<li>Maximum 5 reconnection attempts</li>
+<li>From <code>main.js</code>: <code>reconnect_timeout_ = 1500</code>, caps at <code>15000</code></li>
+</ul>
+<h2 id="service-ids-within-serviceevent-t10000">Service IDs (within ServiceEvent t=10000)<a class="headerlink" href="#service-ids-within-serviceevent-t10000" title="Permanent link">&para;</a></h2>
+<p>Complete enum from <code>main.js</code> EventService.ServiceIds:</p>
+<div class="highlight"><pre><span></span><code> 1  PostService              17  CCBillService           33  WebPushService
+ 2  MediaService             18  AffiliateService        34  NotesService
+ 3  FollowerService          19  SagaService             35  CCBillServiceNew
+ 4  GroupService             20  EmailService            36  TimelineStatsService
+ 5  MessageService           21  ReportService           37  PayopService
+ 6  WalletService            22  TwoFAService            38  VaultService
+ 7  TippingService           23  PartnerService          39  ManagementService
+ 8  OnlineStatusService      24  AdminService            40  EarningsStatsService
+ 9  NotificationService      25  EmailBotService         41  MediaStoriesService
+10  ProfileService           26  InovioService           42  PollsService
+11  IgnoreService            27  FraudService            43  PayoutService
+12  AccountService           28  GeoLocationService      44  ContentDiscoveryService
+13  ChatBotService           29  TwitchService           45  StreamingService
+14  OrderService             30  ListsService            46  ChatRoomService
+15  SubscriptionService      31  SettingsService         66  EmbedService
+16  PaymentService           32  StoryService            67  TenorService
+                                                         71  PermissionOverwriteService
+1000  INTERNAL
+</code></pre></div>
+<p>Connection states: <code>CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4</code></p>
+<h3 id="complete-event-type-schema-from-mainjs-handleevent-methods">Complete Event Type Schema (from main.js handleEvent methods)<a class="headerlink" href="#complete-event-type-schema-from-mainjs-handleevent-methods" title="Permanent link">&para;</a></h3>
+<h3 id="serviceid1-postservice">serviceId=1 — PostService<a class="headerlink" href="#serviceid1-postservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>post</code></td>
+<td><em>(inline handler)</em></td>
+<td><strong>New post created</strong> — injected into home/sub/list timelines</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>like</code></td>
+<td><code>onLikeCreate</code></td>
+<td>Post liked</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>like</code></td>
+<td><code>onLikeRemove</code></td>
+<td>Post unliked</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>updates</code></td>
+<td><code>onPostUpdate</code></td>
+<td>Post stats updated (likeCount, replyCount, tipAmount)</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>post</code></td>
+<td><em>(inline handler)</em></td>
+<td>Post deleted — removed from all timelines</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>post</code></td>
+<td><em>(inline handler)</em></td>
+<td>Post content updated — triggers re-fetch</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>wallPost</code></td>
+<td><code>onWallPostCreate</code></td>
+<td>Post added to wall (+ queued if post not yet cached)</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>wallPost</code></td>
+<td><code>onWallPostDelete</code></td>
+<td>Post removed from wall</td>
+</tr>
+<tr>
+<td>101</td>
+<td><code>wall</code></td>
+<td><code>onWallCreate</code></td>
+<td>New wall created</td>
+</tr>
+<tr>
+<td>102</td>
+<td><code>wall</code></td>
+<td><code>onWallDelete</code></td>
+<td>Wall deleted</td>
+</tr>
+</tbody>
+</table>
+<p><strong>PostService type=1 is critical for the monitoring daemon</strong> — new posts from followed creators arrive via WebSocket, not just polling. The inline handler adds the post to homeTimeline, homeSubscribeTimeline, and all matching listTimelines in real-time. Posts not on the default wall show a toast: "This Post won't appear in Home feeds."</p>
+<h3 id="serviceid2-mediaservice">serviceId=2 — MediaService<a class="headerlink" href="#serviceid2-mediaservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>like</code></td>
+<td><em>(main handler)</em></td>
+<td>Media liked</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>media</code></td>
+<td><code>onMediaUpdate</code></td>
+<td>Media updated (re-encoded/processed)</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>order</code></td>
+<td><code>onAccountMediaOrderCreate</code></td>
+<td>PPV media purchased</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>order</code></td>
+<td><em>(main handler)</em></td>
+<td>PPV bundle purchased</td>
+</tr>
+<tr>
+<td>999</td>
+<td>—</td>
+<td><code>onCacheClear</code></td>
+<td>Cache invalidation signal</td>
+</tr>
+</tbody>
+</table>
+<p>A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=3, type=58000).</p>
+<h3 id="serviceid3-followerservice">serviceId=3 — FollowerService<a class="headerlink" href="#serviceid3-followerservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>follow</code></td>
+<td><em>(main handler)</em></td>
+<td>Follow — adds permission flag 2 to all content</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>follow</code></td>
+<td><em>(main handler)</em></td>
+<td>Unfollow — removes permission flag 2</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid4-groupservice">serviceId=4 — GroupService<a class="headerlink" href="#serviceid4-groupservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>ackCommand</code></td>
+<td><em>(main handler)</em></td>
+<td>Message delivery/read receipt</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>like</code></td>
+<td><code>onMessageLikeAdd</code></td>
+<td>Message reaction added</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>like</code> / <code>userSettings</code></td>
+<td><code>onMessageLikeRemove</code></td>
+<td>Reaction removed / user settings changed</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>groupUser</code></td>
+<td><code>onGroupUserAdd</code></td>
+<td>User added to group</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>groupUser</code></td>
+<td><code>onGroupUserRemove</code></td>
+<td>User removed from group</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>id</code></td>
+<td><code>onGroupCreate</code></td>
+<td>Group created</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>groupUserSettingsChangeEvent</code></td>
+<td><em>(inline handler)</em></td>
+<td>Group user settings changed</td>
+</tr>
+</tbody>
+</table>
+<p><code>ackCommand.type</code> values:</p>
+<ul>
+<li><code>1</code> = Delivered (message reached recipient's client)</li>
+<li><code>2</code> = Read (recipient opened/viewed the message)</li>
+</ul>
+<p>Fields: <code>groupId</code>, <code>messageIds[]</code>, <code>userId</code>, <code>userReadReceiptsEnabled</code>, <code>recipients[]</code></p>
+<h3 id="serviceid5-messageservice">serviceId=5 — MessageService<a class="headerlink" href="#serviceid5-messageservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>message</code></td>
+<td><code>onMessageCreate</code></td>
+<td>New message received</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>messageAckEvent</code></td>
+<td><em>(inline handler)</em></td>
+<td>Message ACK batch</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>like</code></td>
+<td><code>onMessageLikeAdd</code></td>
+<td>Message reaction added</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>like</code></td>
+<td><code>onMessageLikeRemove</code></td>
+<td>Message reaction removed</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>message</code></td>
+<td><em>(inline handler)</em></td>
+<td>Message deleted (type=3 cascades by correlationId)</td>
+</tr>
+<tr>
+<td>22</td>
+<td><code>typingAnnounceEvent</code></td>
+<td><code>onTypingAnnounce</code></td>
+<td>User is typing indicator</td>
+</tr>
+</tbody>
+</table>
+<h4 id="new-message-type1">New Message (type=1)<a class="headerlink" href="#new-message-type1" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;contentType&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;contentId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pos&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;interactions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;readAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;deliveredAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;inReplyToMessage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="cm">/* full parent message object */</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1776225990.786</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Note: <code>createdAt</code> is in seconds with decimal (not milliseconds like other events).</p>
+<h4 id="message-reaction-type3">Message Reaction (type=3)<a class="headerlink" href="#message-reaction-type3" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;like&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;reac</span><span class="kc">t</span><span class="err">io</span><span class="kc">n</span><span class="err">_</span><span class="kc">t</span><span class="err">ype&gt;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;likeId&gt;&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Reaction type codes (from CSS asset definitions in main.js):</p>
+<table>
+<thead>
+<tr>
+<th><code>like.type</code></th>
+<th>Emoji</th>
+<th>CSS class</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>❤️</td>
+<td><code>emoji.heart</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>😂</td>
+<td><code>emoji.cry-laugh</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>😮</td>
+<td><code>emoji.surprised</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>😢</td>
+<td><code>emoji.sad</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>🔥</td>
+<td><code>emoji.fire</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>👍</td>
+<td><code>emoji.thumbs-up</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>👎</td>
+<td><code>emoji.thumbs-down</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="typing-indicator-type22">Typing Indicator (type=22)<a class="headerlink" href="#typing-indicator-type22" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;typingAnnounceEvent&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;lastAnnounce&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1776291298537</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="serviceid6-walletservice">serviceId=6 — WalletService<a class="headerlink" href="#serviceid6-walletservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>transaction</code></td>
+<td><em>(parsed only)</em></td>
+<td>Transaction created</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>wallet</code></td>
+<td><em>(main handler)</em></td>
+<td>Balance update — uses <code>walletVersion</code> for optimistic concurrency</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>transaction</code></td>
+<td><code>onWalletTransactionUpdate</code></td>
+<td>Transaction update/completed</td>
+</tr>
+<tr>
+<td>101</td>
+<td>—</td>
+<td><code>onWalletsLoad</code></td>
+<td>Wallets loaded signal</td>
+</tr>
+</tbody>
+</table>
+<p>Wallet types: <code>1</code> = main wallet, <code>2</code> = earnings wallet.</p>
+<p><code>walletVersion</code> is checked: updates with lower version than cached are ignored.</p>
+<p>Transaction type codes:</p>
+<ul>
+<li><code>14001</code> = Wallet credit from external payment (money in)</li>
+<li><code>58000</code> = Subscription/PPV purchase debit (money out)</li>
+</ul>
+<h3 id="serviceid7-tippingservice">serviceId=7 — TippingService<a class="headerlink" href="#serviceid7-tippingservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>tip</code></td>
+<td><em>(main handler)</em></td>
+<td>Tip sent. Fields: <code>senderId</code>, <code>receiverId</code>, <code>amount</code></td>
+</tr>
+<tr>
+<td>101</td>
+<td><code>tipGoal</code></td>
+<td><code>onTipGoalUpdate</code></td>
+<td>Tip goal progress updated</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid8-onlinestatusservice">serviceId=8 — OnlineStatusService<a class="headerlink" href="#serviceid8-onlinestatusservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>status</code></td>
+<td><em>(main handler)</em></td>
+<td>Online status change. Fields: <code>accountId</code>, <code>statusId</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid9-notificationservice">serviceId=9 — NotificationService<a class="headerlink" href="#serviceid9-notificationservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>notification</code></td>
+<td><code>onNotificationCreate</code></td>
+<td>Notification created</td>
+</tr>
+<tr>
+<td>100</td>
+<td>—</td>
+<td><code>onNotificationsLoaded</code></td>
+<td>Notifications loaded signal</td>
+</tr>
+<tr>
+<td>101</td>
+<td>—</td>
+<td><code>onUnacknowledgedUpdate</code></td>
+<td>Unread count changed</td>
+</tr>
+<tr>
+<td>102</td>
+<td>—</td>
+<td><code>onNotificationsUpdate</code></td>
+<td>Notifications updated</td>
+</tr>
+</tbody>
+</table>
+<p>Notification type codes (from notification filters in main.js):</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th><code>serviceId * 1000 + N</code></th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1002</td>
+<td>Post(1) + 2</td>
+<td>Post liked</td>
+</tr>
+<tr>
+<td>1003</td>
+<td>Post(1) + 3</td>
+<td>Post reply (alt)</td>
+</tr>
+<tr>
+<td>1004</td>
+<td>Post(1) + 4</td>
+<td>Post reply</td>
+</tr>
+<tr>
+<td>1005</td>
+<td>Post(1) + 5</td>
+<td>Post quoted</td>
+</tr>
+<tr>
+<td>2002</td>
+<td>Media(2) + 2</td>
+<td>Media liked</td>
+</tr>
+<tr>
+<td>2007</td>
+<td>Media(2) + 7</td>
+<td>Media purchased (PPV)</td>
+</tr>
+<tr>
+<td>2008</td>
+<td>Media(2) + 8</td>
+<td>Media bundle purchased</td>
+</tr>
+<tr>
+<td>3002</td>
+<td>Follower(3) + 2</td>
+<td>New follower</td>
+</tr>
+<tr>
+<td>3003</td>
+<td>Follower(3) + 3</td>
+<td>Unfollowed</td>
+</tr>
+<tr>
+<td>5003</td>
+<td>Message(5) + 3</td>
+<td>Message reaction</td>
+</tr>
+<tr>
+<td>7001</td>
+<td>Tipping(7) + 1</td>
+<td>Tip received</td>
+</tr>
+<tr>
+<td>15006</td>
+<td>Subscription(15) + 6</td>
+<td>New subscriber</td>
+</tr>
+<tr>
+<td>15007</td>
+<td>Subscription(15) + 7</td>
+<td>Subscription expired</td>
+</tr>
+<tr>
+<td>15011</td>
+<td>Subscription(15) + 11</td>
+<td>Promotion used</td>
+</tr>
+<tr>
+<td>15016</td>
+<td>Subscription(15) + 16</td>
+<td>New subscriber (v2)</td>
+</tr>
+<tr>
+<td>32007</td>
+<td>Story(32) + 7</td>
+<td>Locked text purchased</td>
+</tr>
+<tr>
+<td>45012</td>
+<td>Streaming(45) + 12</td>
+<td>Stream ticket purchased</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid15-subscriptionservice">serviceId=15 — SubscriptionService<a class="headerlink" href="#serviceid15-subscriptionservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5</td>
+<td><code>subscription</code></td>
+<td><code>onSubscriptionUpdate</code></td>
+<td>Subscription created or confirmed</td>
+</tr>
+<tr>
+<td>100</td>
+<td><code>queryResult</code></td>
+<td><code>onSubscriptionsFetch</code></td>
+<td>Subscriptions query result</td>
+</tr>
+<tr>
+<td>101</td>
+<td><code>giftCode</code></td>
+<td><code>onGiftCodeAdd</code></td>
+<td>Gift code added</td>
+</tr>
+<tr>
+<td>102</td>
+<td><code>subscription</code></td>
+<td><code>onSubscriptionUpdateNew</code></td>
+<td>Subscription update (alternate)</td>
+</tr>
+</tbody>
+</table>
+<p>Subscription flows through two events with the same <code>id</code>:</p>
+<ol>
+<li>First event: <code>status: 2</code> (pending) — lean payload</li>
+<li>Second event: <code>status: 3</code> (confirmed) — enriched with tier name, color, endsAt, etc.</li>
+</ol>
+<h3 id="serviceid16-paymentservice">serviceId=16 — PaymentService<a class="headerlink" href="#serviceid16-paymentservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>transaction</code></td>
+<td><code>onTransactionCreate</code></td>
+<td>Payment initiated</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>transaction</code></td>
+<td><code>onTransactionUpdate</code></td>
+<td>Payment confirmed/updated</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>transaction</code></td>
+<td><code>onTransactionCreateError</code></td>
+<td>Payment error</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>wallet</code></td>
+<td><code>onPaymentMethodCreate</code></td>
+<td>Payment method added</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>wallet</code></td>
+<td><code>onPaymentMethodUpdate</code></td>
+<td>Payment method updated</td>
+</tr>
+<tr>
+<td>20</td>
+<td><code>payoutRequest</code></td>
+<td><code>onPayoutRequestCreate</code></td>
+<td>Payout request created</td>
+</tr>
+<tr>
+<td>21</td>
+<td><code>payoutRequest</code></td>
+<td><code>onPayoutRequestUpdate</code></td>
+<td>Payout request updated</td>
+</tr>
+</tbody>
+</table>
+<p>Transaction type codes:</p>
+<ul>
+<li><code>14000</code> = External card charge</li>
+</ul>
+<h3 id="serviceid8-onlinestatusservice_1">serviceId=8 — OnlineStatusService<a class="headerlink" href="#serviceid8-onlinestatusservice_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>status</code></td>
+<td><em>(inline handler)</em></td>
+<td>Online status change. Fields: <code>accountId</code>, <code>statusId</code></td>
+</tr>
+</tbody>
+</table>
+<p>Updates <code>lastSeenAt</code> and <code>statusId</code> on cached account objects.</p>
+<h3 id="serviceid10-profileservice">serviceId=10 — ProfileService<a class="headerlink" href="#serviceid10-profileservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>pinnedPost</code></td>
+<td><code>onPostPin</code></td>
+<td>Post pinned</td>
+</tr>
+<tr>
+<td>100</td>
+<td><code>pinnedPost</code></td>
+<td><code>onPostPin</code></td>
+<td>Post pinned (alternate)</td>
+</tr>
+<tr>
+<td>101</td>
+<td><code>pinnedPost</code></td>
+<td><code>onPostUnpin</code></td>
+<td>Post unpinned</td>
+</tr>
+<tr>
+<td>102</td>
+<td><code>pinnedPosts</code></td>
+<td><code>onPostsUpdate</code></td>
+<td>Pinned posts bulk update</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid11-ignoreservice">serviceId=11 — IgnoreService<a class="headerlink" href="#serviceid11-ignoreservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>data</code></td>
+<td><em>(inline handler)</em></td>
+<td>User ignored/blocked. Fields: <code>accountId</code>, <code>ignoredId</code>, <code>ignoreFlags</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid12-accountservice">serviceId=12 — AccountService<a class="headerlink" href="#serviceid12-accountservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>account</code></td>
+<td><em>(inline handler)</em></td>
+<td>Account profile updated. Fields: <code>id</code>, <code>displayName</code>, <code>flags</code></td>
+</tr>
+<tr>
+<td>100</td>
+<td><code>accounts</code></td>
+<td><code>onAccountsChange</code></td>
+<td>Account data changed (event consumer)</td>
+</tr>
+<tr>
+<td>101</td>
+<td><code>accounts</code></td>
+<td><code>onAccountSuggestionsRefetch</code></td>
+<td>Suggestions need refresh</td>
+</tr>
+<tr>
+<td>999</td>
+<td>—</td>
+<td><code>onCacheClear</code></td>
+<td>Cache invalidation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid17-ccbillservice">serviceId=17 — CCBillService<a class="headerlink" href="#serviceid17-ccbillservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2</td>
+<td><code>transaction</code></td>
+<td><code>onTransactionUpdate</code></td>
+<td>CCBill transaction updated</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid26-inovioservice">serviceId=26 — InovioService<a class="headerlink" href="#serviceid26-inovioservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3</td>
+<td><code>request</code></td>
+<td><code>on3dsRequestCreate</code></td>
+<td>3DS authentication request</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid32-storyservice">serviceId=32 — StoryService<a class="headerlink" href="#serviceid32-storyservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>7</td>
+<td><code>order</code></td>
+<td><code>onStoryOrderCreate</code></td>
+<td>Story PPV purchase</td>
+</tr>
+</tbody>
+</table>
+<p>Note: Story bundle purchases (type=8) are handled in the main <code>onServiceEvent</code> handler, not the StoryService event consumer.</p>
+<h3 id="serviceid42-pollsservice">serviceId=42 — PollsService<a class="headerlink" href="#serviceid42-pollsservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10</td>
+<td><code>pollVote</code></td>
+<td><code>onPollVote</code></td>
+<td>Poll vote cast</td>
+</tr>
+<tr>
+<td>20</td>
+<td><code>pollSubscription</code></td>
+<td><code>onPollSubscribe</code></td>
+<td>Subscribed to poll updates (viewport enter)</td>
+</tr>
+<tr>
+<td>21</td>
+<td><code>pollSubscription</code></td>
+<td><code>onPollUnsubscribe</code></td>
+<td>Unsubscribed from poll updates (viewport leave)</td>
+</tr>
+<tr>
+<td>50</td>
+<td><code>polls</code></td>
+<td><code>onPollUpdate</code></td>
+<td>Poll data/results updated</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid44-contentdiscoveryservice">serviceId=44 — ContentDiscoveryService<a class="headerlink" href="#serviceid44-contentdiscoveryservice" title="Permanent link">&para;</a></h3>
+<p>Parsed but no specific action taken in frontend — events are consumed silently.</p>
+<h3 id="serviceid45-streamingservice">serviceId=45 — StreamingService<a class="headerlink" href="#serviceid45-streamingservice" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10</td>
+<td><code>stream</code></td>
+<td><code>onStreamUpdate</code></td>
+<td>Stream state changed (live/offline)</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>stream</code></td>
+<td><code>onPermissionUpdate</code></td>
+<td>Stream permission changed</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serviceid46-chatroomservice-chatws-only">serviceId=46 — ChatRoomService (chatws only)<a class="headerlink" href="#serviceid46-chatroomservice-chatws-only" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4</td>
+<td><code>chatRoom</code></td>
+<td><em>(inline handler)</em></td>
+<td>Chat room state update</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>chatRoomMessage</code></td>
+<td><code>onChatRoomMessage</code></td>
+<td>New chat message</td>
+</tr>
+<tr>
+<td>20</td>
+<td><code>chatRoomBan</code></td>
+<td><em>(inline handler)</em></td>
+<td>User banned — remove messages</td>
+</tr>
+<tr>
+<td>30</td>
+<td><code>chatRoomBan</code></td>
+<td><em>(inline handler)</em></td>
+<td>Ban notification (system msg type=2)</td>
+</tr>
+<tr>
+<td>50</td>
+<td><code>chatRoomGoal</code></td>
+<td><em>(inline handler)</em></td>
+<td>Tip goal created (status=1)</td>
+</tr>
+<tr>
+<td>51</td>
+<td><code>chatRoomGoal</code></td>
+<td><em>(inline handler)</em></td>
+<td>Tip goal updated/deleted</td>
+</tr>
+<tr>
+<td>53</td>
+<td><code>subAlert</code></td>
+<td><em>(inline handler)</em></td>
+<td>Subscription alert (system msg type=6)</td>
+</tr>
+<tr>
+<td>54</td>
+<td><code>settings</code></td>
+<td><em>(inline handler)</em></td>
+<td>Chat room settings changed (system msg type=8)</td>
+</tr>
+</tbody>
+</table>
+<p>Chat room join flow: after auth (t=1 response), client sends <code>wrapRequest(46001, {chatRoomId})</code> to subscribe.</p>
+<p>Chat message types (within <code>chatRoomMessage</code> or synthetic messages):</p>
+<table>
+<thead>
+<tr>
+<th>msg type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Regular text message</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Ban notification (system)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Mod mode toggle (creator-only, <code>/mod</code> command, local only)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Lovense status (system, content="123")</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Subscription alert (system, contains <code>subAlert</code>)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Chat room status error (e.g., error code 25)</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Settings change (system, contains <code>chatRoomSettings</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Tip-in-chat payload (attached to chat message send request):</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;chatRoomId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;private&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;messageTip&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;receiverId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creatorAccountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;amount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;customTargetId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;chatRoomGoalId or null&gt;&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>private: 1</code> hides the tip from other viewers</li>
+<li><code>customTargetId</code> targets a specific chat room goal (user-selected or auto-highest)</li>
+<li>Tips between $1–$500 (<code>dollarsToBalance(1)</code> to <code>dollarsToBalance(500)</code>) trigger wallet top-up if insufficient balance</li>
+</ul>
+<p>Username colors are validated with <code>/^#[0-9A-F]{6}$/i</code> — invalid colors are set to null.</p>
+<h3 id="serviceid1000-internal">serviceId=1000 — INTERNAL<a class="headerlink" href="#serviceid1000-internal" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Key</th>
+<th>Callback</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>100</td>
+<td>—</td>
+<td><code>handleActivityEvent</code></td>
+<td>Client-side activity heartbeat (mouse/keyboard)</td>
+</tr>
+</tbody>
+</table>
+<p>Client-only — never sent by the server. Used to track user activity for online status.</p>
+<h3 id="serviceid42-polls">serviceId=42 — Polls<a class="headerlink" href="#serviceid42-polls" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Event type</th>
+<th>Key</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>20</td>
+<td><code>pollSubscription</code></td>
+<td>Subscribed to poll updates (viewport enter)</td>
+</tr>
+<tr>
+<td>21</td>
+<td><code>pollSubscription</code></td>
+<td>Unsubscribed from poll updates (viewport leave)</td>
+</tr>
+</tbody>
+</table>
+<p>These are NOT votes — they're viewport subscriptions for receiving real-time
+poll result updates. They fire automatically when a poll scrolls into/out of view.</p>
+<h3 id="serviceid46-chat-chatws-only">serviceId=46 — Chat (chatws only)<a class="headerlink" href="#serviceid46-chat-chatws-only" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Event type</th>
+<th>Key</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10</td>
+<td><code>chatRoomMessage</code></td>
+<td>Livestream chat message</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;chatRoomMessage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;chatRoomId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;roomId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;private&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;accountFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;senderIsCreator\&quot;: true, \&quot;senderIsStaff\&quot;: false}&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;chatRoomAccountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1776273660119</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;usernameColor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#ff0000&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;username&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;example_creator&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;displayname&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Example Creator&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Note: <code>metadata</code> is stringified JSON (quad-nesting at this level).
+<code>usernameColor: "#ff0000"</code> indicates creator. <code>senderIsCreator</code>/<code>senderIsStaff</code> flags in metadata.</p>
+<h2 id="price-encoding">Price Encoding<a class="headerlink" href="#price-encoding" title="Permanent link">&para;</a></h2>
+<p>All prices are in <strong>mills</strong> (thousandths of a dollar). Divide by 1000 for USD.</p>
+<table>
+<thead>
+<tr>
+<th>Raw value</th>
+<th>USD</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>9990</code></td>
+<td>$9.99</td>
+</tr>
+<tr>
+<td><code>12000</code></td>
+<td>$12.00</td>
+</tr>
+<tr>
+<td><code>13990</code></td>
+<td>$13.99</td>
+</tr>
+<tr>
+<td><code>49990</code></td>
+<td>$49.99</td>
+</tr>
+</tbody>
+</table>
+<p>The extra decimal place (vs cents) is for tax calculation precision before rounding.</p>
+<h2 id="timestamp-formats">Timestamp Formats<a class="headerlink" href="#timestamp-formats" title="Permanent link">&para;</a></h2>
+<p>Timestamps are inconsistent across the protocol:</p>
+<table>
+<thead>
+<tr>
+<th>Context</th>
+<th>Format</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Session <code>lastUsed</code>, <code>createdAt</code></td>
+<td>Milliseconds</td>
+<td><code>1776222201000</code></td>
+</tr>
+<tr>
+<td><code>lastPing</code></td>
+<td>Milliseconds</td>
+<td><code>1776224384172</code></td>
+</tr>
+<tr>
+<td>Media like <code>createdAt</code></td>
+<td>Milliseconds</td>
+<td><code>1776225221107</code></td>
+</tr>
+<tr>
+<td>New message <code>createdAt</code></td>
+<td>Seconds with decimal</td>
+<td><code>1776225990.786</code></td>
+</tr>
+<tr>
+<td>REST API post <code>createdAt</code></td>
+<td>Seconds</td>
+<td><code>1776272494</code></td>
+</tr>
+</tbody>
+</table>
+<p>The Pydantic <code>_parse_timestamp()</code> validator handles all formats: values &gt; 1e10 are divided by 1000.</p>
+<h2 id="connection-headers">Connection Headers<a class="headerlink" href="#connection-headers" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>User-Agent: &lt;browser UA&gt;
+Origin: https://fansly.com
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: websocket
+Sec-Fetch-Site: same-site
+DNT: 1
+Sec-GPC: 1
+Cookie: f-s-c=&lt;session&gt;; f-d=&lt;device_id&gt;
+</code></pre></div>
+<h2 id="anti-detection-notes">Anti-Detection Notes<a class="headerlink" href="#anti-detection-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Real browser sessions maintain a persistent WebSocket connection</li>
+<li>Ping timing must match browser behavior (20-25s jittered, not fixed)</li>
+<li>Ping timeout detection uses 1.2x multiplier (from main.js)</li>
+<li>Unknown message types should be silently discarded (not logged at production level)</li>
+<li>SSL certificate verification is disabled (matching existing codebase pattern)</li>
+</ul>
+<h2 id="full-subscription-purchase-flow-observed">Full Subscription Purchase Flow (observed)<a class="headerlink" href="#full-subscription-purchase-flow-observed" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>t+0.0s  svc=16 type=1  Payment initiated     $12.00  status=7 (awaiting 3DS)
+t+3.0s  svc=6  type=3  Wallet credited        $12.00  (null → user wallet, type=14001)
+t+3.2s  svc=6  type=2  Wallet balance updated         (+12000, walletVersion++)
+t+3.3s  svc=16 type=2  Payment confirmed              status=3
+t+4.2s  svc=15 type=5  Subscription created   $12.00  status=2 (pending)
+t+4.5s  svc=15 type=5  Subscription confirmed         status=3 (with tier name, endsAt)
+t+4.8s  svc=6  type=3  Sub debit              $12.00  (wallet → null, type=58000)
+t+4.8s  svc=6  type=2  Wallet balance updated         (-12000, walletVersion++)
+t+5.7s  svc=5  type=1  Auto-welcome message           (creator&#39;s automated DM)
+</code></pre></div>
+<p>All events are correlated via <code>correlationId</code> ↔ <code>historyId</code> chains.</p>
+<h2 id="platform-infrastructure-notes">Platform Infrastructure Notes<a class="headerlink" href="#platform-infrastructure-notes" title="Permanent link">&para;</a></h2>
+<h3 id="livestreaming-aws-ivs">Livestreaming — AWS IVS<a class="headerlink" href="#livestreaming-aws-ivs" title="Permanent link">&para;</a></h3>
+<p>Fansly uses <strong>AWS Interactive Video Service (IVS)</strong> for livestreaming:</p>
+<ul>
+<li><strong>Ingest</strong>: Creator broadcasts via <code>IVSBroadcastClient</code> browser SDK (<code>BASIC_LANDSCAPE</code> config)</li>
+<li><strong>Playback</strong>: HLS via <code>*.us-east-1.playback.live-video.net</code> (AWS account <code>862541535858</code>)</li>
+<li><strong>Chat</strong>: NOT AWS IVS chat — Fansly runs their own <code>chatws.fansly.com</code> WebSocket (serviceId=46)</li>
+<li><strong>Stream state</strong>: Managed via serviceId=45 <code>StreamingService</code> (type 10=state, type 11=permission)</li>
+</ul>
+<h3 id="lovense-integration">Lovense Integration<a class="headerlink" href="#lovense-integration" title="Permanent link">&para;</a></h3>
+<p>Livestreams support native <strong>Lovense</strong> device integration:</p>
+<ul>
+<li>Tips sent in chat (serviceId=7 <code>TippingService</code>) are forwarded to the Lovense browser extension</li>
+<li>Detection runs client-side on the creator's broadcast page</li>
+<li>Creator must keep the broadcast page open for tip forwarding to work</li>
+<li>The extension auto-detects; no manual pairing required from the chat/viewer side</li>
+</ul>
+<h3 id="analytics-amplitude">Analytics — Amplitude<a class="headerlink" href="#analytics-amplitude" title="Permanent link">&para;</a></h3>
+<p>The frontend includes the <strong>Amplitude</strong> analytics SDK for product telemetry (page views, feature usage, conversion funnels). Not functional code — purely behavioral tracking. Real browser sessions emit Amplitude events; the downloader does not, which is a theoretical anti-detection fingerprint gap.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-Route-Table/" class="btn btn-neutral float-left" title="Fansly Route Table"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-Stash-mapping/" class="btn btn-neutral float-right" title="Fansly-to-Stash Mapping">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-Route-Table/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-Stash-mapping/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

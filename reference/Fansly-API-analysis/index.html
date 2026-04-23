@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-API-analysis/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Fansly API Analysis - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Fansly API Analysis";
+        var mkdocs_page_input_path = "reference/Fansly-API-analysis.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-API-analysis/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Fansly API Analysis</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#core-response-structure">Core Response Structure</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#posttimeline-response">Post/Timeline Response</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#media-item-response">Media Item Response</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#message-response">Message Response</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#important-notes">Important Notes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#media-types">Media Types</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#timestamps">Timestamps</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#media-variants">Media Variants</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#permissions">Permissions</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#urls-and-locations">URLs and Locations</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#metadata">Metadata</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Fansly API Analysis</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-API-analysis.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-api-response-analysis">Fansly API Response Analysis<a class="headerlink" href="#fansly-api-response-analysis" title="Permanent link">&para;</a></h1>
+<h2 id="core-response-structure">Core Response Structure<a class="headerlink" href="#core-response-structure" title="Permanent link">&para;</a></h2>
+<p>All API responses follow this basic structure:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;success&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;response&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Endpoint-specific data</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="posttimeline-response">Post/Timeline Response<a class="headerlink" href="#posttimeline-response" title="Permanent link">&para;</a></h2>
+<p>Posts appear in timeline and wall responses:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;100000000000000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;200000000000000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Post content text&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;fypFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1733994091</span><span class="p">,</span><span class="w"> </span><span class="c1">// Unix timestamp</span>
+<span class="w">  </span><span class="nt">&quot;expiresAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;pos&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;contentType&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1 = image/video</span>
+<span class="w">      </span><span class="nt">&quot;contentId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;300000000000000001&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;likeCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;idString&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;00100000000000000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;timelineReadPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;accountTimelineReadPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{}&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;mediaLikeCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;totalTipAmount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;attachmentTipAmount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;accountMentions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="media-item-response">Media Item Response<a class="headerlink" href="#media-item-response" title="Permanent link">&para;</a></h2>
+<p>Media items contain the actual media content and variants:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;100000000000000002&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="c1">// 2 = video</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;200000000000000002&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;mimetype&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">298</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;location&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/200000000000000002/100000000000000002.mp4&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">720</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;height&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1280</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;originalHeight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3840</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;originalWidth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2160</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;duration&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">182.4</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;resolutionMode&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;frameRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">60</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;updatedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1737285141</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1737284891</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;variants&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;100000000000000003&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1 = thumbnail</span>
+<span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;mimetype&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image/jpeg&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;location&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/200000000000000002/100000000000000003.jpeg&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">480</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;height&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">854</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;resolutionMode&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;updatedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1737284981</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;locations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;100000000000000004&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">302</span><span class="p">,</span><span class="w"> </span><span class="c1">// 302 = HLS stream</span>
+<span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;mimetype&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;application/vnd.apple.mpegurl&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;location&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2160</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;height&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3840</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;originalHeight&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3840</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;originalWidth&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2160</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;duration&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">182.4</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;resolutionMode&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;frameRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;variants&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;w&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2160</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;h&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3840</span><span class="w"> </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;w&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1080</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;h&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1920</span><span class="w"> </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;w&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">720</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;h&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1280</span><span class="w"> </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;w&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">480</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;h&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">854</span><span class="w"> </span><span class="p">},</span>
+<span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;w&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">360</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;h&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">640</span><span class="w"> </span><span class="p">}</span>
+<span class="w">        </span><span class="p">]</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;updatedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1737285728</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;locations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="message-response">Message Response<a class="headerlink" href="#message-response" title="Permanent link">&para;</a></h2>
+<p>Messages from conversations:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;100000000000000005&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;dataVersion&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Message content text&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;400000000000000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;200000000000000003&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;correlationId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;500000000000000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1733815029</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;interactions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;200000000000000004&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;readAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1733815037211</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;deliveredAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1733815033720</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;likes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="nt">&quot;totalTipAmount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="important-notes">Important Notes<a class="headerlink" href="#important-notes" title="Permanent link">&para;</a></h2>
+<h3 id="media-types">Media Types<a class="headerlink" href="#media-types" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Image/Video Content: <code>contentType: 1</code></li>
+<li>Video: <code>type: 2</code></li>
+<li>Thumbnail: <code>type: 1</code></li>
+<li>HLS Stream: <code>type: 302</code></li>
+<li>DASH Stream: <code>type: 303</code></li>
+</ul>
+<h3 id="timestamps">Timestamps<a class="headerlink" href="#timestamps" title="Permanent link">&para;</a></h3>
+<p>All timestamps are Unix timestamps:</p>
+<ul>
+<li>Regular timestamps: seconds since epoch</li>
+<li>Detailed timestamps: milliseconds since epoch</li>
+</ul>
+<h3 id="media-variants">Media Variants<a class="headerlink" href="#media-variants" title="Permanent link">&para;</a></h3>
+<p>Videos typically include:</p>
+<ol>
+<li>Original file</li>
+<li>Thumbnail images</li>
+<li>HLS stream with multiple resolutions</li>
+<li>DASH stream with multiple resolutions</li>
+</ol>
+<h3 id="permissions">Permissions<a class="headerlink" href="#permissions" title="Permanent link">&para;</a></h3>
+<p>Media access is controlled by:</p>
+<ul>
+<li><code>permissionFlags</code></li>
+<li><code>timelineReadPermissionFlags</code></li>
+<li><code>accountTimelineReadPermissionFlags</code></li>
+</ul>
+<h3 id="urls-and-locations">URLs and Locations<a class="headerlink" href="#urls-and-locations" title="Permanent link">&para;</a></h3>
+<p>Media locations can be:</p>
+<ol>
+<li>Relative paths: <code>/accountId/mediaId.ext</code></li>
+<li>Full CDN URLs with auth tokens</li>
+<li>Streaming manifest URLs (m3u8/mpd)</li>
+</ol>
+<h3 id="metadata">Metadata<a class="headerlink" href="#metadata" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Most objects include a metadata field</li>
+<li>Can be JSON string or object</li>
+<li>Contains additional type-specific information</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../monitoring-cadence/" class="btn btn-neutral float-left" title="Monitoring Daemon Cadence"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-Route-Table/" class="btn btn-neutral float-right" title="Fansly Route Table">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../monitoring-cadence/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-Route-Table/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

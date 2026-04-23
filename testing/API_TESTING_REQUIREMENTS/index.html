@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/testing/API_TESTING_REQUIREMENTS/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>API Testing Requirements - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "API Testing Requirements";
+        var mkdocs_page_input_path = "testing/API_TESTING_REQUIREMENTS.md";
+        var mkdocs_page_url = "/fansly-scraper/testing/API_TESTING_REQUIREMENTS/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">API Testing Requirements</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#testing-philosophy">Testing Philosophy</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#key-differences-from-graphql-testing">Key Differences from GraphQL Testing</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#external-boundaries">External Boundaries</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#what-not-to-mock">What NOT to Mock</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#core-testing-patterns">Core Testing Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-1-http-only-mocking-with-respx">Pattern 1: HTTP-Only Mocking with RESPX</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-2-multiple-http-calls">Pattern 2: Multiple HTTP Calls</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-3-testing-cors-preflight">Pattern 3: Testing CORS Preflight</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-4-testing-error-handling">Pattern 4: Testing Error Handling</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-5-testing-media-downloads">Pattern 5: Testing Media Downloads</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#critical-requirements">Critical Requirements</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#requirement-1-http-call-assertions-mandatory">Requirement 1: HTTP Call Assertions (MANDATORY)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#requirement-2-complete-response-schemas">Requirement 2: Complete Response Schemas</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#requirement-3-no-internal-method-mocking">Requirement 3: No Internal Method Mocking</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#requirement-4-real-file-system-operations">Requirement 4: Real File System Operations</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#advanced-testing-patterns">Advanced Testing Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#spy-pattern-for-internal-orchestration-tests">Spy Pattern for Internal Orchestration Tests</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#valid-exceptions-to-mock-free-testing">Valid Exceptions to Mock-Free Testing</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#exception-1-edge-case-coverage">Exception 1: Edge Case Coverage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#exception-2-external-binaries">Exception 2: External Binaries</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#exception-3-user-callbacks">Exception 3: User Callbacks</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#review-process-for-exceptions">Review Process for Exceptions</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#common-test-patterns">Common Test Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#testing-timelineposts-download">Testing Timeline/Posts Download</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#testing-m3u8-playlist-downloads">Testing M3U8 Playlist Downloads</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#testing-database-integration">Testing Database Integration</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#anti-patterns-to-avoid">Anti-Patterns to Avoid</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-pattern-1-incomplete-http-verification">❌ Anti-Pattern 1: Incomplete HTTP Verification</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-pattern-2-mocking-internal-methods">❌ Anti-Pattern 2: Mocking Internal Methods</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-pattern-3-mocking-file-operations">❌ Anti-Pattern 3: Mocking File Operations</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-pattern-4-magicmock-for-models">❌ Anti-Pattern 4: MagicMock for Models</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-pattern-5-not-testing-error-cases">❌ Anti-Pattern 5: Not Testing Error Cases</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#available-fixtures">Available Fixtures</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#api-fixtures">API Fixtures</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#download-fixtures">Download Fixtures</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#database-fixtures">Database Fixtures</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#model-factories">Model Factories</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#test-organization">Test Organization</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#directory-structure">Directory Structure</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#migration-progress">Migration Progress</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#current-status">Current Status</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#api-tests">API Tests</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#download-tests">Download Tests</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#combined-total">Combined Total</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#key-insights-for-this-project">Key Insights for This Project</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-fansly-api-specifics">1. Fansly API Specifics</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-download-pipeline-boundaries">2. Download Pipeline Boundaries</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-m3u8-complexity">3. M3U8 Complexity</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#4-test-migration-priority">4. Test Migration Priority</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#reference-documentation">Reference Documentation</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Testing</li>
+      <li class="breadcrumb-item active">API Testing Requirements</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/testing/API_TESTING_REQUIREMENTS.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-downloader-api-testing-requirements">Fansly Downloader - API Testing Requirements<a class="headerlink" href="#fansly-downloader-api-testing-requirements" title="Permanent link">&para;</a></h1>
+<p><strong>Goal</strong>: Ensure comprehensive test coverage with mocking only at external boundaries (HTTP via RESPX).</p>
+<p><strong>Created</strong>: 2026-01-09
+<strong>Project</strong>: fansly-downloader-ng
+<strong>Status</strong>: Test Migration in Progress</p>
+<hr />
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<h3 id="testing-philosophy">Testing Philosophy<a class="headerlink" href="#testing-philosophy" title="Permanent link">&para;</a></h3>
+<p>This project follows strict testing principles adapted from production-tested GraphQL client patterns:</p>
+<ul>
+<li>✅ <strong>Mock at HTTP boundary only</strong> - Use <code>respx</code> to mock Fansly API HTTP responses</li>
+<li>✅ <strong>Test real code paths</strong> - Execute actual API client methods, request building, response parsing</li>
+<li>✅ <strong>Verify request AND response</strong> - Every HTTP call must assert both request structure AND response data</li>
+<li>✅ <strong>Use real models</strong> - Test actual SQLAlchemy model construction and Pydantic validation</li>
+<li>❌ <strong>Never mock internal methods</strong> - No mocking of download logic, helper functions, or internal orchestration</li>
+</ul>
+<h3 id="key-differences-from-graphql-testing">Key Differences from GraphQL Testing<a class="headerlink" href="#key-differences-from-graphql-testing" title="Permanent link">&para;</a></h3>
+<p>While this project adapts patterns from Stash GraphQL client testing, there are important differences:</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>GraphQL (Stash)</th>
+<th>REST API (Fansly)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Protocol</td>
+<td>GraphQL queries/mutations</td>
+<td>REST endpoints</td>
+</tr>
+<tr>
+<td>Request format</td>
+<td>JSON with <code>query</code> and <code>variables</code></td>
+<td>URL params, JSON body</td>
+</tr>
+<tr>
+<td>Response structure</td>
+<td><code>{"data": {...}, "errors": [...]}</code></td>
+<td><code>{"success": "true", "response": {...}}</code></td>
+</tr>
+<tr>
+<td>HTTP methods</td>
+<td>Primarily POST</td>
+<td>GET, POST, OPTIONS (CORS)</td>
+</tr>
+<tr>
+<td>Authentication</td>
+<td>Headers/cookies</td>
+<td>Bearer token + device ID</td>
+</tr>
+<tr>
+<td>Client library</td>
+<td>GQL client (gql)</td>
+<td>httpx AsyncClient</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="external-boundaries">External Boundaries<a class="headerlink" href="#external-boundaries" title="Permanent link">&para;</a></h2>
+<p>The true external boundaries for this project:</p>
+<ol>
+<li>
+<p><strong>Fansly API HTTP endpoints</strong> (<code>https://apiv3.fansly.com/api/v1/*</code>)</p>
+</li>
+<li>
+<p>Mock using RESPX</p>
+</li>
+<li>Includes CORS OPTIONS requests</li>
+<li>
+<p>GET and POST methods</p>
+</li>
+<li>
+<p><strong>CDN URLs</strong> (<code>https://*.fansly.com/*</code>)</p>
+</li>
+<li>
+<p>Mock media file downloads</p>
+</li>
+<li>Mock M3U8 playlist downloads</li>
+<li>
+<p>Mock segment downloads</p>
+</li>
+<li>
+<p><strong>File System</strong></p>
+</li>
+<li>
+<p>Use real temporary files via <code>tmp_path</code> fixture</p>
+</li>
+<li>
+<p>Never mock <code>Path.exists()</code>, <code>Path.read_bytes()</code>, etc.</p>
+</li>
+<li>
+<p><strong>Database</strong></p>
+</li>
+<li>
+<p>Use real async sessions with factories</p>
+</li>
+<li>
+<p>Never use MagicMock for SQLAlchemy models</p>
+</li>
+<li>
+<p><strong>External Binaries</strong> (Optional)</p>
+</li>
+<li>Can mock subprocess calls to <code>ffmpeg</code> (truly external)</li>
+</ol>
+<h3 id="what-not-to-mock">What NOT to Mock<a class="headerlink" href="#what-not-to-mock" title="Permanent link">&para;</a></h3>
+<ul>
+<li>❌ Internal FanslyApi methods (e.g., <code>update_device_id</code>, <code>_build_request</code>)</li>
+<li>❌ Download orchestration logic (e.g., <code>_download_media</code>, <code>_process_post</code>)</li>
+<li>❌ Database operations (use real sessions)</li>
+<li>❌ File I/O (use real temp files)</li>
+<li>❌ Request builders or response parsers</li>
+</ul>
+<hr />
+<h2 id="core-testing-patterns">Core Testing Patterns<a class="headerlink" href="#core-testing-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="pattern-1-http-only-mocking-with-respx">Pattern 1: HTTP-Only Mocking with RESPX<a class="headerlink" href="#pattern-1-http-only-mocking-with-respx" title="Permanent link">&para;</a></h3>
+<p>All API tests mock Fansly API responses at the HTTP boundary using <code>respx</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">respx</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">api</span><span class="w"> </span><span class="kn">import</span> <span class="n">FanslyApi</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_get_creator_account_info</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test fetching creator account information.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Mock CORS preflight (Fansly API requires this)</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Mock the actual API response</span>
+    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
+                <span class="mi">200</span><span class="p">,</span>
+                <span class="n">json</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
+                        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;100000000000001&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test_creator&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;displayName&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Creator&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;profileAccessFlags&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                    <span class="p">}]</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute real client code</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test_creator&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify the result</span>
+    <span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test_creator&quot;</span>
+
+    <span class="c1"># REQUIRED: Verify HTTP request</span>
+    <span class="k">assert</span> <span class="n">account_route</span><span class="o">.</span><span class="n">called</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
+    <span class="k">assert</span> <span class="s2">&quot;usernames&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;usernames&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test_creator&quot;</span>
+    <span class="k">assert</span> <span class="s2">&quot;authorization&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+</code></pre></div>
+<h3 id="pattern-2-multiple-http-calls">Pattern 2: Multiple HTTP Calls<a class="headerlink" href="#pattern-2-multiple-http-calls" title="Permanent link">&para;</a></h3>
+<p>When API methods make sequential HTTP calls, provide responses for ALL calls:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_with_pagination</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test API method that makes multiple paginated requests.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Mock both CORS and actual requests for each page</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">),</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="n">timeline_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/api/v1/timeline.*&quot;</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="c1"># Page 1</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Post 1&quot;</span><span class="p">}],</span>
+                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}),</span>
+            <span class="c1"># Page 2 (last page)</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;2&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Post 2&quot;</span><span class="p">}],</span>
+                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute real pagination logic</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">all_posts</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_all_timeline_posts</span><span class="p">(</span><span class="s2">&quot;100000000000001&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify both calls were made</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
+
+    <span class="c1"># Verify first request</span>
+    <span class="n">req0</span> <span class="o">=</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span>
+    <span class="k">assert</span> <span class="s2">&quot;before&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">req0</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># First page has no cursor</span>
+
+    <span class="c1"># Verify second request (pagination)</span>
+    <span class="n">req1</span> <span class="o">=</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">request</span>
+    <span class="k">assert</span> <span class="s2">&quot;before&quot;</span> <span class="ow">in</span> <span class="n">req1</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># Pagination cursor present</span>
+
+    <span class="c1"># Verify results</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_posts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
+</code></pre></div>
+<h3 id="pattern-3-testing-cors-preflight">Pattern 3: Testing CORS Preflight<a class="headerlink" href="#pattern-3-testing-cors-preflight" title="Permanent link">&para;</a></h3>
+<p>Fansly API requires CORS preflight for many endpoints:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_cors_options_request_includes_headers</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test that CORS OPTIONS requests include required headers.&quot;&quot;&quot;</span>
+
+    <span class="n">options_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute CORS preflight</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">fansly_api</span><span class="o">.</span><span class="n">cors_options_request</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">options_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify request headers</span>
+    <span class="k">assert</span> <span class="n">options_route</span><span class="o">.</span><span class="n">called</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">options_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
+    <span class="k">assert</span> <span class="s2">&quot;origin&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;origin&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;https://fansly.com&quot;</span>
+    <span class="k">assert</span> <span class="s2">&quot;access-control-request-method&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+</code></pre></div>
+<h3 id="pattern-4-testing-error-handling">Pattern 4: Testing Error Handling<a class="headerlink" href="#pattern-4-testing-error-handling" title="Permanent link">&para;</a></h3>
+<p>Test real API errors from Fansly:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_handles_unauthorized</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test handling of 401 Unauthorized response.&quot;&quot;&quot;</span>
+
+    <span class="n">error_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
+                <span class="mi">401</span><span class="p">,</span>
+                <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;false&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Invalid authorization token&quot;</span><span class="p">}</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Invalid authorization token&quot;</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test_creator&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">error_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_handles_rate_limiting</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test handling of 429 Rate Limit response.&quot;&quot;&quot;</span>
+
+    <span class="n">rate_limit_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/timeline&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
+                <span class="mi">429</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Retry-After&quot;</span><span class="p">:</span> <span class="s2">&quot;60&quot;</span><span class="p">}</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Rate limit|429&quot;</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_timeline_posts</span><span class="p">(</span><span class="s2">&quot;100000000000001&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">rate_limit_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="pattern-5-testing-media-downloads">Pattern 5: Testing Media Downloads<a class="headerlink" href="#pattern-5-testing-media-downloads" title="Permanent link">&para;</a></h3>
+<p>Mock CDN responses for file downloads:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_media_file</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading a single media file.&quot;&quot;&quot;</span>
+
+    <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/media/123456789.mp4&quot;</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;123456789.mp4&quot;</span>
+
+    <span class="c1"># Mock CDN response with realistic headers</span>
+    <span class="n">media_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
+                <span class="mi">200</span><span class="p">,</span>
+                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;content-type&quot;</span><span class="p">:</span> <span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;content-length&quot;</span><span class="p">:</span> <span class="s2">&quot;18&quot;</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute real download code</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">download_media_file</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">media_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify HTTP request</span>
+    <span class="k">assert</span> <span class="n">media_route</span><span class="o">.</span><span class="n">called</span>
+
+    <span class="c1"># Verify real file was created</span>
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span>
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">==</span> <span class="mi">18</span>
+</code></pre></div>
+<hr />
+<h2 id="critical-requirements">Critical Requirements<a class="headerlink" href="#critical-requirements" title="Permanent link">&para;</a></h2>
+<h3 id="requirement-1-http-call-assertions-mandatory">Requirement 1: HTTP Call Assertions (MANDATORY)<a class="headerlink" href="#requirement-1-http-call-assertions-mandatory" title="Permanent link">&para;</a></h3>
+<p><strong>Every test with HTTP calls MUST verify:</strong></p>
+<ol>
+<li><strong>Call count</strong> - Exact number of HTTP requests made</li>
+<li><strong>Request content</strong> - URL, params, headers, and body for each call</li>
+<li><strong>Response handling</strong> - Verify data was parsed and used correctly</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: No assertion on HTTP calls</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>  <span class="c1"># Missing call verification!</span>
+
+<span class="c1"># ✅ CORRECT: Complete verification</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_good_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+
+    <span class="c1"># REQUIRED: Verify exact call count</span>
+    <span class="k">assert</span> <span class="n">account_route</span><span class="o">.</span><span class="n">called</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+
+    <span class="c1"># REQUIRED: Verify request</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;usernames&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>
+    <span class="k">assert</span> <span class="s2">&quot;authorization&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+
+    <span class="c1"># REQUIRED: Verify response was used correctly</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>
+</code></pre></div>
+<h3 id="requirement-2-complete-response-schemas">Requirement 2: Complete Response Schemas<a class="headerlink" href="#requirement-2-complete-response-schemas" title="Permanent link">&para;</a></h3>
+<p>All Fansly API mock responses must match actual API structure:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Incomplete response</span>
+<span class="p">{</span>
+    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test&quot;</span>
+        <span class="c1"># Missing required fields!</span>
+    <span class="p">}]</span>
+<span class="p">}</span>
+
+<span class="c1"># ✅ CORRECT: Complete account schema</span>
+<span class="p">{</span>
+    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;100000000000001&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test_creator&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;displayName&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Creator&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;profileAccessFlags&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">&quot;timelineStats&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;postCount&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+            <span class="s2">&quot;imageCount&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+            <span class="s2">&quot;videoCount&quot;</span><span class="p">:</span> <span class="mi">5</span>
+        <span class="p">},</span>
+        <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;about&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># ... all required fields</span>
+    <span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="requirement-3-no-internal-method-mocking">Requirement 3: No Internal Method Mocking<a class="headerlink" href="#requirement-3-no-internal-method-mocking" title="Permanent link">&para;</a></h3>
+<p>Never mock internal API or download methods:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal method</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">patch</span><span class="p">,</span> <span class="n">AsyncMock</span>
+
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">&#39;update_device_id&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">()):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+
+<span class="c1"># ✅ CORRECT: Mock only HTTP</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+    <span class="n">api_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">api_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="requirement-4-real-file-system-operations">Requirement 4: Real File System Operations<a class="headerlink" href="#requirement-4-real-file-system-operations" title="Permanent link">&para;</a></h3>
+<p>Test real file I/O with temporary files:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking file operations</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_save_media</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;builtins.open&quot;</span><span class="p">,</span> <span class="n">mock_open</span><span class="p">()):</span>
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.exists&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+            <span class="n">save_media</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+
+<span class="c1"># ✅ CORRECT: Use real temporary files</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_save_media</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;test_media.mp4&quot;</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span>
+
+    <span class="n">save_media</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="n">content</span>
+</code></pre></div>
+<hr />
+<h2 id="advanced-testing-patterns">Advanced Testing Patterns<a class="headerlink" href="#advanced-testing-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="spy-pattern-for-internal-orchestration-tests">Spy Pattern for Internal Orchestration Tests<a class="headerlink" href="#spy-pattern-for-internal-orchestration-tests" title="Permanent link">&para;</a></h3>
+<p>For tests that need to verify internal method coordination while still executing real code:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal method with return_value</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_with_retry_wrong</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">&quot;_download_single_file&quot;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Network error&quot;</span><span class="p">),</span>  <span class="c1"># First call fails</span>
+        <span class="kc">True</span><span class="p">,</span>  <span class="c1"># Retry succeeds</span>
+    <span class="p">])):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">downloader</span><span class="o">.</span><span class="n">download_batch</span><span class="p">([</span><span class="n">url</span><span class="p">])</span>
+        <span class="c1"># Never tests real download logic or real retry behavior!</span>
+
+<span class="c1"># ✅ CORRECT: Spy pattern - real code executes</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_with_retry_correct</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
+    <span class="n">original_download</span> <span class="o">=</span> <span class="n">downloader</span><span class="o">.</span><span class="n">_download_single_file</span>
+    <span class="n">call_count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">call_args</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">spy_download</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">):</span>
+        <span class="k">nonlocal</span> <span class="n">call_count</span>
+        <span class="n">call_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">call_args</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">))</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">original_download</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>  <span class="c1"># Real code executes!</span>
+
+    <span class="c1"># Mock CDN to fail once, then succeed</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://cdn\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">500</span><span class="p">),</span>  <span class="c1"># First attempt fails</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;video data&quot;</span><span class="p">),</span>  <span class="c1"># Retry succeeds</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">&quot;_download_single_file&quot;</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_download</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">downloader</span><span class="o">.</span><span class="n">download_batch</span><span class="p">([</span><span class="n">url</span><span class="p">])</span>
+
+        <span class="c1"># Verify orchestration</span>
+        <span class="k">assert</span> <span class="n">call_count</span> <span class="o">==</span> <span class="mi">2</span>  <span class="c1"># Original + retry</span>
+        <span class="k">assert</span> <span class="n">call_args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">call_args</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># Same URL</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span> <span class="ow">is</span> <span class="kc">True</span>
+
+        <span class="c1"># Verify real file was created</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;file.mp4&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+</code></pre></div>
+<p><strong>Why spy pattern matters:</strong></p>
+<ul>
+<li>✅ Real code path executes (not mocked behavior)</li>
+<li>✅ Tests actual retry logic with delays and backoff</li>
+<li>✅ Catches regressions in orchestration</li>
+<li>✅ Verifies real file I/O operations occur</li>
+</ul>
+<p><strong>When to use spy pattern:</strong></p>
+<ul>
+<li>Testing retry logic with exponential backoff</li>
+<li>Verifying early return conditions in batch operations</li>
+<li>Testing rate limiting coordination</li>
+<li>Confirming error propagation through download pipeline</li>
+<li>Validating how data was transformed between multi-step operations</li>
+</ul>
+<p><strong>When NOT to use spy pattern:</strong></p>
+<ul>
+<li>If RESPX at HTTP boundary is sufficient (prefer that)</li>
+<li>Testing simple HTTP requests with no internal orchestration</li>
+</ul>
+<hr />
+<h2 id="valid-exceptions-to-mock-free-testing">Valid Exceptions to Mock-Free Testing<a class="headerlink" href="#valid-exceptions-to-mock-free-testing" title="Permanent link">&para;</a></h2>
+<p>While the general rule is "mock only at HTTP boundaries," there are legitimate exceptions:</p>
+<h3 id="exception-1-edge-case-coverage">Exception 1: Edge Case Coverage<a class="headerlink" href="#exception-1-edge-case-coverage" title="Permanent link">&para;</a></h3>
+<p>Testing error handling paths that are difficult to trigger via HTTP:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Simulating rare failure condition</span>
+<span class="n">original_parse</span> <span class="o">=</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">_parse_response</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">failing_parse</span><span class="p">(</span><span class="n">response</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Unexpected JSON decode failure&quot;</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s2">&quot;_parse_response&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">failing_parse</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Unexpected JSON decode failure&quot;</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Justification</strong>: Some error conditions (memory errors, parse exceptions) are difficult to simulate via HTTP.</p>
+<h3 id="exception-2-external-binaries">Exception 2: External Binaries<a class="headerlink" href="#exception-2-external-binaries" title="Permanent link">&para;</a></h3>
+<p>Mocking truly external processes:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Mocking ffmpeg subprocess</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;subprocess.run&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock_ffmpeg</span><span class="p">:</span>
+    <span class="n">mock_ffmpeg</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">returncode</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">convert_video_format</span><span class="p">(</span><span class="n">input_path</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
+    <span class="n">mock_ffmpeg</span><span class="o">.</span><span class="n">assert_called_once</span><span class="p">()</span>
+</code></pre></div>
+<p><strong>Justification</strong>: Testing without requiring ffmpeg installation in CI/CD.</p>
+<h3 id="exception-3-user-callbacks">Exception 3: User Callbacks<a class="headerlink" href="#exception-3-user-callbacks" title="Permanent link">&para;</a></h3>
+<p>Mocking user-provided callback functions:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Testing callback invocation</span>
+<span class="n">mock_callback</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">()</span>
+<span class="n">api</span> <span class="o">=</span> <span class="n">FanslyApi</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">on_device_updated</span><span class="o">=</span><span class="n">mock_callback</span><span class="p">)</span>
+<span class="c1"># ... perform action</span>
+<span class="n">mock_callback</span><span class="o">.</span><span class="n">assert_called_once_with</span><span class="p">(</span><span class="s2">&quot;new_device_id&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Justification</strong>: Callbacks are external to the library and user-controlled.</p>
+<h3 id="review-process-for-exceptions">Review Process for Exceptions<a class="headerlink" href="#review-process-for-exceptions" title="Permanent link">&para;</a></h3>
+<p><strong>Before mocking internal methods, ask:</strong></p>
+<ol>
+<li>☑ Can this be tested with RESPX at the HTTP boundary?</li>
+<li>☑ Does this test actually need to verify orchestration (spy pattern)?</li>
+<li>☑ Is the complexity of HTTP mocking truly prohibitive?</li>
+<li>☑ Have I documented WHY mocking is necessary?</li>
+</ol>
+<hr />
+<h2 id="common-test-patterns">Common Test Patterns<a class="headerlink" href="#common-test-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="testing-timelineposts-download">Testing Timeline/Posts Download<a class="headerlink" href="#testing-timelineposts-download" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_timeline_posts</span><span class="p">(</span><span class="n">download_state</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">,</span> <span class="n">test_account</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading creator timeline posts with media.&quot;&quot;&quot;</span>
+
+    <span class="c1"># Setup</span>
+    <span class="n">download_state</span><span class="o">.</span><span class="n">base_path</span> <span class="o">=</span> <span class="n">tmp_path</span>
+    <span class="n">download_state</span><span class="o">.</span><span class="n">creator_id</span> <span class="o">=</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span>
+
+    <span class="c1"># Mock Fansly API</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+    <span class="n">timeline_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/api/v1/timeline.*&quot;</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span>
+                        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;accountId&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
+                        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Test post&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;attachments&quot;</span><span class="p">:</span> <span class="p">[{</span>
+                            <span class="s2">&quot;contentId&quot;</span><span class="p">:</span> <span class="s2">&quot;200000000000001&quot;</span><span class="p">,</span>
+                            <span class="s2">&quot;contentType&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># Image</span>
+                            <span class="s2">&quot;locations&quot;</span><span class="p">:</span> <span class="p">[{</span>
+                                <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="s2">&quot;https://cdn.fansly.com/image/123.jpg&quot;</span>
+                            <span class="p">}]</span>
+                        <span class="p">}]</span>
+                    <span class="p">}],</span>
+                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">})</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Mock CDN</span>
+    <span class="n">media_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://cdn.fansly.com/image/123.jpg&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;image data&quot;</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">download_timeline</span><span class="p">(</span><span class="n">download_state</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Timeline route calls:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Media route calls:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">media_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify HTTP calls</span>
+    <span class="k">assert</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">called</span>
+    <span class="k">assert</span> <span class="n">media_route</span><span class="o">.</span><span class="n">called</span>
+
+    <span class="c1"># Verify real files</span>
+    <span class="n">downloaded_files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">tmp_path</span><span class="o">.</span><span class="n">rglob</span><span class="p">(</span><span class="s2">&quot;*.jpg&quot;</span><span class="p">))</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">downloaded_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+    <span class="k">assert</span> <span class="n">downloaded_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">&quot;image data&quot;</span>
+</code></pre></div>
+<h3 id="testing-m3u8-playlist-downloads">Testing M3U8 Playlist Downloads<a class="headerlink" href="#testing-m3u8-playlist-downloads" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_m3u8_video</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading M3U8 video with segments.&quot;&quot;&quot;</span>
+
+    <span class="n">playlist_url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/video/123/master.m3u8&quot;</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;video.mp4&quot;</span>
+
+    <span class="c1"># Mock M3U8 playlist</span>
+    <span class="n">playlist_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">playlist_url</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
+                <span class="mi">200</span><span class="p">,</span>
+                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;&quot;&quot;#EXTM3U</span>
+<span class="s2">#EXT-X-VERSION:3</span>
+<span class="s2">#EXT-X-TARGETDURATION:10</span>
+<span class="s2">#EXTINF:10.0,</span>
+<span class="s2">segment0.ts</span>
+<span class="s2">#EXTINF:10.0,</span>
+<span class="s2">segment1.ts</span>
+<span class="s2">#EXT-X-ENDLIST</span>
+<span class="s2">&quot;&quot;&quot;</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;content-type&quot;</span><span class="p">:</span> <span class="s2">&quot;application/vnd.apple.mpegurl&quot;</span><span class="p">}</span>
+            <span class="p">)</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Mock segments</span>
+    <span class="n">base_url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/video/123/&quot;</span>
+    <span class="n">segment0_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment0.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;segment 0 data&quot;</span><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="n">segment1_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment1.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;segment 1 data&quot;</span><span class="p">)]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Execute</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">download_m3u8_video</span><span class="p">(</span><span class="n">playlist_url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Playlist route calls:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">playlist_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Segment 0 route calls:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">segment0_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Segment 1 route calls:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">segment1_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify segments were downloaded</span>
+    <span class="n">segment_dir</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;segments&quot;</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">&quot;segment0.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">&quot;segment1.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+
+    <span class="c1"># Verify concatenated output (if applicable)</span>
+    <span class="k">if</span> <span class="n">output_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</code></pre></div>
+<h3 id="testing-database-integration">Testing Database Integration<a class="headerlink" href="#testing-database-integration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_save_post_to_database</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">test_account</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test saving post metadata to database.&quot;&quot;&quot;</span>
+
+    <span class="n">post_data</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;accountId&quot;</span><span class="p">:</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Test post content&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;createdAt&quot;</span><span class="p">:</span> <span class="mi">1234567890</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Use real factory</span>
+    <span class="n">post</span> <span class="o">=</span> <span class="n">PostFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="o">**</span><span class="n">post_data</span><span class="p">)</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">post</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+    <span class="c1"># Verify in database</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Post</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Post</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">saved_post</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalar_one</span><span class="p">()</span>
+
+    <span class="k">assert</span> <span class="n">saved_post</span><span class="o">.</span><span class="n">content</span> <span class="o">==</span> <span class="s2">&quot;Test post content&quot;</span>
+    <span class="k">assert</span> <span class="n">saved_post</span><span class="o">.</span><span class="n">accountId</span> <span class="o">==</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span>
+</code></pre></div>
+<hr />
+<h2 id="anti-patterns-to-avoid">Anti-Patterns to Avoid<a class="headerlink" href="#anti-patterns-to-avoid" title="Permanent link">&para;</a></h2>
+<h3 id="anti-pattern-1-incomplete-http-verification">❌ Anti-Pattern 1: Incomplete HTTP Verification<a class="headerlink" href="#anti-pattern-1-incomplete-http-verification" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Only verifies result, not the HTTP call</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>  <span class="c1"># Missing verification!</span>
+</code></pre></div>
+<h3 id="anti-pattern-2-mocking-internal-methods">❌ Anti-Pattern 2: Mocking Internal Methods<a class="headerlink" href="#anti-pattern-2-mocking-internal-methods" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking internal API method</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">&#39;get_creator_account_info&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="o">...</span><span class="p">)):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">download_creator_content</span><span class="p">(</span><span class="n">creator_id</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="anti-pattern-3-mocking-file-operations">❌ Anti-Pattern 3: Mocking File Operations<a class="headerlink" href="#anti-pattern-3-mocking-file-operations" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking Path operations</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.exists&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.read_bytes&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;data&quot;</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">load_media_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="anti-pattern-4-magicmock-for-models">❌ Anti-Pattern 4: MagicMock for Models<a class="headerlink" href="#anti-pattern-4-magicmock-for-models" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># WRONG: MagicMock for SQLAlchemy models</span>
+<span class="n">mock_account</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">Account</span><span class="p">)</span>
+<span class="n">mock_account</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100000000000001</span>
+</code></pre></div>
+<h3 id="anti-pattern-5-not-testing-error-cases">❌ Anti-Pattern 5: Not Testing Error Cases<a class="headerlink" href="#anti-pattern-5-not-testing-error-cases" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># INCOMPLETE: Only tests success case</span>
+<span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_get_timeline</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
+    <span class="n">timeline_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">success_response</span><span class="p">])</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_timeline_posts</span><span class="p">(</span><span class="n">account_id</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+<span class="c1"># ALSO TEST: 401, 404, 429, network errors, malformed JSON</span>
+</code></pre></div>
+<hr />
+<h2 id="available-fixtures">Available Fixtures<a class="headerlink" href="#available-fixtures" title="Permanent link">&para;</a></h2>
+<h3 id="api-fixtures">API Fixtures<a class="headerlink" href="#api-fixtures" title="Permanent link">&para;</a></h3>
+<p>Located in <code>tests/fixtures/api/api_fixtures.py</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fansly_api</code></td>
+<td>Real FanslyApi instance ready for RESPX testing</td>
+</tr>
+<tr>
+<td><code>fansly_api_with_respx</code></td>
+<td>FanslyApi pre-configured for HTTP mocking</td>
+</tr>
+<tr>
+<td><code>mock_fansly_account_response</code></td>
+<td>Sample account API response</td>
+</tr>
+<tr>
+<td><code>mock_fansly_timeline_response</code></td>
+<td>Sample timeline API response</td>
+</tr>
+</tbody>
+</table>
+<h3 id="download-fixtures">Download Fixtures<a class="headerlink" href="#download-fixtures" title="Permanent link">&para;</a></h3>
+<p>Located in <code>tests/fixtures/download/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>download_state</code></td>
+<td>Real DownloadState instance</td>
+</tr>
+<tr>
+<td><code>test_downloads_dir</code></td>
+<td>Temporary downloads directory</td>
+</tr>
+<tr>
+<td><code>DownloadStateFactory</code></td>
+<td>Factory for custom DownloadState</td>
+</tr>
+<tr>
+<td><code>GlobalStateFactory</code></td>
+<td>Factory for GlobalState</td>
+</tr>
+</tbody>
+</table>
+<h3 id="database-fixtures">Database Fixtures<a class="headerlink" href="#database-fixtures" title="Permanent link">&para;</a></h3>
+<p>Located in <code>tests/fixtures/database/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session</code></td>
+<td>Async database session</td>
+</tr>
+<tr>
+<td><code>session_sync</code></td>
+<td>Sync database session</td>
+</tr>
+<tr>
+<td><code>test_account</code></td>
+<td>Pre-built Account in database</td>
+</tr>
+<tr>
+<td><code>test_media</code></td>
+<td>Pre-built Media in database</td>
+</tr>
+</tbody>
+</table>
+<h3 id="model-factories">Model Factories<a class="headerlink" href="#model-factories" title="Permanent link">&para;</a></h3>
+<p>Located in <code>tests/fixtures/metadata/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Factory</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AccountFactory</code></td>
+<td>Create Account entities</td>
+</tr>
+<tr>
+<td><code>MediaFactory</code></td>
+<td>Create Media entities</td>
+</tr>
+<tr>
+<td><code>PostFactory</code></td>
+<td>Create Post entities</td>
+</tr>
+<tr>
+<td><code>MessageFactory</code></td>
+<td>Create Message entities</td>
+</tr>
+<tr>
+<td><code>AttachmentFactory</code></td>
+<td>Create Attachment entities</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="test-organization">Test Organization<a class="headerlink" href="#test-organization" title="Permanent link">&para;</a></h2>
+<h3 id="directory-structure">Directory Structure<a class="headerlink" href="#directory-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>tests/
+├── conftest.py                          # Shared fixtures
+├── fixtures/
+│   ├── api/
+│   │   └── api_fixtures.py             # API client fixtures
+│   ├── download/
+│   │   ├── download_fixtures.py        # Download state fixtures
+│   │   └── download_factories.py       # Download factories
+│   ├── database/
+│   │   └── database_fixtures.py        # Database session fixtures
+│   └── metadata/
+│       └── metadata_factories.py       # SQLAlchemy model factories
+├── api/
+│   └── unit/
+│       ├── test_fansly_api.py          # Main API tests ✅
+│       ├── test_fansly_api_additional.py  # Additional tests (migrate)
+│       └── test_fansly_api_callback.py # Callback tests ✅
+└── download/
+    ├── unit/
+    │   ├── test_account.py             # Account download tests
+    │   ├── test_common.py              # Common download tests
+    │   ├── test_m3u8.py                # M3U8 download tests
+    │   ├── test_media_filtering.py     # Media filtering tests
+    │   ├── test_transaction_recovery.py # Transaction tests
+    │   ├── test_downloadstate.py       # State tests ✅
+    │   ├── test_globalstate.py         # Global state tests ✅
+    │   └── test_pagination_duplication.py  # Pagination tests ✅
+    └── integration/
+        └── test_m3u8_integration.py    # M3U8 integration tests
+</code></pre></div>
+<hr />
+<h2 id="migration-progress">Migration Progress<a class="headerlink" href="#migration-progress" title="Permanent link">&para;</a></h2>
+<h3 id="current-status">Current Status<a class="headerlink" href="#current-status" title="Permanent link">&para;</a></h3>
+<p>Based on <code>API_DOWNLOAD_TEST_MIGRATION_TODO.md</code>:</p>
+<h4 id="api-tests">API Tests<a class="headerlink" href="#api-tests" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Functions</th>
+<th>Violations</th>
+<th>Status</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_fansly_api.py</code></td>
+<td>35</td>
+<td>0</td>
+<td>✅ Compliant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>test_fansly_api_callback.py</code></td>
+<td>1</td>
+<td>0</td>
+<td>✅ Compliant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>test_fansly_api_additional.py</code></td>
+<td>18</td>
+<td>5</td>
+<td>❌ Needs Migration</td>
+<td>2-3 hrs</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total API</strong>: 54 tests, 5 violations, <strong>2-3 hours</strong> estimated effort</p>
+<h4 id="download-tests">Download Tests<a class="headerlink" href="#download-tests" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Functions</th>
+<th>Violations</th>
+<th>Status</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_downloadstate.py</code></td>
+<td>10</td>
+<td>0</td>
+<td>✅ Compliant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>test_globalstate.py</code></td>
+<td>6</td>
+<td>0</td>
+<td>✅ Compliant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>test_pagination_duplication.py</code></td>
+<td>8</td>
+<td>0</td>
+<td>✅ Compliant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>test_account.py</code></td>
+<td>18</td>
+<td>10</td>
+<td>❌ Medium</td>
+<td>2-3 hrs</td>
+</tr>
+<tr>
+<td><code>test_common.py</code></td>
+<td>11</td>
+<td>9</td>
+<td>❌ High</td>
+<td>3-4 hrs</td>
+</tr>
+<tr>
+<td><code>test_media_filtering.py</code></td>
+<td>7</td>
+<td>5</td>
+<td>❌ High</td>
+<td>1-2 hrs</td>
+</tr>
+<tr>
+<td><code>test_transaction_recovery.py</code></td>
+<td>3</td>
+<td>11</td>
+<td>❌ Critical</td>
+<td>2-3 hrs</td>
+</tr>
+<tr>
+<td><code>test_m3u8_integration.py</code></td>
+<td>6</td>
+<td>16</td>
+<td>❌ Critical</td>
+<td>4-5 hrs</td>
+</tr>
+<tr>
+<td><code>test_m3u8.py</code></td>
+<td>19</td>
+<td>28</td>
+<td>❌ Critical</td>
+<td>6-8 hrs</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total Download</strong>: 88 tests, 79 violations, <strong>20-28 hours</strong> estimated effort</p>
+<h3 id="combined-total">Combined Total<a class="headerlink" href="#combined-total" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>142 total tests</strong></li>
+<li><strong>84 violations to fix</strong></li>
+<li><strong>22-31 hours</strong> estimated effort</li>
+<li><strong>36% effort reduction</strong> from spy pattern strategy</li>
+</ul>
+<hr />
+<h2 id="key-insights-for-this-project">Key Insights for This Project<a class="headerlink" href="#key-insights-for-this-project" title="Permanent link">&para;</a></h2>
+<h3 id="1-fansly-api-specifics">1. Fansly API Specifics<a class="headerlink" href="#1-fansly-api-specifics" title="Permanent link">&para;</a></h3>
+<p>Unlike GraphQL, Fansly API has:</p>
+<ul>
+<li><strong>CORS preflight requirements</strong> - Always mock OPTIONS requests</li>
+<li><strong>Device ID management</strong> - Test both with and without device info</li>
+<li><strong>Bearer token authentication</strong> - Include in all request assertions</li>
+<li><strong>Pagination cursors</strong> - Use <code>before</code> parameter, not offset/limit</li>
+<li><strong>Success flag</strong> - Response has <code>{"success": "true", "response": {...}}</code></li>
+</ul>
+<h3 id="2-download-pipeline-boundaries">2. Download Pipeline Boundaries<a class="headerlink" href="#2-download-pipeline-boundaries" title="Permanent link">&para;</a></h3>
+<p>The download pipeline has clear boundaries:</p>
+<div class="highlight"><pre><span></span><code>External → HTTP (RESPX) → Internal Processing → File System (real tmp_path) → Database (real session)
+</code></pre></div>
+<p>Mock only at:</p>
+<ul>
+<li>✅ HTTP requests (RESPX)</li>
+<li>✅ External binaries (subprocess for ffmpeg)</li>
+</ul>
+<p>Never mock:</p>
+<ul>
+<li>❌ Internal download orchestration</li>
+<li>❌ File system operations</li>
+<li>❌ Database operations</li>
+</ul>
+<h3 id="3-m3u8-complexity">3. M3U8 Complexity<a class="headerlink" href="#3-m3u8-complexity" title="Permanent link">&para;</a></h3>
+<p>M3U8 tests are the most complex:</p>
+<ul>
+<li>Mock playlist HTTP request</li>
+<li>Mock each segment HTTP request</li>
+<li>Use real temp directory for segments</li>
+<li>Test concatenation logic with real files</li>
+<li>Optional: Mock ffmpeg subprocess</li>
+</ul>
+<h3 id="4-test-migration-priority">4. Test Migration Priority<a class="headerlink" href="#4-test-migration-priority" title="Permanent link">&para;</a></h3>
+<p>Follow this order for maximum impact:</p>
+<ol>
+<li><strong>Week 1</strong>: API tests (2-3 hrs) + <code>test_m3u8.py</code> (6-8 hrs)</li>
+<li><strong>Week 2</strong>: <code>test_m3u8_integration.py</code> (4-5 hrs) + <code>test_transaction_recovery.py</code> (2-3 hrs) + <code>test_common.py</code> (3-4 hrs)</li>
+<li><strong>Week 3</strong>: <code>test_account.py</code> (2-3 hrs) + <code>test_media_filtering.py</code> (1-2 hrs)</li>
+</ol>
+<hr />
+<h2 id="reference-documentation">Reference Documentation<a class="headerlink" href="#reference-documentation" title="Permanent link">&para;</a></h2>
+<p><strong>Related Documents</strong>:</p>
+<ul>
+<li>Migration guide: <code>API_DOWNLOAD_TEST_MIGRATION_TODO.md</code></li>
+<li>Original patterns: <code>../feat-stash-client-0.8.0-work/TESTING_REQUIREMENTS.md</code></li>
+</ul>
+<p><strong>Fixture Definitions</strong>:</p>
+<ul>
+<li>API fixtures: <code>tests/fixtures/api/api_fixtures.py</code></li>
+<li>Download fixtures: <code>tests/fixtures/download/download_fixtures.py</code></li>
+<li>Download factories: <code>tests/fixtures/download/download_factories.py</code></li>
+<li>Database fixtures: <code>tests/fixtures/database/database_fixtures.py</code></li>
+<li>Model factories: <code>tests/fixtures/metadata/metadata_factories.py</code></li>
+</ul>
+<p><strong>External Resources</strong>:</p>
+<ul>
+<li>RESPX Documentation: https://lundberg.github.io/respx/</li>
+<li>Fansly API Documentation: (internal/reverse-engineered)</li>
+<li>Pytest Documentation: https://docs.pytest.org/</li>
+</ul>
+<p><strong>Last Updated</strong>: 2026-01-09</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../TESTING_REQUIREMENTS/" class="btn btn-neutral float-left" title="Testing Requirements"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../API_DOWNLOAD_TEST_MIGRATION_TODO/" class="btn btn-neutral float-right" title="API/Download Test Migration">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../TESTING_REQUIREMENTS/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../API_DOWNLOAD_TEST_MIGRATION_TODO/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

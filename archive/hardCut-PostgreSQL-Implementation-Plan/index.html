@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/archive/hardCut-PostgreSQL-Implementation-Plan/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Hard-Cut PostgreSQL Implementation Plan - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Hard-Cut PostgreSQL Implementation Plan";
+        var mkdocs_page_input_path = "archive/hardCut-PostgreSQL-Implementation-Plan.md";
+        var mkdocs_page_url = "/fansly-scraper/archive/hardCut-PostgreSQL-Implementation-Plan/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Hard-Cut PostgreSQL Implementation Plan</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#why-postgresql">Why PostgreSQL?</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#current-sqlite-architecture-to-be-removed">Current SQLite Architecture (To Be Removed)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#postgresql-architecture-new">PostgreSQL Architecture (New)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#schema-based-isolation">Schema-Based Isolation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#connection-string">Connection String</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#implementation-changes">Implementation Changes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-configuration-updates">1. Configuration Updates</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-database-class-refactor">2. Database Class Refactor</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#remove-delete">Remove (DELETE):</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#keep-modify">Keep (MODIFY):</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#add-new">Add (NEW):</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#new-__init__-structure">New __init__ structure:</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-alembic-updates">3. Alembic Updates</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#4-dependencies-update">4. Dependencies Update</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#5-code-complexity-reduction">5. Code Complexity Reduction</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#migration-strategy">Migration Strategy</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#for-existing-users">For Existing Users</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#configuration-migration">Configuration Migration</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#postgresql-setup">PostgreSQL Setup</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#initial-database-setup">Initial Database Setup</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#docker-compose-setup-optional">Docker Compose Setup (Optional)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#implementation-checklist">Implementation Checklist</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-1-preparation">Phase 1: Preparation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-2-database-class-refactor">Phase 2: Database Class Refactor</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-3-alembic-updates">Phase 3: Alembic Updates</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-4-migration-script">Phase 4: Migration Script</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-5-testing">Phase 5: Testing</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-6-documentation">Phase 6: Documentation</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#benefits-summary">Benefits Summary</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#code-quality">Code Quality</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#performance">Performance</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#reliability">Reliability</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#scalability">Scalability</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#risks-and-mitigations">Risks and Mitigations</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#risk-1-user-setup-complexity">Risk 1: User Setup Complexity</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#risk-2-data-migration-issues">Risk 2: Data Migration Issues</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#risk-3-performance-regression">Risk 3: Performance Regression</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#risk-4-breaking-changes">Risk 4: Breaking Changes</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#timeline">Timeline</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#rollback-plan">Rollback Plan</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#conclusion">Conclusion</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Archive</li>
+      <li class="breadcrumb-item active">Hard-Cut PostgreSQL Implementation Plan</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/archive/hardCut-PostgreSQL-Implementation-Plan.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="hard-cutover-postgresql-implementation-plan">Hard Cutover: PostgreSQL Implementation Plan<a class="headerlink" href="#hard-cutover-postgresql-implementation-plan" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>This plan outlines a <strong>complete replacement</strong> of SQLite with PostgreSQL for the metadata database. No dual-support, no abstraction layers - just a clean cutover.</p>
+<h2 id="why-postgresql">Why PostgreSQL?<a class="headerlink" href="#why-postgresql" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Better concurrent access</strong> - No file locking issues</li>
+<li><strong>Schema isolation</strong> - Cleaner than separate files</li>
+<li><strong>Network storage</strong> - Works better over network paths</li>
+<li><strong>Mature ecosystem</strong> - Better tooling and monitoring</li>
+<li><strong>Scalability</strong> - Handles many creators efficiently</li>
+</ol>
+<h2 id="current-sqlite-architecture-to-be-removed">Current SQLite Architecture (To Be Removed)<a class="headerlink" href="#current-sqlite-architecture-to-be-removed" title="Permanent link">&para;</a></h2>
+<p>The current implementation has significant complexity:
+- In-memory database with write-through caching
+- Background sync thread to persist to disk
+- Shared memory URIs for multi-thread access
+- Complex cleanup and finalization
+- ~1800 lines in <code>database.py</code></p>
+<p><strong>All of this goes away with PostgreSQL.</strong></p>
+<h2 id="postgresql-architecture-new">PostgreSQL Architecture (New)<a class="headerlink" href="#postgresql-architecture-new" title="Permanent link">&para;</a></h2>
+<h3 id="schema-based-isolation">Schema-Based Isolation<a class="headerlink" href="#schema-based-isolation" title="Permanent link">&para;</a></h3>
+<p>Instead of separate SQLite files per creator:</p>
+<div class="highlight"><pre><span></span><code>SQLite (old):
+├── alice_metadata.sqlite3
+├── bob_metadata.sqlite3
+└── charlie_metadata.sqlite3
+
+PostgreSQL (new):
+fansly_metadata (one database)
+├── creator_alice (schema)
+│   ├── accounts
+│   ├── media
+│   ├── posts
+│   └── alembic_version
+├── creator_bob (schema)
+│   ├── accounts
+│   ├── media
+│   └── ...
+└── public (schema - for global metadata)
+    ├── accounts
+    ├── media
+    └── ...
+</code></pre></div>
+<h3 id="connection-string">Connection String<a class="headerlink" href="#connection-string" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># When separate_metadata=False (global)</span>
+<span class="n">postgresql</span><span class="p">:</span><span class="o">//</span><span class="n">user</span><span class="p">:</span><span class="k">pass</span><span class="nd">@host</span><span class="p">:</span><span class="n">port</span><span class="o">/</span><span class="n">fansly_metadata</span>
+<span class="c1"># Uses schema: public</span>
+
+<span class="c1"># When separate_metadata=True, creator=&quot;alice&quot;</span>
+<span class="n">postgresql</span><span class="p">:</span><span class="o">//</span><span class="n">user</span><span class="p">:</span><span class="k">pass</span><span class="nd">@host</span><span class="p">:</span><span class="n">port</span><span class="o">/</span><span class="n">fansly_metadata</span>
+<span class="c1"># Uses schema: creator_alice</span>
+</code></pre></div>
+<h2 id="implementation-changes">Implementation Changes<a class="headerlink" href="#implementation-changes" title="Permanent link">&para;</a></h2>
+<h3 id="1-configuration-updates">1. Configuration Updates<a class="headerlink" href="#1-configuration-updates" title="Permanent link">&para;</a></h3>
+<p><strong>Add to <code>config/fanslyconfig.py</code>:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FanslyConfig</span><span class="p">(</span><span class="n">PathConfig</span><span class="p">):</span>
+    <span class="c1"># Remove SQLite-specific fields (keep for migration reference)</span>
+    <span class="c1"># metadata_db_file: Path | None = None  # DELETE after migration</span>
+    <span class="c1"># db_sync_commits: int | None = None    # DELETE (not needed for PostgreSQL)</span>
+    <span class="c1"># db_sync_seconds: int | None = None    # DELETE (not needed for PostgreSQL)</span>
+    <span class="c1"># db_sync_min_size: int | None = None   # DELETE (not needed for PostgreSQL)</span>
+
+    <span class="c1"># Keep this - works for both SQLite and PostgreSQL</span>
+    <span class="n">separate_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="c1"># PostgreSQL configuration (NEW)</span>
+    <span class="n">pg_host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;localhost&quot;</span>
+    <span class="n">pg_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5432</span>
+    <span class="n">pg_database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fansly_metadata&quot;</span>
+    <span class="n">pg_user</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fansly_user&quot;</span>
+    <span class="n">pg_password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># Optional schema override (defaults to auto-generated)</span>
+    <span class="n">pg_schema</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># SSL/TLS settings</span>
+    <span class="n">pg_sslmode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prefer&quot;</span>  <span class="c1"># disable, allow, prefer, require, verify-ca, verify-full</span>
+    <span class="n">pg_sslcert</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">pg_sslkey</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">pg_sslrootcert</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># Connection pool settings</span>
+    <span class="n">pg_pool_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
+    <span class="n">pg_max_overflow</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
+    <span class="n">pg_pool_timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+</code></pre></div>
+<p><strong>Add to <code>config/args.py</code>:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pg-host&quot;</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_host&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL host (default: localhost)&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pg-port&quot;</span><span class="p">,</span>
+    <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_port&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL port (default: 5432)&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pg-database&quot;</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_database&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL database name&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pg-user&quot;</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_user&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL username&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+    <span class="s2">&quot;--pg-password&quot;</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_password&quot;</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL password (prefer environment variable)&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Update <code>config/config.py</code>:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># PostgreSQL configuration with environment variable fallback</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_host</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_host&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_port</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">getint</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_port&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="mi">5432</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_database</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_database&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;fansly_metadata&quot;</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_user</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_user&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;fansly_user&quot;</span><span class="p">)</span>
+
+<span class="c1"># Password from env var or config (prefer env var)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_password</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FANSLY_PG_PASSWORD&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_password&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="2-database-class-refactor">2. Database Class Refactor<a class="headerlink" href="#2-database-class-refactor" title="Permanent link">&para;</a></h3>
+<p><strong>File: <code>metadata/database.py</code></strong></p>
+<p>Major simplifications:</p>
+<h4 id="remove-delete">Remove (DELETE):<a class="headerlink" href="#remove-delete" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>_sync_to_disk()</code> method (~300 lines)</li>
+<li><code>_sync_task()</code> method (~100 lines)</li>
+<li><code>_sync_thread</code> and all thread management</li>
+<li><code>_shared_connection</code> and shared memory URIs</li>
+<li><code>_prepare_statements()</code> - PostgreSQL has better prepared statements</li>
+<li><code>_configure_memory_settings()</code> - SQLite-specific</li>
+<li>All SQLite-specific imports (<code>sqlite3</code>, <code>shutil</code>, etc.)</li>
+</ul>
+<h4 id="keep-modify">Keep (MODIFY):<a class="headerlink" href="#keep-modify" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>__init__()</code> - simplified significantly</li>
+<li><code>session_scope()</code> - minor changes</li>
+<li><code>async_session_scope()</code> - minor changes</li>
+<li><code>cleanup()</code> - much simpler</li>
+<li><code>close_sync()</code> - much simpler</li>
+</ul>
+<h4 id="add-new">Add (NEW):<a class="headerlink" href="#add-new" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>_build_connection_url()</code> - construct PostgreSQL URL</li>
+<li><code>_setup_schema()</code> - create schema if needed</li>
+<li><code>_set_search_path()</code> - event listener for connections</li>
+</ul>
+<h4 id="new-__init__-structure">New <code>__init__</code> structure:<a class="headerlink" href="#new-__init__-structure" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">creator_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">skip_migrations</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize PostgreSQL database manager.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        config: FanslyConfig instance</span>
+<span class="sd">        creator_name: Optional creator name for schema isolation</span>
+<span class="sd">        skip_migrations: Skip running migrations during initialization</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">creator_name</span> <span class="o">=</span> <span class="n">creator_name</span>
+
+    <span class="c1"># Determine schema name</span>
+    <span class="k">if</span> <span class="n">creator_name</span> <span class="ow">and</span> <span class="n">config</span><span class="o">.</span><span class="n">separate_metadata</span><span class="p">:</span>
+        <span class="n">safe_name</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">c</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;_&quot;</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">creator_name</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;creator_</span><span class="si">{</span><span class="n">safe_name</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pg_schema</span> <span class="ow">or</span> <span class="s2">&quot;public&quot;</span>
+
+    <span class="c1"># Build connection URLs</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_connection_url</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">async_db_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;postgresql://&quot;</span><span class="p">,</span> <span class="s2">&quot;postgresql+asyncpg://&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Create engines (much simpler than SQLite!)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span><span class="p">,</span>
+        <span class="n">pool_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_pool_size</span><span class="p">,</span>
+        <span class="n">max_overflow</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_max_overflow</span><span class="p">,</span>
+        <span class="n">pool_timeout</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_pool_timeout</span><span class="p">,</span>
+        <span class="n">pool_pre_ping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">pool_recycle</span><span class="o">=</span><span class="mi">3600</span><span class="p">,</span>
+        <span class="n">echo</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_async_engine</span> <span class="o">=</span> <span class="n">create_async_engine</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">async_db_url</span><span class="p">,</span>
+        <span class="n">pool_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_pool_size</span><span class="p">,</span>
+        <span class="n">max_overflow</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_max_overflow</span><span class="p">,</span>
+        <span class="n">pool_timeout</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pg_pool_timeout</span><span class="p">,</span>
+        <span class="n">pool_pre_ping</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">pool_recycle</span><span class="o">=</span><span class="mi">3600</span><span class="p">,</span>
+        <span class="n">echo</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Set search_path on all connections</span>
+    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span><span class="p">,</span> <span class="s2">&quot;connect&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
+    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_async_engine</span><span class="o">.</span><span class="n">sync_engine</span><span class="p">,</span> <span class="s2">&quot;connect&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
+
+    <span class="c1"># Create schema if needed</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_setup_schema</span><span class="p">()</span>
+
+    <span class="c1"># Run migrations</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">skip_migrations</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_migrations</span><span class="p">()</span>
+
+    <span class="c1"># Create session factories</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_sync_session_factory</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span>
+        <span class="n">bind</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span><span class="p">,</span>
+        <span class="n">expire_on_commit</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_async_session_factory</span> <span class="o">=</span> <span class="n">async_sessionmaker</span><span class="p">(</span>
+        <span class="n">bind</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_async_engine</span><span class="p">,</span>
+        <span class="n">expire_on_commit</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">class_</span><span class="o">=</span><span class="n">AsyncSession</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<h3 id="3-alembic-updates">3. Alembic Updates<a class="headerlink" href="#3-alembic-updates" title="Permanent link">&para;</a></h3>
+<p><strong>File: <code>alembic/env.py</code></strong></p>
+<p>Add schema support:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_migrations_online</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run migrations in &#39;online&#39; mode.&quot;&quot;&quot;</span>
+    <span class="c1"># Get schema from environment variable</span>
+    <span class="n">schema_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FANSLY_DB_SCHEMA&quot;</span><span class="p">,</span> <span class="s2">&quot;public&quot;</span><span class="p">)</span>
+
+    <span class="n">connectable</span> <span class="o">=</span> <span class="n">engine_from_config</span><span class="p">(</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">get_section</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">config_ini_section</span><span class="p">),</span>
+        <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;sqlalchemy.&quot;</span><span class="p">,</span>
+        <span class="n">poolclass</span><span class="o">=</span><span class="n">pool</span><span class="o">.</span><span class="n">NullPool</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">connectable</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span> <span class="k">as</span> <span class="n">connection</span><span class="p">:</span>
+        <span class="c1"># Set search_path before running migrations</span>
+        <span class="n">connection</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">text</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SET search_path TO </span><span class="si">{</span><span class="n">schema_name</span><span class="si">}</span><span class="s2">, public&quot;</span><span class="p">))</span>
+        <span class="n">connection</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+
+        <span class="n">context</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span>
+            <span class="n">connection</span><span class="o">=</span><span class="n">connection</span><span class="p">,</span>
+            <span class="n">target_metadata</span><span class="o">=</span><span class="n">target_metadata</span><span class="p">,</span>
+            <span class="c1"># Each schema has its own version table</span>
+            <span class="n">version_table_schema</span><span class="o">=</span><span class="n">schema_name</span> <span class="k">if</span> <span class="n">schema_name</span> <span class="o">!=</span> <span class="s2">&quot;public&quot;</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">with</span> <span class="n">context</span><span class="o">.</span><span class="n">begin_transaction</span><span class="p">():</span>
+            <span class="n">context</span><span class="o">.</span><span class="n">run_migrations</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="4-dependencies-update">4. Dependencies Update<a class="headerlink" href="#4-dependencies-update" title="Permanent link">&para;</a></h3>
+<p><strong>File: <code>pyproject.toml</code></strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">[tool.poetry.dependencies]</span>
+<span class="c1"># Remove: aiosqlite (SQLite async driver)</span>
+
+<span class="c1"># Add PostgreSQL drivers</span>
+<span class="n">asyncpg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^0.29.0&quot;</span><span class="w">  </span><span class="c1"># Async PostgreSQL driver</span>
+<span class="n">psycopg2-binary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^2.9.9&quot;</span><span class="w">  </span><span class="c1"># Sync PostgreSQL driver</span>
+
+<span class="c1"># Keep existing</span>
+<span class="n">sqlalchemy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^2.0.0&quot;</span>
+<span class="n">alembic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^1.13.0&quot;</span>
+</code></pre></div>
+<h3 id="5-code-complexity-reduction">5. Code Complexity Reduction<a class="headerlink" href="#5-code-complexity-reduction" title="Permanent link">&para;</a></h3>
+<p><strong>Before (SQLite):</strong>
+- <code>database.py</code>: ~1800 lines
+- Background sync thread
+- Complex cleanup coordination
+- In-memory database management
+- File I/O and atomic writes</p>
+<p><strong>After (PostgreSQL):</strong>
+- <code>database.py</code>: ~400 lines
+- No background threads
+- Simple cleanup
+- No file management
+- Native PostgreSQL features</p>
+<p><strong>Reduction: ~75% less code</strong></p>
+<h2 id="migration-strategy">Migration Strategy<a class="headerlink" href="#migration-strategy" title="Permanent link">&para;</a></h2>
+<h3 id="for-existing-users">For Existing Users<a class="headerlink" href="#for-existing-users" title="Permanent link">&para;</a></h3>
+<p>Provide a migration script <code>scripts/migrate_to_postgres.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Migrate all SQLite databases to PostgreSQL</span>
+python<span class="w"> </span>scripts/migrate_to_postgres.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--sqlite-path<span class="w"> </span>/path/to/metadata<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pg-host<span class="w"> </span>localhost<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pg-database<span class="w"> </span>fansly_metadata<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pg-user<span class="w"> </span>fansly_user
+
+<span class="c1"># Migrate specific creator</span>
+python<span class="w"> </span>scripts/migrate_to_postgres.py<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--sqlite-file<span class="w"> </span>/path/to/alice_metadata.sqlite3<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--creator-name<span class="w"> </span>alice<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pg-host<span class="w"> </span>localhost
+</code></pre></div>
+<p>The script will:
+1. Read all tables from SQLite
+2. Create PostgreSQL schema
+3. Copy all data preserving IDs and relationships
+4. Verify data integrity
+5. Create backup of SQLite before deletion</p>
+<h3 id="configuration-migration">Configuration Migration<a class="headerlink" href="#configuration-migration" title="Permanent link">&para;</a></h3>
+<p>Update <code>config.ini</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[Options]</span>
+<span class="c1"># Old (remove after migration)</span>
+<span class="c1"># metadata_db_file = /path/to/metadata_db.sqlite3</span>
+<span class="c1"># db_sync_commits = 1000</span>
+<span class="c1"># db_sync_seconds = 60</span>
+
+<span class="c1"># New</span>
+<span class="na">pg_host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">localhost</span>
+<span class="na">pg_port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">5432</span>
+<span class="na">pg_database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">fansly_metadata</span>
+<span class="na">pg_user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">fansly_user</span>
+<span class="c1"># pg_password =  # Use environment variable instead!</span>
+
+<span class="c1"># This setting works the same</span>
+<span class="na">separate_metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">true</span>
+</code></pre></div>
+<p>Environment variable for password:
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">FANSLY_PG_PASSWORD</span><span class="o">=</span>your_secure_password
+</code></pre></div></p>
+<h2 id="postgresql-setup">PostgreSQL Setup<a class="headerlink" href="#postgresql-setup" title="Permanent link">&para;</a></h2>
+<h3 id="initial-database-setup">Initial Database Setup<a class="headerlink" href="#initial-database-setup" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1">-- Create database</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">fansly_metadata</span>
+<span class="w">    </span><span class="k">WITH</span><span class="w"> </span><span class="k">ENCODING</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;UTF8&#39;</span>
+<span class="w">         </span><span class="n">LC_COLLATE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;en_US.UTF-8&#39;</span>
+<span class="w">         </span><span class="n">LC_CTYPE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;en_US.UTF-8&#39;</span><span class="p">;</span>
+
+<span class="c1">-- Create user</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="n">fansly_user</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="n">PASSWORD</span><span class="w"> </span><span class="s1">&#39;your_secure_password&#39;</span><span class="p">;</span>
+
+<span class="c1">-- Grant privileges</span>
+<span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">fansly_metadata</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+
+<span class="c1">-- Connect to database</span>
+<span class="err">\</span><span class="k">c</span><span class="w"> </span><span class="n">fansly_metadata</span>
+
+<span class="c1">-- Grant schema creation rights</span>
+<span class="k">GRANT</span><span class="w"> </span><span class="k">CREATE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">fansly_metadata</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+
+<span class="c1">-- For existing public schema</span>
+<span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+<span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+<span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="n">SEQUENCES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+
+<span class="c1">-- Set default privileges for future tables</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span>
+<span class="w">    </span><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span>
+<span class="w">    </span><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">SEQUENCES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="docker-compose-setup-optional">Docker Compose Setup (Optional)<a class="headerlink" href="#docker-compose-setup-optional" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># docker-compose.yml</span>
+<span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.8&#39;</span>
+
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">postgres</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres:16-alpine</span>
+<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">POSTGRES_DB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_metadata</span>
+<span class="w">      </span><span class="nt">POSTGRES_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_user</span>
+<span class="w">      </span><span class="nt">POSTGRES_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_secure_password</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
+<span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres_data:/var/lib/postgresql/data</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./init-db.sql:/docker-entrypoint-initdb.d/init.sql</span>
+<span class="w">    </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+
+<span class="nt">volumes</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">postgres_data</span><span class="p">:</span>
+</code></pre></div>
+<h2 id="implementation-checklist">Implementation Checklist<a class="headerlink" href="#implementation-checklist" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-preparation">Phase 1: Preparation<a class="headerlink" href="#phase-1-preparation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Add PostgreSQL dependencies to <code>pyproject.toml</code></li>
+<li>[ ] Add PostgreSQL config fields to <code>FanslyConfig</code></li>
+<li>[ ] Add command-line args for PostgreSQL</li>
+<li>[ ] Update config file parsing</li>
+</ul>
+<h3 id="phase-2-database-class-refactor">Phase 2: Database Class Refactor<a class="headerlink" href="#phase-2-database-class-refactor" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Create <code>_build_connection_url()</code> method</li>
+<li>[ ] Create <code>_setup_schema()</code> method</li>
+<li>[ ] Create <code>_set_search_path()</code> event listener</li>
+<li>[ ] Simplify <code>__init__()</code> - remove SQLite code</li>
+<li>[ ] Update <code>session_scope()</code> for PostgreSQL</li>
+<li>[ ] Update <code>async_session_scope()</code> for PostgreSQL</li>
+<li>[ ] Simplify <code>cleanup()</code> - no sync thread</li>
+<li>[ ] Simplify <code>close_sync()</code> - just dispose engines</li>
+<li>[ ] Remove all SQLite-specific methods</li>
+</ul>
+<h3 id="phase-3-alembic-updates">Phase 3: Alembic Updates<a class="headerlink" href="#phase-3-alembic-updates" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Update <code>alembic/env.py</code> for schema support</li>
+<li>[ ] Test migrations in different schemas</li>
+<li>[ ] Update migration documentation</li>
+</ul>
+<h3 id="phase-4-migration-script">Phase 4: Migration Script<a class="headerlink" href="#phase-4-migration-script" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Write <code>scripts/migrate_to_postgres.py</code></li>
+<li>[ ] Add data validation</li>
+<li>[ ] Add progress reporting</li>
+<li>[ ] Add rollback capability</li>
+</ul>
+<h3 id="phase-5-testing">Phase 5: Testing<a class="headerlink" href="#phase-5-testing" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Test with single creator (public schema)</li>
+<li>[ ] Test with multiple creators (separate schemas)</li>
+<li>[ ] Test migrations</li>
+<li>[ ] Test concurrent access</li>
+<li>[ ] Performance testing</li>
+</ul>
+<h3 id="phase-6-documentation">Phase 6: Documentation<a class="headerlink" href="#phase-6-documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Update README with PostgreSQL requirements</li>
+<li>[ ] Document configuration options</li>
+<li>[ ] Create migration guide</li>
+<li>[ ] Add troubleshooting section</li>
+<li>[ ] Update CLAUDE.md</li>
+</ul>
+<h2 id="benefits-summary">Benefits Summary<a class="headerlink" href="#benefits-summary" title="Permanent link">&para;</a></h2>
+<h3 id="code-quality">Code Quality<a class="headerlink" href="#code-quality" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>-75% code</strong> in <code>database.py</code></li>
+<li><strong>No background threads</strong> - simpler debugging</li>
+<li><strong>No file I/O</strong> - cleaner architecture</li>
+<li><strong>Better error handling</strong> - PostgreSQL errors are clearer</li>
+</ul>
+<h3 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Better concurrent writes</strong> - no file locking</li>
+<li><strong>Connection pooling</strong> - efficient reuse</li>
+<li><strong>No sync overhead</strong> - writes go directly to DB</li>
+<li><strong>Query optimizer</strong> - PostgreSQL is excellent</li>
+</ul>
+<h3 id="reliability">Reliability<a class="headerlink" href="#reliability" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ACID guarantees</strong> - native to PostgreSQL</li>
+<li><strong>No corruption</strong> - no file system issues</li>
+<li><strong>Better backups</strong> - use <code>pg_dump</code></li>
+<li><strong>Point-in-time recovery</strong> - built into PostgreSQL</li>
+</ul>
+<h3 id="scalability">Scalability<a class="headerlink" href="#scalability" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Many creators</strong> - schemas scale better than files</li>
+<li><strong>Network storage</strong> - works great over network</li>
+<li><strong>Monitoring</strong> - use standard PostgreSQL tools</li>
+<li><strong>Maintenance</strong> - vacuum, analyze, etc.</li>
+</ul>
+<h2 id="risks-and-mitigations">Risks and Mitigations<a class="headerlink" href="#risks-and-mitigations" title="Permanent link">&para;</a></h2>
+<h3 id="risk-1-user-setup-complexity">Risk 1: User Setup Complexity<a class="headerlink" href="#risk-1-user-setup-complexity" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: Users need to install and configure PostgreSQL</p>
+<p><strong>Mitigation</strong>:
+- Provide Docker Compose setup
+- Write detailed setup guide
+- Include automated setup script
+- Provide cloud PostgreSQL options (AWS RDS, etc.)</p>
+<h3 id="risk-2-data-migration-issues">Risk 2: Data Migration Issues<a class="headerlink" href="#risk-2-data-migration-issues" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: Migration script might fail or corrupt data</p>
+<p><strong>Mitigation</strong>:
+- Migration script creates SQLite backup first
+- Validate data after migration
+- Provide rollback procedure
+- Test extensively before release</p>
+<h3 id="risk-3-performance-regression">Risk 3: Performance Regression<a class="headerlink" href="#risk-3-performance-regression" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: PostgreSQL might be slower for small databases</p>
+<p><strong>Mitigation</strong>:
+- Run performance benchmarks
+- Tune PostgreSQL configuration
+- Use connection pooling
+- PostgreSQL is generally faster for concurrent access</p>
+<h3 id="risk-4-breaking-changes">Risk 4: Breaking Changes<a class="headerlink" href="#risk-4-breaking-changes" title="Permanent link">&para;</a></h3>
+<p><strong>Risk</strong>: Existing installations break on update</p>
+<p><strong>Mitigation</strong>:
+- Detect SQLite on startup
+- Prompt to run migration
+- Keep migration script maintained
+- Version number bump to indicate breaking change</p>
+<h2 id="timeline">Timeline<a class="headerlink" href="#timeline" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Day 1</strong>: Configuration and dependencies</li>
+<li><strong>Day 2</strong>: Database class refactor</li>
+<li><strong>Day 3</strong>: Alembic updates and testing</li>
+<li><strong>Day 4</strong>: Migration script development</li>
+<li><strong>Day 5</strong>: Testing and documentation</li>
+<li><strong>Day 6</strong>: Final testing and release prep</li>
+</ul>
+<p><strong>Total: 1 week</strong> for complete implementation and testing</p>
+<h2 id="rollback-plan">Rollback Plan<a class="headerlink" href="#rollback-plan" title="Permanent link">&para;</a></h2>
+<p>If PostgreSQL doesn't work out:</p>
+<ol>
+<li>Keep SQLite code in a branch</li>
+<li>Tag the last SQLite version</li>
+<li>Allow users to downgrade</li>
+<li>Provide reverse migration (PostgreSQL → SQLite)</li>
+</ol>
+<h2 id="conclusion">Conclusion<a class="headerlink" href="#conclusion" title="Permanent link">&para;</a></h2>
+<p>Hard cutover to PostgreSQL is the right choice:</p>
+<ul>
+<li><strong>Simpler implementation</strong> (1 week vs 3 weeks)</li>
+<li><strong>Better architecture</strong> (no background threads)</li>
+<li><strong>More maintainable</strong> (75% less code)</li>
+<li><strong>More scalable</strong> (schemas vs files)</li>
+<li><strong>Industry standard</strong> (PostgreSQL is proven)</li>
+</ul>
+<p>The complexity of supporting both databases is not worth the effort when PostgreSQL is superior for this use case.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../../testing/snyk-violations-from-contributers/" class="btn btn-neutral float-left" title="Snyk Violations (derived)"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../../testing/snyk-violations-from-contributers/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/testing/V0_10_MOCK_PATTERNS/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>v0.10 Mock Patterns (archive) - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "v0.10 Mock Patterns (archive)";
+        var mkdocs_page_input_path = "testing/V0_10_MOCK_PATTERNS.md";
+        var mkdocs_page_url = "/fansly-scraper/testing/V0_10_MOCK_PATTERNS/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">v0.10 Mock Patterns (archive)</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-1-storeget_or_create-storesave-creates-new-entity">Pattern 1: store.get_or_create() + store.save() Creates New Entity</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#old-broken">❌ Old (Broken):</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#new-correct">✅ New (Correct):</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-2-dont-assert-on-library-implementation-details">Pattern 2: Don't Assert on Library Implementation Details</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#old-broken_1">❌ Old (Broken):</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#new-correct_1">✅ New (Correct):</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-3-use-debug-logging-to-discover-actual-behavior">Pattern 3: Use Debug Logging to Discover Actual Behavior</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-4-performer-deduplication-sequential-searches">Pattern 4: Performer Deduplication (Sequential Searches)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#correct-unchanged">✅ Correct (Unchanged):</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-5-media-processing-with-variants">Pattern 5: Media Processing with Variants</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#correct-pattern">✅ Correct Pattern:</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#common-failures-fixes">Common Failures &amp; Fixes</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#failure-missing-studiocreate-in-response">Failure: "Missing 'studioCreate' in response"</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#failure-assert-1-1-per_page">Failure: "assert 1 == -1" (per_page)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#failure-assert-findscenesbypathregex-in-query">Failure: "assert 'findScenesByPathRegex' in query"</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#testing-checklist">Testing Checklist</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#success-metrics">Success Metrics</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#pattern-6-factory-updates-for-v0104">Pattern 6: Factory Updates for v0.10.4</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#uuid-auto-generation">UUID Auto-Generation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#automatic-unset-pattern">Automatic UNSET Pattern</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#test-updates-needed">Test Updates Needed</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Testing</li>
+      <li class="breadcrumb-item active">v0.10 Mock Patterns (archive)</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/testing/V0_10_MOCK_PATTERNS.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="v0104-mock-patterns-for-stash-graphql-client-tests">v0.10.4 Mock Patterns for stash-graphql-client Tests<a class="headerlink" href="#v0104-mock-patterns-for-stash-graphql-client-tests" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>Documented patterns for updating tests to match stash-graphql-client v0.10.4 behavior.</p>
+<p><strong>Current Version:</strong> v0.10.4 (patterns apply to v0.10.3+)</p>
+<p>Based on: Fixing test_creator_processing.py (10/10 tests passing) and factory pattern updates</p>
+<hr />
+<h2 id="pattern-1-storeget_or_create-storesave-creates-new-entity">Pattern 1: <code>store.get_or_create()</code> + <code>store.save()</code> Creates New Entity<a class="headerlink" href="#pattern-1-storeget_or_create-storesave-creates-new-entity" title="Permanent link">&para;</a></h2>
+<p><strong>Behavior:</strong> <code>get_or_create()</code> attempts to create immediately, not find first.</p>
+<h3 id="old-broken">❌ Old (Broken):<a class="headerlink" href="#old-broken" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Test expected: findStudios → findStudios (two searches)</span>
+<span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="c1"># findStudios for Fansly network</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">fansly_result</span><span class="p">)),</span>
+        <span class="c1"># findStudios for creator studio (WRONG - doesn&#39;t happen!)</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">creator_result</span><span class="p">)),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="new-correct">✅ New (Correct):<a class="headerlink" href="#new-correct" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Actual behavior: findStudios → studioCreate (search then create)</span>
+<span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="c1"># findStudios for Fansly network</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">fansly_result</span><span class="p">)),</span>
+        <span class="c1"># studioCreate for creator studio (get_or_create tries to create)</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;studioCreate&quot;</span><span class="p">,</span> <span class="n">creator_dict</span><span class="p">)),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Why:</strong> <code>store.get_or_create()</code> doesn't check identity map cache first. It tries to create, then Stash returns existing if duplicate. <code>store.save()</code> sends the create mutation.</p>
+<p><strong>Files Fixed:</strong></p>
+<ul>
+<li><code>test_creator_processing.py::test_find_existing_studio</code></li>
+</ul>
+<hr />
+<h2 id="pattern-2-dont-assert-on-library-implementation-details">Pattern 2: Don't Assert on Library Implementation Details<a class="headerlink" href="#pattern-2-dont-assert-on-library-implementation-details" title="Permanent link">&para;</a></h2>
+<p><strong>Behavior:</strong> Library defaults changed between versions.</p>
+<h3 id="old-broken_1">❌ Old (Broken):<a class="headerlink" href="#old-broken_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># This broke when library changed per_page default from -1 to 1</span>
+<span class="n">filter_params</span> <span class="o">=</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filter&quot;</span><span class="p">,</span> <span class="p">{})</span>
+<span class="k">assert</span> <span class="n">filter_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;per_page&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span>  <span class="c1"># Hardcoded expectation</span>
+</code></pre></div>
+<h3 id="new-correct_1">✅ New (Correct):<a class="headerlink" href="#new-correct_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Test business logic, not library implementation</span>
+<span class="n">performer_filter</span> <span class="o">=</span> <span class="n">variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;performer_filter&quot;</span><span class="p">,</span> <span class="p">{})</span>
+<span class="n">name_filter</span> <span class="o">=</span> <span class="n">performer_filter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="p">{})</span>
+<span class="k">assert</span> <span class="n">name_filter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;Test User&quot;</span>  <span class="c1"># Business logic</span>
+<span class="k">assert</span> <span class="n">name_filter</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;modifier&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;EQUALS&quot;</span>
+<span class="c1"># Don&#39;t assert on per_page - that&#39;s library implementation</span>
+</code></pre></div>
+<p><strong>Why:</strong> Library internals can change. Tests should validate business logic (correct queries, correct data), not implementation details (pagination defaults).</p>
+<p><strong>Files Fixed:</strong></p>
+<ul>
+<li><code>test_creator_processing.py::test_process_creator</code></li>
+</ul>
+<hr />
+<h2 id="pattern-3-use-debug-logging-to-discover-actual-behavior">Pattern 3: Use Debug Logging to Discover Actual Behavior<a class="headerlink" href="#pattern-3-use-debug-logging-to-discover-actual-behavior" title="Permanent link">&para;</a></h2>
+<p><strong>Method:</strong> Add try/finally block to print all GraphQL calls.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Add this to any failing test to see actual GraphQL calls</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="c1"># ... test code ...</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">some_method</span><span class="p">()</span>
+<span class="k">finally</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;=&quot;</span><span class="o">*</span><span class="mi">80</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;DEBUG: GraphQL Calls Made&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="o">*</span><span class="mi">80</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
+        <span class="n">req</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">:&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Request query: </span><span class="si">{</span><span class="n">req</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;query&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="p">)[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Request variables: </span><span class="si">{</span><span class="n">req</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;variables&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">{})</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="o">*</span><span class="mi">80</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Why:</strong> Don't guess what the library does - observe it! This shows:</p>
+<ul>
+<li>Exact query types sent (<code>findStudios</code>, <code>studioCreate</code>, etc.)</li>
+<li>Variable values used</li>
+<li>Response keys expected</li>
+<li>Call sequence and count</li>
+</ul>
+<p><strong>Example Output:</strong></p>
+<div class="highlight"><pre><span></span><code>Call 0:
+  Request query: query FindPerformers...
+  Request variables: {&#39;filter&#39;: {&#39;page&#39;: 1, &#39;per_page&#39;: 1}, ...}
+  Response: {&#39;data&#39;: {&#39;findPerformers&#39;: {...}}}
+
+Call 1:
+  Request query: mutation CreateStudio...
+  Request variables: {&#39;input&#39;: {&#39;name&#39;: &#39;test_user (Fansly)&#39;, ...}}
+  Response: {&#39;data&#39;: {&#39;findStudios&#39;: {...}}}  # ← BUG! Should be &#39;studioCreate&#39;
+</code></pre></div>
+<hr />
+<h2 id="pattern-4-performer-deduplication-sequential-searches">Pattern 4: Performer Deduplication (Sequential Searches)<a class="headerlink" href="#pattern-4-performer-deduplication-sequential-searches" title="Permanent link">&para;</a></h2>
+<p><strong>Behavior:</strong> <code>_get_or_create_performer()</code> tries 3 sequential searches before creating.</p>
+<h3 id="correct-unchanged">✅ Correct (Unchanged):<a class="headerlink" href="#correct-unchanged" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="c1"># Search 1: By exact name (not found)</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty_result</span><span class="p">)),</span>
+        <span class="c1"># Search 2: By alias (not found)</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty_result</span><span class="p">)),</span>
+        <span class="c1"># Search 3: By URL (not found)</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty_result</span><span class="p">)),</span>
+        <span class="c1"># Create new performer</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;performerCreate&quot;</span><span class="p">,</span> <span class="n">performer_dict</span><span class="p">)),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Why:</strong> This pattern is CORRECT and still works. Don't change it.</p>
+<p><strong>Files Working:</strong></p>
+<ul>
+<li><code>test_creator_processing.py::test_process_creator_creates_new_performer</code></li>
+</ul>
+<hr />
+<h2 id="pattern-5-media-processing-with-variants">Pattern 5: Media Processing with Variants<a class="headerlink" href="#pattern-5-media-processing-with-variants" title="Permanent link">&para;</a></h2>
+<p><strong>Behavior:</strong> Each file processes independently with full lookups.</p>
+<h3 id="correct-pattern">✅ Correct Pattern:<a class="headerlink" href="#correct-pattern" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># For 3 files (1 image + 2 scenes):</span>
+<span class="c1"># Expected: 14 GraphQL calls total</span>
+<span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="c1"># Calls 0-1: Find all files by path</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findImages&quot;</span><span class="p">,</span> <span class="n">images_result</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findScenes&quot;</span><span class="p">,</span> <span class="n">scenes_result</span><span class="p">)),</span>
+
+        <span class="c1"># FILE 1 (image): Calls 2-5</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">fansly</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;studioCreate&quot;</span><span class="p">,</span> <span class="n">creator</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;imageUpdate&quot;</span><span class="p">,</span> <span class="n">updated_image</span><span class="p">)),</span>
+
+        <span class="c1"># FILE 2 (scene): Calls 6-9</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">fansly</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;studioCreate&quot;</span><span class="p">,</span> <span class="n">creator</span><span class="p">)),</span>  <span class="c1"># Tries again!</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;sceneUpdate&quot;</span><span class="p">,</span> <span class="n">updated_scene</span><span class="p">)),</span>
+
+        <span class="c1"># FILE 3 (scene variant): Calls 10-13</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">,</span> <span class="n">empty</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;findStudios&quot;</span><span class="p">,</span> <span class="n">fansly</span><span class="p">)),</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;studioCreate&quot;</span><span class="p">,</span> <span class="n">creator</span><span class="p">)),</span>  <span class="c1"># Tries again!</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">create_graphql_response</span><span class="p">(</span><span class="s2">&quot;sceneUpdate&quot;</span><span class="p">,</span> <span class="n">updated_variant</span><span class="p">)),</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><strong>Why:</strong> Each file gets independent performer/studio lookups. Identity map doesn't prevent duplicate <code>studioCreate</code> attempts.</p>
+<p><strong>Files Fixed:</strong></p>
+<ul>
+<li><code>tests/stash/processing/unit/media_mixin/test_media_processing.py::test_process_media_with_variants</code></li>
+</ul>
+<hr />
+<h2 id="common-failures-fixes">Common Failures &amp; Fixes<a class="headerlink" href="#common-failures-fixes" title="Permanent link">&para;</a></h2>
+<h3 id="failure-missing-studiocreate-in-response">Failure: "Missing 'studioCreate' in response"<a class="headerlink" href="#failure-missing-studiocreate-in-response" title="Permanent link">&para;</a></h3>
+<p><strong>Cause:</strong> Mock returns <code>findStudios</code> but code sends <code>studioCreate</code>
+<strong>Fix:</strong> Change mock response key from <code>findStudios</code> to <code>studioCreate</code></p>
+<h3 id="failure-assert-1-1-per_page">Failure: "assert 1 == -1" (per_page)<a class="headerlink" href="#failure-assert-1-1-per_page" title="Permanent link">&para;</a></h3>
+<p><strong>Cause:</strong> Asserting on library default that changed
+<strong>Fix:</strong> Remove assertion on <code>per_page</code>, test business logic instead</p>
+<h3 id="failure-assert-findscenesbypathregex-in-query">Failure: "assert 'findScenesByPathRegex' in query"<a class="headerlink" href="#failure-assert-findscenesbypathregex-in-query" title="Permanent link">&para;</a></h3>
+<p><strong>Cause:</strong> GraphQL operation name changed in library
+<strong>Fix:</strong> Change assertion to <code>'findScenes'</code> (without ByPathRegex)</p>
+<hr />
+<h2 id="testing-checklist">Testing Checklist<a class="headerlink" href="#testing-checklist" title="Permanent link">&para;</a></h2>
+<p>When updating a test:</p>
+<ul>
+<li>[ ] Add debug logging to see actual GraphQL calls</li>
+<li>[ ] Match mock response keys to actual mutations (<code>studioCreate</code> not <code>findStudios</code>)</li>
+<li>[ ] Don't assert on library defaults (<code>per_page</code>, <code>page</code>, etc.)</li>
+<li>[ ] Test business logic (query type, variables, data flow)</li>
+<li>[ ] Remove debug logging after test passes</li>
+<li>[ ] Update comments to reflect actual behavior</li>
+</ul>
+<hr />
+<h2 id="success-metrics">Success Metrics<a class="headerlink" href="#success-metrics" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>test_creator_processing.py</strong>: 10/10 passing ✅</li>
+<li><strong>test_media_processing.py</strong>: 3/3 passing ✅</li>
+</ul>
+<p><strong>Patterns work!</strong> Apply to remaining test failures.</p>
+<hr />
+<h2 id="pattern-6-factory-updates-for-v0104">Pattern 6: Factory Updates for v0.10.4<a class="headerlink" href="#pattern-6-factory-updates-for-v0104" title="Permanent link">&para;</a></h2>
+<p><strong>Updated:</strong> 2026-01-09</p>
+<h3 id="uuid-auto-generation">UUID Auto-Generation<a class="headerlink" href="#uuid-auto-generation" title="Permanent link">&para;</a></h3>
+<p>Factories no longer manually assign IDs. Pydantic models auto-generate temp UUIDs:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ CORRECT (v0.10.4)</span>
+<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>  <span class="c1"># Gets temp UUID automatically</span>
+<span class="c1"># performer.id = &quot;f47ac10b-58cc-...&quot; (temp UUID)</span>
+
+<span class="c1"># To simulate server-returned object (override temp UUID):</span>
+<span class="n">existing</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="s2">&quot;123&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>  <span class="c1"># Real ID from server</span>
+</code></pre></div>
+<h3 id="automatic-unset-pattern">Automatic UNSET Pattern<a class="headerlink" href="#automatic-unset-pattern" title="Permanent link">&para;</a></h3>
+<p>Fields not assigned in factories = automatic UNSET (don't explicitly set):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ CORRECT (v0.10.4)</span>
+<span class="n">scene</span> <span class="o">=</span> <span class="n">SceneFactory</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>  <span class="c1"># Only title set</span>
+<span class="c1"># All other fields are automatic UNSET (not sent in mutation)</span>
+
+<span class="c1"># ❌ OLD (v0.10.3)</span>
+<span class="n">scene</span> <span class="o">=</span> <span class="n">SceneFactory</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">,</span> <span class="n">paths</span><span class="o">=</span><span class="n">UNSET</span><span class="p">)</span>  <span class="c1"># Don&#39;t do this</span>
+</code></pre></div>
+<h3 id="test-updates-needed">Test Updates Needed<a class="headerlink" href="#test-updates-needed" title="Permanent link">&para;</a></h3>
+<p>Tests expecting specific IDs from factories need updating:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ OLD (will fail)</span>
+<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;100&quot;</span>  <span class="c1"># Fails - gets temp UUID now</span>
+
+<span class="c1"># ✅ CORRECT</span>
+<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="s2">&quot;100&quot;</span><span class="p">)</span>  <span class="c1"># Override temp UUID</span>
+<span class="k">assert</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;100&quot;</span>
+
+<span class="c1"># OR test the business logic, not the ID:</span>
+<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">performer</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Test&quot;</span>  <span class="c1"># Test what matters</span>
+</code></pre></div>
+<p><strong>Status:</strong> Factory patterns updated. Tests need updating for new behavior.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../STASH_TEST_MIGRATION_TODO/" class="btn btn-neutral float-left" title="Stash Test Refactor"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../snyk-violations-from-contributers/" class="btn btn-neutral float-right" title="Snyk Violations (derived)">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../STASH_TEST_MIGRATION_TODO/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../snyk-violations-from-contributers/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

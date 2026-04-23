@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-field-transformations/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Stash Field Transformations - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Stash Field Transformations";
+        var mkdocs_page_input_path = "reference/Fansly-Stash-field-transformations.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-Stash-field-transformations/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Stash Field Transformations</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#direct-mappings">Direct Mappings</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#account-performer">Account → Performer</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#accountmediabundle-gallery">AccountMediaBundle → Gallery</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#complex-mappings">Complex Mappings</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#post-scene-single-video">Post → Scene (Single Video)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#post-gallery-multiple-media">Post → Gallery (Multiple Media)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#wall-gallery-with-chapters">Wall → Gallery with Chapters</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#hashtag-tag">Hashtag → Tag</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#special-cases">Special Cases</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#media-variants">Media Variants</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#post-mentions">Post Mentions</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#wall-posts-organization">Wall Posts Organization</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#studio-assignment">Studio Assignment</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#file-management">File Management</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#field-transformations">Field Transformations</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#timestamps">Timestamps</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#content-formatting">Content Formatting</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#tag-formatting">Tag Formatting</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#url-generation">URL Generation</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Stash Field Transformations</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-Stash-field-transformations.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-to-stash-field-transformations">Fansly to Stash Field Transformations<a class="headerlink" href="#fansly-to-stash-field-transformations" title="Permanent link">&para;</a></h1>
+<h2 id="direct-mappings">Direct Mappings<a class="headerlink" href="#direct-mappings" title="Permanent link">&para;</a></h2>
+<h3 id="account-performer">Account → Performer<a class="headerlink" href="#account-performer" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Account</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>                  <span class="c1"># Used for external reference</span>
+    <span class="n">username</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># → name (if no displayName) or disambiguation</span>
+    <span class="n">displayName</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># → name (if present)</span>
+    <span class="n">about</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>       <span class="c1"># → details (append to)</span>
+    <span class="n">location</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>    <span class="c1"># → country</span>
+    <span class="n">avatar</span><span class="p">:</span> <span class="n">Media</span> <span class="o">|</span> <span class="kc">None</span>    <span class="c1"># → image (requires download and path mapping)</span>
+    <span class="n">createdAt</span><span class="p">:</span> <span class="nb">int</span>         <span class="c1"># → details (include in formatted text)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Performer</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ← displayName or username</span>
+    <span class="n">disambiguation</span><span class="p">:</span> <span class="nb">str</span>    <span class="c1"># ← username (if displayName used for name)</span>
+    <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← formatted: about + creation date + source info</span>
+    <span class="n">country</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← location</span>
+    <span class="n">image</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← downloaded avatar path</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ← f&quot;https://fansly.com/{username}/posts&quot;</span>
+    <span class="c1"># Not used:</span>
+    <span class="n">favorite</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">ignore_auto_tag</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">death_date</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">career_length</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+<h3 id="accountmediabundle-gallery">AccountMediaBundle → Gallery<a class="headerlink" href="#accountmediabundle-gallery" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">AccountMediaBundle</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>               <span class="c1"># Used for external reference</span>
+    <span class="n">accountId</span><span class="p">:</span> <span class="nb">int</span>        <span class="c1"># → performer_ids[0] (via Account→Performer mapping)</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>     <span class="c1"># → title</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># → details (part of)</span>
+    <span class="n">createdAt</span><span class="p">:</span> <span class="nb">int</span>        <span class="c1"># → date (converted to ISO 8601)</span>
+    <span class="n">media</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Media</span><span class="p">]</span>    <span class="c1"># → files (downloaded and path mapped)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Gallery</span><span class="p">:</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← title or generated from content</span>
+    <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← formatted: description + metadata</span>
+    <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← createdAt (ISO 8601)</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] (mapped to Performer)</span>
+    <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>       <span class="c1"># ← from config.user_names current creator</span>
+    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>     <span class="c1"># ← downloaded media paths</span>
+</code></pre></div>
+<h2 id="complex-mappings">Complex Mappings<a class="headerlink" href="#complex-mappings" title="Permanent link">&para;</a></h2>
+<h3 id="post-scene-single-video">Post → Scene (Single Video)<a class="headerlink" href="#post-scene-single-video" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Post</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>              <span class="c1"># Used for external reference</span>
+    <span class="n">accountId</span><span class="p">:</span> <span class="nb">int</span>       <span class="c1"># → performer_ids[0] (via Account→Performer mapping)</span>
+    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># → details (part of)</span>
+    <span class="n">createdAt</span><span class="p">:</span> <span class="nb">int</span>      <span class="c1"># → date (ISO 8601)</span>
+    <span class="n">attachments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Attachment</span><span class="p">]</span> <span class="c1"># → path (via Media download)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Scene</span><span class="p">:</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from content or defaults</span>
+    <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># ← Formatted: content + metadata + source</span>
+    <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← createdAt (ISO 8601)</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Downloaded video path</span>
+    <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] + mentions</span>
+    <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>     <span class="c1"># ← from config.user_names current creator</span>
+    <span class="n">file_mod_time</span><span class="p">:</span> <span class="nb">str</span> <span class="c1"># ← From downloaded file</span>
+    <span class="n">height</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># ← From video metadata</span>
+    <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># ← From video metadata</span>
+    <span class="n">framerate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># ← From video metadata</span>
+    <span class="n">bitrate</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># ← From video metadata</span>
+</code></pre></div>
+<h3 id="post-gallery-multiple-media">Post → Gallery (Multiple Media)<a class="headerlink" href="#post-gallery-multiple-media" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Post</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>              <span class="c1"># Used for external reference</span>
+    <span class="n">accountId</span><span class="p">:</span> <span class="nb">int</span>       <span class="c1"># → performer_ids[0]</span>
+    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># → details (part of)</span>
+    <span class="n">createdAt</span><span class="p">:</span> <span class="nb">int</span>      <span class="c1"># → date (ISO 8601)</span>
+    <span class="n">attachments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Attachment</span><span class="p">]</span> <span class="c1"># → files (via Media downloads)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Gallery</span><span class="p">:</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from content</span>
+    <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># ← Formatted: content + metadata</span>
+    <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← createdAt (ISO 8601)</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] + mentions</span>
+    <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>     <span class="c1"># ← from config.user_names current creator</span>
+    <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>   <span class="c1"># ← Downloaded media paths</span>
+</code></pre></div>
+<h3 id="wall-gallery-with-chapters">Wall → Gallery with Chapters<a class="headerlink" href="#wall-gallery-with-chapters" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Wall</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>              <span class="c1"># Used for external reference</span>
+    <span class="n">accountId</span><span class="p">:</span> <span class="nb">int</span>       <span class="c1"># → performer_ids[0]</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># → details (part of)</span>
+    <span class="n">posts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Post</span><span class="p">]</span>    <span class="c1"># → chapters (via GalleryChapter)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">GalleryChapter</span><span class="p">:</span>
+    <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from post content</span>
+    <span class="n">image_index</span><span class="p">:</span> <span class="nb">int</span>    <span class="c1"># ← First image from post</span>
+    <span class="c1"># Each post&#39;s media becomes part of gallery.files</span>
+</code></pre></div>
+<h3 id="hashtag-tag">Hashtag → Tag<a class="headerlink" href="#hashtag-tag" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Hashtag</span><span class="p">:</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">int</span>             <span class="c1"># Used for external reference</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># → name (formatted) and aliases</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Tag</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← Formatted hashtag value</span>
+    <span class="n">aliases</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>  <span class="c1"># ← Original + variations</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="c1"># ← Optional context</span>
+    <span class="n">parent_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← For hierarchical tags (manual)</span>
+</code></pre></div>
+<h2 id="special-cases">Special Cases<a class="headerlink" href="#special-cases" title="Permanent link">&para;</a></h2>
+<h3 id="media-variants">Media Variants<a class="headerlink" href="#media-variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Choose highest quality for download</li>
+<li>Skip streaming variants (HLS/DASH)</li>
+<li>Store thumbnails if needed</li>
+<li>Handle both image and video metadata</li>
+</ul>
+<h3 id="post-mentions">Post Mentions<a class="headerlink" href="#post-mentions" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add mentioned performers to Scene/Gallery</li>
+<li>Store as relationship for future updates</li>
+<li>Handle missing/unresolved mentions</li>
+</ul>
+<h3 id="wall-posts-organization">Wall Posts Organization<a class="headerlink" href="#wall-posts-organization" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Wall becomes Gallery</li>
+<li>Each Post becomes Chapter</li>
+<li>All media from Posts in files</li>
+<li>Maintain order and grouping</li>
+</ol>
+<h3 id="studio-assignment">Studio Assignment<a class="headerlink" href="#studio-assignment" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Based on config.user_names entry</li>
+<li>All content from creator goes to their Studio</li>
+<li>Helps organize content by source</li>
+</ul>
+<h3 id="file-management">File Management<a class="headerlink" href="#file-management" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Download to configured paths</li>
+<li>Maintain original names where possible</li>
+<li>Handle duplicates</li>
+<li>Track downloaded state</li>
+</ol>
+<h2 id="field-transformations">Field Transformations<a class="headerlink" href="#field-transformations" title="Permanent link">&para;</a></h2>
+<h3 id="timestamps">Timestamps<a class="headerlink" href="#timestamps" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">convert_timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert Fansly timestamp to ISO 8601 date.&quot;&quot;&quot;</span>
+    <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">ts</span> <span class="o">/</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="content-formatting">Content Formatting<a class="headerlink" href="#content-formatting" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">format_details</span><span class="p">(</span>
+    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">source_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">created_at</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format content and metadata as details.&quot;&quot;&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;Source: </span><span class="si">{</span><span class="n">source_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;Created: </span><span class="si">{</span><span class="n">convert_timestamp</span><span class="p">(</span><span class="n">created_at</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">content</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">strip_html</span><span class="p">(</span><span class="n">content</span><span class="p">)])</span>
+
+    <span class="k">if</span> <span class="n">metadata</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;Metadata:&quot;</span><span class="p">])</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="tag-formatting">Tag Formatting<a class="headerlink" href="#tag-formatting" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">format_tag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format hashtag as tag name and aliases.&quot;&quot;&quot;</span>
+    <span class="c1"># Original form becomes alias</span>
+    <span class="n">aliases</span> <span class="o">=</span> <span class="p">[</span><span class="n">value</span><span class="p">]</span>
+
+    <span class="c1"># Split and capitalize words</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;[A-Z]?[a-z]+|\d+&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">words</span><span class="p">)</span>
+
+    <span class="c1"># Add common variations</span>
+    <span class="n">aliases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">name</span><span class="p">,</span> <span class="n">aliases</span>
+</code></pre></div>
+<h3 id="url-generation">URL Generation<a class="headerlink" href="#url-generation" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_fansly_url</span><span class="p">(</span><span class="n">username</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">type_</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">id_</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate Fansly URL.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">username</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">type_</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">id_</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-Stash-performer-mapping/" class="btn btn-neutral float-left" title="Performer Mapping"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../CHECKKEY_JSPYBRIDGE/" class="btn btn-neutral float-right" title="CheckKey Extraction">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-Stash-performer-mapping/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../CHECKKEY_JSPYBRIDGE/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

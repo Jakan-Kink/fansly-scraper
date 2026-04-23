@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/testing/STASH_TEST_MIGRATION_TODO/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Stash Test Refactor - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Stash Test Refactor";
+        var mkdocs_page_input_path = "testing/STASH_TEST_MIGRATION_TODO.md";
+        var mkdocs_page_url = "/fansly-scraper/testing/STASH_TEST_MIGRATION_TODO/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Stash Test Refactor</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#the-problem">The Problem</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#the-solution">The Solution</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#test-categories">Test Categories</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#category-a-stashclient-tests-complete-directory-deleted">Category A: StashClient Tests — ✅ COMPLETE (directory deleted)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#category-b-processing-unit-tests">Category B: Processing Unit Tests</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#category-c-processing-integration-tests">Category C: Processing Integration Tests</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#category-d-other">Category D: Other</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#migration-patterns">Migration Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#unit-tests-respx_stash_processor">Unit Tests → respx_stash_processor</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#integration-tests-real_stash_processor-stash_cleanup_tracker">Integration Tests → real_stash_processor + stash_cleanup_tracker</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#spy-pattern-for-internal-orchestration-tests">Spy Pattern for Internal Orchestration Tests</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#critical-technical-patterns">Critical Technical Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-multiple-graphql-calls-need-multiple-responses">1. Multiple GraphQL Calls Need Multiple Responses</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-auto-capture-with-stash_cleanup_tracker">2. Auto-Capture with stash_cleanup_tracker</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-permanent-graphql-call-assertions-required">3. Permanent GraphQL Call Assertions (REQUIRED)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#4-videofileimagefile-schema-validation">4. VideoFile/ImageFile Schema Validation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#5-testing-real-constraint-violations">5. Testing Real Constraint Violations</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#lessons-learned-production-bugs-hidden-by-mocks">Lessons Learned: Production Bugs Hidden by Mocks</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#the-missinggreenlet-bug">The MissingGreenlet Bug</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#the-gif-processing-bugs-chain-of-4">The GIF Processing Bugs (Chain of 4)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#why-this-migration-matters">Why This Migration Matters</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#valid-exceptions-to-mock-free-testing">Valid Exceptions to Mock-Free Testing</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#progress-summary">Progress Summary</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#completed-34-files">Completed: 34 files</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pass-1-complete-all-documented-files-migrated">Pass 1: Complete ✅ - All Documented Files Migrated</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pass-2-graphql-assertion-compliance-in-progress">Pass 2: GraphQL Assertion Compliance (IN PROGRESS)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#reference">Reference</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Testing</li>
+      <li class="breadcrumb-item active">Stash Test Refactor</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/testing/STASH_TEST_MIGRATION_TODO.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="stash-test-refactor-guide">Stash Test Refactor Guide<a class="headerlink" href="#stash-test-refactor-guide" title="Permanent link">&para;</a></h1>
+<p><strong>Goal</strong>: Migrate all Stash tests to mock only at external boundaries (HTTP/GraphQL), not internal methods.</p>
+<p><strong>Created</strong>: 2025-11-18
+<strong>Enforcement</strong>: <code>tests/conftest.py:50-100</code></p>
+<hr />
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<h3 id="the-problem">The Problem<a class="headerlink" href="#the-problem" title="Permanent link">&para;</a></h3>
+<p>Tests were mocking internal methods, creating "faux integration tests" that:</p>
+<ul>
+<li>❌ Claimed to use real processors but mocked away actual code execution</li>
+<li>❌ Never tested real async session handling, GraphQL serialization, or database relationships</li>
+<li>❌ <strong>HID CRITICAL PRODUCTION BUGS</strong> (see Lessons Learned below)</li>
+</ul>
+<h3 id="the-solution">The Solution<a class="headerlink" href="#the-solution" title="Permanent link">&para;</a></h3>
+<p>Mock only at true external boundaries:</p>
+<ul>
+<li>✅ <strong>Fansly API</strong>: RESPX for HTTP responses</li>
+<li>✅ <strong>Stash GraphQL</strong>: RESPX for HTTP responses (not the Python dict from <code>execute()</code>)</li>
+<li>✅ Use real database sessions, real Strawberry objects, real factories</li>
+</ul>
+<hr />
+<h2 id="test-categories">Test Categories<a class="headerlink" href="#test-categories" title="Permanent link">&para;</a></h2>
+<p>All tests organized by directory location. Each needs migration to one of two patterns.</p>
+<h3 id="category-a-stashclient-tests-complete-directory-deleted">Category A: StashClient Tests — ✅ COMPLETE (directory deleted)<a class="headerlink" href="#category-a-stashclient-tests-complete-directory-deleted" title="Permanent link">&para;</a></h3>
+<p><strong>Original Location</strong>: <code>tests/stash/client/</code> (12 files, ~119 functions)
+<strong>Migration</strong>: → <code>stash_client</code> + <code>stash_cleanup_tracker</code> (integration) OR respx (unit)</p>
+<blockquote>
+<p><strong>Note:</strong> The <code>tests/stash/client/</code> directory was deleted during the stash-graphql-client refactor. All tests were either migrated to <code>tests/stash/processing/unit/</code> or removed as redundant. All items below are confirmed complete.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Violations</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_gallery_mixin.py</code></td>
+<td>30</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_tag_mixin_new.py</code></td>
+<td>30</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_scene_mixin.py</code></td>
+<td>21</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_marker_mixin.py</code></td>
+<td>18</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_image_mixin.py</code></td>
+<td>16</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_studio_mixin.py</code></td>
+<td>15</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_tag_mixin.py</code></td>
+<td>14</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_performer_mixin.py</code></td>
+<td>7</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_subscription.py</code></td>
+<td>5</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>test_client_base.py</code></td>
+<td>1</td>
+<td>✅ (migrated/removed)</td>
+</tr>
+<tr>
+<td><code>client_test_helpers.py</code></td>
+<td>4</td>
+<td>✅ (deleted - was unused)</td>
+</tr>
+<tr>
+<td><code>test_client.py</code></td>
+<td>-</td>
+<td>✅ (already using respx)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="category-b-processing-unit-tests">Category B: Processing Unit Tests<a class="headerlink" href="#category-b-processing-unit-tests" title="Permanent link">&para;</a></h3>
+<p><strong>Location</strong>: <code>tests/stash/processing/unit/</code>
+<strong>Files</strong>: 25 | <strong>Functions</strong>: ~138
+<strong>Migration</strong>: → <code>respx_stash_processor</code> with HTTP mocking</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Violations</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_media_variants.py</code></td>
+<td>-</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_background_processing.py</code></td>
+<td>14</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_stash_processing.py</code></td>
+<td>23</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_base.py</code></td>
+<td>20</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>content/test_message_processing.py</code></td>
+<td>37</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>content/test_post_processing.py</code></td>
+<td>36</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>media_mixin/test_metadata_update.py</code></td>
+<td>30</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>gallery/test_gallery_creation.py</code></td>
+<td>26</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>content/test_content_collection.py</code></td>
+<td>15</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_gallery_methods.py</code></td>
+<td>13</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>media_mixin/async_mock_helper.py</code></td>
+<td>13</td>
+<td>✅ (deleted - was unused)</td>
+</tr>
+<tr>
+<td><code>gallery/test_gallery_lookup.py</code></td>
+<td>11</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>content/test_batch_processing.py</code></td>
+<td>9</td>
+<td>✅ (respx + spy pattern)</td>
+</tr>
+<tr>
+<td><code>gallery/test_media_detection.py</code></td>
+<td>8</td>
+<td>✅ (spy pattern innovation)</td>
+</tr>
+<tr>
+<td><code>media_mixin/test_file_handling.py</code></td>
+<td>7</td>
+<td>✅ (already using factories)</td>
+</tr>
+<tr>
+<td><code>test_media_mixin.py</code></td>
+<td>6</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_account_mixin.py</code></td>
+<td>6</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_studio_mixin.py</code></td>
+<td>5</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_creator_processing.py</code></td>
+<td>5</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_tag_mixin.py</code></td>
+<td>4</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>gallery/test_process_item_gallery.py</code></td>
+<td>3</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_gallery_mixin.py</code></td>
+<td>1</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<h3 id="category-c-processing-integration-tests">Category C: Processing Integration Tests<a class="headerlink" href="#category-c-processing-integration-tests" title="Permanent link">&para;</a></h3>
+<p><strong>Location</strong>: <code>tests/stash/processing/integration/</code>
+<strong>Files</strong>: 7 | <strong>Functions</strong>: ~41
+<strong>Migration</strong>: → <code>real_stash_processor</code> + <code>stash_cleanup_tracker</code></p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Violations</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_base_processing.py</code></td>
+<td>-</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_metadata_update_integration.py</code></td>
+<td>3</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_media_processing.py</code></td>
+<td>22</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_message_processing.py</code></td>
+<td>18</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_timeline_processing.py</code></td>
+<td>17</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_stash_processing.py</code></td>
+<td>5</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>test_content_processing.py</code></td>
+<td>9</td>
+<td>✅ (debug cleanup completed)</td>
+</tr>
+<tr>
+<td><code>test_stash_processing_integration.py</code></td>
+<td>-</td>
+<td>✅ (moved from integration/ - see Category D)</td>
+</tr>
+<tr>
+<td>~~<code>test_media_variants.py</code>~~</td>
+<td>12</td>
+<td>✅ (in unit/, not integration/ - see Category B)</td>
+</tr>
+<tr>
+<td>~~<code>test_full_workflow/test_integration.py</code>~~</td>
+<td>14</td>
+<td>✅ (file/directory deleted)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="category-d-other">Category D: Other<a class="headerlink" href="#category-d-other" title="Permanent link">&para;</a></h3>
+<p><strong>Location</strong>: <code>tests/stash/integration/</code></p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Violations</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>~~<code>test_stash_processing_integration.py</code>~~</td>
+<td>4</td>
+<td>✅ (deleted - complete duplicate of unit tests)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="migration-patterns">Migration Patterns<a class="headerlink" href="#migration-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="unit-tests-respx_stash_processor">Unit Tests → <code>respx_stash_processor</code><a class="headerlink" href="#unit-tests-respx_stash_processor" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># BEFORE: Mocked internal method ❌</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">real_stash_processor</span><span class="p">):</span>
+    <span class="n">real_stash_processor</span><span class="o">.</span><span class="n">_find_stash_files_by_path</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="p">[])</span>
+
+<span class="c1"># AFTER: Mock at HTTP boundary ✅</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">respx_stash_processor</span><span class="p">):</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findScenes&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;scenes&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}}}),</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performers&quot;</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}}}),</span>
+        <span class="p">]</span>
+    <span class="p">)</span>
+</code></pre></div>
+<h3 id="integration-tests-real_stash_processor-stash_cleanup_tracker">Integration Tests → <code>real_stash_processor</code> + <code>stash_cleanup_tracker</code><a class="headerlink" href="#integration-tests-real_stash_processor-stash_cleanup_tracker" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># BEFORE: Manual try/finally cleanup ❌</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">stash_client</span><span class="p">):</span>
+    <span class="n">scene_id</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">create_scene</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+        <span class="n">scene_id</span> <span class="o">=</span> <span class="n">scene</span><span class="o">.</span><span class="n">id</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">scene_id</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;mutation { sceneDestroy(...) }&quot;</span><span class="p">)</span>
+
+<span class="c1"># AFTER: Automatic cleanup ✅</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">stash_client</span><span class="p">,</span> <span class="n">stash_cleanup_tracker</span><span class="p">):</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">stash_cleanup_tracker</span><span class="p">(</span><span class="n">stash_client</span><span class="p">)</span> <span class="k">as</span> <span class="n">cleanup</span><span class="p">:</span>
+        <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">create_scene</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+        <span class="n">cleanup</span><span class="p">[</span><span class="s2">&quot;scenes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">scene</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="c1"># Automatic cleanup on exit</span>
+</code></pre></div>
+<h3 id="spy-pattern-for-internal-orchestration-tests">Spy Pattern for Internal Orchestration Tests<a class="headerlink" href="#spy-pattern-for-internal-orchestration-tests" title="Permanent link">&para;</a></h3>
+<p>For unit tests that verify internal method coordination (e.g., early returns, call counts):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># BEFORE: Mocking internal method with return_value/side_effect ❌</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">gallery_mixin</span><span class="p">,</span> <span class="s2">&quot;_has_media_content&quot;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">)):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">gallery_mixin</span><span class="o">.</span><span class="n">_check_aggregated_posts</span><span class="p">([</span><span class="n">post1</span><span class="p">,</span> <span class="n">post2</span><span class="p">])</span>
+
+<span class="c1"># AFTER: Spy pattern with wraps - real code executes ✅</span>
+<span class="n">original_has_media</span> <span class="o">=</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">_has_media_content</span>
+<span class="n">call_count</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">spy_has_media</span><span class="p">(</span><span class="n">item</span><span class="p">):</span>
+    <span class="k">nonlocal</span> <span class="n">call_count</span>
+    <span class="n">call_count</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">original_has_media</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>  <span class="c1"># Real code executes!</span>
+
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">respx_stash_processor</span><span class="p">,</span> <span class="s2">&quot;_has_media_content&quot;</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_has_media</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">_check_aggregated_posts</span><span class="p">([</span><span class="n">post1</span><span class="p">,</span> <span class="n">post2</span><span class="p">])</span>
+
+    <span class="c1"># Verify orchestration</span>
+    <span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="kc">False</span>
+    <span class="k">assert</span> <span class="n">call_count</span> <span class="o">==</span> <span class="mi">2</span>  <span class="c1"># Both posts checked</span>
+</code></pre></div>
+<p><strong>Why this matters:</strong></p>
+<ul>
+<li>Real code path executes (not mocked behavior)</li>
+<li>Tests actual orchestration logic (early returns, loops, error handling)</li>
+<li>Catches regressions in internal coordination</li>
+<li>Similar concept to <code>capture_graphql_calls</code> but for internal methods</li>
+</ul>
+<hr />
+<h2 id="critical-technical-patterns">Critical Technical Patterns<a class="headerlink" href="#critical-technical-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="1-multiple-graphql-calls-need-multiple-responses">1. Multiple GraphQL Calls Need Multiple Responses<a class="headerlink" href="#1-multiple-graphql-calls-need-multiple-responses" title="Permanent link">&para;</a></h3>
+<p>When code makes sequential GraphQL calls, provide a response for EACH:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Only one response for 5 calls → StopIteration error</span>
+<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">return_value</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findScenes&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}})</span>
+<span class="p">)</span>
+
+<span class="c1"># ✅ CORRECT: List of responses matching call sequence</span>
+<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findScenes&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}}),</span>       <span class="c1"># Call 1</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}}),</span>   <span class="c1"># Call 2</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findStudios&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}}),</span>      <span class="c1"># Call 3</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findStudios&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}}),</span>      <span class="c1"># Call 4</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;sceneUpdate&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}}}),</span>      <span class="c1"># Call 5</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="2-auto-capture-with-stash_cleanup_tracker">2. Auto-Capture with <code>stash_cleanup_tracker</code><a class="headerlink" href="#2-auto-capture-with-stash_cleanup_tracker" title="Permanent link">&para;</a></h3>
+<p>The cleanup tracker auto-captures IDs from create mutations (default: <code>auto_capture=True</code>). Fast-path optimization checks for "Create" in response keys before detailed inspection. Tests can opt-out (<code>auto_capture=False</code>) only if using <code>capture_graphql_calls</code> with proper request/response validation and manual ID tracking.</p>
+<h3 id="3-permanent-graphql-call-assertions-required">3. Permanent GraphQL Call Assertions (REQUIRED)<a class="headerlink" href="#3-permanent-graphql-call-assertions-required" title="Permanent link">&para;</a></h3>
+<p><strong>Every respx and real stash test MUST verify both request AND response for each GraphQL call.</strong></p>
+<p>This is NOT debug code - it's permanent regression protection that:</p>
+<ul>
+<li>Documents expected call sequence in the test itself</li>
+<li>Catches call order changes or unexpected calls</li>
+<li>Reveals caching behavior (e.g., <code>@async_lru_cache</code> skipping calls)</li>
+<li>Verifies correct request variables, not just that responses work</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="c1"># After calling the method under test:</span>
+<span class="k">await</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">_process_media</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">account</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+
+<span class="c1"># REQUIRED: Assert exact call count</span>
+<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">7</span><span class="p">,</span> <span class="s2">&quot;Expected exactly 7 GraphQL calls&quot;</span>
+
+<span class="n">calls</span> <span class="o">=</span> <span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span>
+
+<span class="c1"># REQUIRED: Verify EACH call&#39;s request and response</span>
+<span class="c1"># Call 0: findImage (by stash_id)</span>
+<span class="n">req0</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<span class="k">assert</span> <span class="s2">&quot;findImage&quot;</span> <span class="ow">in</span> <span class="n">req0</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
+<span class="k">assert</span> <span class="n">req0</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;stash_456&quot;</span>
+<span class="n">resp0</span> <span class="o">=</span> <span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+<span class="k">assert</span> <span class="s2">&quot;findImage&quot;</span> <span class="ow">in</span> <span class="n">resp0</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">]</span>
+
+<span class="c1"># Call 1: findPerformers (by name)</span>
+<span class="n">req1</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">calls</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<span class="k">assert</span> <span class="s2">&quot;findPerformers&quot;</span> <span class="ow">in</span> <span class="n">req1</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
+<span class="k">assert</span> <span class="n">req1</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;performer_filter&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">][</span><span class="s2">&quot;value&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span>
+<span class="n">resp1</span> <span class="o">=</span> <span class="n">calls</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+<span class="k">assert</span> <span class="n">resp1</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;findPerformers&quot;</span><span class="p">][</span><span class="s2">&quot;count&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span>
+
+<span class="c1"># ... verify ALL calls</span>
+</code></pre></div>
+<p><strong>Example - Verifying cache behavior:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Verify @async_lru_cache skips performer lookups after first media object</span>
+<span class="n">performer_calls_after_first</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">12</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;findPerformers&quot;</span> <span class="ow">in</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">calls</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
+<span class="p">]</span>
+<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">performer_calls_after_first</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
+    <span class="sa">f</span><span class="s2">&quot;Found unexpected findPerformers calls at indices: </span><span class="si">{</span><span class="n">performer_calls_after_first</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+</code></pre></div>
+<h3 id="4-videofileimagefile-schema-validation">4. VideoFile/ImageFile Schema Validation<a class="headerlink" href="#4-videofileimagefile-schema-validation" title="Permanent link">&para;</a></h3>
+<p>Stash types have strict required fields:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Minimal file dict → TypeError</span>
+<span class="n">files</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;/path/to/file.mp4&quot;</span><span class="p">}]</span>
+
+<span class="c1"># ✅ CORRECT: Complete VideoFile schema</span>
+<span class="n">files</span><span class="o">=</span><span class="p">[{</span>
+    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;file_123&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;/path/to/file.mp4&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;basename&quot;</span><span class="p">:</span> <span class="s2">&quot;file.mp4&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="mi">1024</span><span class="p">,</span>
+    <span class="s2">&quot;parent_folder_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;format&quot;</span><span class="p">:</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="mi">1920</span><span class="p">,</span>
+    <span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="mi">1080</span><span class="p">,</span>
+    <span class="s2">&quot;duration&quot;</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
+    <span class="s2">&quot;video_codec&quot;</span><span class="p">:</span> <span class="s2">&quot;h264&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;audio_codec&quot;</span><span class="p">:</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;frame_rate&quot;</span><span class="p">:</span> <span class="mf">30.0</span><span class="p">,</span>
+    <span class="s2">&quot;bit_rate&quot;</span><span class="p">:</span> <span class="mi">5000000</span><span class="p">,</span>
+<span class="p">}]</span>
+
+<span class="c1"># ✅ CORRECT: Complete ImageFile schema</span>
+<span class="n">visual_files</span><span class="o">=</span><span class="p">[{</span>
+    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;file_789&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;/path/to/image.jpg&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;basename&quot;</span><span class="p">:</span> <span class="s2">&quot;image.jpg&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="mi">512000</span><span class="p">,</span>
+    <span class="s2">&quot;parent_folder_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;mod_time&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;fingerprints&quot;</span><span class="p">:</span> <span class="p">[],</span>
+    <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="mi">1920</span><span class="p">,</span>
+    <span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="mi">1080</span><span class="p">,</span>
+<span class="p">}]</span>
+</code></pre></div>
+<h3 id="5-testing-real-constraint-violations">5. Testing Real Constraint Violations<a class="headerlink" href="#5-testing-real-constraint-violations" title="Permanent link">&para;</a></h3>
+<p>For integration tests, test REAL constraint violations that trigger actual GraphQL errors:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Stash silently accepts invalid data</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">set_gallery_cover</span><span class="p">(</span><span class="n">gallery_id</span><span class="p">,</span> <span class="n">image_id</span><span class="o">=</span><span class="s2">&quot;99999&quot;</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="kc">False</span>  <span class="c1"># FAILS - Stash returns True!</span>
+
+<span class="c1"># ✅ CORRECT: Real constraint violation triggers GraphQL error</span>
+<span class="k">with</span> <span class="n">capture_graphql_calls</span><span class="p">(</span><span class="n">stash_client</span><span class="p">)</span> <span class="k">as</span> <span class="n">calls</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Image # must greater than zero&quot;</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">gallery_chapter_create</span><span class="p">(</span>
+            <span class="n">gallery_id</span><span class="o">=</span><span class="n">empty_gallery_id</span><span class="p">,</span>
+            <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Invalid Chapter&quot;</span><span class="p">,</span>
+            <span class="n">image_index</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># No images in gallery!</span>
+        <span class="p">)</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+    <span class="k">assert</span> <span class="s2">&quot;galleryChapterCreate&quot;</span> <span class="ow">in</span> <span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
+</code></pre></div>
+<hr />
+<h2 id="lessons-learned-production-bugs-hidden-by-mocks">Lessons Learned: Production Bugs Hidden by Mocks<a class="headerlink" href="#lessons-learned-production-bugs-hidden-by-mocks" title="Permanent link">&para;</a></h2>
+<h3 id="the-missinggreenlet-bug">The MissingGreenlet Bug<a class="headerlink" href="#the-missinggreenlet-bug" title="Permanent link">&para;</a></h3>
+<p><strong>What happened</strong>: Production code had sync/async session mismatches causing <code>MissingGreenlet</code> errors.</p>
+<p><strong>Why mocks hid it</strong>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Test with mocks - NEVER executed real relationship loading</span>
+<span class="n">real_stash_processor</span><span class="o">.</span><span class="n">_find_stash_files_by_path</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="p">[</span><span class="n">scene</span><span class="p">])</span>
+<span class="c1"># ↑ This bypass meant we never hit the actual code that loaded relationships</span>
+</code></pre></div>
+<p><strong>What the migrated test caught immediately</strong>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Using sync session in async test</span>
+<span class="n">session_sync</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
+<span class="n">session_sync</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="n">test_media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">{</span><span class="n">variant</span><span class="p">}</span>  <span class="c1"># BOOM: MissingGreenlet error</span>
+
+<span class="c1"># ✅ CORRECT: Use async session with proper awaits</span>
+<span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">refresh</span><span class="p">(</span><span class="n">test_media</span><span class="p">,</span> <span class="n">attribute_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;variants&quot;</span><span class="p">])</span>
+<span class="n">test_media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">{</span><span class="n">variant</span><span class="p">}</span>  <span class="c1"># Now safe</span>
+</code></pre></div>
+<p><strong>Impact</strong>: Migration caught this production bug on first test run. This validates the entire migration effort.</p>
+<h3 id="the-gif-processing-bugs-chain-of-4">The GIF Processing Bugs (Chain of 4)<a class="headerlink" href="#the-gif-processing-bugs-chain-of-4" title="Permanent link">&para;</a></h3>
+<p><strong>What happened</strong>: Animated GIFs in Stash are stored as <code>VideoFile</code> type, not <code>ImageFile</code>. This caused a cascade of 4 interrelated bugs that were never caught because mocked tests never executed real GraphQL deserialization or type handling.</p>
+<p><strong>Bug 1: int/str Type Mismatch in stash_id_map</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Production code used int keys</span>
+<span class="n">stash_id_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">media</span><span class="o">.</span><span class="n">stash_id</span><span class="p">:</span> <span class="n">media</span><span class="o">.</span><span class="n">id</span> <span class="k">for</span> <span class="n">media</span> <span class="ow">in</span> <span class="n">media_objects</span><span class="p">}</span>
+<span class="c1"># But GraphQL returns string IDs: &quot;123&quot; not 123</span>
+<span class="n">stash_id</span> <span class="o">=</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">id</span>  <span class="c1"># Returns &quot;123&quot; (str)</span>
+<span class="n">media_id</span> <span class="o">=</span> <span class="n">stash_id_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">stash_id</span><span class="p">)</span>  <span class="c1"># None! Key mismatch</span>
+
+<span class="c1"># ✅ FIX: Convert to str when building map</span>
+<span class="n">stash_id_map</span> <span class="o">=</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">stash_id</span><span class="p">):</span> <span class="n">media</span><span class="o">.</span><span class="n">id</span> <span class="k">for</span> <span class="n">media</span> <span class="ow">in</span> <span class="n">media_objects</span><span class="p">}</span>
+</code></pre></div>
+<p><strong>Why mocks hid it</strong>: Mocks returned pre-constructed objects, never testing real dict→object serialization where GraphQL always returns string IDs.</p>
+<p><strong>Bug 2: GraphQL Fragments Missing VideoFile for Images</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: IMAGE_FIELDS only queried ImageFile fields</span>
+<span class="n">IMAGE_FIELDS</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    visual_files {</span>
+<span class="s2">        ...ImageFileFields</span>
+<span class="s2">    }</span>
+<span class="s2">&quot;&quot;&quot;</span>
+<span class="c1"># GIFs returned: {&quot;visual_files&quot;: [{}]}  # Empty! VideoFile fields not requested</span>
+
+<span class="c1"># ✅ FIX: Query both file types</span>
+<span class="n">IMAGE_FIELDS</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">    visual_files {</span>
+<span class="s2">        ...ImageFileFields</span>
+<span class="s2">        ...VideoFileFields</span>
+<span class="s2">    }</span>
+<span class="s2">&quot;&quot;&quot;</span>
+</code></pre></div>
+<p><strong>Why mocks hid it</strong>: Mocked GraphQL responses were hand-crafted with correct data. Real Stash returns empty objects when fragments don't match the actual type.</p>
+<p><strong>Bug 3: Image.from_dict() Crashed on VideoFile Data</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Assumed all visual_files are ImageFile</span>
+<span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filtered_data</span><span class="p">[</span><span class="s2">&quot;visual_files&quot;</span><span class="p">]:</span>
+    <span class="n">image</span><span class="o">.</span><span class="n">visual_files</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ImageFile</span><span class="p">(</span><span class="o">**</span><span class="n">f</span><span class="p">))</span>
+<span class="c1"># TypeError: ImageFile.__init__() got an unexpected keyword argument &#39;format&#39;</span>
+<span class="c1"># (&#39;format&#39; is a VideoFile-only field)</span>
+
+<span class="c1"># ✅ FIX: Detect type and create appropriate object</span>
+<span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filtered_data</span><span class="p">[</span><span class="s2">&quot;visual_files&quot;</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="s2">&quot;format&quot;</span> <span class="ow">in</span> <span class="n">f</span> <span class="ow">or</span> <span class="s2">&quot;duration&quot;</span> <span class="ow">in</span> <span class="n">f</span> <span class="ow">or</span> <span class="s2">&quot;video_codec&quot;</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">visual_files</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">VideoFile</span><span class="p">(</span><span class="o">**</span><span class="n">f</span><span class="p">))</span>  <span class="c1"># GIF stored as video</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">visual_files</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ImageFile</span><span class="p">(</span><span class="o">**</span><span class="n">f</span><span class="p">))</span>
+</code></pre></div>
+<p><strong>Why mocks hid it</strong>: Tests used <code>MagicMock(spec=Image)</code> or factory objects - never exercised <code>from_dict()</code> deserialization with real GraphQL responses.</p>
+<p><strong>Bug 4: _get_image_file_from_stash_obj Rejected VideoFile</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Only accepted ImageFile type</span>
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">file_data</span><span class="p">,</span> <span class="s2">&quot;__type_name__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">file_data</span><span class="o">.</span><span class="n">__type_name__</span> <span class="o">==</span> <span class="s2">&quot;ImageFile&quot;</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">file_data</span>
+<span class="c1"># GIFs have __type_name__ == &quot;VideoFile&quot; → returned None → lookup failed</span>
+
+<span class="c1"># ✅ FIX: Accept both types</span>
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">file_data</span><span class="p">,</span> <span class="s2">&quot;__type_name__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">file_data</span><span class="o">.</span><span class="n">__type_name__</span> <span class="ow">in</span> <span class="p">(</span>
+    <span class="s2">&quot;ImageFile&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;VideoFile&quot;</span><span class="p">,</span>  <span class="c1"># Animated GIFs in Stash</span>
+<span class="p">):</span>
+    <span class="k">return</span> <span class="n">file_data</span>
+</code></pre></div>
+<p><strong>Why mocks hid it</strong>: Mocked <code>_find_stash_files_by_path</code> returned pre-built objects, bypassing the type-checking code path entirely.</p>
+<p><strong>Impact</strong>: These 4 bugs formed a chain - fixing one revealed the next. Real integration tests with Docker Stash exposed all 4 in one debugging session. Mocked tests had passed for months while GIF files silently failed in production.</p>
+<h3 id="why-this-migration-matters">Why This Migration Matters<a class="headerlink" href="#why-this-migration-matters" title="Permanent link">&para;</a></h3>
+<p>The original tests were "faux integration tests" that provided false confidence:</p>
+<ul>
+<li>❌ Claimed to use <code>real_stash_processor</code>, but mocked away anything that would have called it</li>
+<li>❌ Mocked internal methods with <code>AsyncMock</code> (bypassed actual code execution)</li>
+<li>❌ Never tested real async session handling, GraphQL serialization, or database relationships</li>
+</ul>
+<p>The migrated tests are true unit tests with complete flow coverage:</p>
+<ul>
+<li>✅ Use <code>respx_stash_processor</code> with HTTP mocking at the edge boundary</li>
+<li>✅ Execute the ENTIRE real code path through all internal methods</li>
+<li>✅ Use real database objects, real async sessions, real relationship loading</li>
+<li>✅ Mock ONLY external HTTP calls to Stash GraphQL API</li>
+</ul>
+<hr />
+<h2 id="valid-exceptions-to-mock-free-testing">Valid Exceptions to Mock-Free Testing<a class="headerlink" href="#valid-exceptions-to-mock-free-testing" title="Permanent link">&para;</a></h2>
+<p>When mocking internal methods IS acceptable:</p>
+<ol>
+<li><strong>Edge Case Coverage</strong>: Testing error handling paths difficult to trigger via external API</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Simulating rare failure condition</span>
+<span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">_find_stash_files_by_path</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Disk failure&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<ol>
+<li>
+<p><strong>Deep Call Trees (3-4+ layers)</strong>: When setup would require complex external state</p>
+</li>
+<li>
+<p><strong>Test Infrastructure</strong> (<code>tests/stash/types/</code>): Unit tests for data conversion, change tracking</p>
+</li>
+</ol>
+<p><strong>Review Process for Exceptions</strong>:</p>
+<ul>
+<li>Requires user confirmation, not automated guesses</li>
+<li>Consider if respx at HTTP boundary could work instead</li>
+<li>Document WHY mocking is needed</li>
+</ul>
+<p><strong>Example - Why User Confirmation Matters</strong>:</p>
+<p>When migrating <code>test_client_base.py</code>, the respx approach didn't work for testing initialization errors because gql doesn't make HTTP calls during init with <code>fetch_schema_from_transport=False</code>. Without user guidance, the automated approach would have been to mock internal methods like <code>StashClientBase.initialize</code> - creating another "faux" test.</p>
+<p>Instead, user prompting led to the correct solution: patch the <strong>external</strong> <code>gql.Client.__init__</code> to enable schema fetching, then respx catches the connection error. This tests real code paths while only changing variables used in external library initialization.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Automated guess would mock internal method</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">StashClientBase</span><span class="p">,</span> <span class="s2">&quot;initialize&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Connection refused&quot;</span><span class="p">)):</span>
+    <span class="o">...</span>
+
+<span class="c1"># ✅ CORRECT: User-guided solution patches external library</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">patched_init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;fetch_schema_from_transport&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># Enable HTTP during init</span>
+    <span class="k">return</span> <span class="n">original_init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">Client</span><span class="p">,</span> <span class="s2">&quot;__init__&quot;</span><span class="p">,</span> <span class="n">patched_init</span><span class="p">):</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">ConnectError</span><span class="p">(</span><span class="s2">&quot;Connection refused&quot;</span><span class="p">))</span>
+</code></pre></div>
+<p>This is exactly why exceptions require user review - the human sees solutions that preserve real code execution.</p>
+<hr />
+<h2 id="progress-summary">Progress Summary<a class="headerlink" href="#progress-summary" title="Permanent link">&para;</a></h2>
+<h3 id="completed-34-files">Completed: 34 files<a class="headerlink" href="#completed-34-files" title="Permanent link">&para;</a></h3>
+<p><strong>Category A (StashClient) - COMPLETE ✅</strong></p>
+<ul>
+<li><code>tests/stash/client/test_gallery_mixin.py</code></li>
+<li><code>tests/stash/client/test_tag_mixin_new.py</code></li>
+<li><code>tests/stash/client/test_scene_mixin.py</code></li>
+<li><code>tests/stash/client/test_marker_mixin.py</code></li>
+<li><code>tests/stash/client/test_image_mixin.py</code></li>
+<li><code>tests/stash/client/test_studio_mixin.py</code></li>
+<li><code>tests/stash/client/test_tag_mixin.py</code></li>
+<li><code>tests/stash/client/test_performer_mixin.py</code></li>
+<li><code>tests/stash/client/test_subscription.py</code></li>
+<li><code>tests/stash/client/test_client_base.py</code></li>
+<li><code>tests/stash/client/client_test_helpers.py</code> (deleted - was unused)</li>
+<li><code>tests/stash/client/test_client.py</code> (already using respx)</li>
+</ul>
+<p><strong>Category B (Processing Unit) - COMPLETE ✅</strong></p>
+<ul>
+<li><code>tests/stash/processing/unit/test_media_variants.py</code></li>
+<li><code>tests/stash/processing/unit/test_background_processing.py</code></li>
+<li><code>tests/stash/processing/unit/test_stash_processing.py</code></li>
+<li><code>tests/stash/processing/unit/test_base.py</code></li>
+<li><code>tests/stash/processing/unit/content/test_message_processing.py</code></li>
+<li><code>tests/stash/processing/unit/content/test_post_processing.py</code></li>
+<li><code>tests/stash/processing/unit/content/test_content_collection.py</code></li>
+<li><code>tests/stash/processing/unit/content/test_batch_processing.py</code> (respx + spy pattern)</li>
+<li><code>tests/stash/processing/unit/gallery/test_gallery_creation.py</code></li>
+<li><code>tests/stash/processing/unit/gallery/test_gallery_lookup.py</code></li>
+<li><code>tests/stash/processing/unit/gallery/test_media_detection.py</code> (spy pattern innovation)</li>
+<li><code>tests/stash/processing/unit/gallery/test_process_item_gallery.py</code></li>
+<li><code>tests/stash/processing/unit/test_gallery_methods.py</code></li>
+<li><code>tests/stash/processing/unit/test_gallery_mixin.py</code></li>
+<li><code>tests/stash/processing/unit/test_tag_mixin.py</code></li>
+<li><code>tests/stash/processing/unit/test_studio_mixin.py</code></li>
+<li><code>tests/stash/processing/unit/test_account_mixin.py</code></li>
+<li><code>tests/stash/processing/unit/test_media_mixin.py</code></li>
+<li><code>tests/stash/processing/unit/test_creator_processing.py</code></li>
+<li><code>tests/stash/processing/unit/media_mixin/test_metadata_update.py</code></li>
+<li><code>tests/stash/processing/unit/media_mixin/test_file_handling.py</code> (already using factories)</li>
+<li><code>tests/stash/processing/unit/media_mixin/async_mock_helper.py</code> (deleted - was unused)</li>
+</ul>
+<p><strong>Category C (Processing Integration)</strong></p>
+<ul>
+<li><code>tests/stash/processing/integration/test_base_processing.py</code></li>
+<li><code>tests/stash/processing/integration/test_metadata_update_integration.py</code></li>
+<li><code>tests/stash/processing/integration/test_media_processing.py</code></li>
+<li><code>tests/stash/processing/integration/test_message_processing.py</code></li>
+<li><code>tests/stash/processing/integration/test_timeline_processing.py</code></li>
+<li><code>tests/stash/processing/integration/test_stash_processing.py</code></li>
+<li><code>tests/stash/processing/integration/test_stash_processing_integration.py</code> (added stash_cleanup_tracker to test_missing_account_handling)</li>
+<li><code>tests/stash/processing/integration/test_content_processing.py</code> (debug cleanup completed)</li>
+</ul>
+<p><strong>Category D (Other)</strong></p>
+<ul>
+<li>~~<code>tests/stash/integration/test_stash_processing_integration.py</code>~~ (deleted - complete duplicate)</li>
+</ul>
+<h3 id="pass-1-complete-all-documented-files-migrated">Pass 1: Complete ✅ - All Documented Files Migrated<a class="headerlink" href="#pass-1-complete-all-documented-files-migrated" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Files</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A (Client)</td>
+<td>0</td>
+<td>✅ COMPLETE</td>
+</tr>
+<tr>
+<td>B (Unit)</td>
+<td>0</td>
+<td>✅ COMPLETE</td>
+</tr>
+<tr>
+<td>C (Integration)</td>
+<td>0</td>
+<td>✅ COMPLETE</td>
+</tr>
+<tr>
+<td>D (Other)</td>
+<td>0</td>
+<td>✅ COMPLETE</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td><strong>0</strong></td>
+<td><strong>🎉 PASS 1 COMPLETE!</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Pass 1 Final Actions:</strong></p>
+<ul>
+<li>Fixed worker crash: Added <code>stash_cleanup_tracker</code> to <code>test_missing_account_handling</code></li>
+<li>Removed broken import in <code>tests/stash/processing/test_integration.py</code></li>
+<li>Deleted redundant file: <code>tests/stash/integration/test_stash_processing_integration.py</code> (all 3 tests were complete duplicates)</li>
+</ul>
+<h3 id="pass-2-graphql-assertion-compliance-in-progress">Pass 2: GraphQL Assertion Compliance (IN PROGRESS)<a class="headerlink" href="#pass-2-graphql-assertion-compliance-in-progress" title="Permanent link">&para;</a></h3>
+<p><strong>Status</strong>: As the first pass progressed, the GraphQL assertion rules (Section 3) evolved and were elaborated on. Many tests migrated during Pass 1 don't fully comply with the current state of the rules.</p>
+<p><strong>Known Issues</strong> (Manual audit completed 2025-11-30):</p>
+<ul>
+<li><strong>53+ violations found</strong> across multiple test files</li>
+<li>Common patterns:</li>
+<li>Meaningless assertions: <code>assert len(calls) &gt;= 0</code> (always true)</li>
+<li>Incomplete request verification: Only checks query name, not request variables</li>
+<li>Missing response verification: Some tests only verify requests</li>
+</ul>
+<p><strong>Files with Known Violations</strong>:</p>
+<ul>
+<li><code>tests/stash/client/test_tag_mixin_new.py</code> - 3 meaningless assertions + multiple incomplete</li>
+<li><code>tests/stash/client/test_tag_mixin.py</code> - 8 incomplete request checks</li>
+<li><code>tests/stash/client/test_scene_mixin.py</code> - 13 incomplete request checks</li>
+<li><code>tests/stash/client/test_marker_mixin.py</code> - 6 incomplete request checks</li>
+<li><code>tests/stash/client/test_gallery_mixin.py</code> - 5 incomplete request checks</li>
+<li><code>tests/stash/processing/integration/test_media_processing.py</code> - 11 incomplete request checks</li>
+<li><code>tests/stash/processing/integration/test_message_processing.py</code> - 1 incomplete request check</li>
+<li><code>tests/stash/processing/integration/test_timeline_processing.py</code> - 1 incomplete request check</li>
+</ul>
+<p><strong>Next Steps</strong>:</p>
+<ol>
+<li>Systematic review and fix of all 53+ violations</li>
+<li>Focus on files with highest violation counts first</li>
+<li>Ensure all GraphQL assertions verify BOTH request variables AND response data</li>
+</ol>
+<hr />
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<p><strong>Fixture Definitions</strong>:</p>
+<ul>
+<li><code>stash_client</code>: <code>tests/fixtures/stash/stash_api_fixtures.py:70</code></li>
+<li><code>respx_stash_processor</code>: <code>tests/fixtures/stash/stash_integration_fixtures.py:225</code></li>
+<li><code>real_stash_processor</code>: <code>tests/fixtures/stash/stash_integration_fixtures.py:190</code></li>
+<li><code>stash_cleanup_tracker</code>: <code>tests/fixtures/stash/cleanup_fixtures.py</code></li>
+</ul>
+<p><strong>Enforcement Hook</strong>: <code>tests/conftest.py:50-100</code></p>
+<p><strong>Last Updated</strong>: 2025-11-30 (Pass 1 complete - Pass 2 GraphQL assertion compliance in progress)</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../API_DOWNLOAD_TEST_MIGRATION_TODO/" class="btn btn-neutral float-left" title="API/Download Test Migration"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../V0_10_MOCK_PATTERNS/" class="btn btn-neutral float-right" title="v0.10 Mock Patterns (archive)">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../API_DOWNLOAD_TEST_MIGRATION_TODO/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../V0_10_MOCK_PATTERNS/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

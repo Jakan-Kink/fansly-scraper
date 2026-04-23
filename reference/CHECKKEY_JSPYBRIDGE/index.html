@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/CHECKKEY_JSPYBRIDGE/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>CheckKey Extraction - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "CheckKey Extraction";
+        var mkdocs_page_input_path = "reference/CHECKKEY_JSPYBRIDGE.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/CHECKKEY_JSPYBRIDGE/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">CheckKey Extraction</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#option-1-jspybridge-recommended">Option 1: JSPyBridge (Recommended)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#how-it-works">How It Works</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#with-jspybridge">With JSPyBridge</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#direct-usage">Direct Usage</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#via-configuration">Via Configuration</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#code-structure">Code Structure</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#benefits-of-jspybridge">Benefits of JSPyBridge</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-no-process-spawning">1. No Process Spawning</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-direct-integration">2. Direct Integration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-better-error-handling">3. Better Error Handling</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#4-type-safety">4. Type Safety</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#migration-from-subprocess">Migration from Subprocess</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#old-subprocess-only">Old (Subprocess Only)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#new-jspybridge">New (JSPyBridge)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#troubleshooting">Troubleshooting</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#jspybridge-not-found">JSPyBridge Not Found</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#acorn-not-found">Acorn Not Found</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#testing">Testing</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#summary">Summary</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">CheckKey Extraction</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/CHECKKEY_JSPYBRIDGE.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="checkkey-extraction-with-jspybridge">CheckKey Extraction with JSPyBridge<a class="headerlink" href="#checkkey-extraction-with-jspybridge" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The checkKey extraction uses <strong>JSPyBridge</strong> for efficient Python-JavaScript communication. JSPyBridge is <strong>required</strong> — if it is not installed, an <code>ImportError</code> is raised.</p>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<h3 id="option-1-jspybridge-recommended">Option 1: JSPyBridge (Recommended)<a class="headerlink" href="#option-1-jspybridge-recommended" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># Install JSPyBridge</span>
+pip<span class="w"> </span>install<span class="w"> </span>javascript
+
+<span class="c1"># Install JavaScript dependencies</span>
+npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> </span>acorn-walk
+</code></pre></div>
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h3 id="with-jspybridge">With JSPyBridge<a class="headerlink" href="#with-jspybridge" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span>
+
+<span class="c1"># Import JavaScript libraries directly in Python</span>
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+<span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn-walk&quot;</span><span class="p">)</span>
+
+<span class="c1"># Parse JavaScript</span>
+<span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;ecmaVersion&quot;</span><span class="p">:</span> <span class="mi">2020</span><span class="p">,</span> <span class="s2">&quot;sourceType&quot;</span><span class="p">:</span> <span class="s2">&quot;script&quot;</span><span class="p">})</span>
+
+<span class="c1"># Walk AST to find assignments</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_assignment</span><span class="p">(</span><span class="n">node</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">left</span><span class="o">.</span><span class="n">property</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;checkKey_&quot;</span><span class="p">:</span>
+        <span class="c1"># Found it!</span>
+        <span class="o">...</span>
+
+<span class="n">acorn_walk</span><span class="o">.</span><span class="n">simple</span><span class="p">(</span><span class="n">ast</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;AssignmentExpression&quot;</span><span class="p">:</span> <span class="n">check_assignment</span><span class="p">})</span>
+
+<span class="c1"># Execute expression</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">eval_js</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>  <span class="c1"># Fast JavaScript execution!</span>
+</code></pre></div>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<h3 id="direct-usage">Direct Usage<a class="headerlink" href="#direct-usage" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">helpers.checkkey</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_checkkey_from_js</span>
+
+<span class="c1"># Extract from JavaScript content</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">extract_checkkey_from_js</span><span class="p">(</span><span class="n">js_content</span><span class="p">)</span>
+<span class="c1"># Returns: &quot;oybZy8-fySzis-bubayf&quot;</span>
+</code></pre></div>
+<h3 id="via-configuration">Via Configuration<a class="headerlink" href="#via-configuration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">helpers.checkkey</span><span class="w"> </span><span class="kn">import</span> <span class="n">guess_check_key</span>
+
+<span class="c1"># Download and extract automatically</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">guess_check_key</span><span class="p">(</span><span class="n">user_agent</span><span class="p">)</span>
+<span class="c1"># Returns: &quot;oybZy8-fySzis-bubayf&quot;</span>
+</code></pre></div>
+<h2 id="code-structure">Code Structure<a class="headerlink" href="#code-structure" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c1"># Import JSPyBridge (required — raises ImportError if unavailable)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">eval_js</span>
+    <span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+    <span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn-walk&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="k">raise</span>  <span class="c1"># JSPyBridge is required, no fallback</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_checkkey_from_js</span><span class="p">(</span><span class="n">js_content</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="c1"># Use JSPyBridge for fast extraction</span>
+    <span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">})</span>
+    <span class="n">acorn_walk</span><span class="o">.</span><span class="n">simple</span><span class="p">(</span><span class="n">ast</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">})</span>
+    <span class="k">return</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="benefits-of-jspybridge">Benefits of JSPyBridge<a class="headerlink" href="#benefits-of-jspybridge" title="Permanent link">&para;</a></h2>
+<h3 id="1-no-process-spawning">1. <strong>No Process Spawning</strong><a class="headerlink" href="#1-no-process-spawning" title="Permanent link">&para;</a></h3>
+<ul>
+<li>✅ JSPyBridge: Persistent Node.js process</li>
+<li>❌ Subprocess: New process each call</li>
+</ul>
+<h3 id="2-direct-integration">2. <strong>Direct Integration</strong><a class="headerlink" href="#2-direct-integration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># JSPyBridge - feels native!</span>
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+
+<span class="c1"># Subprocess - complex!</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">([</span><span class="s2">&quot;node&quot;</span><span class="p">,</span> <span class="s2">&quot;-e&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">],</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="3-better-error-handling">3. <strong>Better Error Handling</strong><a class="headerlink" href="#3-better-error-handling" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># JSPyBridge - Python exceptions</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Parse error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Subprocess - check return codes</span>
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="4-type-safety">4. <strong>Type Safety</strong><a class="headerlink" href="#4-type-safety" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># JSPyBridge - Python objects</span>
+<span class="n">checkkey</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>
+
+<span class="c1"># Subprocess - JSON parsing</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="p">)[</span><span class="s2">&quot;checkkey&quot;</span><span class="p">]</span>
+</code></pre></div>
+<h2 id="migration-from-subprocess">Migration from Subprocess<a class="headerlink" href="#migration-from-subprocess" title="Permanent link">&para;</a></h2>
+<h3 id="old-subprocess-only">Old (Subprocess Only)<a class="headerlink" href="#old-subprocess-only" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="p">[</span><span class="s2">&quot;node&quot;</span><span class="p">,</span> <span class="s2">&quot;-e&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;console.log(</span><span class="si">{</span><span class="n">expression</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">],</span>
+    <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="mi">2</span>
+<span class="p">)</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="new-jspybridge">New (JSPyBridge)<a class="headerlink" href="#new-jspybridge" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">eval_js</span>
+
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+<span class="c1"># ... parse and find expression ...</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>  <span class="c1"># Fast!</span>
+</code></pre></div>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="jspybridge-not-found">JSPyBridge Not Found<a class="headerlink" href="#jspybridge-not-found" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ImportError: No module named &#39;javascript&#39;
+</code></pre></div>
+<p><strong>Solution</strong>: Install JSPyBridge</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>javascript
+</code></pre></div>
+<h3 id="acorn-not-found">Acorn Not Found<a class="headerlink" href="#acorn-not-found" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>Error: Cannot find module &#39;acorn&#39;
+</code></pre></div>
+<p><strong>Solution</strong>: Install npm packages</p>
+<div class="highlight"><pre><span></span><code>npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> </span>acorn-walk
+</code></pre></div>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c1"># Test JSPyBridge works</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from helpers.checkkey import extract_checkkey_from_js; print(&#39;JSPyBridge works!&#39;)&quot;</span>
+</code></pre></div>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p><strong>Method</strong>: JSPyBridge (required)</p>
+<ul>
+<li>✅ Fast (no process spawning)</li>
+<li>✅ Clean API (direct <code>require()</code>)</li>
+<li>✅ Better error handling</li>
+<li>✅ Type-safe results</li>
+</ul>
+<p><strong>Installation</strong>:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>javascript
+npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> </span>acorn-walk
+</code></pre></div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-Stash-field-transformations/" class="btn btn-neutral float-left" title="Stash Field Transformations"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../planning/monitoring-daemon-architecture/" class="btn btn-neutral float-right" title="Monitoring Daemon Architecture">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-Stash-field-transformations/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../planning/monitoring-daemon-architecture/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

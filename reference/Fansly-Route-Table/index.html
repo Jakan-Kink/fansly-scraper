@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Route-Table/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Fansly Route Table - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Fansly Route Table";
+        var mkdocs_page_input_path = "reference/Fansly-Route-Table.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/Fansly-Route-Table/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Fansly Route Table</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#public-routes-no-guard">Public Routes (no guard)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#authenticated-user-routes-guard-si">Authenticated User Routes (guard: si)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#auth-required-content-routes-guard-os">Auth-Required Content Routes (guard: os)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#creator-dashboard-routes-guards-si-tr">Creator Dashboard Routes (guards: si + TR)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#admininternal-routes-guard-em">Admin/Internal Routes (guard: eM)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#other">Other</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Fansly Route Table</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/Fansly-Route-Table.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-frontend-route-table">Fansly Frontend Route Table<a class="headerlink" href="#fansly-frontend-route-table" title="Permanent link">&para;</a></h1>
+<p>Extracted from <code>main.js</code> Angular route configuration.</p>
+<p>Guard legend: <code>si</code> = authenticated user, <code>os</code> = general auth, <code>eM</code> = creator/admin, <code>TR</code> = creator-specific</p>
+<h2 id="public-routes-no-guard">Public Routes (no guard)<a class="headerlink" href="#public-routes-no-guard" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>Landing page (redirects to /home if authenticated)</td>
+</tr>
+<tr>
+<td><code>/age</code></td>
+<td>Age verification gate</td>
+</tr>
+<tr>
+<td><code>/r/:refcode</code></td>
+<td>Referral redirect</td>
+</tr>
+<tr>
+<td><code>/promo/:refcode</code></td>
+<td>Promo code with referral</td>
+</tr>
+<tr>
+<td><code>/promo</code></td>
+<td>General promo page</td>
+</tr>
+<tr>
+<td><code>/email/unsubscribe/:token</code></td>
+<td>Email unsubscribe</td>
+</tr>
+<tr>
+<td><code>/passwordreset/:token</code></td>
+<td>Password reset</td>
+</tr>
+<tr>
+<td><code>/emailverify/:token</code></td>
+<td>Email verification</td>
+</tr>
+<tr>
+<td><code>/search</code></td>
+<td>Search</td>
+</tr>
+<tr>
+<td><code>/explore</code></td>
+<td>Explore/discover content</td>
+</tr>
+<tr>
+<td><code>/explore/discover</code></td>
+<td>Discover tab (default)</td>
+</tr>
+<tr>
+<td><code>/explore/accounts</code></td>
+<td>Explore accounts</td>
+</tr>
+<tr>
+<td><code>/explore/new</code></td>
+<td>New content</td>
+</tr>
+<tr>
+<td><code>/explore/new/:mediaOfferId</code></td>
+<td>Specific media offer</td>
+</tr>
+<tr>
+<td><code>/explore/foryou</code></td>
+<td>For You feed</td>
+</tr>
+<tr>
+<td><code>/explore/foryou/settings</code></td>
+<td>For You preferences</td>
+</tr>
+<tr>
+<td><code>/explore/foryou/:tag</code></td>
+<td>For You by tag</td>
+</tr>
+<tr>
+<td><code>/explore/tag/:tag</code></td>
+<td>Tag browse</td>
+</tr>
+<tr>
+<td><code>/fyp</code></td>
+<td>For You Page (standalone)</td>
+</tr>
+<tr>
+<td><code>/notificationalerts/unsubscribe/:unsubscribeToken</code></td>
+<td>Notification alert unsubscribe</td>
+</tr>
+<tr>
+<td><code>/subscriptions/giftcode/:code</code></td>
+<td>Gift code redemption</td>
+</tr>
+<tr>
+<td><code>/application</code></td>
+<td>Creator application</td>
+</tr>
+<tr>
+<td><code>/application/form</code></td>
+<td>Creator application form</td>
+</tr>
+<tr>
+<td><code>/chatroom/:chatRoomId</code></td>
+<td>Standalone chat room</td>
+</tr>
+<tr>
+<td><code>/thirdpartyconnect/login/:token</code></td>
+<td>Third-party OAuth login</td>
+</tr>
+<tr>
+<td><code>/thirdpartyconnect/connect/:token</code></td>
+<td>Third-party connect</td>
+</tr>
+<tr>
+<td><code>/thirdpartyconnect/error/:code</code></td>
+<td>Third-party error</td>
+</tr>
+<tr>
+<td><code>/managementsession/claim/:token</code></td>
+<td>Agency management session claim</td>
+</tr>
+<tr>
+<td><code>/leaderboard</code></td>
+<td>Leaderboard</td>
+</tr>
+<tr>
+<td><code>/redirect/external</code></td>
+<td>External URL redirect proxy</td>
+</tr>
+<tr>
+<td><code>/founders</code></td>
+<td>Founders page</td>
+</tr>
+<tr>
+<td><code>/support</code></td>
+<td>Support page</td>
+</tr>
+<tr>
+<td><code>/tos</code></td>
+<td>Terms of Service</td>
+</tr>
+<tr>
+<td><code>/terms</code></td>
+<td>Terms (alias)</td>
+</tr>
+<tr>
+<td><code>/privacy</code></td>
+<td>Privacy policy</td>
+</tr>
+<tr>
+<td><code>/contact</code></td>
+<td>Contact page</td>
+</tr>
+<tr>
+<td><code>/usc2257</code></td>
+<td>USC 2257 compliance</td>
+</tr>
+<tr>
+<td><code>/dmca</code></td>
+<td>DMCA policy</td>
+</tr>
+<tr>
+<td><code>/cookies</code></td>
+<td>Cookie policy</td>
+</tr>
+<tr>
+<td><code>/imprint</code></td>
+<td>Legal imprint</td>
+</tr>
+</tbody>
+</table>
+<h2 id="authenticated-user-routes-guard-si">Authenticated User Routes (guard: <code>si</code>)<a class="headerlink" href="#authenticated-user-routes-guard-si" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/home</code></td>
+<td>Home timeline (preloaded)</td>
+</tr>
+<tr>
+<td><code>/home/subscribed</code></td>
+<td>Home — subscribed creators only</td>
+</tr>
+<tr>
+<td><code>/home/followed</code></td>
+<td>Home — followed creators only</td>
+</tr>
+<tr>
+<td><code>/home/list/:listId</code></td>
+<td>Home — filtered by list</td>
+</tr>
+<tr>
+<td><code>/affiliates</code></td>
+<td>Affiliate program</td>
+</tr>
+<tr>
+<td><code>/notifications</code></td>
+<td>Notifications (preloaded)</td>
+</tr>
+<tr>
+<td><code>/messages</code></td>
+<td>Messages inbox</td>
+</tr>
+<tr>
+<td><code>/messages/:groupId</code></td>
+<td>Specific conversation</td>
+</tr>
+<tr>
+<td><code>/statistics/:mediaOfferId</code></td>
+<td>Media offer statistics</td>
+</tr>
+<tr>
+<td><code>/subscriptions</code></td>
+<td>Active subscriptions</td>
+</tr>
+<tr>
+<td><code>/collection</code></td>
+<td>Personal collection</td>
+</tr>
+<tr>
+<td><code>/lists</code></td>
+<td>Creator lists</td>
+</tr>
+<tr>
+<td><code>/lists/:listId</code></td>
+<td>Specific list</td>
+</tr>
+<tr>
+<td><code>/bookmarks</code></td>
+<td>Bookmarks</td>
+</tr>
+<tr>
+<td><code>/bookmarks/:albumType</code></td>
+<td>Bookmarks by album type</td>
+</tr>
+<tr>
+<td><code>/settings</code></td>
+<td>Settings parent</td>
+</tr>
+<tr>
+<td><code>/settings/account</code></td>
+<td>Account settings</td>
+</tr>
+<tr>
+<td><code>/settings/profile</code></td>
+<td>Profile settings</td>
+</tr>
+<tr>
+<td><code>/settings/notifications</code></td>
+<td>Notification settings</td>
+</tr>
+<tr>
+<td><code>/settings/display</code></td>
+<td>Display/theme settings</td>
+</tr>
+<tr>
+<td><code>/settings/payments</code></td>
+<td>Payment settings</td>
+</tr>
+<tr>
+<td><code>/settings/explore</code></td>
+<td>Explore preferences</td>
+</tr>
+<tr>
+<td><code>/settings/privacy</code></td>
+<td>Privacy settings</td>
+</tr>
+<tr>
+<td><code>/settings/sessions</code></td>
+<td>Active sessions</td>
+</tr>
+<tr>
+<td><code>/settings/connections</code></td>
+<td>Connected accounts</td>
+</tr>
+<tr>
+<td><code>/settings/about</code></td>
+<td>About</td>
+</tr>
+</tbody>
+</table>
+<h2 id="auth-required-content-routes-guard-os">Auth-Required Content Routes (guard: <code>os</code>)<a class="headerlink" href="#auth-required-content-routes-guard-os" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/post/:postId</code></td>
+<td>Single post view (preloaded)</td>
+</tr>
+<tr>
+<td><code>/post/:postId/:interactionSource</code></td>
+<td>Post with interaction tracking</td>
+</tr>
+<tr>
+<td><code>/post/:postId/attachments/:index</code></td>
+<td>Post attachment viewer</td>
+</tr>
+<tr>
+<td><code>/live/:username</code></td>
+<td>Watch livestream</td>
+</tr>
+<tr>
+<td><code>/collection/:username</code></td>
+<td>Creator's collection</td>
+</tr>
+<tr>
+<td><code>/collection/:username/:albumId</code></td>
+<td>Specific collection album</td>
+</tr>
+<tr>
+<td><code>/:username</code></td>
+<td>Creator profile (catch-all)</td>
+</tr>
+<tr>
+<td><code>/:username/posts</code></td>
+<td>Creator posts (default tab)</td>
+</tr>
+<tr>
+<td><code>/:username/media</code></td>
+<td>Creator media tab</td>
+</tr>
+<tr>
+<td><code>/:username/media/pictures</code></td>
+<td>Creator pictures only</td>
+</tr>
+<tr>
+<td><code>/:username/media/wall/:wallId</code></td>
+<td>Creator media by wall</td>
+</tr>
+<tr>
+<td><code>/:username/followers</code></td>
+<td>Creator's followers</td>
+</tr>
+<tr>
+<td><code>/:username/following</code></td>
+<td>Creator's following</td>
+</tr>
+<tr>
+<td><code>/:username/wall/:wallId</code></td>
+<td>Creator wall view</td>
+</tr>
+<tr>
+<td><code>/:username/posts/wall/:wallId</code></td>
+<td>Creator posts by wall</td>
+</tr>
+<tr>
+<td><code>/:username/posts/album/:albumId</code></td>
+<td>Creator posts by album</td>
+</tr>
+<tr>
+<td><code>/:username/:internalId</code></td>
+<td>Creator internal page</td>
+</tr>
+</tbody>
+</table>
+<h2 id="creator-dashboard-routes-guards-si-tr">Creator Dashboard Routes (guards: <code>si</code> + <code>TR</code>)<a class="headerlink" href="#creator-dashboard-routes-guards-si-tr" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/scheduled</code></td>
+<td>Scheduled posts</td>
+</tr>
+<tr>
+<td><code>/creator</code></td>
+<td>Creator dashboard parent</td>
+</tr>
+<tr>
+<td><code>/creator/subscribers</code></td>
+<td>Subscriber management</td>
+</tr>
+<tr>
+<td><code>/creator/streaming</code></td>
+<td>Streaming setup</td>
+</tr>
+<tr>
+<td><code>/creator/uploads</code></td>
+<td>Upload management</td>
+</tr>
+<tr>
+<td><code>/creator/lists</code></td>
+<td>Creator's lists</td>
+</tr>
+<tr>
+<td><code>/creator/lists/:listId</code></td>
+<td>Specific list management</td>
+</tr>
+<tr>
+<td><code>/creator/plans</code></td>
+<td>Subscription plans</td>
+</tr>
+<tr>
+<td><code>/creator/chat</code></td>
+<td>Chat management</td>
+</tr>
+<tr>
+<td><code>/creator/topsupporters</code></td>
+<td>Top supporters</td>
+</tr>
+<tr>
+<td><code>/creator/profilestats</code></td>
+<td>Profile statistics</td>
+</tr>
+<tr>
+<td><code>/creator/trackinglinks</code></td>
+<td>Tracking links</td>
+</tr>
+<tr>
+<td><code>/creator/earnings</code></td>
+<td>Earnings parent</td>
+</tr>
+<tr>
+<td><code>/creator/earnings/wallet</code></td>
+<td>Wallet/balance (default)</td>
+</tr>
+<tr>
+<td><code>/creator/earnings/statistics</code></td>
+<td>Earnings statistics</td>
+</tr>
+<tr>
+<td><code>/creator/vault</code></td>
+<td>Content vault</td>
+</tr>
+<tr>
+<td><code>/creator/management</code></td>
+<td>Agency management</td>
+</tr>
+<tr>
+<td><code>/creator/payout/documentation</code></td>
+<td>Payout documentation</td>
+</tr>
+</tbody>
+</table>
+<h2 id="admininternal-routes-guard-em">Admin/Internal Routes (guard: <code>eM</code>)<a class="headerlink" href="#admininternal-routes-guard-em" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/settings/design-reference</code></td>
+<td>Design system component library</td>
+</tr>
+<tr>
+<td><code>/settings/design-reference-integrations</code></td>
+<td>Design system integrations</td>
+</tr>
+<tr>
+<td><code>/live/broadcast</code></td>
+<td>Livestream broadcast page</td>
+</tr>
+</tbody>
+</table>
+<h2 id="other">Other<a class="headerlink" href="#other" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/payments/application</code></td>
+<td>Payment application (no explicit guard)</td>
+</tr>
+<tr>
+<td><code>/**</code></td>
+<td>Wildcard catch-all</td>
+</tr>
+</tbody>
+</table>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../Fansly-API-analysis/" class="btn btn-neutral float-left" title="Fansly API Analysis"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-WebSocket-Protocol/" class="btn btn-neutral float-right" title="Fansly WebSocket Protocol">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../Fansly-API-analysis/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-WebSocket-Protocol/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

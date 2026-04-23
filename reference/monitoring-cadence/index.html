@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/monitoring-cadence/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Monitoring Daemon Cadence - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Monitoring Daemon Cadence";
+        var mkdocs_page_input_path = "reference/monitoring-cadence.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/monitoring-cadence/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Monitoring Daemon Cadence</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#polling-interval-reference">Polling Interval Reference</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#tab-visibility-behavior-browser">Tab visibility behavior (browser)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#anti-detection-considerations-for-the-daemon">Anti-detection considerations for the daemon</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#skipping-inactive-creators">Skipping Inactive Creators</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#rejected-signal-accountlastseenat">Rejected signal: Account.lastSeenAt</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#rejected-signal-timelinestatsfetchedat">Rejected signal: TimelineStats.fetchedAt</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#why-theres-no-lastpostedat-equivalent">Why there's no lastPostedAt equivalent</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#the-working-signal-first-page-timeline-probe">The working signal: first-page timeline probe</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-layers">Optimization Layers</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#1-home-timeline-diffing">1. Home timeline diffing</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#2-story-state-flip-detection">2. Story state flip detection</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#3-timeline-probe-creator-skip-detailed-above">3. Timeline-probe creator skip (detailed above)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#api-endpoint-reference">API Endpoint Reference</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#timeline-refresh-semantics">Timeline Refresh Semantics</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Monitoring Daemon Cadence</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/monitoring-cadence.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="monitoring-daemon-cadence-anti-detection-reference">Monitoring Daemon Cadence &amp; Anti-Detection Reference<a class="headerlink" href="#monitoring-daemon-cadence-anti-detection-reference" title="Permanent link">&para;</a></h1>
+<p>Reference data for the post-batch monitoring daemon (v0.13+). Intervals
+below are derived from analysis of Fansly's own frontend code in <code>main.js</code>
+— the daemon matches these cadences to minimize detection surface.</p>
+<p>See <a href="../../planning/monitoring-daemon-architecture/"><code>docs/planning/monitoring-daemon-architecture.md</code></a>
+for the overall daemon architecture. This page documents the <em>why</em> behind
+the intervals and the signals the daemon uses (and deliberately avoids).</p>
+<h2 id="polling-interval-reference">Polling Interval Reference<a class="headerlink" href="#polling-interval-reference" title="Permanent link">&para;</a></h2>
+<p>Fansly's frontend uses a three-tier visibility model (active tab, idle,
+hidden) with different poll cadences for each resource. The daemon matches
+these intervals so its traffic blends with real browser sessions.</p>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Active interval</th>
+<th>Idle interval</th>
+<th>Idle threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Home timeline</td>
+<td>3 min + 0–10s jitter</td>
+<td>10 min + jitter</td>
+<td>&gt; 30s no input</td>
+</tr>
+<tr>
+<td>Story states</td>
+<td>30 sec</td>
+<td>5 min</td>
+<td>&gt; 5 min no input</td>
+</tr>
+<tr>
+<td>Live streams</td>
+<td>60 sec</td>
+<td>5 min</td>
+<td>&gt; 5 min no input</td>
+</tr>
+<tr>
+<td>FYP preview</td>
+<td>10 min</td>
+<td><em>never</em> (stops)</td>
+<td>&gt; 30s no input</td>
+</tr>
+<tr>
+<td>WebSocket ping</td>
+<td>20–25 sec (always)</td>
+<td>20–25 sec (always)</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Notification check</td>
+<td>on tab-unhide &gt; 30s</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tab-visibility-behavior-browser">Tab visibility behavior (browser)<a class="headerlink" href="#tab-visibility-behavior-browser" title="Permanent link">&para;</a></h3>
+<p>When the real Fansly tab becomes hidden, <strong>all</strong> polling stops (timeline,
+stories, live streams, FYP). On return to visibility:</p>
+<ul>
+<li><strong>&gt; 1 second hidden</strong> → check for updates + <code>assertWebsocketConnection()</code> (reconnect WS)</li>
+<li><strong>&gt; 30 seconds hidden</strong> → recheck notifications + reload wallet balances</li>
+<li><strong>&gt; 6 hours hidden</strong> (216e5 ms) → force PWA update (full page reload)</li>
+</ul>
+<h3 id="anti-detection-considerations-for-the-daemon">Anti-detection considerations for the daemon<a class="headerlink" href="#anti-detection-considerations-for-the-daemon" title="Permanent link">&para;</a></h3>
+<p>The daemon runs headless — there is no tab to hide. To blend in:</p>
+<ul>
+<li><strong>Add jitter</strong> to all poll intervals (match the 0–10s jitter on home timeline)</li>
+<li><strong>Match the 3-min active / 10-min idle cadence</strong> from the real frontend</li>
+<li><strong>Correlate API requests with WS ping activity</strong> — both should be active simultaneously</li>
+<li><strong>On "tab unhide" equivalent</strong> (e.g., after a pause), call
+  <code>assertWebsocketConnection()</code> before polling. This matches browser behavior.</li>
+<li><strong>Wallet transaction types 6002 and 6515</strong> are filtered from UI alerts
+  (internal transfers) — if the daemon surfaces alerts, filter these too.</li>
+<li><strong>"STOP" console warning</strong> is emitted at app init on the real frontend.
+  Headless sessions never trigger this, which is a fingerprint — not
+  something the daemon can replicate, but good to be aware of.</li>
+</ul>
+<h2 id="skipping-inactive-creators">Skipping Inactive Creators<a class="headerlink" href="#skipping-inactive-creators" title="Permanent link">&para;</a></h2>
+<p>The <code>should_process_creator()</code> filter in <code>daemon/filters.py</code> short-circuits
+creators who haven't posted since the last daemon tick. The signal it uses
+is <strong><code>post.createdAt</code> from the first timeline page</strong>, compared against
+<code>MonitorState.lastCheckedAt</code>.</p>
+<p>The filter <strong>specifically rejects two alternative signals</strong>. Both were
+investigated and discarded on 2026-04-17; the rationale is retained
+below so future work doesn't relitigate this decision.</p>
+<h3 id="rejected-signal-accountlastseenat">Rejected signal: <code>Account.lastSeenAt</code><a class="headerlink" href="#rejected-signal-accountlastseenat" title="Permanent link">&para;</a></h3>
+<p>Per <code>main.js</code> (line 16014):</p>
+<div class="highlight"><pre><span></span><code><span class="nx">t</span><span class="p">.</span><span class="nx">lastSeenAt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">lastSeenAt</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="mf">0</span>
+</code></pre></div>
+<p>The <code>|| 0</code> means creators with last-seen visibility <strong>turned off</strong> return
+<code>0</code> forever. Compared against <code>MonitorState.lastCheckedAt</code>, that resolves
+as 1970-01-01, which is always older than any realistic "last checked"
+timestamp — so these creators get <strong>stuck-skipped indefinitely</strong>.</p>
+<p>Privacy-opt-out combined with this default-to-zero fallback makes
+<code>lastSeenAt</code> unreliable as a "did this creator do something since we
+last checked?" signal.</p>
+<h3 id="rejected-signal-timelinestatsfetchedat">Rejected signal: <code>TimelineStats.fetchedAt</code><a class="headerlink" href="#rejected-signal-timelinestatsfetchedat" title="Permanent link">&para;</a></h3>
+<p>Empirical evidence from a real observation:</p>
+<ul>
+<li><code>fetchedAt = 1774849061652</code> (ms) = <strong>2026-04-27</strong></li>
+<li>Creator's most recent <code>post.createdAt = 1774783936</code> (seconds) = <strong>2026-04-26</strong></li>
+<li>The <code>fetchedAt</code> appeared ~18 hours <strong>after</strong> the latest real post,
+  with no new content in between.</li>
+</ul>
+<p>Further investigation of <code>main.js</code> confirms the Fansly client <strong>never
+reads <code>timelineStats.fetchedAt</code></strong> for any purpose — it's server-side
+cache-regeneration metadata, not a "time of last new post" timestamp.</p>
+<h3 id="why-theres-no-lastpostedat-equivalent">Why there's no <code>lastPostedAt</code> equivalent<a class="headerlink" href="#why-theres-no-lastpostedat-equivalent" title="Permanent link">&para;</a></h3>
+<p>Searches across <code>main.js</code> for <code>lastPosted</code>, <code>latestPost</code>, <code>postCount</code>,
+and <code>mostRecent</code> returned zero hits. If Fansly's backend tracked "when
+did this creator last post?" anywhere, the client UI would surface it
+somewhere. It doesn't — which means the data point doesn't exist on
+the server, and the downloader has to derive it from the timeline itself.</p>
+<h3 id="the-working-signal-first-page-timeline-probe">The working signal: first-page timeline probe<a class="headerlink" href="#the-working-signal-first-page-timeline-probe" title="Permanent link">&para;</a></h3>
+<p>The daemon's <code>should_process_creator()</code>:</p>
+<ol>
+<li>Fetches the creator's first timeline page (one API call)</li>
+<li>Filters out pinned posts (creators can re-pin old posts at any time,
+   so a pinned post's <code>createdAt</code> tells us nothing about new activity)</li>
+<li>Compares the most recent <strong>non-pinned</strong> <code>post.createdAt</code> against
+   <code>MonitorState.lastCheckedAt</code></li>
+<li>Returns <code>True</code> if the post is newer, <code>False</code> otherwise</li>
+</ol>
+<p>Session baseline overrides available via CLI:</p>
+<ul>
+<li><code>--monitor-since &lt;iso&gt;</code> — precise window override</li>
+<li><code>--full-pass</code> — sets baseline to <code>2000-01-01T00:00:00Z</code>, forcing
+  re-check of every creator</li>
+</ul>
+<h2 id="optimization-layers">Optimization Layers<a class="headerlink" href="#optimization-layers" title="Permanent link">&para;</a></h2>
+<p>Three layers of optimization reduce the number of per-creator calls the
+daemon makes on each pass:</p>
+<h3 id="1-home-timeline-diffing">1. Home timeline diffing<a class="headerlink" href="#1-home-timeline-diffing" title="Permanent link">&para;</a></h3>
+<p><code>GET /timeline/home?before=0&amp;after=0&amp;mode=0</code> returns recent posts from
+<strong>all</strong> followed creators in a single call. Comparing returned post IDs
+against last-seen identifies which specific creators have new content.
+The daemon only descends into per-creator timelines for those creators.</p>
+<h3 id="2-story-state-flip-detection">2. Story state flip detection<a class="headerlink" href="#2-story-state-flip-detection" title="Permanent link">&para;</a></h3>
+<p><code>GET /mediastories/following?limit=100&amp;offset=0</code> returns
+<code>MediaStoryState.hasActiveStories</code> per creator. The daemon only calls
+<code>mediastoriesnew</code> for creators whose <code>hasActiveStories</code> flipped to true
+since the last tick (<code>MonitorState.lastHasActiveStories</code>).</p>
+<h3 id="3-timeline-probe-creator-skip-detailed-above">3. Timeline-probe creator skip (detailed above)<a class="headerlink" href="#3-timeline-probe-creator-skip-detailed-above" title="Permanent link">&para;</a></h3>
+<p>Last resort for creators the upstream optimizations didn't cover.</p>
+<h2 id="api-endpoint-reference">API Endpoint Reference<a class="headerlink" href="#api-endpoint-reference" title="Permanent link">&para;</a></h2>
+<p>Fansly API endpoints relevant to the daemon:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /timeline/home?before=0&amp;after=0&amp;mode=0</code></td>
+<td>Home timeline — all followed creators at once</td>
+</tr>
+<tr>
+<td><code>GET /timeline/{accountId}</code></td>
+<td>Per-creator timeline (for skip probe + downloads)</td>
+</tr>
+<tr>
+<td><code>GET /mediastories/following?limit=100&amp;offset=0</code></td>
+<td>Story states for all followed creators</td>
+</tr>
+<tr>
+<td><code>GET /mediastoriesnew?accountId={id}</code></td>
+<td>New stories for a specific creator</td>
+</tr>
+<tr>
+<td><code>GET /account/{id}/following</code></td>
+<td>Your following list — NO <code>lastSeenAfter</code> param</td>
+</tr>
+<tr>
+<td><code>GET /account/{id}/followersnew</code></td>
+<td>Followers list — HAS <code>lastSeenAfter</code> filter (not used by daemon)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Client-side filtering</strong>: the <code>/following</code> endpoint does NOT support
+server-side <code>lastSeenAfter</code> filtering (unlike <code>/followersnew</code>). If the
+daemon ever needs to filter the following list by last-seen, it must do
+it in-process.</p>
+<h2 id="timeline-refresh-semantics">Timeline Refresh Semantics<a class="headerlink" href="#timeline-refresh-semantics" title="Permanent link">&para;</a></h2>
+<p>Two refresh modes are defined in <code>main.js</code>:</p>
+<ul>
+<li><strong><code>refreshTimeline</code></strong> — incremental fetch of new posts only. <strong>The daemon uses this.</strong></li>
+<li><strong><code>reloadTimeline</code></strong> — full reload from scratch. The daemon avoids this.</li>
+</ul>
+<p>Additional rules from <code>main.js</code>:</p>
+<ul>
+<li><strong>Active user</strong>: refreshTimeline every 3 min + jitter</li>
+<li><strong>Idle user</strong>: refreshTimeline every 10 min + jitter</li>
+<li><strong>Tab hidden</strong>: STOP polling entirely (visibility API)</li>
+<li><strong>Tab unhidden after &gt; 3 hours</strong>: force refresh (daemon mirrors this with restart-pass)</li>
+<li><strong>Scrolled to top + stale &gt; 5 min</strong>: reload instead of refresh (not applicable to daemon — no scroll state)</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../architecture/" class="btn btn-neutral float-left" title="Architecture"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../Fansly-API-analysis/" class="btn btn-neutral float-right" title="Fansly API Analysis">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../architecture/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../Fansly-API-analysis/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

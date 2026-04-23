@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/guide/manual-token-extraction/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Manual Token Extraction - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Manual Token Extraction";
+        var mkdocs_page_input_path = "guide/manual-token-extraction.md";
+        var mkdocs_page_url = "/fansly-scraper/guide/manual-token-extraction/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Manual Token Extraction</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#option-1-devtools-console-recommended-fallback">Option 1 — DevTools Console (recommended fallback)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#option-2-devtools-network-tab">Option 2 — DevTools Network Tab</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#verifying-the-values">Verifying the values</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#keeping-the-token-fresh">Keeping the token fresh</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Guide</li>
+      <li class="breadcrumb-item active">Manual Token Extraction</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/guide/manual-token-extraction.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="manual-token-extraction">Manual Token Extraction<a class="headerlink" href="#manual-token-extraction" title="Permanent link">&para;</a></h1>
+<p>Fansly Downloader NG's <strong>recommended</strong> authentication path is automatic
+browser-token extraction via the <code>browser-auth</code> Poetry group — see the
+<a href="https://github.com/Jakan-Kink/fansly-scraper/blob/main/README.md#%EF%B8%8F-setup">README Setup section</a>
+for the <code>poetry install --no-root --with browser-auth</code> flow. It supports Chrome,
+Firefox, Microsoft Edge, Brave, Opera, and Opera GX, handling everything
+for you.</p>
+<p>This page covers the <strong>manual fallback</strong> for cases where automatic
+extraction isn't available:</p>
+<ul>
+<li>You use Safari (not supported by <code>browser-auth</code>)</li>
+<li>You're running on a headless server / VM without a GUI browser</li>
+<li>The <code>plyvel-ci</code> install failed on your platform</li>
+<li>You just want to inspect the values yourself before handing them to the
+  downloader</li>
+</ul>
+<blockquote>
+<p><strong>Make sure you are logged into <a href="https://fansly.com">fansly.com</a> in your
+browser before starting.</strong> Both methods below read the auth material from
+the active browser session.</p>
+</blockquote>
+<h2 id="option-1-devtools-console-recommended-fallback">Option 1 — DevTools Console (recommended fallback)<a class="headerlink" href="#option-1-devtools-console-recommended-fallback" title="Permanent link">&para;</a></h2>
+<p>The fastest manual path: paste a tiny JavaScript snippet into the browser
+console and have it print the two values you need.</p>
+<ol>
+<li>Open any Fansly creator's page (or <a href="https://fansly.com">fansly.com</a>).</li>
+<li>Open the browser DevTools — usually <code>F12</code>, or right-click → <strong>Inspect</strong>.</li>
+<li>Switch to the <strong>Console</strong> tab.</li>
+<li>Paste this snippet and press Enter:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="nx">console</span><span class="p">.</span><span class="nx">clear</span><span class="p">();</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">activeSession</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">localStorage</span><span class="p">.</span><span class="nx">getItem</span><span class="p">(</span><span class="s2">&quot;session_active_session&quot;</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">activeSession</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;%c➡ authorization_token =&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;color: limegreen; font-weight: bold;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">token</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;%c➡ user_agent =&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;color: yellow; font-weight: bold;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">navigator</span><span class="p">.</span><span class="nx">userAgent</span><span class="p">);</span>
+</code></pre></div>
+<ol>
+<li>The console now prints your <code>authorization_token</code> and <code>user_agent</code>.
+   Copy both values.</li>
+<li>Open <code>config.yaml</code> in the downloader's working directory and paste the
+   values into the <code>my_account</code> section:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="nt">my_account</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">authorization_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PASTE_TOKEN_HERE</span>
+<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">PASTE_USER_AGENT_HERE</span>
+</code></pre></div>
+<ol>
+<li>Save the file and run the downloader.</li>
+</ol>
+<h2 id="option-2-devtools-network-tab">Option 2 — DevTools Network Tab<a class="headerlink" href="#option-2-devtools-network-tab" title="Permanent link">&para;</a></h2>
+<p>Useful when you want to verify the token comes from a real API call rather
+than <code>localStorage</code>, or if the site has moved away from <code>session_active_session</code>
+in the future.</p>
+<ol>
+<li>Open Fansly and DevTools (<code>F12</code>).</li>
+<li>Switch to the <strong>Network</strong> tab.</li>
+<li>Reload the page (<code>F5</code> / <code>Ctrl+R</code>). Network activity populates the list.</li>
+<li>Filter the list to <strong>Fetch/XHR</strong> and pick any request to <code>apiv3.fansly.com</code>.</li>
+<li>In the <strong>Headers</strong> panel, copy:</li>
+<li><code>authorization:</code> → <code>authorization_token</code> in <code>config.yaml</code></li>
+<li><code>user-agent:</code> → <code>user_agent</code> in <code>config.yaml</code></li>
+</ol>
+<p>Paste both into the <code>my_account</code> section of <code>config.yaml</code> as shown in
+Option 1 step 6.</p>
+<h2 id="verifying-the-values">Verifying the values<a class="headerlink" href="#verifying-the-values" title="Permanent link">&para;</a></h2>
+<p>Token values are 50–70 characters of alphanumerics. If yours looks much
+shorter, you probably grabbed the wrong header (some requests send a
+short session cookie instead of the auth JWT). Use Option 2 and pick a
+different request.</p>
+<p>The <code>user_agent</code> value will be 80–200 characters describing your browser
+and platform (e.g., <code>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)...</code>).
+If you see a shorter value, you likely copied the wrong string.</p>
+<h2 id="keeping-the-token-fresh">Keeping the token fresh<a class="headerlink" href="#keeping-the-token-fresh" title="Permanent link">&para;</a></h2>
+<p>Tokens rotate on Fansly's side. If the downloader starts returning <code>401</code>
+or <code>authentication failed</code> errors, re-run one of the two methods above
+and update <code>config.yaml</code> — the next run will pick up the new value.</p>
+<hr />
+<p><em>Historical note: the JavaScript snippet above was originally documented
+by <a href="https://github.com/prof79">@prof79</a> on the upstream project wiki.
+It has been updated for the YAML-based configuration introduced in
+v0.12/v0.13.</em></p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../../changelog/" class="btn btn-neutral float-left" title="Changelog"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../reference/architecture/" class="btn btn-neutral float-right" title="Architecture">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../../changelog/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../reference/architecture/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

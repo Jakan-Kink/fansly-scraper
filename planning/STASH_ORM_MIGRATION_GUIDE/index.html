@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/planning/STASH_ORM_MIGRATION_GUIDE/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Stash ORM Migration Guide - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Stash ORM Migration Guide";
+        var mkdocs_page_input_path = "planning/STASH_ORM_MIGRATION_GUIDE.md";
+        var mkdocs_page_url = "/fansly-scraper/planning/STASH_ORM_MIGRATION_GUIDE/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Stash ORM Migration Guide</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#why-migrate">Why Migrate?</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#current-state-using-library-as-raw-graphql-client">Current State: Using Library as Raw GraphQL Client</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#after-migration-using-library-as-orm">After Migration: Using Library as ORM</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#migration-patterns">Migration Patterns</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-1-replace-sequential-searches-with-storefind">Pattern 1: Replace Sequential Searches with store.find()</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-accountpy101-137">Current Code (account.py:101-137)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code-best-using-get_or_create">Migrated Code (BEST: Using get_or_create)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-2-use-storeget-for-single-entity-lookups">Pattern 2: Use store.get() for Single Entity Lookups</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-accountpy300-314">Current Code (account.py:300-314)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-3-eliminate-manual-cache-invalidation">Pattern 3: Eliminate Manual Cache Invalidation</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-studiopy132-143">Current Code (studio.py:132-143)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code_1">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-4-batch-operations-for-tags">Pattern 4: Batch Operations for Tags</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-tagpy32-84">Current Code (tag.py:32-84)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code_2">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-5-simplify-filter-construction">Pattern 5: Simplify Filter Construction</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-mediapy98-141">Current Code (media.py:98-141)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code-option-a-django-style">Migrated Code (Option A: Django-style)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code-option-b-fetch-all-then-filter-in-memory">Migrated Code (Option B: Fetch all then filter in-memory)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-6-use-unset-for-partial-updates">Pattern 6: Use UNSET for Partial Updates</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-mediapy620-644">Current Code (media.py:620-644)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code_3">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-7-use-relationship-helpers">Pattern 7: Use Relationship Helpers</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-mediapy661-734">Current Code (media.py:661-734)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code_4">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#pattern-8-eliminate-manual-retry-logic">Pattern 8: Eliminate Manual Retry Logic</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#current-code-gallerypy681-747">Current Code (gallery.py:681-747)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#migrated-code_5">Migrated Code</a>
+    </li>
+        </ul>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#phased-migration-plan">Phased Migration Plan</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#phases-1-2-foundation-high-impact-wins-complete-2026-01-09">Phases 1-2: Foundation + High-Impact Wins ✅ COMPLETE (2026-01-09)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-3-v011-upgrade-cache-optimization-complete-2026-03-07">Phase 3: v0.11 Upgrade + Cache Optimization ✅ COMPLETE (2026-03-07)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#phase-4-advanced-features">Phase 4: Advanced Features</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#testing-strategy">Testing Strategy</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#unit-tests">Unit Tests</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#integration-tests">Integration Tests</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#success-metrics">Success Metrics</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#performance-metrics">Performance Metrics</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#code-quality-metrics">Code Quality Metrics</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#monitoring">Monitoring</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimization-patterns-analysis-from-v0100-migration-plan">Optimization Patterns Analysis (from v0.10.0 Migration Plan)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#sequential-deduplication-accountpy">Sequential Deduplication (account.py)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#studio-lookup-caching">Studio Lookup Caching</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#parallel-tag-creation">Parallel Tag Creation</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#large-dataset-iteration">Large Dataset Iteration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#performance-improvements-summary">Performance Improvements Summary</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#key-v0104-changes">Key v0.10.4 Changes</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#references">References</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#questions-support">Questions &amp; Support</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Planning</li>
+      <li class="breadcrumb-item active">Stash ORM Migration Guide</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/planning/STASH_ORM_MIGRATION_GUIDE.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="stash-graphql-client-orm-migration-guide">Stash GraphQL Client ORM Migration Guide<a class="headerlink" href="#stash-graphql-client-orm-migration-guide" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Goal:</strong> Refactor codebase to leverage stash-graphql-client ORM features for cleaner code, better performance, and improved maintainability.</p>
+<p><strong>Status:</strong> Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ⏳ Ready to start (unlocked by SGC v0.12 adoption in fansly-downloader-ng v0.13.0)</p>
+<p><strong>Current SGC Version:</strong> v0.12.0 (batched GraphQL mutations, <code>__side_mutations__</code> mechanism, ActiveRecord-style relationship DSL, server capability detection, dynamic fragment store)</p>
+</blockquote>
+<h2 id="why-migrate">Why Migrate?<a class="headerlink" href="#why-migrate" title="Permanent link">&para;</a></h2>
+<h3 id="current-state-using-library-as-raw-graphql-client">Current State: Using Library as Raw GraphQL Client<a class="headerlink" href="#current-state-using-library-as-raw-graphql-client" title="Permanent link">&para;</a></h3>
+<ul>
+<li>🔴 <strong>20+ unique client methods</strong> called throughout codebase</li>
+<li>🔴 <strong>Manual filter dict construction</strong> (verbose, error-prone)</li>
+<li>🔴 <strong>N+1 query problems</strong> (sequential searches for same entities)</li>
+<li>🔴 <strong>Manual cache invalidation</strong> (<code>Studio._store.invalidate_type()</code>)</li>
+<li>🔴 <strong>Manual retry logic</strong> scattered across multiple files</li>
+<li>🔴 <strong>Race condition handling</strong> with string matching on error messages</li>
+<li>🔴 <strong>Complex nested OR construction</strong> (40+ lines for simple operations)</li>
+</ul>
+<h3 id="after-migration-using-library-as-orm">After Migration: Using Library as ORM<a class="headerlink" href="#after-migration-using-library-as-orm" title="Permanent link">&para;</a></h3>
+<ul>
+<li>✅ <strong>50-70% reduction in API calls</strong> (identity map + batching)</li>
+<li>✅ <strong>20-30% less code</strong> (simplified filters, relationship helpers)</li>
+<li>✅ <strong>Type-safe Django-style queries</strong> with autocomplete</li>
+<li>✅ <strong>Automatic dirty tracking</strong> (only save changed fields)</li>
+<li>✅ <strong>Bidirectional relationship sync</strong> (set once, updated everywhere)</li>
+<li>✅ <strong>Built-in retry logic</strong> with exponential backoff</li>
+<li>✅ <strong>Identity map</strong> ensures same ID = same object instance</li>
+</ul>
+<hr />
+<blockquote>
+<p><strong>Key Concepts</strong> (identity map, UNSET pattern, relationship helpers, Django-style filtering) are documented in the <a href="https://jakan-kink.github.io/stash-graphql-client/latest/">stash-graphql-client library docs</a>. This guide focuses on project-specific migration patterns.</p>
+</blockquote>
+<hr />
+<h2 id="migration-patterns">Migration Patterns<a class="headerlink" href="#migration-patterns" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Reading guide:</strong> The "Current Code" examples below show the <strong>pre-migration</strong> state (now deleted). The "Migrated Code" examples show the <strong>current</strong> implementation.</p>
+</blockquote>
+<h3 id="pattern-1-replace-sequential-searches-with-storefind">Pattern 1: Replace Sequential Searches with <code>store.find()</code><a class="headerlink" href="#pattern-1-replace-sequential-searches-with-storefind" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🔴 HIGH - Eliminates N+1 queries</p>
+<h4 id="current-code-accountpy101-137">Current Code (account.py:101-137)<a class="headerlink" href="#current-code-accountpy101-137" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_get_or_create_performer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">account</span><span class="p">:</span> <span class="n">Account</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Performer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get existing performer or create from account.&quot;&quot;&quot;</span>
+    <span class="n">search_name</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span>
+    <span class="n">fansly_url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="c1"># ❌ Query 1: By name</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_performers</span><span class="p">(</span>
+        <span class="n">performer_filter</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">search_name</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;EQUALS&quot;</span><span class="p">}}</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">is_set</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">count</span><span class="p">)</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># ❌ Query 2: By alias</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_performers</span><span class="p">(</span>
+        <span class="n">performer_filter</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;aliases&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">}}</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">is_set</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">count</span><span class="p">)</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># ❌ Query 3: By URL</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_performers</span><span class="p">(</span>
+        <span class="n">performer_filter</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">fansly_url</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">}}</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">is_set</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">count</span><span class="p">)</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="c1"># Not found - create</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_performer_from_account</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="migrated-code-best-using-get_or_create">Migrated Code (BEST: Using get_or_create)<a class="headerlink" href="#migrated-code-best-using-get_or_create" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_get_or_create_performer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">account</span><span class="p">:</span> <span class="n">Account</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Performer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get existing performer or create from account.&quot;&quot;&quot;</span>
+    <span class="n">search_name</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span>
+    <span class="n">fansly_url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="c1"># ✅ BEST: Try name with get_or_create (1 call instead of 3!)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+            <span class="n">Performer</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="n">search_name</span><span class="p">,</span>
+            <span class="c1"># These fields used only if creating:</span>
+            <span class="n">alias_list</span><span class="o">=</span><span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">],</span>
+            <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="n">fansly_url</span><span class="p">],</span>
+            <span class="n">details</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">about</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">performer</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># Fall back to alias search if name search fails</span>
+        <span class="k">pass</span>
+
+    <span class="c1"># Try by alias (rare fallback)</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find_one</span><span class="p">(</span>
+        <span class="n">Performer</span><span class="p">,</span>
+        <span class="n">aliases__contains</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">performer</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">performer</span>
+
+    <span class="c1"># Try by URL (last resort)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find_one</span><span class="p">(</span>
+        <span class="n">Performer</span><span class="p">,</span>
+        <span class="n">url__contains</span><span class="o">=</span><span class="n">fansly_url</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p><strong>Key improvement:</strong> <code>store.get_or_create()</code> signature:</p>
+<div class="highlight"><pre><span></span><code><span class="n">store</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+    <span class="n">entity_type</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">T</span><span class="p">],</span>
+    <span class="n">create_if_missing</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">search_params</span><span class="p">:</span> <span class="n">Any</span>  <span class="c1"># Search criteria + creation fields</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">T</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>Cleaner filter syntax (no manual dict construction)</li>
+<li>Identity map prevents duplicate fetches</li>
+<li>Automatic caching reduces API calls</li>
+<li>Type-safe with IDE autocomplete</li>
+</ul>
+<hr />
+<h3 id="pattern-2-use-storeget-for-single-entity-lookups">Pattern 2: Use <code>store.get()</code> for Single Entity Lookups<a class="headerlink" href="#pattern-2-use-storeget-for-single-entity-lookups" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🔴 HIGH - Leverages identity map caching</p>
+<h4 id="current-code-accountpy300-314">Current Code (account.py:300-314)<a class="headerlink" href="#current-code-accountpy300-314" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_find_existing_performer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">account</span><span class="p">:</span> <span class="n">Account</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Performer</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find performer by stash_id or username.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">account</span><span class="o">.</span><span class="n">stash_id</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># ❌ Bypasses identity map</span>
+            <span class="n">performer_data</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="n">account</span><span class="o">.</span><span class="n">stash_id</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">performer_data</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="c1"># Fallback to username search</span>
+    <span class="n">performer_data</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">performer_data</span>
+</code></pre></div>
+<h4 id="migrated-code">Migrated Code<a class="headerlink" href="#migrated-code" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_find_existing_performer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">account</span><span class="p">:</span> <span class="n">Account</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Performer</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find performer by stash_id or username.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">account</span><span class="o">.</span><span class="n">stash_id</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># ✅ Uses identity map - instant return if cached</span>
+            <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">Performer</span><span class="p">,</span> <span class="n">account</span><span class="o">.</span><span class="n">stash_id</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">performer</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">performer</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="c1"># Fallback to username search (also checks cache)</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find_one</span><span class="p">(</span>
+        <span class="n">Performer</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>Identity map returns cached object instantly</li>
+<li>No duplicate network requests for same ID</li>
+<li>Subsequent gets are O(1) dictionary lookups</li>
+</ul>
+<hr />
+<h3 id="pattern-3-eliminate-manual-cache-invalidation">Pattern 3: Eliminate Manual Cache Invalidation<a class="headerlink" href="#pattern-3-eliminate-manual-cache-invalidation" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🔴 HIGH - Reduces brittleness</p>
+<h4 id="current-code-studiopy132-143">Current Code (studio.py:132-143)<a class="headerlink" href="#current-code-studiopy132-143" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="n">studio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">create_studio</span><span class="p">(</span><span class="n">studio</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">studio</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="n">print_error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to create studio: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Failed to create studio&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="n">e</span><span class="p">)</span>
+
+    <span class="c1"># ❌ Manual cache invalidation (accessing private API)</span>
+    <span class="n">Studio</span><span class="o">.</span><span class="n">_store</span><span class="o">.</span><span class="n">invalidate_type</span><span class="p">(</span><span class="n">Studio</span><span class="p">)</span>
+
+    <span class="c1"># Re-query after invalidation</span>
+    <span class="n">studio_data</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_studios</span><span class="p">(</span><span class="n">q</span><span class="o">=</span><span class="n">creator_studio_name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">studio_data</span><span class="o">.</span><span class="n">count</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">studio_data</span><span class="o">.</span><span class="n">studios</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</code></pre></div>
+<p>---User Note: ✅ IMPLEMENTED — but uses <code>find_one()+save()</code> not <code>get_or_create()</code> as the migrated example suggests. Actual code at <code>studio.py:103</code> uses <code>store.find_one(Studio, name=...)</code> then <code>store.save(studio)</code>. Note: <code>studio.py:142-149</code> contains dead code (unreachable after <code>return studio</code> on line 140), and the docstring at line 64 inaccurately says "get_or_create".</p>
+<h4 id="migrated-code_1">Migrated Code<a class="headerlink" href="#migrated-code_1" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="c1"># ✅ Store handles conflicts automatically</span>
+    <span class="n">studio</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">Studio</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">creator_studio_name</span><span class="p">,</span>
+        <span class="n">parent_studio</span><span class="o">=</span><span class="n">fansly_studio</span><span class="p">,</span>
+        <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span>
+        <span class="n">performers</span><span class="o">=</span><span class="p">[</span><span class="n">performer</span><span class="p">]</span> <span class="k">if</span> <span class="n">performer</span> <span class="k">else</span> <span class="p">[],</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">studio</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="c1"># Check if it&#39;s a &quot;already exists&quot; error</span>
+    <span class="k">if</span> <span class="s2">&quot;already exists&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">):</span>
+        <span class="c1"># ✅ Store automatically refreshes cache on conflict</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find_one</span><span class="p">(</span>
+            <span class="n">Studio</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="n">creator_studio_name</span>
+        <span class="p">)</span>
+    <span class="k">raise</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>No manual cache invalidation needed</li>
+<li>Library handles cache coherency</li>
+<li>Cleaner error handling</li>
+<li>Race conditions handled automatically</li>
+</ul>
+<hr />
+<h3 id="pattern-4-batch-operations-for-tags">Pattern 4: Batch Operations for Tags<a class="headerlink" href="#pattern-4-batch-operations-for-tags" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🔴 HIGH - 90% reduction in API calls</p>
+<h4 id="current-code-tagpy32-84">Current Code (tag.py:32-84)<a class="headerlink" href="#current-code-tagpy32-84" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_process_hashtags_to_tags</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">hashtags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Tag</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process hashtags into Stash tags.&quot;&quot;&quot;</span>
+    <span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># ❌ N * 2 API calls (N hashtags × 2 searches each)</span>
+    <span class="k">for</span> <span class="n">hashtag</span> <span class="ow">in</span> <span class="n">hashtags</span><span class="p">:</span>
+        <span class="n">tag_name</span> <span class="o">=</span> <span class="n">hashtag</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">found_tag</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Query 1: By name</span>
+        <span class="n">name_results</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_tags</span><span class="p">(</span>
+            <span class="n">tag_filter</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">tag_name</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;EQUALS&quot;</span><span class="p">}},</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">name_results</span><span class="o">.</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">found_tag</span> <span class="o">=</span> <span class="n">name_results</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Query 2: By alias</span>
+            <span class="n">alias_results</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">find_tags</span><span class="p">(</span>
+                <span class="n">tag_filter</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;aliases&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">tag_name</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">}},</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">alias_results</span><span class="o">.</span><span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">found_tag</span> <span class="o">=</span> <span class="n">alias_results</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">found_tag</span><span class="p">:</span>
+            <span class="n">tags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">found_tag</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Create new tag</span>
+            <span class="n">new_tag</span> <span class="o">=</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">tag_name</span><span class="p">,</span> <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">)</span>
+            <span class="n">created_tag</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">create_tag</span><span class="p">(</span><span class="n">new_tag</span><span class="p">)</span>
+            <span class="n">tags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">created_tag</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">tags</span>
+</code></pre></div>
+<p>---User Note: ✅ IMPLEMENTED — uses parallel <code>get_or_create()</code> with <code>asyncio.gather()</code> in <code>tag.py</code>. 90%+ reduction in API calls achieved.</p>
+<h4 id="migrated-code_2">Migrated Code<a class="headerlink" href="#migrated-code_2" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_process_hashtags_to_tags</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">hashtags</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Tag</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process hashtags into Stash tags.&quot;&quot;&quot;</span>
+    <span class="n">tag_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">h</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">hashtags</span><span class="p">]</span>
+    <span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># ✅ Batch fetch all tags at once</span>
+    <span class="n">existing_tags</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span>
+        <span class="n">Tag</span><span class="p">,</span>
+        <span class="c1"># Assuming store.find() supports OR queries for batching</span>
+        <span class="c1"># Otherwise, fetch all tags and filter in-memory</span>
+    <span class="p">)</span>
+
+    <span class="c1"># ✅ Build lookup dict from existing tags</span>
+    <span class="n">tag_lookup</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">existing_tags</span><span class="p">:</span>
+        <span class="n">tag_lookup</span><span class="p">[</span><span class="n">tag</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span> <span class="o">=</span> <span class="n">tag</span>
+        <span class="k">if</span> <span class="n">tag</span><span class="o">.</span><span class="n">aliases</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">alias</span> <span class="ow">in</span> <span class="n">tag</span><span class="o">.</span><span class="n">aliases</span><span class="p">:</span>
+                <span class="n">tag_lookup</span><span class="p">[</span><span class="n">alias</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span> <span class="o">=</span> <span class="n">tag</span>
+
+    <span class="c1"># ✅ Create only missing tags in batch</span>
+    <span class="n">missing_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">tag_names</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">tag_lookup</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">missing_names</span><span class="p">:</span>
+        <span class="c1"># Batch create (if library supports)</span>
+        <span class="n">new_tags</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">Tag</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">missing_names</span>
+        <span class="p">])</span>
+        <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">new_tags</span><span class="p">:</span>
+            <span class="n">tag_lookup</span><span class="p">[</span><span class="n">tag</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span> <span class="o">=</span> <span class="n">tag</span>
+
+    <span class="c1"># ✅ Return tags in order</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">tag_lookup</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">tag_names</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">tag_lookup</span><span class="p">]</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>From N×2 queries to 1-2 queries total</li>
+<li>90%+ reduction in API calls for tagging</li>
+<li>In-memory lookup after initial fetch</li>
+<li>Identity map prevents duplicate tag objects</li>
+</ul>
+<hr />
+<h3 id="pattern-5-simplify-filter-construction">Pattern 5: Simplify Filter Construction<a class="headerlink" href="#pattern-5-simplify-filter-construction" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🟡 MEDIUM - Improves maintainability</p>
+<h4 id="current-code-mediapy98-141">Current Code (media.py:98-141)<a class="headerlink" href="#current-code-mediapy98-141" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_create_nested_path_or_conditions</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">media_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create nested OR conditions for path filters.</span>
+
+<span class="sd">    ❌ 40+ lines of manual nested dict construction</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">media_ids</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">media_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+
+    <span class="c1"># For multiple IDs, create nested structure</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">media_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Add remaining conditions as nested OR</span>
+    <span class="k">for</span> <span class="n">media_id</span> <span class="ow">in</span> <span class="n">media_ids</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;OR&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">media_id</span><span class="p">,</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;OR&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+
+    <span class="k">return</span> <span class="n">result</span>
+</code></pre></div>
+<p>---User Note: ✅ IMPLEMENTED — uses <code>path__regex</code> via <code>store.find_iter()</code> in <code>media.py</code>. Regex replaced the 40-line nested OR builder entirely.</p>
+<h4 id="migrated-code-option-a-django-style">Migrated Code (Option A: Django-style)<a class="headerlink" href="#migrated-code-option-a-django-style" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_find_images_by_paths</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">media_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Image</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find images by media IDs in path.&quot;&quot;&quot;</span>
+    <span class="c1"># ✅ Let store handle OR logic (if supported)</span>
+    <span class="n">images</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span>
+        <span class="n">Image</span><span class="p">,</span>
+        <span class="n">path__in</span><span class="o">=</span><span class="n">media_ids</span>  <span class="c1"># Django-style &quot;IN&quot; operator</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">images</span>
+</code></pre></div>
+<h4 id="migrated-code-option-b-fetch-all-then-filter-in-memory">Migrated Code (Option B: Fetch all then filter in-memory)<a class="headerlink" href="#migrated-code-option-b-fetch-all-then-filter-in-memory" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_find_images_by_paths</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">media_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Image</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find images by media IDs in path.&quot;&quot;&quot;</span>
+    <span class="c1"># ✅ Fetch all images once, then filter in-memory</span>
+    <span class="c1"># (Only viable if total image count is manageable)</span>
+    <span class="n">all_images</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Image</span><span class="p">)</span>
+
+    <span class="c1"># ✅ Filter in-memory (no additional queries)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+        <span class="n">Image</span><span class="p">,</span>
+        <span class="k">lambda</span> <span class="n">img</span><span class="p">:</span> <span class="nb">any</span><span class="p">(</span><span class="n">mid</span> <span class="ow">in</span> <span class="n">img</span><span class="o">.</span><span class="n">path</span> <span class="k">for</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">media_ids</span><span class="p">)</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>40 lines → 3-10 lines</li>
+<li>Type-safe filter construction</li>
+<li>No manual dict nesting</li>
+<li>Easier to read and maintain</li>
+</ul>
+<hr />
+<p>--User Note: ✅ CONFIRMED — automatic dirty tracking in v0.10.4+ means no explicit UNSET needed. Library only saves changed fields.</p>
+<h3 id="pattern-6-use-unset-for-partial-updates">Pattern 6: Use UNSET for Partial Updates<a class="headerlink" href="#pattern-6-use-unset-for-partial-updates" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🟡 MEDIUM - Prevents accidental overwrites</p>
+<h4 id="current-code-mediapy620-644">Current Code (media.py:620-644)<a class="headerlink" href="#current-code-mediapy620-644" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_update_stash_metadata</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ❌ Updates all fields, even if some weren&#39;t loaded</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">title</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_title_from_content</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">details</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">content</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">item_date</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">code</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">media_id</span><span class="p">)</span>
+
+    <span class="c1"># ❌ What if organized field wasn&#39;t loaded? This overwrites it!</span>
+    <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="migrated-code_3">Migrated Code<a class="headerlink" href="#migrated-code_3" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">stash_graphql_client.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">UNSET</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_update_stash_metadata</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ✅ Only update fields we explicitly want to change</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">title</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_title_from_content</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">details</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">content</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">item_date</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">stash_obj</span><span class="o">.</span><span class="n">code</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">media_id</span><span class="p">)</span>
+
+    <span class="c1"># ✅ Don&#39;t touch fields we didn&#39;t load</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">stash_obj</span><span class="p">,</span> <span class="s1">&#39;_received_fields&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="s1">&#39;organized&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">_received_fields</span><span class="p">:</span>
+        <span class="n">stash_obj</span><span class="o">.</span><span class="n">organized</span> <span class="o">=</span> <span class="n">UNSET</span>  <span class="c1"># Preserves server value</span>
+
+    <span class="c1"># ✅ Save sends only changed fields</span>
+    <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="p">)</span>
+    <span class="c1"># Mutation: { id: &quot;123&quot;, title: &quot;...&quot;, details: &quot;...&quot;, date: &quot;...&quot;, code: &quot;...&quot; }</span>
+    <span class="c1"># The &#39;organized&#39; field is NOT in the mutation (preserved)</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>Prevents accidental data overwrites</li>
+<li>Explicit about what changes</li>
+<li>Safe partial updates</li>
+<li>Race condition prevention</li>
+</ul>
+<hr />
+<p>--User Note: ✅ IMPLEMENTED — uses <code>add_performer()</code>, <code>add_tag()</code>, <code>set_studio()</code> relationship helpers in production code.</p>
+<h3 id="pattern-7-use-relationship-helpers">Pattern 7: Use Relationship Helpers<a class="headerlink" href="#pattern-7-use-relationship-helpers" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🟡 MEDIUM - Cleaner code, automatic sync</p>
+<h4 id="current-code-mediapy661-734">Current Code (media.py:661-734)<a class="headerlink" href="#current-code-mediapy661-734" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_update_stash_metadata</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ❌ Manual performer list management</span>
+    <span class="n">performers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">main_performer</span> <span class="o">:=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_performer</span><span class="p">(</span><span class="n">account</span><span class="p">):</span>
+        <span class="n">performers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">main_performer</span><span class="p">)</span>
+
+    <span class="c1"># ❌ Manual mention processing with race condition handling</span>
+    <span class="k">if</span> <span class="n">mentions</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">mention</span> <span class="ow">in</span> <span class="n">mentions</span><span class="p">:</span>
+            <span class="n">mention_performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_performer</span><span class="p">(</span><span class="n">mention</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">mention_performer</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">mention_performer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_performer_from_account</span><span class="p">(</span><span class="n">mention</span><span class="p">)</span>
+                    <span class="k">await</span> <span class="n">mention_performer</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="c1"># String matching on error message</span>
+                    <span class="k">if</span> <span class="s2">&quot;performer with name&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;already exists&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">):</span>
+                        <span class="n">mention_performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_performer</span><span class="p">(</span><span class="n">mention</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">mention_performer</span><span class="p">:</span>
+                            <span class="k">raise</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">raise</span>
+
+            <span class="k">if</span> <span class="n">mention_performer</span><span class="p">:</span>
+                <span class="n">performers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mention_performer</span><span class="p">)</span>
+
+    <span class="c1"># ❌ Manual assignment (no bidirectional sync)</span>
+    <span class="k">if</span> <span class="n">performers</span><span class="p">:</span>
+        <span class="n">stash_obj</span><span class="o">.</span><span class="n">performers</span> <span class="o">=</span> <span class="n">performers</span>
+
+    <span class="c1"># ❌ Manual studio assignment</span>
+    <span class="k">if</span> <span class="n">studio</span> <span class="o">:=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_studio</span><span class="p">(</span><span class="n">account</span><span class="p">):</span>
+        <span class="n">stash_obj</span><span class="o">.</span><span class="n">studio</span> <span class="o">=</span> <span class="n">studio</span>
+
+    <span class="c1"># ❌ Tag overwrite (comment notes this is wrong)</span>
+    <span class="k">if</span> <span class="n">tags</span><span class="p">:</span>
+        <span class="n">stash_obj</span><span class="o">.</span><span class="n">tags</span> <span class="o">=</span> <span class="n">tags</span>  <span class="c1"># Overwrites existing tags!</span>
+
+    <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="migrated-code_4">Migrated Code<a class="headerlink" href="#migrated-code_4" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_update_stash_metadata</span><span class="p">(</span><span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ✅ Add main performer (bidirectional sync)</span>
+    <span class="k">if</span> <span class="n">main_performer</span> <span class="o">:=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_performer</span><span class="p">(</span><span class="n">account</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">add_performer</span><span class="p">(</span><span class="n">main_performer</span><span class="p">)</span>
+        <span class="c1"># main_performer.scenes automatically updated!</span>
+
+    <span class="c1"># ✅ Add mentioned performers with simplified creation</span>
+    <span class="k">if</span> <span class="n">mentions</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">mention</span> <span class="ow">in</span> <span class="n">mentions</span><span class="p">:</span>
+            <span class="c1"># Get or create in one helper</span>
+            <span class="n">mention_performer</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_or_create_performer</span><span class="p">(</span><span class="n">mention</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">add_performer</span><span class="p">(</span><span class="n">mention_performer</span><span class="p">)</span>
+            <span class="c1"># Automatic bidirectional sync</span>
+
+    <span class="c1"># ✅ Set studio (relationship helper)</span>
+    <span class="k">if</span> <span class="n">studio</span> <span class="o">:=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_existing_studio</span><span class="p">(</span><span class="n">account</span><span class="p">):</span>
+        <span class="n">stash_obj</span><span class="o">.</span><span class="n">studio</span> <span class="o">=</span> <span class="n">studio</span>
+        <span class="c1"># Or: await stash_obj.set_studio(studio) if helper exists</span>
+
+    <span class="c1"># ✅ Add tags without overwriting existing</span>
+    <span class="k">if</span> <span class="n">tags</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">add_tag</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
+            <span class="c1"># Preserves existing tags, adds new ones</span>
+
+    <span class="k">await</span> <span class="n">stash_obj</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>Bidirectional relationship sync automatic</li>
+<li>No manual list management</li>
+<li>Cleaner tag addition (no overwrite)</li>
+<li>Race conditions handled by store</li>
+</ul>
+<hr />
+<h3 id="pattern-8-eliminate-manual-retry-logic">Pattern 8: Eliminate Manual Retry Logic<a class="headerlink" href="#pattern-8-eliminate-manual-retry-logic" title="Permanent link">&para;</a></h3>
+<p><strong>Priority:</strong> 🟢 LOW - Library may handle retries internally</p>
+<h4 id="current-code-gallerypy681-747">Current Code (gallery.py:681-747)<a class="headerlink" href="#current-code-gallerypy681-747" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="n">all_images</span><span class="p">:</span>
+    <span class="n">images_added_successfully</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">last_error</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="c1"># ❌ Manual retry loop with exponential backoff</span>
+    <span class="k">for</span> <span class="n">attempt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">success</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">add_gallery_images</span><span class="p">(</span>
+                <span class="n">gallery_id</span><span class="o">=</span><span class="n">gallery</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                <span class="n">image_ids</span><span class="o">=</span><span class="p">[</span><span class="n">img</span><span class="o">.</span><span class="n">id</span> <span class="k">for</span> <span class="n">img</span> <span class="ow">in</span> <span class="n">all_images</span><span class="p">],</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+                <span class="n">images_added_successfully</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="k">break</span>
+
+            <span class="k">if</span> <span class="n">attempt</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="n">attempt</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">last_error</span> <span class="o">=</span> <span class="n">e</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to add gallery images (attempt </span><span class="si">{</span><span class="n">attempt</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/3)&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">attempt</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="n">attempt</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">images_added_successfully</span><span class="p">:</span>
+        <span class="n">print_error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to add </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_images</span><span class="p">)</span><span class="si">}</span><span class="s2"> images after 3 attempts&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="migrated-code_5">Migrated Code<a class="headerlink" href="#migrated-code_5" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="c1"># ✅ Rely on library&#39;s built-in retry logic</span>
+<span class="c1"># (HTTPXAsyncTransport has automatic retry with backoff)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">success</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">add_gallery_images</span><span class="p">(</span>
+        <span class="n">gallery_id</span><span class="o">=</span><span class="n">gallery</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="n">image_ids</span><span class="o">=</span><span class="p">[</span><span class="n">img</span><span class="o">.</span><span class="n">id</span> <span class="k">for</span> <span class="n">img</span> <span class="ow">in</span> <span class="n">all_images</span><span class="p">],</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to add </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_images</span><span class="p">)</span><span class="si">}</span><span class="s2"> images to gallery&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error adding images to gallery: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">raise</span>
+</code></pre></div>
+<p><strong>Benefits:</strong></p>
+<ul>
+<li>Less code to maintain</li>
+<li>Consistent retry behavior across codebase</li>
+<li>Library handles transient failures automatically</li>
+<li>Exponential backoff with jitter built-in</li>
+</ul>
+<hr />
+<h2 id="phased-migration-plan">Phased Migration Plan<a class="headerlink" href="#phased-migration-plan" title="Permanent link">&para;</a></h2>
+<h3 id="phases-1-2-foundation-high-impact-wins-complete-2026-01-09">Phases 1-2: Foundation + High-Impact Wins ✅ <strong>COMPLETE</strong> (2026-01-09)<a class="headerlink" href="#phases-1-2-foundation-high-impact-wins-complete-2026-01-09" title="Permanent link">&para;</a></h3>
+<p>Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:</p>
+<ul>
+<li>Added <code>store</code> property to <code>StashProcessingBase</code> for ORM access</li>
+<li>Tag processing: N×2 queries → N parallel <code>get_or_create()</code> (90%+ reduction)</li>
+<li>Performer lookup: 3 sequential queries → identity map cached lookups</li>
+<li>Studio creation: Manual cache invalidation removed, race conditions handled</li>
+<li>All core entity lookups use identity map</li>
+<li>Files: <code>tag.py</code>, <code>account.py</code>, <code>studio.py</code>, <code>gallery.py</code>, <code>base.py</code>, <code>pyproject.toml</code>, factory fixtures</li>
+</ul>
+<hr />
+<h3 id="phase-3-v011-upgrade-cache-optimization-complete-2026-03-07">Phase 3: v0.11 Upgrade + Cache Optimization ✅ <strong>COMPLETE</strong> (2026-03-07)<a class="headerlink" href="#phase-3-v011-upgrade-cache-optimization-complete-2026-03-07" title="Permanent link">&para;</a></h3>
+<p><strong>Goal:</strong> Upgrade to v0.11, fix breaking changes, optimize cache for long-running batch processing</p>
+<p><strong>Completed:</strong></p>
+<ul>
+<li>✅ Upgraded dependency to <code>stash-graphql-client&gt;=0.11.0b5</code></li>
+<li>✅ Fixed breaking change: <code>gallery.destroy()</code> → <code>gallery.delete()</code> (auto-invalidates cache)</li>
+<li>✅ Two-tier cache strategy: global preload (TTL=None) + per-creator preload/invalidate</li>
+<li>✅ Added <code>capabilities</code> property for version-aware processing</li>
+<li>✅ Added <code>StashVersionError</code> handling at initialization (minimum Stash v0.30.0)</li>
+<li>✅ Added warning filters for v0.11 <code>DeprecationWarning</code> and <code>StashUnmappedFieldWarning</code></li>
+<li>✅ Informational logging for <code>GenerateMetadataInput.paths</code> capability</li>
+<li>✅ Updated respx test fixtures with v0.11 capability detection mock</li>
+<li>✅ <code>stash/processing/mixins/media.py</code> - Updated for identity map patterns</li>
+</ul>
+<p><strong>v0.11 Breaking Changes Addressed:</strong></p>
+<ul>
+<li><code>gallery.destroy(client)</code> → <code>gallery.delete(client)</code> — renamed entity lifecycle method (auto-invalidates cache)</li>
+<li><code>set_ttl(type, seconds)</code> → <code>set_ttl(type, timedelta|int|None)</code> — TTL accepts None for no expiry</li>
+<li><code>clear_type()</code> → <code>invalidate_type()</code> — renamed for clarity</li>
+</ul>
+<p><strong>Files:</strong></p>
+<ul>
+<li>✅ <code>pyproject.toml</code> — Version bump</li>
+<li>✅ <code>stash/processing/base.py</code> — TTL, capabilities, error handling, warning filters</li>
+<li>✅ <code>stash/processing/__init__.py</code> — Per-creator preload + invalidate lifecycle</li>
+<li>✅ <code>stash/processing/mixins/gallery.py</code> — <code>destroy()</code> → <code>delete()</code></li>
+<li>✅ <code>tests/fixtures/stash/stash_api_fixtures.py</code> — Capability detection mock</li>
+<li>✅ <code>tests/fixtures/stash/stash_integration_fixtures.py</code> — Capability detection mock</li>
+</ul>
+<hr />
+<h3 id="phase-4-advanced-features">Phase 4: Advanced Features<a class="headerlink" href="#phase-4-advanced-features" title="Permanent link">&para;</a></h3>
+<p><strong>Status:</strong> ⏳ Ready to start — unlocked by SGC v0.12 batch-ops adoption in
+fansly-downloader-ng v0.13.0.</p>
+<p><strong>Goal:</strong> Leverage advanced ORM features, now including the batched GraphQL
+mutations introduced in stash-graphql-client v0.12.0 (released 2026-04-15).
+The v0.13.0 release of fansly-downloader-ng bumped the SGC dependency floor
+to <code>&gt;=0.12.0</code>, making these APIs available in production.</p>
+<p><strong>Newly available with SGC v0.12 — primary Phase 4 targets:</strong></p>
+<ol>
+<li>⏳ <strong>Batched mutations</strong> — collapse N sequential mutations into a single
+   aliased HTTP request:</li>
+<li><code>store.save_batch(objects)</code> — entity-aware batch save with cascade,
+     creates-before-updates ordering, UUID→real-ID remapping, and
+     sequential per-entity side mutations</li>
+<li><code>client.execute_batch(operations)</code> — low-level API with automatic
+     chunking (default <code>max_batch_size=250</code>)</li>
+<li><code>store.save_all()</code> — ORM flush; scans identity map for dirty/new
+     entities and delegates to <code>save_batch()</code></li>
+<li><strong>Target hot paths</strong>: per-creator runs that currently issue N
+     sequential mutations for tag creation, performer upserts, and
+     scene/gallery assignments</li>
+<li>⏳ <strong><code>__side_mutations__</code> mechanism</strong> — fields persisted via separate
+   GraphQL mutations instead of the main create/update input; fires
+   AFTER the main mutation so new objects have their real server ID.
+   Most adoption is zero-work (inherited behavior), but entity-specific
+   convenience methods now exist:</li>
+<li><code>gallery.add_image(image)</code> / <code>gallery.remove_image(image)</code> with
+     automatic inverse sync</li>
+<li><code>scene.reset_play_count()</code>, <code>scene.reset_o()</code>,
+     <code>scene.reset_activity()</code>, <code>scene.generate_screenshot()</code></li>
+<li>⏳ <strong>ActiveRecord-style relationship DSL</strong> — entity types declared with
+   <code>belongs_to()</code>, <code>habtm()</code>, <code>has_many()</code>, <code>has_many_through()</code> auto-derive
+   <code>target_field</code>, <code>query_field</code>, and <code>filter_query_hint</code>. Any custom
+   extensions of stash-graphql-client types in this codebase should
+   adopt the DSL form.</li>
+<li>⏳ <strong>Bulk-update side mutations</strong> for bidirectional relationship writes
+   (Performer.scenes, Tag.scenes, Studio.scenes, etc.) — zero-config
+   performance win when calling <code>add_scene()</code> / <code>add_tag()</code> helpers.</li>
+<li>⏳ <strong><code>return_fields</code> override on bulk updates</strong> — <code>bulk_scene_update()</code>,
+   <code>bulk_gallery_update()</code>, etc. now accept <code>return_fields="id __typename"</code>
+   to skip server-side resolution of all relationship fields; useful when
+   the downloader is batching large sets.</li>
+</ol>
+<p><strong>Previously planned (still valid):</strong></p>
+<ol>
+<li>⏳ Use <code>store.filter()</code> for in-memory filtering of identity-map cache</li>
+<li>⏳ Expand relationship helper usage (<code>add_performer</code>, <code>add_tag</code>, etc.) —
+   now underpinned by bulk-update side mutations for performance</li>
+<li>⏳ Remove any remaining manual retry logic (SGC built-ins cover most cases)</li>
+<li>⏳ Consider preloading relationships for complex queries via <code>populate()</code></li>
+</ol>
+<p><strong>Files:</strong></p>
+<ul>
+<li>All processing mixins (<code>stash/processing/mixins/*.py</code>)</li>
+<li>Per-creator orchestration in <code>stash/processing/base.py</code></li>
+<li>Batch-aware entry points in <code>stash/processing/mixins/batch.py</code></li>
+</ul>
+<p><strong>Success Criteria:</strong></p>
+<ul>
+<li>⏳ Batch operations replace sequential mutation loops in per-creator hot paths</li>
+<li>⏳ Maximum leverage of ORM features</li>
+<li>⏳ Minimal manual state management</li>
+<li>⏳ Clean, maintainable codebase</li>
+</ul>
+<hr />
+<h2 id="testing-strategy">Testing Strategy<a class="headerlink" href="#testing-strategy" title="Permanent link">&para;</a></h2>
+<h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">&para;</a></h3>
+<p><strong>Update fixture usage:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Before</span>
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">mock_client</span><span class="p">(</span><span class="n">respx_stash_processor</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span>
+
+<span class="c1"># After - also provide store</span>
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stash_store</span><span class="p">(</span><span class="n">respx_stash_processor</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">store</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stash_client</span><span class="p">(</span><span class="n">respx_stash_processor</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">respx_stash_processor</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">client</span>
+</code></pre></div>
+<p><strong>Test identity map:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_identity_map_deduplication</span><span class="p">(</span><span class="n">stash_store</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify same ID returns same object instance.&quot;&quot;&quot;</span>
+    <span class="n">performer1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">Performer</span><span class="p">,</span> <span class="s2">&quot;123&quot;</span><span class="p">)</span>
+    <span class="n">performer2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">Performer</span><span class="p">,</span> <span class="s2">&quot;123&quot;</span><span class="p">)</span>
+
+    <span class="k">assert</span> <span class="n">performer1</span> <span class="ow">is</span> <span class="n">performer2</span>  <span class="c1"># Same object instance</span>
+
+    <span class="c1"># Update one, reflected in both</span>
+    <span class="n">performer1</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;Updated Name&quot;</span>
+    <span class="k">assert</span> <span class="n">performer2</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Updated Name&quot;</span>
+</code></pre></div>
+<p><strong>Test UNSET pattern:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_unset_preserves_fields</span><span class="p">(</span><span class="n">stash_store</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify UNSET doesn&#39;t overwrite server values.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">stash_graphql_client.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">UNSET</span>
+
+    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">Scene</span><span class="p">,</span> <span class="s2">&quot;123&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Only update specific fields</span>
+    <span class="n">scene</span><span class="o">.</span><span class="n">title</span> <span class="o">=</span> <span class="s2">&quot;New Title&quot;</span>
+    <span class="n">scene</span><span class="o">.</span><span class="n">organized</span> <span class="o">=</span> <span class="n">UNSET</span>  <span class="c1"># Don&#39;t touch this field</span>
+
+    <span class="c1"># Mock save to verify mutation</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">scene</span><span class="p">,</span> <span class="s1">&#39;save&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock_save</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">scene</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">client</span><span class="p">)</span>
+
+        <span class="c1"># Verify &#39;organized&#39; not in mutation</span>
+        <span class="n">call_args</span> <span class="o">=</span> <span class="n">mock_save</span><span class="o">.</span><span class="n">call_args</span>
+        <span class="c1"># Assert mutation only includes changed fields</span>
+</code></pre></div>
+<h3 id="integration-tests">Integration Tests<a class="headerlink" href="#integration-tests" title="Permanent link">&para;</a></h3>
+<p><strong>Add performance benchmarks:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">integration</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_tag_batching_performance</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify tag batching reduces API calls.&quot;&quot;&quot;</span>
+    <span class="n">hashtags</span> <span class="o">=</span> <span class="p">[</span><span class="n">create_hashtag</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;tag</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">)]</span>
+
+    <span class="k">with</span> <span class="n">count_api_calls</span><span class="p">()</span> <span class="k">as</span> <span class="n">counter</span><span class="p">:</span>
+        <span class="n">tags</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">_process_hashtags_to_tags</span><span class="p">(</span><span class="n">hashtags</span><span class="p">)</span>
+
+    <span class="c1"># Before migration: ~40 API calls (20 tags × 2 queries each)</span>
+    <span class="c1"># After migration: ~2-3 API calls (1 batch fetch + 1 batch create)</span>
+    <span class="k">assert</span> <span class="n">counter</span><span class="o">.</span><span class="n">total_calls</span> <span class="o">&lt;=</span> <span class="mi">5</span>
+    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">tags</span><span class="p">)</span> <span class="o">==</span> <span class="mi">20</span>
+</code></pre></div>
+<p><strong>Test cache coherency:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">integration</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_identity_map_coherency</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify identity map keeps objects synchronized.&quot;&quot;&quot;</span>
+    <span class="c1"># Create performer</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">Performer</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Fetch scene that includes this performer</span>
+    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">find_one</span><span class="p">(</span><span class="n">Scene</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="s2">&quot;test-scene&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Verify same performer object</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="n">performer</span>
+
+    <span class="c1"># Update performer</span>
+    <span class="n">performer</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;Updated&quot;</span>
+
+    <span class="c1"># Verify update reflected in scene</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Updated&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="success-metrics">Success Metrics<a class="headerlink" href="#success-metrics" title="Permanent link">&para;</a></h2>
+<h3 id="performance-metrics">Performance Metrics<a class="headerlink" href="#performance-metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>API call reduction:</strong> Target 50-70% fewer calls</li>
+<li><strong>Response time:</strong> 30-50% faster processing (less network overhead)</li>
+<li><strong>Memory usage:</strong> Slight increase due to identity map caching</li>
+</ul>
+<h3 id="code-quality-metrics">Code Quality Metrics<a class="headerlink" href="#code-quality-metrics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Lines of code:</strong> Target 20-30% reduction</li>
+<li><strong>Cyclomatic complexity:</strong> Reduce by simplifying filter logic</li>
+<li><strong>Code duplication:</strong> Eliminate repeated filter construction</li>
+</ul>
+<h3 id="monitoring">Monitoring<a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h3>
+<p><strong>Add logging to track migration progress:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># In each migrated method, add:</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using store.find() for </span><span class="si">{</span><span class="n">entity_type</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> - migration complete&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Before/after comparison:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Count API calls</span>
+grep<span class="w"> </span><span class="s2">&quot;GraphQL query&quot;</span><span class="w"> </span>logs/processing.log<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
+
+<span class="c1"># Before: ~150-200 calls per run</span>
+<span class="c1"># After: ~50-100 calls per run</span>
+</code></pre></div>
+<hr />
+<blockquote>
+<p><strong>Library API reference</strong> (StashEntityStore methods, relationship helpers, cheat sheet) — see the <a href="https://jakan-kink.github.io/stash-graphql-client/latest/">stash-graphql-client docs</a>.</p>
+</blockquote>
+<hr />
+<h2 id="optimization-patterns-analysis-from-v0100-migration-plan">Optimization Patterns Analysis (from v0.10.0 Migration Plan)<a class="headerlink" href="#optimization-patterns-analysis-from-v0100-migration-plan" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><em>Merged from <code>V0_10_MIGRATION_PLAN.md</code> — documents optimization patterns evaluated during v0.10.x adoption.</em></p>
+</blockquote>
+<h3 id="sequential-deduplication-accountpy">Sequential Deduplication (account.py)<a class="headerlink" href="#sequential-deduplication-accountpy" title="Permanent link">&para;</a></h3>
+<p><strong>Status:</strong> ✅ <strong>IMPLEMENTED</strong> — Using identity map with <code>find_one()</code></p>
+<p>Current implementation uses <code>store.find_one()</code> which leverages the identity map for caching. The sequential deduplication logic (check name → alias → URL) is preserved because it represents the actual business requirement.</p>
+<p><strong>Alternative cache-first pattern (for future consideration):</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Check cache first (no network call)</span>
+<span class="n">cached</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+    <span class="n">Performer</span><span class="p">,</span>
+    <span class="n">predicate</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">search_name</span> <span class="ow">or</span>
+        <span class="n">account</span><span class="o">.</span><span class="n">username</span> <span class="ow">in</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">alias_list</span> <span class="ow">or</span> <span class="p">[])</span> <span class="ow">or</span>
+        <span class="n">fansly_url</span> <span class="ow">in</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">urls</span> <span class="ow">or</span> <span class="p">[])</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="n">cached</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">cached</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</code></pre></div>
+<p><strong>Decision:</strong> Current pattern is optimal. Identity map caching reduces repeated lookups. In-memory filtering could be added in Phase 4 if needed.</p>
+<h3 id="studio-lookup-caching">Studio Lookup Caching<a class="headerlink" href="#studio-lookup-caching" title="Permanent link">&para;</a></h3>
+<p><strong>Status:</strong> ✅ <strong>IMPLEMENTED</strong> — Identity map handles caching</p>
+<p>The Fansly studio is fetched once via <code>store.find_one()</code> and cached automatically by the identity map. No explicit caching initialization needed.</p>
+<h3 id="parallel-tag-creation">Parallel Tag Creation<a class="headerlink" href="#parallel-tag-creation" title="Permanent link">&para;</a></h3>
+<p><strong>Status:</strong> ✅ <strong>IMPLEMENTED</strong> — Optimal pattern already in use</p>
+<div class="highlight"><pre><span></span><code><span class="n">tag_tasks</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span><span class="n">Tag</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">]</span>
+<span class="n">tags</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tag_tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>Each <code>get_or_create()</code> checks identity map cache first, only queries Stash if not cached, and runs in parallel with <code>asyncio.gather()</code>.</p>
+<h3 id="large-dataset-iteration">Large Dataset Iteration<a class="headerlink" href="#large-dataset-iteration" title="Permanent link">&para;</a></h3>
+<p><strong>Status:</strong> ⏸️ <strong>DEFERRED</strong> — Not needed for current performance</p>
+<p>Current <code>store.find_iter()</code> pattern performs well. A future optimization could use <code>populated_filter_iter()</code> for lazy iteration with field-aware fetching, but profiling hasn't identified this as a bottleneck.</p>
+<h3 id="performance-improvements-summary">Performance Improvements Summary<a class="headerlink" href="#performance-improvements-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Before</th>
+<th>After (v0.10.4+)</th>
+<th>Reduction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tag Processing</td>
+<td>N tags × 2 queries = 2N API calls</td>
+<td>N parallel <code>get_or_create()</code> with identity map</td>
+<td><strong>90%+</strong></td>
+</tr>
+<tr>
+<td>Performer Lookups</td>
+<td>3 sequential GraphQL queries</td>
+<td>Identity map cached lookups</td>
+<td><strong>60-80%</strong> on cache hits</td>
+</tr>
+<tr>
+<td>Studio Lookups</td>
+<td>1 GraphQL query per creator</td>
+<td>1 query total, identity map cached</td>
+<td><strong>N-1 queries saved</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="key-v0104-changes">Key v0.10.4 Changes<a class="headerlink" href="#key-v0104-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Pydantic Models:</strong> Fully typed models from all store methods (not Strawberry)</li>
+<li><strong>Automatic UNSET:</strong> Fields not assigned = automatic UNSET (no explicit import needed)</li>
+<li><strong>UUID Auto-Generation:</strong> Pydantic models auto-generate temp UUIDs on creation</li>
+<li><strong>Identity Map:</strong> Same ID = same object instance, with configurable TTL</li>
+</ul>
+<h3 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="https://jakan-kink.github.io/stash-graphql-client/latest/">Official Documentation</a></li>
+<li><a href="https://github.com/Jakan-Kink/stash-graphql-client/blob/main/CHANGELOG.md">CHANGELOG (All Releases)</a></li>
+<li><a href="https://jakan-kink.github.io/stash-graphql-client/latest/guide/advanced-filtering/">Advanced Filtering Guide</a></li>
+<li><a href="https://jakan-kink.github.io/stash-graphql-client/latest/architecture/overview/">Architecture Overview</a></li>
+</ul>
+<hr />
+<h2 id="questions-support">Questions &amp; Support<a class="headerlink" href="#questions-support" title="Permanent link">&para;</a></h2>
+<p><strong>For questions about this migration:</strong></p>
+<ol>
+<li>Check stash-graphql-client docs: https://jakan-kink.github.io/stash-graphql-client/latest/</li>
+<li>Review CHANGELOG for all release notes: https://github.com/Jakan-Kink/stash-graphql-client/blob/main/CHANGELOG.md</li>
+<li>Test changes incrementally</li>
+<li>Keep detailed logs during migration</li>
+</ol>
+<p><strong>Migration started:</strong> 2025-12-XX (exact date TBD)
+<strong>Current phase:</strong> Phase 4 - Advanced Features ⏳ Ready to start
+<strong>Phase 1 &amp; 2 completed:</strong> 2026-01-09
+<strong>Phase 3 completed:</strong> 2026-03-07 (v0.11 upgrade)
+<strong>Phase 4 unlocked:</strong> 2026-04-22 (fansly-downloader-ng v0.13.0 bumped SGC dep floor to &gt;=0.12.0)
+<strong>Current SGC version:</strong> v0.12.0</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../monitoring-daemon-architecture/" class="btn btn-neutral float-left" title="Monitoring Daemon Architecture"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../testing/TESTING_REQUIREMENTS/" class="btn btn-neutral float-right" title="Testing Requirements">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../monitoring-daemon-architecture/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../testing/TESTING_REQUIREMENTS/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
