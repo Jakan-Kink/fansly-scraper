@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/reference/request-signing/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Request Signing - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Request Signing";
+        var mkdocs_page_input_path = "reference/request-signing.md";
+        var mkdocs_page_url = "/fansly-scraper/reference/request-signing/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Request Signing</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#header-bundle">Header bundle</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#digest-formula">Digest formula</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#grepping-the-frontend-bundle">Grepping the frontend bundle</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#downloader-implementation">Downloader implementation</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#why-it-matters">Why it matters</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Reference</li>
+      <li class="breadcrumb-item active">Request Signing</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/reference/request-signing.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="fansly-rest-api-request-signing">Fansly REST API Request Signing<a class="headerlink" href="#fansly-rest-api-request-signing" title="Permanent link">&para;</a></h1>
+<p>Every authenticated REST API call to <code>apiv3.fansly.com</code> carries four
+anti-detection headers added by an HTTP interceptor on the Fansly
+frontend. A client that omits this bundle is fingerprint-distinguishable
+from a real browser at the HTTP layer. The downloader replicates the
+same set in <code>api/fansly.py</code>.</p>
+<h2 id="header-bundle">Header bundle<a class="headerlink" href="#header-bundle" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Header</th>
+<th>Value</th>
+<th>Derivation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fansly-client-id</code></td>
+<td>Opaque client instance identifier</td>
+<td>Generated per-session by the frontend; stable for the tab's lifetime</td>
+</tr>
+<tr>
+<td><code>fansly-client-ts</code></td>
+<td>Current local time plus <code>backendServerDateMsOffset_</code> (server − local)</td>
+<td>Synced from the versioning service's <code>getServerInfo().serverTime</code> on each request</td>
+</tr>
+<tr>
+<td><code>fansly-session-id</code></td>
+<td>The <code>sessionId</code> from the decoded auth token</td>
+<td><code>base64_decode(authorization_token).split(":")[0]</code></td>
+</tr>
+<tr>
+<td><code>fansly-client-check</code></td>
+<td>Hex-encoded digest over the URL path</td>
+<td>See <a href="#digest-formula">Digest formula</a> below</td>
+</tr>
+</tbody>
+</table>
+<h2 id="digest-formula">Digest formula<a class="headerlink" href="#digest-formula" title="Permanent link">&para;</a></h2>
+<p>The <code>fansly-client-check</code> header is computed by the interceptor as:</p>
+<div class="highlight"><pre><span></span><code>hash(this.checkKey_ + &quot;_&quot; + URL(url).pathname + &quot;_&quot; + clientId)
+</code></pre></div>
+<ul>
+<li><code>this.checkKey_</code> — a rotating secret string embedded in the frontend
+  bundle; extraction is covered in <a href="../CHECKKEY_JSPYBRIDGE/">CHECKKEY_JSPYBRIDGE.md</a>.</li>
+<li><code>pathname</code> — URL path only, no query string, no host.</li>
+<li><code>clientId</code> — the same value sent as <code>fansly-client-id</code>.</li>
+<li>The hash is a non-cryptographic 53-bit hash (cyrb53), hex-encoded via
+  <code>.toString(16)</code>.</li>
+<li>Result is cached per-pathname, so repeated calls to the same endpoint
+  don't re-hash.</li>
+</ul>
+<p><code>fansly-session-id</code> is <strong>not</strong> part of the digest input — it's a
+standalone header, separate from the signed bundle. The digest binds
+<code>(checkKey, pathname, clientId)</code>, nothing else.</p>
+<h2 id="grepping-the-frontend-bundle">Grepping the frontend bundle<a class="headerlink" href="#grepping-the-frontend-bundle" title="Permanent link">&para;</a></h2>
+<p>Bundle filenames are content-hashed (<code>main.&lt;hash&gt;.js</code>) and rotate on
+every Fansly deploy, so filenames and line numbers are not stable
+references. What survives re-bundling:</p>
+<ul>
+<li><strong>String literals</strong> — <code>"fansly-client-id"</code>, <code>"fansly-client-ts"</code>,
+  <code>"fansly-session-id"</code>, <code>"fansly-client-check"</code>. Minifiers don't
+  rewrite string contents.</li>
+<li><strong>Private field</strong> — <code>this.checkKey_</code>. The trailing-underscore
+  convention is load-bearing for property access, so it survives
+  minification.</li>
+</ul>
+<p>Grep any current bundle (beautified or not) for those anchors to locate
+the interceptor. Do not cite line numbers from a beautified local copy
+in docs — the beautifier's line numbering is local and meaningless
+across copies.</p>
+<h2 id="downloader-implementation">Downloader implementation<a class="headerlink" href="#downloader-implementation" title="Permanent link">&para;</a></h2>
+<p><code>session_id</code> is derived from the auth token during login: the
+<code>authorization_token</code> config value base64-decodes to
+<code>&lt;sessionId&gt;:1:2:&lt;hash&gt;</code>, and the first colon-separated field is the
+session ID. The <code>f-s-c</code> cookie independently contains
+<code>&lt;sessionId&gt;:1:1:&lt;hash&gt;</code> — same session ID, different type code and
+hash.</p>
+<p>The session-id header is attached in <code>api/fansly.py</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span> <span class="o">!=</span> <span class="s2">&quot;null&quot;</span><span class="p">:</span>
+    <span class="n">fansly_headers</span><span class="p">[</span><span class="s2">&quot;fansly-session-id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span>
+</code></pre></div>
+<p>Session ID is <strong>internal only</strong> — there is no user-facing CLI flag or
+config field for it. A dead <code>--session-id</code> argparse stub was reaped
+from <code>config/args.py</code> in commit <code>31285f3ff</code> (alongside
+<code>validate_adjust_session_id</code> in <code>validation.py</code>). Users provide only
+<code>authorization_token</code>; <code>session_id</code>, the <code>f-s-c</code> cookie, and all four
+signing headers are derived or computed internally.</p>
+<p>Check-key extraction is handled by <code>helpers/checkkey.py</code> (see
+<a href="../CHECKKEY_JSPYBRIDGE/">CHECKKEY_JSPYBRIDGE.md</a>); the digest
+computation uses the extracted value according to the formula above.</p>
+<h2 id="why-it-matters">Why it matters<a class="headerlink" href="#why-it-matters" title="Permanent link">&para;</a></h2>
+<p>Sending only <code>Authorization</code> (the bearer token) while omitting the
+<code>fansly-*</code> headers is trivially distinguishable from real frontend
+traffic at the HTTP layer. Matching the complete header set is the
+baseline for blending in with normal browser activity. The WebSocket
+endpoint has its own parallel anti-detection considerations — see
+<a href="../Fansly-WebSocket-Protocol/#anti-detection-notes">Fansly-WebSocket-Protocol.md § Anti-Detection Notes</a>.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../CHECKKEY_JSPYBRIDGE/" class="btn btn-neutral float-left" title="CheckKey Extraction"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../planning/monitoring-daemon-architecture/" class="btn btn-neutral float-right" title="Monitoring Daemon Architecture">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../CHECKKEY_JSPYBRIDGE/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../planning/monitoring-daemon-architecture/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
