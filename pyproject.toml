@@ -91,7 +91,7 @@ types-psutil = ">=7.0.0.20250401"
 types-tqdm = ">=4.67.0.20241221"
 
 [tool.poetry.group.test.dependencies]
-pytest = ">=8.3"
+pytest = ">=9.0.3"
 pytest-cov = ">=6.0.0"
 pytest-asyncio = ">=0.26.0"
 pytest-timeout = ">=2.3.1"
