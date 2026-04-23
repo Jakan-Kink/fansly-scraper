@@ -42,6 +42,7 @@ nav:
       - Performer Mapping: reference/Fansly-Stash-performer-mapping.md
       - Stash Field Transformations: reference/Fansly-Stash-field-transformations.md
       - CheckKey Extraction: reference/CHECKKEY_JSPYBRIDGE.md
+      - Request Signing: reference/request-signing.md
   - Planning:
       - Monitoring Daemon Architecture: planning/monitoring-daemon-architecture.md
       - Stash ORM Migration Guide: planning/STASH_ORM_MIGRATION_GUIDE.md
