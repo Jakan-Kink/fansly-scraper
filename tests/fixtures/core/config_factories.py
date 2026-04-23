@@ -65,7 +65,7 @@ class FanslyConfigFactory(Factory):
         model = FanslyConfig
 
     # Required field
-    program_version = "0.11.0-test"
+    program_version = "0.13.0-test"
 
     # File-independent fields
     use_following = False

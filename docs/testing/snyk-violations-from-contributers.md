@@ -1,3 +1,7 @@
+---
+status: planning
+---
+
 # Snyk violations by contributor PR (derived)
 
 ## PR #18 – Fix dedupe filename handling, legacy hash2 migration, bundle hardening

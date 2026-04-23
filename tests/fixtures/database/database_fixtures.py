@@ -151,7 +151,7 @@ def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
         admin_engine.dispose()
 
     # Create config pointing to the new test database
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config.pg_host = pg_host
     config.pg_port = pg_port
     config.pg_database = test_db_name

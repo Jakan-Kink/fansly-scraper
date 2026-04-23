@@ -44,7 +44,7 @@ def loaded_config(config_dir: Path) -> FanslyConfig:
     """A FanslyConfig loaded from a minimal config.yaml in config_dir."""
     yaml_path = config_dir / "config.yaml"
     ConfigSchema().dump_yaml(yaml_path)
-    cfg = FanslyConfig(program_version="0.11.0")
+    cfg = FanslyConfig(program_version="0.13.0")
     load_config(cfg)
     init_logging_config(cfg)
     return cfg
@@ -57,7 +57,7 @@ def loaded_config(config_dir: Path) -> FanslyConfig:
 
 def test_original_config_path_attribute_removed() -> None:
     """FanslyConfig must not have an original_config_path attribute."""
-    cfg = FanslyConfig(program_version="0.11.0")
+    cfg = FanslyConfig(program_version="0.13.0")
     assert not hasattr(cfg, "original_config_path"), (
         "original_config_path was removed as part of retiring the "
         "config_args.ini workaround. It must not exist on FanslyConfig."
@@ -66,7 +66,7 @@ def test_original_config_path_attribute_removed() -> None:
 
 def test_save_token_to_original_config_removed() -> None:
     """_save_token_to_original_config helper must not exist on FanslyConfig."""
-    cfg = FanslyConfig(program_version="0.11.0")
+    cfg = FanslyConfig(program_version="0.13.0")
     assert not hasattr(cfg, "_save_token_to_original_config"), (
         "_save_token_to_original_config was removed; use _save_config() instead."
     )
@@ -74,7 +74,7 @@ def test_save_token_to_original_config_removed() -> None:
 
 def test_save_checkkey_to_original_config_removed() -> None:
     """_save_checkkey_to_original_config helper must not exist on FanslyConfig."""
-    cfg = FanslyConfig(program_version="0.11.0")
+    cfg = FanslyConfig(program_version="0.13.0")
     assert not hasattr(cfg, "_save_checkkey_to_original_config"), (
         "_save_checkkey_to_original_config was removed; use save_config_or_raise() instead."
     )

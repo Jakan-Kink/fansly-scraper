@@ -1,3 +1,7 @@
+---
+status: archive
+---
+
 # v0.10.4 Mock Patterns for stash-graphql-client Tests
 
 ## Overview

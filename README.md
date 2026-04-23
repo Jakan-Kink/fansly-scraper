@@ -1,80 +1,85 @@
 # `Fansly Downloader NG`: The Ultimate Content Downloading Tool
 
-[![Downloads](https://img.shields.io/github/downloads/prof79/fansly-downloader-ng/total?color=0078d7&label=%F0%9F%94%BD%20Downloads&style=flat-square)](https://github.com/prof79/fansly-downloader-ng/releases/latest) [![Latest Release](https://img.shields.io/github/v/release/prof79/fansly-downloader-ng?color=%23b02d4a&display_name=tag&label=%F0%9F%9A%80%20Latest%20Compiled%20Release&style=flat-square)](https://github.com/prof79/fansly-downloader-ng/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Jakan-Kink/fansly-scraper/total?color=0078d7&label=%F0%9F%94%BD%20Downloads&style=flat-square)](https://github.com/Jakan-Kink/fansly-scraper/releases/latest) [![Latest Release](https://img.shields.io/github/v/release/Jakan-Kink/fansly-scraper?color=%23b02d4a&display_name=tag&label=%F0%9F%9A%80%20Latest%20Release&style=flat-square)](https://github.com/Jakan-Kink/fansly-scraper/releases/latest)
 
 <!--
-[![Commits since latest release](https://img.shields.io/github/commits-since/prof79/fansly-downloader-ng/latest?color=orange&label=%F0%9F%92%81%20Uncompiled%20Commits&style=flat-square)](https://github.com/prof79/fansly-downloader-ng/commits/main)
-[![Active Bugs](https://img.shields.io/github/issues-raw/prof79/fansly-downloader-ng/bug?color=pink&label=%F0%9F%A6%84%20Active%20Bugs&style=flat-square)](https://github.com/prof79/fansly-downloader-ng/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Commits since latest release](https://img.shields.io/github/commits-since/Jakan-Kink/fansly-scraper/latest?color=orange&label=%F0%9F%92%81%20Uncompiled%20Commits&style=flat-square)](https://github.com/Jakan-Kink/fansly-scraper/commits/main)
+[![Active Bugs](https://img.shields.io/github/issues-raw/Jakan-Kink/fansly-scraper/bug?color=pink&label=%F0%9F%A6%84%20Active%20Bugs&style=flat-square)](https://github.com/Jakan-Kink/fansly-scraper/issues?q=is%3Aissue+is%3Aopen+label%3Abug)
 -->
 
 [![Compatible with](https://img.shields.io/badge/Compatible%20with-grey?style=flat-square)](#%EF%B8%8F-setup) [![Python 3.12+](https://img.shields.io/static/v1?style=flat-square&label=%F0%9F%90%8D%20Python&message=3.12%2B&color=3c8c50)](https://www.python.org/downloads/) [![Windows](https://img.shields.io/badge/%F0%9F%AA%9F-Windows-0078D6?style=flat-square)](#%EF%B8%8F-setup) [![Linux](https://img.shields.io/badge/%F0%9F%90%A7-Linux-FCC624?style=flat-square)](#%EF%B8%8F-setup) [![macOS](https://img.shields.io/badge/%E2%9A%AA-macOS-000000?style=flat-square)](#%EF%B8%8F-setup)
 
 ![Fansly Downloader NG Screenshot](resources/fansly_ng_screenshot.png)
 
-This is a rewrite/refactoring of [Avnsx](https://github.com/Avnsx)'s original [Fansly Downloader](https://github.com/Avnsx/fansly-downloader). **Fansly Downloader NG** supports new features:
+**Fansly Downloader NG** is a content scraping and archival tool for Fansly. Download photos, videos, audio, and other media — in bulk or selectively — from timelines, messages, walls, stories, collections, and individual posts. The v0.13 release adds a **continuous monitoring daemon** that watches creators in near real time via Fansly's WebSocket and a calibrated polling fallback, so your local archive can stay current long after the initial bulk download completes.
 
-- Full command-line support for all options
-- `config.ini` not required to start the program anymore - a `config.ini` with all program defaults will be generated automatically
-- Support for minimal `config.ini` files - missing options will be added from program defaults automatically
-- True multi-user support - put one or more creators as a list into `config.ini` (`username = creator1, creator2, creator3`) or supply via command-line
-- Run it in non-interactive mode (`-ni`) without any user intervention - eg. when downloading while being away from the computer
-- You may also run it in fully silent mode without the close prompt at the very end (`-ni -npox`) - eg. running **Fansly Downloader NG** from another script or from a scheduled task/cron job
-- Logs all relevant messages (`Info`, `Warning`, `Error`, ...) of the last few sessions to `fansly_downloader_ng.log`. A history of 5 log files with a maximum size of 1 MiB will be preserved and can be deleted at your own discretion.
-- Easier-to-extend, modern, modular and robust codebase
-- It doesn't care about starring the repository
-
-_There are still pieces missing like an appropriate wiki update._
-
-**Fansly Downloader NG** is the go-to app for all your bulk media downloading needs. Download photos, videos, audio or any other media from Fansly. This powerful tool has got you covered! Say goodbye to the hassle of individually downloading each piece of media – now you can download them all or just some in one go.
+Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](https://github.com/Avnsx/fansly-downloader) and [prof79](https://github.com/prof79)'s [Fansly Downloader NG](https://github.com/prof79/fansly-downloader-ng) (now dormant since June 2024). Active development continues here at [Jakan-Kink/fansly-scraper](https://github.com/Jakan-Kink/fansly-scraper).
 
 ## ✨ Features
 
 ### 📥 Download Modes
 
-- Bulk: Timeline, Messages, Collection
-- Single Posts by post ID
+- **Bulk**: Timeline, Messages, Wall, Stories, Collection
+- **Single Posts** by post ID
+- **Stash-only**: Re-ingest existing local library into Stash without re-downloading
 
-### ♻️ Updates
+### 🛰️ Monitoring Daemon (v0.13+)
 
-- Easily update prior download folders
-- App keeps itself up-to-date with fansly
+- Post-batch continuous monitoring via `--daemon` / `-d` / `--monitor`
+- Live WebSocket event dispatch for new posts, stories, PPV, message edits/deletes, and subscription changes
+- Activity simulator (three-tier: active → idle → hidden) matches real browser behavior to stay under the radar
+- Timeline + story polling fallback when the socket is quiet
+- Skips inactive creators automatically — no wasted work on accounts that haven't posted since last check
+- Persistent `MonitorState` table so daemon restarts don't re-trigger every story or cold-scan every timeline
 
-### 🖥️ Cross-Platform Compatibility
+### 🧑‍🤝‍🧑 Multi-Creator + Automation
 
-- Compatible with Windows, Linux & MacOS
-- Executable app only ships for Windows
+- Download one or many creators by username (`-u alice,bob`)
+- Or follow your full Fansly following list (`-uf` / `-ufp`)
+- Fully non-interactive mode (`-ni -npox`) for `cron`, Task Scheduler, systemd, etc.
+- Distinct exit codes for automation integrations (see [Automation Support](#automation-support))
 
-### ⚙️ Customizability
+### 🗄️ Stash Integration (Optional)
 
-- Separate media into sub-folders?
-- Want to download previews?
+- Push Fansly metadata (creators → Performers, posts → Scenes/Galleries, tags, etc.) into a [Stash](https://github.com/stashapp/stash) media server
+- Uses the [`stash-graphql-client`](https://github.com/Jakan-Kink/stash-graphql-client) PyPI package (v0.12+)
+- Requires Stash server **v0.30.0+** (appSchema 75+)
 
 ### 🔎 Deduplication
 
-- Downloads only unique content
-- resulting in less bandwidth usage
+- Content-hash–based dedupe (not filename-based) stored in the PostgreSQL database
+- Automatic migration of legacy `_hash_` / `_hash1_` / `_hash2_` filename formats
 
-### 💸 Free of Charge
+### 🖥️ Cross-Platform
 
-- Open source, community driven project
+- Works on Windows, Linux, and macOS
+- Python 3.12+ required
+- Windows `.exe` builds are legacy artifacts of the prof79 era; active development ships Python sources only
+
+### 💸 Free & Open Source
+
+- GPL-3.0 licensed
+- Community-driven; PRs welcome
 
 ---
 
-📖 [Configuration Settings in detail](https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#explanation-of-configini)
+📖 In-repo documentation lives under [`docs/`](docs/) — organized into `planning/` (design docs and architecture notes), `reference/` (protocol breakdowns and mapping tables), and `testing/` (testing requirements and migration guides). A MkDocs-rendered site is planned; the upstream GitHub wiki was intentionally not adopted.
 
-📋 [Detailed description on each of the components of this software](https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality)
+📋 [Configuration Reference — `config.sample.yaml`](config.sample.yaml)
+
+🛰️ [Monitoring Daemon Architecture](docs/planning/monitoring-daemon-architecture.md)
 
 ## ⚠️ Breaking Changes
 
 ### PostgreSQL Migration (v0.11.0+)
 
-**IMPORTANT:** Starting with version 0.11.0, Fansly Downloader NG has migrated from SQLite to PostgreSQL for metadata storage. This is a **breaking change** that requires action before upgrading.
+**IMPORTANT:** Starting with v0.11.0, Fansly Downloader NG migrated from SQLite to PostgreSQL for metadata storage. This is a **breaking change** that requires action before upgrading from any v0.10.x or earlier release.
 
 #### Database Evolution Timeline
 
-- **v0.9.9 and earlier (2024-06-28)**: No metadata database - downloads tracked by filenames only
+- **v0.9.9 and earlier (2024-06-28)**: No metadata database — downloads tracked by filenames only
 - **v0.10.x (late 2024)**: SQLite metadata database introduced for better deduplication and tracking
-- **v0.11.0+ (current)**: PostgreSQL for higher performance and data reliability
+- **v0.11.0 onward**: PostgreSQL for higher performance, concurrency, and data reliability
 
 #### Why the Change?
 
@@ -82,7 +87,7 @@ The migration to PostgreSQL provides several critical improvements:
 
 - **Better Performance**: Significantly faster queries and bulk operations on large datasets
 - **Superior Concurrency**: True multi-user/multi-process support without database locking issues
-- **Network Support**: Reliable operation with databases on network paths (NAS, SMB shares)
+- **Network Support**: Reliable operation with databases on network paths (NAS, SMB shares) — no more SQLite `db_sync_*` workaround flags
 - **Advanced Features**: Better support for complex queries, transactions, and data integrity
 
 #### Migration Requirements
@@ -90,7 +95,6 @@ The migration to PostgreSQL provides several critical improvements:
 ##### PostgreSQL must be installed and configured before running v0.11.0+
 
 1. **Install PostgreSQL**
-
    - **macOS**: `brew install postgresql@17` or download from [postgresql.org](https://www.postgresql.org/download/macosx/)
    - **Linux**: `sudo apt-get install postgresql postgresql-contrib` or equivalent for your distro
    - **Windows**: Download installer from [postgresql.org](https://www.postgresql.org/download/windows/)
@@ -110,9 +114,7 @@ The migration to PostgreSQL provides several critical improvements:
    psql -d fansly_metadata -c "GRANT ALL ON SCHEMA public TO fansly_user;"
    ```
 
-3. **Migrate Existing Data** (if upgrading from v0.10.x with SQLite)
-
-   **Note:** If you're upgrading from v0.9.x or earlier (before metadata tracking), skip this step - there's no SQLite database to migrate.
+3. **Migrate Existing Data** (only if upgrading from v0.10.x with SQLite)
 
    Use the provided migration script to transfer your existing SQLite metadata to PostgreSQL:
 
@@ -124,303 +126,276 @@ The migration to PostgreSQL provides several critical improvements:
        --pg-user fansly_user
    ```
 
-   The script will:
-
-   - Create a backup of your SQLite database (with timestamp)
-   - Copy all tables and data to PostgreSQL
-   - Verify the migration completed successfully
-   - Optionally delete the SQLite file after successful migration (use `--delete-sqlite`)
+   The script will back up your SQLite database, copy all tables and data to PostgreSQL, and verify the migration. Pass `--delete-sqlite` to remove the original SQLite file after a successful migration.
 
 4. **Update Configuration**
 
-   Update your `config.ini` with PostgreSQL connection details. Use the following individual parameters in the `[Options]` section:
+   Edit your `config.yaml` (the primary config format since v0.12 — legacy `config.ini` files auto-migrate on first run):
 
-   ```ini
-   [Options]
-   pg_host = localhost
-   pg_port = 5432
-   pg_database = fansly_metadata
-   pg_user = fansly_user
-   pg_password = your_secure_password
-   pg_pool_size = 5
-   pg_max_overflow = 10
-   pg_pool_timeout = 30
+   ```yaml
+   postgres:
+     pg_host: localhost
+     pg_port: 5432
+     pg_database: fansly_metadata
+     pg_user: fansly_user
+     pg_password: your_secure_password
+     pg_pool_size: 5
    ```
+
+   See [`config.sample.yaml`](config.sample.yaml) for the full schema.
 
 #### Backward Compatibility
 
 **There is NO backward compatibility with SQLite.** Once you upgrade to v0.11.0+, you must use PostgreSQL. If you need to continue using SQLite, remain on v0.10.x releases.
 
-For detailed migration instructions and troubleshooting, see the [PostgreSQL Migration Guide](scripts/migrate_to_postgres.py).
+### JavaScript Dependencies (Node.js / npm Required)
 
-### JavaScript Dependencies (Node.js/npm Required)
+Fansly Downloader NG requires Node.js for extracting a `checkKey` value from Fansly's JavaScript bundles. This uses:
 
-**NEW REQUIREMENT:** Fansly Downloader NG now requires Node.js and specific JavaScript libraries for checkKey extraction and browser compliance detection.
+- **acorn** — industry-standard JavaScript parser for AST generation
+- **acorn-walk** — AST traversal library
+- **JSPyBridge** (Python `javascript` package) — installed automatically by Poetry
 
-#### Why These Dependencies?
-
-Fansly's authentication system requires extracting a `checkKey` value from their JavaScript bundles. To do this reliably and securely, we use:
-
-- **acorn**: Industry-standard JavaScript parser for AST (Abstract Syntax Tree) generation
-- **acorn-walk**: AST traversal library to find specific code patterns
-- **JSPyBridge** (Python `javascript` package): Required for Python-JavaScript communication
-
-#### Installation Requirements
+#### Installation
 
 1. **Install Node.js**
 
-   **Recommended**: Use [nvm (Node Version Manager)](https://github.com/nvm-sh/nvm) for easy version management:
+   **Recommended**: Use [nvm](https://github.com/nvm-sh/nvm) for easy version management:
 
    ```bash
    # Install nvm (macOS/Linux)
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
 
-   # Install Node.js (version specified in .nvmrc)
+   # Install the Node.js version from .nvmrc
    nvm install
    nvm use
    ```
 
-   **Alternative**: Download and install directly from [nodejs.org](https://nodejs.org/) (LTS version recommended)
+   Alternatively, install the LTS release from [nodejs.org](https://nodejs.org/) directly.
 
 2. **Install JavaScript Dependencies**
 
    ```bash
-   # In the project directory
    npm install acorn acorn-walk
    ```
 
-3. **Install JSPyBridge** (Required - included in Poetry dependencies)
-
-   JSPyBridge is already included when you run `poetry install`. This provides efficient Python-JavaScript communication for checkKey extraction.
-
-   **Note:** If you installed manually with pip instead of Poetry, run:
-
-   ```bash
-   pip install javascript
-   ```
-
-#### Version Management
-
-The project includes an `.nvmrc` file (currently set to `v25.0.0`) for consistent Node.js versions across environments. When using nvm:
-
-```bash
-# Automatically use the correct Node.js version
-nvm use
-```
-
-**Important:** JSPyBridge detects and uses your local nvm installation if available, ensuring compatibility with the Node.js version specified in `.nvmrc`.
-
-For more details, see [CheckKey Extraction Documentation](docs/reference/CHECKKEY_JSPYBRIDGE.md).
+For more details see [CheckKey Extraction Documentation](docs/reference/CHECKKEY_JSPYBRIDGE.md).
 
 ## 🏗️ Setup
 
-On Windows you can just download and run the [executable version](https://github.com/prof79/fansly-downloader-ng/releases/latest) - skip the entire setup section and go directly to [Quick Start](https://github.com/prof79/fansly-downloader-ng#-quick-start).
+**Fansly Downloader NG** is distributed as Python source. Ensure [Python 3.12+](https://www.python.org/downloads/) is installed. This project uses [Poetry](https://python-poetry.org/) for dependency management — Poetry creates and manages its own virtual environment.
 
-### Python Environment
+### Installation Steps
 
-If your operating system is not compatible with executable versions of **Fansly Downloader NG** (only Windows supported for `.exe`) or you want to use the Python sources directly, please [download and extract](https://github.com/prof79/fansly-downloader-ng/archive/refs/heads/master.zip) _or_ clone the repository and ensure that [Python 3.12+](https://www.python.org/downloads/) is installed on your system.
+1. **Clone the repository**
 
-**Note:** This project uses [Poetry](https://python-poetry.org/) for dependency management. Poetry automatically creates and manages virtual environments for you.
+   ```bash
+   git clone https://github.com/Jakan-Kink/fansly-scraper.git
+   cd fansly-scraper
+   ```
 
-#### Installation Steps
-
-1. **Install Poetry** (if not already installed):
+2. **Install Poetry** (if not already installed):
 
    ```bash
    # Linux, macOS, Windows (WSL)
    curl -sSL https://install.python-poetry.org | python3 -
 
-   # Or using pip (alternative method)
+   # Or via pip
    pip install poetry
    ```
 
-   **Note:** You may need to add Poetry to your PATH. See [Poetry installation docs](https://python-poetry.org/docs/#installation) for details.
+   See the [Poetry installation docs](https://python-poetry.org/docs/#installation) for platform-specific notes.
 
-2. **Install Node.js and npm Dependencies:**
-
-   Fansly Downloader NG requires Node.js for checkKey extraction from Fansly's JavaScript bundles.
-
-   **Option A: Using nvm (Recommended)**
+3. **Install Node.js and npm Dependencies** (see [JavaScript Dependencies](#javascript-dependencies-nodejs--npm-required) above):
 
    ```bash
-   # Install nvm (macOS/Linux)
-   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
-
-   # Navigate to project directory
-   cd fansly-downloader-ng
-
-   # Install Node.js (version specified in .nvmrc)
-   nvm install
-   nvm use
-
-   # Install npm dependencies
+   nvm install && nvm use
    npm install acorn acorn-walk
    ```
 
-   **Option B: Using Node.js directly**
+4. **Install Python Dependencies**
 
    ```bash
-   # Download and install Node.js LTS from nodejs.org
-   # Then navigate to project directory and install npm dependencies
-   cd fansly-downloader-ng
-   npm install acorn acorn-walk
-   ```
-
-   **For Windows users:**
-
-   - Download Node.js installer from [nodejs.org](https://nodejs.org/)
-   - After installation, open PowerShell/CMD in the project directory
-   - Run: `npm install acorn acorn-walk`
-
-3. **Install Python Dependencies:**
-
-   ```bash
-   # Option A: Install with browser authentication support (RECOMMENDED)
+   # Option A: With browser authentication (RECOMMENDED)
    poetry install --no-root --with browser-auth
 
-   # Option B: Install without browser authentication (username/password only)
+   # Option B: Without browser authentication (username/password only)
    poetry install --no-root
    ```
 
    #### Understanding `--with browser-auth`
 
-   The `browser-auth` optional dependency group enables **automatic token extraction** from your browser's storage:
+   The `browser-auth` optional dependency group enables **automatic token extraction** from your browser's storage — no need to copy tokens or enter credentials manually.
+   - **What it does**: Pulls your Fansly auth token directly from browser storage (LevelDB for Chromium browsers, SQLite for Firefox)
+   - **Supported browsers**: Chrome, Microsoft Edge, Opera, Opera GX, Brave (via `plyvel-ci`), and Firefox (via built-in `sqlite3`)
+   - **Privacy**: All token extraction happens locally on your machine — nothing is sent to external servers
 
-   **What it does:**
-   - Extracts your Fansly authentication token directly from browser storage (LevelDB for Chromium browsers, SQLite for Firefox)
-   - **No need to manually copy tokens or enter credentials**
-   - Supports: Chrome, Edge, Opera, Opera GX, Brave (via `plyvel-ci`), and Firefox (via built-in `sqlite3`)
+   Skip this group if you prefer username/password auth or your browser isn't supported.
 
-   **When to use it:**
-   - ✅ **Recommended** - Most convenient authentication method
-   - ✅ You regularly use a supported browser to access Fansly
-   - ✅ You want automatic, secure token extraction without manual steps
+5. **Additional Platform Requirements**
 
-   **When you DON'T need it:**
-   - ❌ You prefer to use username/password authentication
-   - ❌ You use an unsupported browser (Safari, etc.)
-   - ❌ You want minimal dependencies
-
-   **Technical Details:**
-   - Adds `plyvel-ci` (LevelDB reader for Chromium-based browsers)
-   - Firefox support works without browser-auth (uses Python's built-in `sqlite3`)
-   - All token extraction happens **locally** on your machine - nothing is sent to external servers
-
-   **Note:** The `javascript` package (JSPyBridge) is automatically installed by Poetry and provides efficient Python-JavaScript communication for checkKey extraction.
-
-4. **Additional Platform Requirements:**
-
-   **Linux:** You may need to install the Python `Tkinter` module separately:
+   **Linux**: install the `Tkinter` module separately if missing:
 
    ```bash
    sudo apt-get install python3-tk
    ```
 
-   **Windows/macOS:** The `Tkinter` module is typically included in the Python installer.
+   **Windows / macOS**: `Tkinter` is typically bundled with the Python installer.
 
-#### Running the Application
+### Running the Application
 
 ```bash
-# Run with Poetry
+# With Poetry
 poetry run python fansly_downloader_ng.py
 
-# Or activate the Poetry shell first, then run normally
+# Or activate Poetry's shell first
 poetry shell
 python fansly_downloader_ng.py
 ```
 
-#### For Developers
-
-Install development and testing dependencies:
+### For Developers
 
 ```bash
 poetry install --no-root --with dev,typing,test,browser-auth
 ```
 
-**Important:** Raw Python code versions of **Fansly Downloader NG** do not receive automatic updates. If an update is available, you will be notified but need to manually download and set up the [current repository](https://github.com/prof79/fansly-downloader-ng/archive/refs/heads/master.zip) again.
+**Note:** Python source installations do **not** self-update. You will need to `git pull` manually (or re-clone) to pick up new releases. For users who prefer not to use Git, source-zip artifacts are published alongside each tagged release on the [Releases page](https://github.com/Jakan-Kink/fansly-scraper/releases/latest).
 
 ## 🚀 Quick Start
 
-Follow these steps to quickly get started with either the [Python](https://github.com/prof79/fansly-downloader-ng#python-version-requirements) or the [Executable](https://github.com/prof79/fansly-downloader-ng/releases/latest):
+1. **Complete [Setup](#%EF%B8%8F-setup) above** — ensure Python 3.12+, Poetry, Node.js, and PostgreSQL are installed and running.
 
-1. Download the latest version of **Fansly Downloader NG** by choosing one of the options below:
-
-   - [Windows exclusive executable version](https://github.com/prof79/fansly-downloader-ng/releases/latest) - `Fansly Downloader NG.exe`
-   - [Python code version](https://github.com/prof79/fansly-downloader-ng#python-version-requirements) - `fansly_downloader_ng.py`
-
-   and extract the files from the zip folder.
-
-2. **Choose your authentication method:**
+2. **Choose your authentication method**
 
    **Option A: Browser Token Extraction (Recommended)**
 
-   - **Requires:** `poetry install --no-root --with browser-auth` (see [Setup](#-setup) for details)
-   - **Supported Browsers:** Chrome, Firefox, Microsoft Edge, Brave, Opera, Opera GX
-   - **Platforms:** Windows 10/11, macOS, Linux
-   - **How it works:**
-     1. Log into your Fansly account using a supported browser
-     2. Visit the Fansly website at least once to establish a session
-     3. Run Fansly Downloader NG - it will automatically extract your token from browser storage
-   - **Benefits:**
-     - ✅ Most convenient - no manual token copying
-     - ✅ Secure - tokens extracted locally, never transmitted
-     - ✅ Automatic - no credentials needed in config file
+   Requires `poetry install --no-root --with browser-auth`. Supported browsers: Chrome, Firefox, Edge, Brave, Opera, Opera GX. Just log into Fansly in your browser and run the downloader — it extracts the token automatically.
 
-   **Option B: Username/Password Login**
+   **Option B: Username / Password**
 
-   - **Requires:** Basic installation: `poetry install --no-root` (no browser-auth needed)
-   - **How it works:** Add your Fansly credentials to `config.ini`:
+   Works without browser-auth. Add credentials to `config.yaml`:
 
-     ```ini
-     [MyAccount]
-     username = your_fansly_account_username
-     password = your_fansly_account_password
-     ```
+   ```yaml
+   my_account:
+     username: your_fansly_account_username
+     password: your_fansly_account_password
+   ```
 
-   - **Benefits:**
-     - ✅ Works without browser dependencies
-     - ✅ Minimal installation requirements
-     - ✅ Good for servers/headless systems
-   - **Note:** The application will automatically log in and obtain a token for you
+   The application logs in and obtains a token for you.
 
-3. Open and run the `Fansly Downloader NG.exe` file by clicking on it or run `poetry run python fansly_downloader_ng.py` from a terminal. This will initiate the interactive setup tutorial for the configuration file called [`config.ini`](https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#explanation-of-configini).
-4. After values for the targeted creators [Username](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L2), your Fansly account [Authorization Token](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L5) and your web browser's [User-Agent](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L6) are filled you're good to go 🎉!
-   See the [manual set-up tutorial](https://github.com/prof79/fansly-downloader-ng/wiki/Get-Started) if anything could not be configured automatically.
+3. **Run it**
 
-Once you have completed the initial configuration of **Fansly Downloader NG**, for every future use case, you will only need to adapt the creator(s) in `Targeted Creator > Username` section in the `config.ini` using a text editor of your choice. Additional settings can also be found in the `config.ini` file, which are documented in [the Wiki](https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini) page.
+   ```bash
+   poetry run python fansly_downloader_ng.py
+   ```
+
+   The first run generates a `config.yaml` in the working directory and walks you through interactive setup. If a legacy `config.ini` is present, it is migrated to `config.yaml` automatically and backed up as `config.ini.bak.<timestamp>`.
+
+4. **Configure targeted creators** in `config.yaml`:
+
+   ```yaml
+   targeted_creator:
+     usernames:
+       - creator1
+       - creator2
+   ```
+
+   Or pass them via CLI: `-u creator1,creator2`.
+
+### Common CLI Invocations
+
+```bash
+# Interactive default run
+poetry run python fansly_downloader_ng.py
+
+# Fully automated (cron / Task Scheduler / systemd timer)
+poetry run python fansly_downloader_ng.py -ni -npox
+
+# Specific creators
+poetry run python fansly_downloader_ng.py -u creator1,creator2,creator3
+
+# Specific download mode
+poetry run python fansly_downloader_ng.py -dm timeline
+#                                              ^^^^^^^^
+# one of: normal | timeline | messages | collection | wall |
+#         single | stories | stash_only
+
+# Batch download, then watch forever via the monitoring daemon
+poetry run python fansly_downloader_ng.py -u creator1 --daemon
+```
+
+## 🛰️ Monitoring Daemon
+
+Once the initial bulk download completes, appending `--daemon` (aliases: `-d`, `--monitor`) switches the process into a long-running monitoring loop that keeps your local archive current as new content drops.
+
+**Under the hood:**
+
+- A single **Fansly WebSocket** connection receives live events for PPV purchase, new messages, message edits/deletes, subscription changes, and profile updates.
+- Events are translated into typed `WorkItem`s (e.g., `DownloadTimelineOnly`, `DownloadStoriesOnly`, `DownloadMessagesForGroup`, `FullCreatorDownload`) and processed sequentially by the daemon runner.
+- A **timeline/story poller** acts as a fallback for creators the WebSocket has no event for in a given window, using dramatically reduced request volume versus a full rescan.
+- The **`ActivitySimulator`** drives poll cadence through a three-tier state machine (active → idle → hidden) calibrated against real browser-session profiling, minimizing detection surface.
+- A **Rich live dashboard** surfaces per-creator state, current phase, WebSocket health, and queued work.
+
+**Scope flags work the same as batch mode:**
+
+- `-u alice,bob` → monitor only those creators
+- `-uf` / `-ufp` → monitor the full following list (refreshed when a new subscription is confirmed)
+
+**Stop it** with Ctrl-C (SIGINT); the daemon drains the queue cleanly.
+
+For the full design document, see [`docs/planning/monitoring-daemon-architecture.md`](docs/planning/monitoring-daemon-architecture.md).
+
+## Automation Support
+
+Distinct exit codes let you wire `fansly_downloader_ng.py` into shell pipelines and orchestrators:
+
+| Code  | Meaning             |
+| ----- | ------------------- |
+| `0`   | Success             |
+| `1`   | Config error        |
+| `2`   | API error           |
+| `3`   | Download error      |
+| `4`   | Some users failed   |
+| `10`  | Unexpected error    |
+| `255` | User abort (SIGINT) |
 
 ## 🤔 FAQ
 
-Do you have any unanswered questions or want to know more about **Fansly Downloader NG**? Head over to the [Wiki](https://github.com/prof79/fansly-downloader-ng/wiki) or check if your topic was mentioned in [Discussions](https://github.com/prof79/fansly-downloader-ng/discussions) or [Issues](https://github.com/prof79/fansly-downloader-ng/issues)
-
 - **Q**: "Is **Fansly Downloader NG** exclusive to Windows?"
-- **A**: No, **Fansly Downloader NG** can be ran on Windows, MacOS or Linux. It's just that the executable version of the downloader, is currently only being distributed for the windows 10 & 11 operating systems. You can use **Fansly Downloader NG** from the [raw Python sources](https://github.com/prof79/fansly-downloader-ng#%EF%B8%8F-set-up) on any other operating system and it'll behave the exact same as the Windows executable version.
-- **Q**: "Is it possible to download Fansly files on a mobile device?"
-- **A**: Unfortunately, downloading Fansly files on a mobile device is currently not supported by **Fansly Downloader NG** or any other available means.
-- **Q**: "Why do some executables show detections on them in VirusTotal?"
-- **A**: The **Fansly Downloader NG** executables are not [digitally signed](https://www.digicert.com/signing/code-signing-certificates) as software certificates are very expensive. Thus the executables tend to produce a lot of false positives (invalid detections). Antivirus providers can be mailed to update their detections but not all do care.
-  If you're knowledgeable with the Python programming language you can decompile a [PyInstaller](https://github.com/pyinstaller/pyinstaller) executable such as **Fansly Downloader NG** using a tool like [uncompyle6](https://github.com/rocky/python-uncompyle6/) - and assure yourself that no harmful code is included. Or you could just create your own [PyInstaller](https://github.com/pyinstaller/pyinstaller) executable.
-- **Q**: "Could you add X feature or do X change?"
-- **A**: I'm regrettably very limited on time and thus primarily do stuff I find useful myself. You can contribute code by [opening a pull request](https://github.com/prof79/fansly-downloader-ng/pulls)
-- **Q**: "Will you add any payment bypassing features to **Fansly Downloader NG**?"
-- **A**: No, as the intention of this repository is not to harm Fansly or it's content creators.
-- **Q**: "Is there a possibility of being banned?"
-- **A**: While there are no guarantees, it's worth noting that among the 24.000+ previous users, there have been no reported incidents.
+- **A**: No — Windows, macOS, and Linux are all supported via Python sources. Windows `.exe` builds were a legacy artifact of the prof79 era and are not actively produced for the fork.
 
-Please note that "Issue" tickets are reserved for reporting genuine or suspected bugs in the codebase of the downloader which require attention from the developer. They are not for general computer user problems.
+- **Q**: "Can I run this on a mobile device?"
+- **A**: No. Mobile is not supported.
 
-## 🤝 Contributing to Fansly Downloader NG
+- **Q**: "Can you add feature X?"
+- **A**: [Open an issue](https://github.com/Jakan-Kink/fansly-scraper/issues) or [Open a pull request](https://github.com/Jakan-Kink/fansly-scraper/pulls).
 
-Any kind of positive contribution is welcome! Please help the project improve by [opening a pull request](https://github.com/prof79/fansly-downloader-ng/pulls) with your suggested changes!
+- **Q**: "Will you add payment-bypass features?"
+- **A**: No. This tool is for archiving content you already have legitimate access to. This WILL NEVER bypass paywalls or access controls.
+
+- **Q**: "Is there a risk of being banned?"
+- **A**: There is always that possibility when using any third-party tool that interacts with a web service. However, the v0.13 monitoring daemon specifically calibrates its polling cadence against real browser behavior (based on the javascript timing from Fansly's own UI code) to reduce detection surface.
+
+- **Q**: "What happened to the original prof79 repo?"
+- **A**: prof79 has not touched the project since June 28, 2024 (v0.9.9). All development through v0.10.x, v0.11.x, and now v0.13 happens on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper).
+
+Please note that "Issue" tickets are reserved for reporting genuine or suspected bugs that require attention from a developer.
+
+## 🤝 Contributing
+
+Contributions welcome! [Open a pull request](https://github.com/Jakan-Kink/fansly-scraper/pulls) with your changes. Please follow the existing style and include tests where appropriate. For major features or architectural changes, consider opening an issue first to discuss the design.
 
 ### Special Thanks
 
-A heartfelt thank you goes out to [@liviaerxin](https://github.com/liviaerxin) for their invaluable contribution in providing the cross-platform package [plyvel](https://github.com/wbolster/plyvel). Due to [these builds](https://github.com/liviaerxin/plyvel/releases/latest) Fansly downloader NG's initial interactive cross-platform setup has become a reality.
+- [@Avnsx](https://github.com/Avnsx) — original Fansly Downloader
+- [@prof79](https://github.com/prof79) — Fansly Downloader NG rewrite (v0.5 – v0.9.9)
+- [@liviaerxin](https://github.com/liviaerxin) — cross-platform [plyvel](https://github.com/wbolster/plyvel) builds that made browser auth possible
+- Contributors `KasumiDev`, `FletcherD`, `XelaRellum`, `sunbart`, `pawnstar81`, `UpAndDown666`, `icewinterberry12`, `1gintonic` for historical contributions
 
 ## 🛡️ License
 
-This project (including executables) is licensed under the GPL-3.0 License - see the [`LICENSE`](LICENSE) file for details.
+This project (including any executables) is licensed under the GPL-3.0 License — see [`LICENSE`](LICENSE) for details.
 
 ## Disclaimer
 
-"Fansly" or [fansly.com](https://fansly.com/) is operated by Select Media LLC as stated on their "Contact" page. This repository and the provided content in it isn't in any way affiliated with, sponsored by, or endorsed by Select Media LLC or "Fansly". The developer(referred to: "prof79" in the following) of this code is not responsible for the end users actions, no unlawful activities of any kind are being encouraged. Statements and processes described in this repository only represent best practice guidance aimed at fostering an effective software usage. The repository was written purely for educational purposes, in an entirely theoretical environment. Thus, any information is presented on the condition that the developer of this code shall not be held liable in no event to you or anyone else for any direct, special, incidental, indirect or consequential damages of any kind, or any damages whatsoever, including without limitation, loss of profit, loss of use, savings or revenue, or the claims of third parties, whether the developer has advised of the possibility of such loss, however caused and on any theory of liability, arising out of or in connection with the possession, use or performance of this software. The material embodied in this repository is supplied to you "as-is" and without warranty of any kind, express, implied or otherwise, including without limitation, any warranty of fitness. This code does not bypass any paywalls & no end user information is collected during usage. Finally it is important to note that this GitHub repository is the sole branch maintained and owned by the developer and any third-party websites or entities, that might refer to or be referred from it are in no way affiliated with Fansly Downloader, either directly or indirectly. This disclaimer is preliminary and is subject to revision.
+"Fansly" or [fansly.com](https://fansly.com/) is operated by Select Media LLC. This repository and its contents are not in any way affiliated with, sponsored by, or endorsed by Select Media LLC or "Fansly". The maintainers of this code are not responsible for end-user actions; no unlawful activities of any kind are encouraged. Statements and processes described in this repository represent best-practice guidance aimed at effective software usage. The repository was written purely for educational purposes in an entirely theoretical environment. Any information is presented on the condition that the maintainers shall not be held liable for any direct, special, incidental, indirect, or consequential damages of any kind — including loss of profit, loss of use, savings, or revenue, or the claims of third parties — arising out of or in connection with the possession, use, or performance of this software. The material is supplied "as-is" without warranty of any kind, express or implied. This code does not bypass any paywalls and no end-user information is collected during usage. This GitHub repository is the sole branch maintained by the current developer; any third-party websites or entities that might refer to or from it are in no way affiliated with Fansly Downloader, either directly or indirectly. This disclaimer is preliminary and subject to revision.

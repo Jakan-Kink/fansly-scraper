@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly Downloader NG - Testing Requirements
 
 **Goal**: Ensure comprehensive test coverage with mocking only at external boundaries (HTTP/GraphQL for Stash, real database for SQLAlchemy).

@@ -1,21 +1,14 @@
+---
+status: planning
+---
+
 # Stash GraphQL Client ORM Migration Guide
 
 > **Goal:** Refactor codebase to leverage stash-graphql-client ORM features for cleaner code, better performance, and improved maintainability.
 >
-> **Status:** Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ⏸️ Not Started
+> **Status:** Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ⏳ Ready to start (unlocked by SGC v0.12 adoption in fansly-downloader-ng v0.13.0)
 >
-> **Current Version:** v0.11.0b5 (Pydantic models, server capability detection, dynamic fragment store)
-
-## Table of Contents
-
-1. [Why Migrate?](#why-migrate)
-2. [Key Concepts](#key-concepts)
-3. [Migration Patterns](#migration-patterns)
-4. [Phased Migration Plan](#phased-migration-plan)
-5. [Testing Strategy](#testing-strategy)
-6. [Breaking Changes & Compatibility](#breaking-changes--compatibility)
-
----
+> **Current SGC Version:** v0.12.0 (batched GraphQL mutations, `__side_mutations__` mechanism, ActiveRecord-style relationship DSL, server capability detection, dynamic fragment store)
 
 ## Why Migrate?
 
@@ -692,23 +685,69 @@ Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:
 
 ---
 
-### Phase 4: Advanced Features ⏸️ **NOT STARTED**
+### Phase 4: Advanced Features
 
-**Goal:** Leverage advanced ORM features
+**Status:** ⏳ Ready to start — unlocked by SGC v0.12 batch-ops adoption in
+fansly-downloader-ng v0.13.0.
 
-**Planned Tasks:**
+**Goal:** Leverage advanced ORM features, now including the batched GraphQL
+mutations introduced in stash-graphql-client v0.12.0 (released 2026-04-15).
+The v0.13.0 release of fansly-downloader-ng bumped the SGC dependency floor
+to `>=0.12.0`, making these APIs available in production.
 
-1. ⏳ Use `store.filter()` for in-memory filtering
-2. ⏳ Expand relationship helper usage (`add_performer`, `add_tag`, etc.)
-3. ⏳ Remove any remaining manual retry logic
-4. ⏳ Consider preloading relationships for complex queries
+**Newly available with SGC v0.12 — primary Phase 4 targets:**
+
+1. ⏳ **Batched mutations** — collapse N sequential mutations into a single
+   aliased HTTP request:
+   - `store.save_batch(objects)` — entity-aware batch save with cascade,
+     creates-before-updates ordering, UUID→real-ID remapping, and
+     sequential per-entity side mutations
+   - `client.execute_batch(operations)` — low-level API with automatic
+     chunking (default `max_batch_size=250`)
+   - `store.save_all()` — ORM flush; scans identity map for dirty/new
+     entities and delegates to `save_batch()`
+   - **Target hot paths**: per-creator runs that currently issue N
+     sequential mutations for tag creation, performer upserts, and
+     scene/gallery assignments
+2. ⏳ **`__side_mutations__` mechanism** — fields persisted via separate
+   GraphQL mutations instead of the main create/update input; fires
+   AFTER the main mutation so new objects have their real server ID.
+   Most adoption is zero-work (inherited behavior), but entity-specific
+   convenience methods now exist:
+   - `gallery.add_image(image)` / `gallery.remove_image(image)` with
+     automatic inverse sync
+   - `scene.reset_play_count()`, `scene.reset_o()`,
+     `scene.reset_activity()`, `scene.generate_screenshot()`
+3. ⏳ **ActiveRecord-style relationship DSL** — entity types declared with
+   `belongs_to()`, `habtm()`, `has_many()`, `has_many_through()` auto-derive
+   `target_field`, `query_field`, and `filter_query_hint`. Any custom
+   extensions of stash-graphql-client types in this codebase should
+   adopt the DSL form.
+4. ⏳ **Bulk-update side mutations** for bidirectional relationship writes
+   (Performer.scenes, Tag.scenes, Studio.scenes, etc.) — zero-config
+   performance win when calling `add_scene()` / `add_tag()` helpers.
+5. ⏳ **`return_fields` override on bulk updates** — `bulk_scene_update()`,
+   `bulk_gallery_update()`, etc. now accept `return_fields="id __typename"`
+   to skip server-side resolution of all relationship fields; useful when
+   the downloader is batching large sets.
+
+**Previously planned (still valid):**
+
+6. ⏳ Use `store.filter()` for in-memory filtering of identity-map cache
+7. ⏳ Expand relationship helper usage (`add_performer`, `add_tag`, etc.) —
+   now underpinned by bulk-update side mutations for performance
+8. ⏳ Remove any remaining manual retry logic (SGC built-ins cover most cases)
+9. ⏳ Consider preloading relationships for complex queries via `populate()`
 
 **Files:**
 
-- All processing mixins
+- All processing mixins (`stash/processing/mixins/*.py`)
+- Per-creator orchestration in `stash/processing/base.py`
+- Batch-aware entry points in `stash/processing/mixins/batch.py`
 
 **Success Criteria:**
 
+- ⏳ Batch operations replace sequential mutation loops in per-creator hot paths
 - ⏳ Maximum leverage of ORM features
 - ⏳ Minimal manual state management
 - ⏳ Clean, maintainable codebase
@@ -943,7 +982,8 @@ Current `store.find_iter()` pattern performs well. A future optimization could u
 4. Keep detailed logs during migration
 
 **Migration started:** 2025-12-XX (exact date TBD)
-**Current phase:** Phase 4 - Advanced Features ⏸️ Not Started
+**Current phase:** Phase 4 - Advanced Features ⏳ Ready to start
 **Phase 1 & 2 completed:** 2026-01-09
 **Phase 3 completed:** 2026-03-07 (v0.11 upgrade)
-**Current version:** v0.11.0b5
+**Phase 4 unlocked:** 2026-04-22 (fansly-downloader-ng v0.13.0 bumped SGC dep floor to >=0.12.0)
+**Current SGC version:** v0.12.0

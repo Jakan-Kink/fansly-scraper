@@ -6,7 +6,7 @@ of using MagicMock.
 
 Usage:
     def test_something(test_config):
-        assert test_config.program_version == "0.11.0"
+        assert test_config.program_version == "0.13.0"
 
 Note:
     - test_config: Basic config without database setup

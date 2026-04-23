@@ -1,3 +1,7 @@
+---
+status: planning
+---
+
 # Monitoring Daemon Architecture Plan
 
 Based on reverse-engineering Fansly's `main.js` frontend, live WebSocket traffic analysis,
@@ -291,7 +295,7 @@ New files:
 - `config/schema.py` — Pydantic `ConfigSchema` + all section models
 - `config/loader.py` — YAML load + one-shot `.ini` migration
 - `config/writer.py` — round-trip YAML dump (or fold into loader)
-- `config.sample.yaml` — template replacing `config.sample.ini`
+- `config.sample.yaml` — template (replaces the retired `config.sample.ini`)
 - `tests/config/unit/test_schema.py` — Pydantic validation, defaults
 - `tests/config/unit/test_loader.py` — YAML load, missing-file handling
 - `tests/config/integration/test_ini_migration.py` — end-to-end `.ini` → `.yaml`

@@ -2,6 +2,67 @@
 
 ## 🗒️ Release Notes
 
+> **Moving forward:** This file closes with v0.13.0. All subsequent
+> releases are documented in [`CHANGELOG.md`](CHANGELOG.md) using the
+> [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format — this
+> matches the layout used by
+> [stash-graphql-client](https://github.com/Jakan-Kink/stash-graphql-client/blob/main/CHANGELOG.md)
+> and renders cleanly on the project's readthedocs-styled docs site.
+> This historical file is preserved as-is for git archaeology and
+> prof79-era context.
+
+> **Note on the gap between v0.9.9 and v0.13.0**: The original prof79 upstream went dormant after v0.9.9 (2024-06-28). Active development continued on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper) through v0.10.x (SQLite metadata introduction) and v0.11.0 (PostgreSQL hard-cut + Pydantic EntityStore rewrite) without release-note entries in this file — `git log` is the authoritative history for those. Release notes resume here with v0.13.0, which rolls up everything landed since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
+
+### v0.13.0 2026-04-22
+
+Monitoring daemon release.
+
+**Flagship feature — post-batch monitoring daemon** (`--daemon` / `-d` / `--monitor`):
+
+- Continuous WebSocket-driven event dispatch for new posts, stories, PPV messages, message edits/deletes, subscription changes, and profile updates. Decoded `ServiceEvent` dicts are translated into typed `WorkItem`s (`DownloadTimelineOnly`, `DownloadStoriesOnly`, `DownloadMessagesForGroup`, `FullCreatorDownload`, `CheckCreatorAccess`, `RedownloadCreatorMedia`).
+- Three-tier `ActivitySimulator` state machine (active → idle → hidden) drives polling cadence, calibrated from real browser-session profiling.
+- Timeline + story polling fallback when the WS is quiet; timeline-first-page probe short-circuits inactive creators (`lastCheckedAt` vs. `post.createdAt`).
+- Persistent `MonitorState` table: daemon restarts don't re-trigger every story or cold-scan every timeline.
+- Live Rich dashboard with per-creator state, WS health, queued work, and simulator phase.
+- Single shared `FanslyWebSocket` instance for both the batch-sync path and the daemon loop, with bidirectional cookie sync.
+- Clean SIGINT drain — `Ctrl-C` stops the queue and tears down the WS connection without dropping in-flight work.
+
+**Configuration**:
+
+- YAML is now the primary config format (`config.yaml`). Legacy `config.ini` files auto-migrate on first run and are backed up as `config.ini.bak.<timestamp>`. Comments in user-edited YAML are preserved across load → modify → save cycles via `ruamel.yaml`.
+- `config.sample.yaml` replaces the retired `config.sample.ini`.
+- New `[monitoring]` config section for activity-simulator phase durations and per-phase polling intervals.
+
+**Retired settings** (silently dropped from legacy configs — no runtime code branches on them):
+
+- `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` (SQLite-era `BackgroundSync` workaround, obsolete under PostgreSQL)
+- `metadata_handling` (no-op since the Pydantic EntityStore rewrite)
+- `separate_metadata` (SQLite-era flag)
+
+**Dependencies**:
+
+- `stash-graphql-client` dependency floor bumped to `>=0.12.0` (adds batched GraphQL mutations, side-mutations, relationship DSL; transitively requires Stash server **v0.30.0+** / appSchema 75+).
+
+**Logging / UX**:
+
+- Rich live dashboard with stable frame rendering under concurrent logging (fixed stdout prints corrupting the Live display).
+- Readable Pydantic config validation errors with retired-field upgrade tolerance.
+- Loguru / Rich color schema split; built-in level colors updated.
+- Standard-width `Emoji_Presentation=Yes` emoji throughout — respected by every modern terminal without VS16 selector hacks.
+
+**Bug fixes** (selected):
+
+- Two WebSocket / tempfile bugs closed during retired-flag cleanup.
+- Silent Rich handler errors on catch-all exceptions — now surfaced.
+- Signal / bridge / logging race conditions on daemon teardown — errors no longer leak past the thread boundary.
+- WebSocket logger split so daemon and sync-path WS traffic don't interleave in the same log level.
+
+**Documentation**:
+
+- New [`docs/planning/monitoring-daemon-architecture.md`](docs/planning/monitoring-daemon-architecture.md) — full design document (all intervals, endpoints, and behaviors verified against production `main.js`).
+- New [`docs/reference/Fansly-WebSocket-Protocol.md`](docs/reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints.
+- README rewritten to cover the daemon, YAML config, and the fork's new canonical home at `Jakan-Kink/fansly-scraper`.
+
 ### v0.9.9 2024-06-28
 
 Accept URLs/be less picky when specifying single posts kudos ([#64](https://github.com/prof79/fansly-downloader-ng/issues/64)) @1gintonic

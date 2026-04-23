@@ -121,6 +121,12 @@ Database Operations:
   db_sync_min_size = 50  # Min size in MB for background sync
   ```
 
+  > **Retired in v0.13.0:** The `db_sync_*` flags and the `BackgroundSync` helper
+  > were a SQLite-era workaround for network-path databases. The PostgreSQL
+  > hard-cut in v0.11.0 made them obsolete — asyncpg's connection pool handles
+  > concurrency natively. The flags are silently dropped from legacy `config.ini`
+  > files during YAML migration.
+
 Error Handling and Logging:
 * Added database operation logging with context
 * Added relationship tracking and logging

@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly WebSocket Protocol Reference
 
 Reverse-engineered from browser DevTools captures and `main.js` EventService.
@@ -503,8 +507,8 @@ poll result updates. They fire automatically when a poll scrolls into/out of vie
     "createdAt": 1776273660119,
     "embeds": [],
     "usernameColor": "#ff0000",
-    "username": "intimbabie",
-    "displayname": "Kiara"
+    "username": "example_creator",
+    "displayname": "Example Creator"
   }
 }
 ```

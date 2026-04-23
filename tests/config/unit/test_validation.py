@@ -649,7 +649,7 @@ def test_validate_creator_names_empty_after_removal(mock_config):
 @patch("importlib.util.find_spec")
 def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypatch):
     """Interactive mode: found token → user confirms → token saved (lines 224-258)."""
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config.interactive = True
     config.token = "short"  # invalid
     config.user_agent = "a" * 50
@@ -695,7 +695,7 @@ def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypa
 @patch("importlib.util.find_spec")
 def test_validate_adjust_token_interactive_user_rejects(mock_find_spec, monkeypatch):
     """Interactive mode: found token → user says no → raises ConfigError."""
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config.interactive = True
     config.token = "short"
     config.user_agent = "a" * 50

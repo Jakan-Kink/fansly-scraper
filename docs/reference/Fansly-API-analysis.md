@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly API Response Analysis
 
 ## Core Response Structure
@@ -19,8 +23,8 @@ Posts appear in timeline and wall responses:
 
 ```json
 {
-  "id": "723516315247063042",
-  "accountId": "618592888766341120",
+  "id": "100000000000000001",
+  "accountId": "200000000000000001",
   "content": "Post content text",
   "fypFlags": 0,
   "inReplyTo": null,
@@ -31,11 +35,11 @@ Posts appear in timeline and wall responses:
     {
       "pos": 0,
       "contentType": 1, // 1 = image/video
-      "contentId": "723516314605334530"
+      "contentId": "300000000000000001"
     }
   ],
   "likeCount": 0,
-  "idString": "00723516315247063042",
+  "idString": "00100000000000000001",
   "timelineReadPermissionFlags": [],
   "accountTimelineReadPermissionFlags": {
     "flags": 0,
@@ -54,13 +58,13 @@ Media items contain the actual media content and variants:
 
 ```json
 {
-  "id": "737318930569244672",
+  "id": "100000000000000002",
   "type": 2, // 2 = video
   "status": 1,
-  "accountId": "374708676486770688",
+  "accountId": "200000000000000002",
   "mimetype": "video/mp4",
   "flags": 298,
-  "location": "/374708676486770688/737318930569244672.mp4",
+  "location": "/200000000000000002/100000000000000002.mp4",
   "width": 720,
   "height": 1280,
   "metadata": {
@@ -74,12 +78,12 @@ Media items contain the actual media content and variants:
   "createdAt": 1737284891,
   "variants": [
     {
-      "id": "737318930569244673",
+      "id": "100000000000000003",
       "type": 1, // 1 = thumbnail
       "status": 1,
       "mimetype": "image/jpeg",
       "flags": 0,
-      "location": "/374708676486770688/737318930569244673.jpeg",
+      "location": "/200000000000000002/100000000000000003.jpeg",
       "width": 480,
       "height": 854,
       "metadata": { "resolutionMode": 2 },
@@ -87,7 +91,7 @@ Media items contain the actual media content and variants:
       "locations": []
     },
     {
-      "id": "737318935682097155",
+      "id": "100000000000000004",
       "type": 302, // 302 = HLS stream
       "status": 1,
       "mimetype": "application/vnd.apple.mpegurl",
@@ -122,13 +126,13 @@ Messages from conversations:
 
 ```json
 {
-  "id": "722765276893945858",
+  "id": "100000000000000005",
   "type": 1,
   "dataVersion": 1,
   "content": "Message content text",
-  "groupId": "722765276734566402",
-  "senderId": "286142689622110208",
-  "correlationId": "722765276709396490",
+  "groupId": "400000000000000001",
+  "senderId": "200000000000000003",
+  "correlationId": "500000000000000001",
   "inReplyTo": null,
   "inReplyToRoot": null,
   "createdAt": 1733815029,
@@ -136,7 +140,7 @@ Messages from conversations:
   "embeds": [],
   "interactions": [
     {
-      "userId": "720167541418237953",
+      "userId": "200000000000000004",
       "readAt": 1733815037211,
       "deliveredAt": 1733815033720
     }

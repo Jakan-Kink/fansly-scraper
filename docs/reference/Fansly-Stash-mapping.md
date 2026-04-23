@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly to Stash Mapping
 
 ## Data Structure Overview
@@ -8,9 +12,9 @@
 
    ```typescript
    {
-     id: string; // e.g., "720167541418237953"
-     username: string; // e.g., "trainingj"
-     displayName: string | null; // e.g., "Training J"
+     id: string; // snowflake ID (18-digit string)
+     username: string; // e.g., "example_creator"
+     displayName: string | null; // e.g., "Example Creator"
      about: string | null; // Profile description
      location: string | null;
      flags: number;
@@ -332,15 +336,17 @@ tags = [
 
 ### Database Integration
 
-1. Metadata Module
+1. **Metadata Module** (`metadata/`)
+   - Pydantic + asyncpg EntityStore (PostgreSQL)
+   - Identity-map + dirty-tracking design
+   - Handles local data persistence — see
+     [architecture.md](architecture.md) for the full stack
 
-   - Uses SQLAlchemy
-   - On-disk/in-memory database with syncing
-   - Handles local data persistence
-
-2. Stash Module
-   - GraphQL backend interface (`StashClient`)
-   - Remote data source
+2. **Stash Module** (`stash/`)
+   - GraphQL backend interface via
+     [`stash-graphql-client`](https://github.com/Jakan-Kink/stash-graphql-client)
+     (>= v0.12.0)
+   - Remote data source; pushes metadata from our local DB to Stash
    - Real-time data access
 
 ### Data Flow
@@ -378,71 +384,65 @@ graph LR
 
 ### Stash Integration
 
-Each mapped entity has:
-
-```python
-stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-```
+Each Fansly-side entity that maps to a Stash counterpart carries a
+nullable `stash_id: int | None` field. This is the link from the
+Fansly metadata row to the Stash-side entity (Performer, Scene,
+Gallery, Tag).
 
 ### Essential Fields
 
-```python
-# Account
-class Account(Base):
-    id: Mapped[int]                    # Primary key
-    username: Mapped[str]              # Required for identification
-    displayName: Mapped[str | None]    # Optional display name
-    stash_id: Mapped[int | None]      # Link to Performer
+The minimum useful fields on each Fansly entity:
 
-# Media
-class Media(Base):
-    id: Mapped[int]                    # Primary key
-    type: Mapped[int]                  # 1 = image, 2 = video
-    location: Mapped[str]              # Path to file
-    stash_id: Mapped[int | None]      # Link to Scene/Image
-```
+- **Account** — `id` (PK), `username`, `displayName?`, `stash_id?` → `Performer`
+- **Media** — `id` (PK), `type` (1 = image, 2 = video), `location` (CDN
+  path), `stash_id?` → `Scene`/`Image`
+- **Post** — `id` (PK), `accountId`, `content?`, attachments, `stash_id?` →
+  `Scene`/`Gallery` (see mapping rules below)
+- **Wall** — `id` (PK), `accountId`, `description?`, posts, `stash_id?` →
+  `Gallery`
+
+Full Pydantic field definitions live in
+[`metadata/models.py`](https://github.com/Jakan-Kink/fansly-scraper/blob/main/metadata/models.py);
+the table schema (used only by Alembic, not at runtime) is in
+[`metadata/tables.py`](https://github.com/Jakan-Kink/fansly-scraper/blob/main/metadata/tables.py).
+See
+[architecture.md](architecture.md#database-architecture) for the
+model/storage split.
 
 ### Relationship Handling
 
-1. Direct References:
+**Direct references** (many-to-one): junction-style entities like
+`AccountMedia` carry foreign keys to both sides (accountId, mediaId)
+plus a `stash_id` linking to the Stash-side entity (Scene/Image) that
+the junction represents.
 
-   ```python
-   class AccountMedia(Base):
-       accountId: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-       mediaId: Mapped[int] = mapped_column(ForeignKey("media.id"))
-       stash_id: Mapped[int | None]  # Links to Scene/Image
-   ```
-
-2. Many-to-Many:
-
-   ```python
-   post_hashtags = Table(
-       "post_hashtags",
-       Base.metadata,
-       Column("postId", Integer, ForeignKey("posts.id")),
-       Column("hashtagId", Integer, ForeignKey("hashtags.id")),
-   )
-   ```
+**Many-to-many** relationships (e.g., post ↔ hashtag, media ↔
+hashtag) are persisted in dedicated junction tables. These are
+managed through the `_sync_associations` / `sync_junction()` path
+on the Pydantic models — see
+[architecture.md](architecture.md#junction-table-sync-via-sync_junction)
+for the mechanics.
 
 ### Content Mapping Rules
 
-1. Post to Scene:
+**Post → Scene vs Gallery**: a `Post` maps to a `Scene` when it has
+exactly one attachment and that attachment is a video. Posts with
+multiple attachments, or with non-video attachments, map to a
+`Gallery`. The `Post.stash_id` field stores the Stash side's ID of
+whichever entity type was created.
 
-   ```python
-   class Post(Base):
-       id: Mapped[int]
-       content: Mapped[str | None]      # Becomes Scene.details
-       attachments: Mapped[list[Media]] # Single video -> Scene
-       stash_id: Mapped[int | None]    # Links to Scene
+Concretely, per `Post`:
 
-       def should_be_scene(self) -> bool:
-           """Check if post should be a Scene."""
-           if not self.attachments:
-               return False
-           if len(self.attachments) != 1:
-               return False
-           return self.attachments[0].type == MediaType.VIDEO
-   ```
+| Attachments                        | Maps to   |
+| ---------------------------------- | --------- |
+| exactly one video                  | `Scene`   |
+| one image                          | `Gallery` |
+| multiple media (any combination)   | `Gallery` |
+| no attachments                     | (skipped) |
+
+**Content text → details**: `Post.content` becomes `Scene.details` or
+`Gallery.details`. Hashtags parsed from content map to `Tag`
+references on the Stash side (see Tag System above).
 
 ## Data Flow and Transformations
 
@@ -530,31 +530,7 @@ scene = Scene(
 )
 ```
 
-## Database and File Organization
-
-### Database Relationships
-
-1. Direct References:
-
-   ```python
-   class AccountMedia(Base):
-       accountId: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-       mediaId: Mapped[int] = mapped_column(ForeignKey("media.id"))
-       stash_id: Mapped[int | None]  # Links to Scene/Image
-   ```
-
-2. Many-to-Many:
-
-   ```python
-   post_hashtags = Table(
-       "post_hashtags",
-       Base.metadata,
-       Column("postId", Integer, ForeignKey("posts.id")),
-       Column("hashtagId", Integer, ForeignKey("hashtags.id")),
-   )
-   ```
-
-### File Organization
+## File Organization
 
 1. Media Files:
 
@@ -592,74 +568,6 @@ While not directly mapped, Folder in Stash might be useful for:
 - Metadata consistency checked
 - Relationships validated
 - Missing data handled gracefully
-
-## Error Handling and Sync Management
-
-### Error Types and Handling
-
-1. Sync Errors:
-
-   ```python
-   class StashSyncError(Exception):
-       """Error during Stash synchronization."""
-       pass
-
-   async def sync_to_stash(self) -> None:
-       """Sync local changes to Stash with error handling."""
-       if not self._dirty:
-           return
-       try:
-           await self._sync()
-           self._dirty = False
-       except Exception as e:
-           raise StashSyncError(f"Failed to sync {self}: {e}") from e
-   ```
-
-### Sync Management
-
-1. State Tracking:
-
-   ```python
-   class SyncState:
-       def __init__(self):
-           self.last_sync = None
-           self.pending = set()
-           self.completed = set()
-           self.failed = set()
-
-       def mark_complete(self, task_id: str):
-           self.pending.remove(task_id)
-           self.completed.add(task_id)
-           self.last_sync = datetime.now()
-   ```
-
-### Sync Strategies
-
-1. Immediate Sync:
-
-   ```python
-   async def sync_now(self, obj: Base) -> None:
-       """Immediate sync for critical updates."""
-       await self.queue.put(SyncTask(
-           obj=obj,
-           priority=Priority.HIGH,
-           retry_count=3,
-       ))
-   ```
-
-2. Batch Sync:
-
-   ```python
-   async def batch_sync(self, objs: list[Base]) -> None:
-       """Batch sync for efficiency."""
-       async with self.batch_context() as batch:
-           for obj in objs:
-               batch.add(SyncTask(
-                   obj=obj,
-                   priority=Priority.NORMAL,
-                   retry_count=1,
-               ))
-   ```
 
 ```mermaid
 graph TD

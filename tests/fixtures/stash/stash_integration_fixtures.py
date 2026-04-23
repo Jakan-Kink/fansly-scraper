@@ -291,9 +291,9 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
     config._database = test_database_sync
     config._stash = stash_context
 
-    # Set up respx mock with capability detection for v0.11 initialization
+    # Set up respx mock with capability detection for StashClient initialization
     with respx.mock:
-        # Serve capability detection response for v0.11 initialization
+        # Serve capability detection response for StashClient initialization
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[_mock_capability_response()]
         )

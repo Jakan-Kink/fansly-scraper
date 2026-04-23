@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # CheckKey Extraction with JSPyBridge
 
 ## Overview

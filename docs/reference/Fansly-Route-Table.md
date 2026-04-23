@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly Frontend Route Table
 
 Extracted from `main.js` Angular route configuration.

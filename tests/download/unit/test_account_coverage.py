@@ -21,7 +21,7 @@ from tests.fixtures.api.api_fixtures import dump_fansly_calls
 @pytest.fixture
 def real_config(fansly_api):
     """Real FanslyConfig with real FanslyApi."""
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config._api = fansly_api
     config.token = "a" * 60
     config.user_agent = "a" * 50

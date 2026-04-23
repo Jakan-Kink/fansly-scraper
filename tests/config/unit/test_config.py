@@ -21,7 +21,7 @@ from errors import ConfigError
 
 @pytest.fixture
 def config():
-    return FanslyConfig(program_version="0.11.0")
+    return FanslyConfig(program_version="0.13.0")
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ temp_folder = /custom/temp/path
 
 def test_load_config_download_directory_handling(temp_config_dir):
     # Create fresh config to avoid pollution
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config_path = temp_config_dir / "config.ini"
 
     # Create config with download_directory
@@ -120,7 +120,7 @@ download_directory = /custom/download/path
 
 def test_load_config_default_download_directory(temp_config_dir):
     # Create fresh config to avoid pollution
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     config_path = temp_config_dir / "config.ini"
 
     # Create minimal config without download_directory
@@ -409,7 +409,7 @@ def test_config_path_edge_cases(temp_config_dir):
         schema.dump_yaml(config_yaml_path)
 
         # Load fresh config from the yaml
-        fresh_config = FanslyConfig(program_version="0.11.0")
+        fresh_config = FanslyConfig(program_version="0.13.0")
         load_config(fresh_config)
         assert fresh_config.download_directory == Path(path)
 
@@ -418,7 +418,7 @@ def test_config_error_cases(temp_config_dir):
     config_path = temp_config_dir / "config.ini"
 
     # Test invalid section reference
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     with config_path.open("w") as f:
         f.write(
             """[Options]
@@ -435,7 +435,7 @@ key = value
     load_config(config)  # Should ignore nonexistent section
 
     # Test empty values with fresh config
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     with config_path.open("w") as f:
         f.write(
             """[Options]

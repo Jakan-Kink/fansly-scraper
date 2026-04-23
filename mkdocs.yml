@@ -1,0 +1,56 @@
+site_name: Fansly Downloader NG
+site_description: Content scraping and archival tool for Fansly — with a continuous monitoring daemon, PostgreSQL metadata store, and optional Stash integration.
+site_url: https://jakan-kink.github.io/fansly-scraper/
+site_author: Jakan-Kink
+
+repo_name: Jakan-Kink/fansly-scraper
+repo_url: https://github.com/Jakan-Kink/fansly-scraper
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: readthedocs
+  highlightjs: true
+  hljs_languages: []
+  locale: en
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - tables
+
+nav:
+  - Home: index.md
+  - Changelog: changelog.md
+  - Guide:
+      - Manual Token Extraction: guide/manual-token-extraction.md
+  - Reference:
+      - Architecture: reference/architecture.md
+      - Monitoring Daemon Cadence: reference/monitoring-cadence.md
+      - Fansly API Analysis: reference/Fansly-API-analysis.md
+      - Fansly Route Table: reference/Fansly-Route-Table.md
+      - Fansly WebSocket Protocol: reference/Fansly-WebSocket-Protocol.md
+      - Fansly-to-Stash Mapping: reference/Fansly-Stash-mapping.md
+      - Performer Mapping: reference/Fansly-Stash-performer-mapping.md
+      - Stash Field Transformations: reference/Fansly-Stash-field-transformations.md
+      - CheckKey Extraction: reference/CHECKKEY_JSPYBRIDGE.md
+  - Planning:
+      - Monitoring Daemon Architecture: planning/monitoring-daemon-architecture.md
+      - Stash ORM Migration Guide: planning/STASH_ORM_MIGRATION_GUIDE.md
+  - Testing:
+      - Testing Requirements: testing/TESTING_REQUIREMENTS.md
+      - API Testing Requirements: testing/API_TESTING_REQUIREMENTS.md
+      - API/Download Test Migration: testing/API_DOWNLOAD_TEST_MIGRATION_TODO.md
+      - Stash Test Refactor: testing/STASH_TEST_MIGRATION_TODO.md
+      - v0.10 Mock Patterns (archive): testing/V0_10_MOCK_PATTERNS.md
+      - Snyk Violations (derived): testing/snyk-violations-from-contributers.md
+  - Archive:
+      - Hard-Cut PostgreSQL Implementation Plan: archive/hardCut-PostgreSQL-Implementation-Plan.md

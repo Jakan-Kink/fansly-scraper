@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly to Stash Performer Mapping
 
 ## Single Account → Single Performer
@@ -94,52 +98,51 @@ secondary = Performer(
 
 ## Example: Three-Performer Account
 
-Based on a real example of a shared BDSM content account:
+Illustrative example of a shared-account pattern (two partners plus a
+supporting performer, all posting under one Fansly handle). Names and
+handles below are placeholders — substitute the actual account's values
+when processing real data.
 
 ### Primary Content Creator
 
 ```python
 performer_1 = Performer(
     id="new",
-    name="Lou",  # Personal/stage name
-    disambiguation="doe-eyes-official",  # Shared account name
+    name="Alex",  # Personal/stage name
+    disambiguation="example-couple",  # Shared account name
     aliases=[
-        "Doe Eyes",
-        "bratty_lou",
-        "doe-eyes",
-        "doe-eyes-official",
-        "doeeyes",
+        "Example Couple",
+        "alex_example",
+        "example-couple",
+        "example_couple",
     ],
     urls=[
-        "https://onlyfans.com/doe-eyes-official",
-        "https://linktr.ee/bratty_lou",
-        "https://x.com/doe_eyes_bdsm",
-        "https://fansly.com/doe-eyes",
-        "https://www.manyvids.com/Profile/1006718685/doe-eyes/Store/Videos",
-        "https://4based.com/profile/doe-eyes",
+        "https://onlyfans.com/example-couple",
+        "https://linktr.ee/alex_example",
+        "https://x.com/alex_example",
+        "https://fansly.com/example-couple",
+        "https://www.manyvids.com/Profile/0000000000/example-couple/Store/Videos",
     ],
     gender="FEMALE",
     hair_color="Brown",
 )
 ```
 
-### Dom/Master Performer
+### Partner Performer
 
 ```python
 performer_2 = Performer(
     id="new",
-    name="Owner",  # Role-based name
-    disambiguation="doe-eyes-official",  # Same as primary
-    aliases=["doe-eyes-official"],
-    urls=["https://onlyfans.com/doe-eyes-official"],
+    name="Jordan",  # Personal/stage name
+    disambiguation="example-couple",  # Same as primary
+    aliases=["example-couple"],
+    urls=["https://onlyfans.com/example-couple"],
     gender="MALE",
     details=(
-        "• Real Amateur BDSM ❤️\n"
-        "• Peeking into our kinky lifestyle as a Master slave couple 👀\n"
-        "• 🔗Hardcore b/g 🖤Latex 🍑 Training\n"
-        "• Written stories of our adventures combined with pictures and videos 🔥\n"
-        "• An active community 💬\n"
-        "• Regular streams which we record and post"
+        "Partner in a shared creator account. Per-performer details can\n"
+        "describe role, pronouns, content niche, or anything else that\n"
+        "disambiguates this person from the other performers mapped to the\n"
+        "same underlying Fansly account."
     ),
 )
 ```
@@ -149,10 +152,10 @@ performer_2 = Performer(
 ```python
 performer_3 = Performer(
     id="new",
-    name="Sugar",  # Personal/stage name
-    disambiguation="doe-eyes-official",  # Same as others
-    aliases=["doe-eyes-official"],
-    urls=["https://onlyfans.com/doe-eyes-official"],
+    name="Sam",  # Personal/stage name
+    disambiguation="example-couple",  # Same as others
+    aliases=["example-couple"],
+    urls=["https://onlyfans.com/example-couple"],
     gender="FEMALE",
     hair_color="Blond",
 )

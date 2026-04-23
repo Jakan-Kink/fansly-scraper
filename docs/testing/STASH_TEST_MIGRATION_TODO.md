@@ -1,3 +1,7 @@
+---
+status: planning
+---
+
 # Stash Test Refactor Guide
 
 **Goal**: Migrate all Stash tests to mock only at external boundaries (HTTP/GraphQL), not internal methods.

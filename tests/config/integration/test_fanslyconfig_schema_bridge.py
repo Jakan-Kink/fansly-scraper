@@ -43,7 +43,7 @@ def config_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def fresh_config() -> FanslyConfig:
     """A fresh FanslyConfig with no state."""
-    return FanslyConfig(program_version="0.11.0")
+    return FanslyConfig(program_version="0.13.0")
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ def test_round_trip_save_and_reload(
     fresh_config._save_config()
 
     # Reload into a completely fresh config
-    second_config = FanslyConfig(program_version="0.11.0")
+    second_config = FanslyConfig(program_version="0.13.0")
     load_config(second_config)
 
     assert second_config.user_names == {"alice", "bob"}

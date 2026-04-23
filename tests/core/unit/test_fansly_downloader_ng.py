@@ -166,7 +166,7 @@ def mock_args():
 def mock_config():
     """Fixture to create a mocked FanslyConfig."""
     config = MagicMock(spec=FanslyConfig)
-    config.program_version = "0.11.0"
+    config.program_version = "0.13.0"
     config.config_path = Path("config.ini")
     config.user_names = {"test_user"}
     config.download_mode = DownloadMode.NORMAL

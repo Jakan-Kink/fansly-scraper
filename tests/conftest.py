@@ -365,7 +365,7 @@ def mock_config():
     Note: Sets pg_database to a non-existent name to prevent accidental connections
     to the production database.
     """
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
     return config
@@ -374,7 +374,7 @@ def mock_config():
 @pytest.fixture
 def test_config():
     """Alias for mock_config fixture for backwards compatibility."""
-    config = FanslyConfig(program_version="0.11.0")
+    config = FanslyConfig(program_version="0.13.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
     return config

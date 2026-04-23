@@ -1,6 +1,6 @@
 [project]
 name = "fansly-scraper"
-version = "0.11.0"
+version = "0.13.0"
 description = "Easy-to-use fansly.com content scraping tool. Enjoy your Fansly content offline anytime, anywhere in the highest possible content resolution! Fully customizable to download in bulk or single: photos, videos & audio from the timeline, messages, collection & single posts."
 authors = [
     {name ="prof79"},
@@ -51,7 +51,7 @@ httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
-stash-graphql-client = ">=0.11.0"
+stash-graphql-client = ">=0.12.0"
 av = "^17.0.0"
 ruamel-yaml = "^0.19.1"
 
@@ -73,6 +73,8 @@ pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
+mkdocs = "^1.6.1"
+pymdown-extensions = "^10.21.2"
 
 [tool.poetry.group.typing]
 optional = true

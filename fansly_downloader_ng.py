@@ -2,7 +2,7 @@
 
 """Fansly Downloader NG"""
 
-__version__ = "0.11.0"
+__version__ = "0.13.0"
 
 import asyncio
 import atexit
@@ -89,9 +89,9 @@ from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 def _check_stash_library_version() -> None:
     stash_version = pkg_version("stash-graphql-client")
     major, minor = (int(x) for x in stash_version.split(".")[:2])
-    if (major, minor) < (0, 11):
+    if (major, minor) < (0, 12):
         raise RuntimeError(
-            f"stash-graphql-client {stash_version} is installed but >=0.11.0 is required. "
+            f"stash-graphql-client {stash_version} is installed but >=0.12.0 is required. "
             f"Run: pip install --upgrade stash-graphql-client"
         )
 

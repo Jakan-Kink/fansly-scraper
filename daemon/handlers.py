@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from config.logging import textio_logger as logger
+from config.logging import websocket_logger as ws_logger
 
 
 # ---------------------------------------------------------------------------
@@ -44,10 +45,13 @@ class DownloadMessagesForGroup(WorkItem):
     """Trigger a message-attachment download for the specified DM group.
 
     Produced by svc=5 type=1 (new message) when the message payload includes
-    at least one attachment entry.
+    at least one attachment entry. ``sender_id`` carries the originating
+    ``senderId`` from the WS payload so the runner can populate creator
+    identity without a secondary group-users walk.
     """
 
     group_id: int
+    sender_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +187,8 @@ def _handle_new_message(event: dict[str, Any]) -> WorkItem | None:
         )
         return None
 
-    return DownloadMessagesForGroup(group_id=group_id)
+    sender_id = _safe_int(message.get("senderId"))
+    return DownloadMessagesForGroup(group_id=group_id, sender_id=sender_id)
 
 
 def _handle_subscription_event(event: dict[str, Any]) -> WorkItem | None:
@@ -320,12 +325,52 @@ def _handle_wallet_event(_event: dict[str, Any]) -> WorkItem | None:
     return None
 
 
+def _handle_noop_events(
+    event: dict[str, Any],
+    service_id: int,
+    event_type: int,
+    description: str,
+) -> WorkItem | None:
+    """Acknowledge-and-log a known, intentionally non-actionable WS event.
+
+    Used for events that have been observed, documented, and are deliberately
+    ignored by *this* consumer (the monitoring daemon). Other consumers of
+    ``FanslyWebSocket`` (creator tools, analytics, etc.) may still care
+    about the same events — which is why the filter lives here in the
+    daemon's dispatch rather than being pushed up into the WS client layer.
+
+    Logs at DEBUG with a human-readable label
+    (``"known event (4, 2) -- message read-receipt acknowledgement"``) so
+    operators tailing the log see the daemon recognising the event, then
+    dumps the raw payload at TRACE for protocol archaeology. Always
+    returns ``None`` — the runner treats it as a standard "handled, no
+    work" path.
+
+    Not listed directly in ``_DISPATCH``; the dispatcher looks up each
+    event in ``_NOOP_DESCRIPTIONS`` first and routes through this
+    function with the description bound in.
+    """
+    ws_logger.debug(
+        "daemon.handlers: known event ({}, {}) -- {}",
+        service_id,
+        event_type,
+        description,
+    )
+    ws_logger.trace(
+        "daemon.handlers: event ({}, {}) - {}",
+        service_id,
+        event_type,
+        event,
+    )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
-# Maps (service_id, event_type) → handler callable.
-# Handlers receive the decoded event dict and return WorkItem | None.
+# Maps (service_id, event_type) → handler callable for events the daemon
+# translates into a WorkItem (or filters inline by returning None).
 _DISPATCH: dict[tuple[int, int], Any] = {
     (5, 1): _handle_new_message,
     (5, 10): _handle_message_deleted,
@@ -337,6 +382,39 @@ _DISPATCH: dict[tuple[int, int], Any] = {
     (12, 2): _handle_account_profile_updated,
     (32, 7): _handle_ppv_purchase,
 }
+
+
+# Known-but-unhandled service events — observed in the WS stream and
+# confirmed non-actionable for *this daemon's* purpose. The dispatcher
+# routes these through ``_handle_noop_events`` with the description
+# passed in, so the log line names the event concretely.
+#
+# Scoped to the daemon's dispatch, not the WS client, because other
+# consumers of ``FanslyWebSocket`` (e.g., creator-facing tools or
+# engagement analytics) may legitimately care about the same events —
+# the WS layer stays a faithful protocol relay.
+#
+# Add entries only after confirming (via TRACE logs or a source dig)
+# that the event genuinely has no downloader-relevant side effect.
+_NOOP_DESCRIPTIONS: dict[tuple[int, int], str] = {
+    (4, 1): "message delivered / sent acknowledgement",
+    (4, 2): "message read-receipt acknowledgement",
+}
+
+
+def has_handler(service_id: int, event_type: int) -> bool:
+    """Report whether ``(svc, type)`` is known to the daemon dispatcher.
+
+    Returns ``True`` for both active/filter handlers (``_DISPATCH`` members)
+    and declared no-op entries (``_NOOP_DESCRIPTIONS`` members). Exposed
+    so the daemon runner can distinguish "handler ran and returned None"
+    (expected) from "no handler registered at all" (a coverage gap worth
+    logging more visibly).
+    """
+    return (service_id, event_type) in _DISPATCH or (
+        service_id,
+        event_type,
+    ) in _NOOP_DESCRIPTIONS
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +441,9 @@ def dispatch_ws_event(
         A WorkItem subclass instance describing the required action, or None
         when the event is informational, irrelevant, or malformed.
     """
+    description = _NOOP_DESCRIPTIONS.get((service_id, event_type))
+    if description is not None:
+        return _handle_noop_events(event, service_id, event_type, description)
     handler = _DISPATCH.get((service_id, event_type))
     if handler is None:
         return None

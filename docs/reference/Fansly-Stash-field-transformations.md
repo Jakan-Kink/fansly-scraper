@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly to Stash Field Transformations
 
 ## Direct Mappings

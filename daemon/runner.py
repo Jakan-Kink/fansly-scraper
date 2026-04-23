@@ -62,6 +62,7 @@ from daemon.handlers import (
     RedownloadCreatorMedia,
     WorkItem,
     dispatch_ws_event,
+    has_handler,
 )
 from daemon.polling import poll_home_timeline, poll_story_states
 from daemon.simulator import ActivitySimulator
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
 from download.core import (
     DownloadState,
     download_messages,
+    download_messages_for_group,
     download_stories,
     download_timeline,
     download_wall,
@@ -208,17 +210,35 @@ async def _handle_messages_item(
 ) -> None:
     """Execute a DownloadMessagesForGroup work item.
 
+    Resolves creator identity from the originating ``senderId`` (when the
+    WS payload supplied one) so ``download_messages_for_group`` has a
+    populated state. When ``sender_id`` is absent, the called function
+    falls back to inferring creator_id from the group's users list.
+
     Args:
         config: FanslyConfig instance.
         item: Work item specifying which DM group to download.
     """
-    logger.info("daemon.runner: downloading messages for group {}", item.group_id)
-    state = DownloadState()
+    logger.info(
+        "daemon.runner: downloading messages for group {} (sender={})",
+        item.group_id,
+        item.sender_id,
+    )
+
+    creator_name: str | None = None
+    if item.sender_id is not None:
+        creator_name = await _resolve_creator_name(item.sender_id)
+
+    state = DownloadState(
+        creator_id=item.sender_id,
+        creator_name=creator_name,
+    )
+
     try:
-        await download_messages(config, state)
+        await download_messages_for_group(config, state, item.group_id)
     except Exception as exc:
         logger.opt(exception=exc).error(
-            "daemon.runner: download_messages failed for group {} - {}",
+            "daemon.runner: download_messages_for_group failed for group {} - {}",
             item.group_id,
             exc,
         )
@@ -966,11 +986,18 @@ def _make_ws_handler(
 
         item = dispatch_ws_event(service_id, event_type, inner)
         if item is None:
-            ws_logger.debug(
-                "daemon.runner: WS event not mapped to work item (svc={} type={})",
-                service_id,
-                event_type,
-            )
+            if not has_handler(service_id, event_type):
+                ws_logger.debug(
+                    "daemon.runner: WS event unknown / unhandled "
+                    "(svc={} type={}) — consider adding to _DISPATCH or "
+                    "_NOOP_DESCRIPTIONS in daemon/handlers.py",
+                    service_id,
+                    event_type,
+                )
+            # Handled events that return None (filtered by their handler
+            # OR an explicit no-op routed via _NOOP_DESCRIPTIONS) have
+            # already produced their own log line at the appropriate
+            # level. No runner-side log needed here.
             return
         ws_logger.info(
             "daemon.runner: WS event → {} (svc={} type={})",

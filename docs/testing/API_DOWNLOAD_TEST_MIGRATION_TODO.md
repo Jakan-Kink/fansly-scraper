@@ -1,3 +1,7 @@
+---
+status: planning
+---
+
 # API and Download Test Migration Guide
 
 **Goal**: Migrate all API and download tests to mock only at external boundaries (HTTP via RESPX), not internal methods.

@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Fansly Downloader - API Testing Requirements
 
 **Goal**: Ensure comprehensive test coverage with mocking only at external boundaries (HTTP via RESPX).
