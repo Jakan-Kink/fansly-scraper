@@ -185,6 +185,76 @@ async def test_media_location(entity_store):
 
 
 @pytest.mark.asyncio
+async def test_media_validate_accepts_null_location_in_locations_entry(entity_store):
+    """Regression for issue #78 using the reporter's exact payload.
+
+    Fansly returns ``locations=[{"location": None, "locationId": 1}]`` for
+    some media (Direct slots with no CDN path yet). Before the fix
+    ``Media.model_validate`` raised ``ValidationError: 8 validation errors``
+    because ``MediaLocation.location`` was typed as required ``str``.
+
+    ``entity_store`` is required so that ``_process_nested_cache_lookups``
+    injects ``mediaId`` from the parent Media's ``id`` into each locations
+    entry — that mirrors the real ``process_media_info`` call site.
+    """
+    account_id = 358160426321584128
+    account = Account(id=account_id, username="worthlessholes")
+    await entity_store.save(account)
+
+    payload = {
+        "accountId": account_id,
+        "flags": 0,
+        "height": 1440,
+        "id": 388733720573517825,
+        "location": "",
+        "locations": [{"location": None, "locationId": 1}],
+        "metadata": '{"duration":14.266667}',
+        "mimetype": "video/mp4",
+        "status": 1,
+        "type": 2,
+        "updatedAt": 1654177272,
+        "width": 2560,
+    }
+
+    media = Media.model_validate(payload)
+
+    assert media.id == 388733720573517825
+    assert len(media.locations) == 1
+    assert media.locations[0].locationId == 1
+    assert media.locations[0].location is None
+    assert media.locations[0].mediaId == 388733720573517825
+
+
+@pytest.mark.asyncio
+async def test_media_location_null_roundtrips_through_store(entity_store):
+    """A MediaLocation with ``location=None`` saves and reloads cleanly.
+
+    Exercises the ``media_locations.location`` NOT NULL → NULL migration.
+    """
+    store = entity_store
+
+    account_id = snowflake_id()
+    media_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user_null_loc")
+    await store.save(account)
+
+    media = Media(id=media_id, accountId=account_id, mimetype="video/mp4")
+    await store.save(media)
+
+    media.locations = [
+        MediaLocation(mediaId=media_id, locationId=1, location=None),
+    ]
+    await store.save(media)
+
+    reloaded = await store.get(Media, media_id)
+    assert reloaded is not None
+    assert len(reloaded.locations) == 1
+    assert reloaded.locations[0].locationId == 1
+    assert reloaded.locations[0].location is None
+
+
+@pytest.mark.asyncio
 async def test_invalid_metadata(entity_store, config):
     """Test handling invalid metadata JSON.
 

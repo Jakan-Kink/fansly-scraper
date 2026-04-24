@@ -1087,13 +1087,17 @@ class MediaLocation(FanslyRecord):
 
     `location` stores the normalized URL (no query params) for DB dedup/matching.
     `raw_url` preserves the original CDN URL with auth params for downloading.
+
+    Fansly sometimes returns `location=None` for entries that only declare a
+    `locationId` (e.g. Direct slots with no CDN path yet). We accept it and
+    persist NULL rather than rejecting the whole Media payload.
     """
 
     __table_name__: ClassVar[str] = "media_locations"
 
     mediaId: SnowflakeId
     locationId: int  # CDN location type code (1, 102, 103), not a Snowflake
-    location: str
+    location: str | None = None
     raw_url: str | None = None  # Transient — not in DB table, preserved for download
     metadata: dict | None = (
         None  # Transient — m3u8 auth params (Policy, Key-Pair-Id, Signature)
