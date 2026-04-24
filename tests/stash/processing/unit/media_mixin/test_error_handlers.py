@@ -291,7 +291,7 @@ class TestIndexBasedLookup:
         video = VideoFileFactory(
             path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_999.mp4"
         )
-        scene = SceneFactory(id="s100", files=[video])
+        scene = SceneFactory(id="55002", files=[video])
 
         # Populate the scene code index
         respx_stash_processor._scene_code_index["999"].append(scene)
@@ -301,7 +301,7 @@ class TestIndexBasedLookup:
         )
 
         assert len(result) == 1
-        assert result[0][0].id == "s100"
+        assert result[0][0].id == "55002"
 
     @pytest.mark.asyncio
     async def test_find_by_path_uses_image_index(self, respx_stash_processor):
@@ -309,7 +309,7 @@ class TestIndexBasedLookup:
         img_file = ImageFileFactory(
             path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_888.jpg"
         )
-        image = ImageFactory(id="i200", visual_files=[img_file])
+        image = ImageFactory(id="45005", visual_files=[img_file])
 
         respx_stash_processor._image_code_index["888"].append(image)
 
@@ -318,7 +318,7 @@ class TestIndexBasedLookup:
         )
 
         assert len(result) == 1
-        assert result[0][0].id == "i200"
+        assert result[0][0].id == "45005"
 
     @pytest.mark.asyncio
     async def test_find_by_path_index_returns_early(self, respx_stash_processor):
@@ -326,7 +326,7 @@ class TestIndexBasedLookup:
         video = VideoFileFactory(
             path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_777.mp4"
         )
-        scene = SceneFactory(id="s300", files=[video])
+        scene = SceneFactory(id="55003", files=[video])
 
         respx_stash_processor._scene_code_index["777"].append(scene)
 
@@ -346,7 +346,7 @@ class TestHasMatchingFile:
         img_file = ImageFileFactory(
             path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_555.jpg"
         )
-        image = ImageFactory(id="img1", visual_files=[img_file])
+        image = ImageFactory(id="45003", visual_files=[img_file])
 
         pattern = re.compile(r"555")
         assert respx_stash_processor._match_files_by_regex(image, pattern) is True
@@ -354,7 +354,7 @@ class TestHasMatchingFile:
     def test_match_files_by_regex_image_no_match(self, respx_stash_processor):
         """Image with non-matching path returns False."""
         img_file = ImageFileFactory(path="/downloads/creator/other_file.jpg")
-        image = ImageFactory(id="img2", visual_files=[img_file])
+        image = ImageFactory(id="45004", visual_files=[img_file])
 
         pattern = re.compile(r"555")
         assert respx_stash_processor._match_files_by_regex(image, pattern) is False

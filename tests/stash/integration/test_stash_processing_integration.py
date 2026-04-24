@@ -35,12 +35,12 @@ async def test_full_creator_processing_flow(
 
     # Use real Stash types from factories
     performer = PerformerFactory(
-        id="performer_123",
+        id="5130",
         name="test_user",
     )
 
     studio = StudioFactory(
-        id="studio_123",
+        id="10230",
         name="Test Studio",
     )
 
@@ -106,7 +106,7 @@ async def test_process_creator_to_background(
     fansly_result = create_find_studios_result(count=1, studios=[fansly_studio_dict])
 
     creator_studio_dict = create_studio_dict(
-        id="studio_123",
+        id="10231",
         name="test_user (Fansly)",
         urls=["https://fansly.com/test_user"],
     )
@@ -129,7 +129,7 @@ async def test_process_creator_to_background(
     # Use real processor with real database session
     async with real_stash_processor.database.async_session_scope() as session:
         # Create performer for the test
-        performer = PerformerFactory(id="performer_123", name="test_user")
+        performer = PerformerFactory(id="5131", name="test_user")
 
         # Call the real method - no internal mocking
         await real_stash_processor.continue_stash_processing(
@@ -140,7 +140,7 @@ async def test_process_creator_to_background(
 
     # Verify behavior by checking database state
     factory_async_session.refresh(account)
-    assert account.stash_id == "performer_123"
+    assert account.stash_id == "5131"
 
 
 @pytest.mark.asyncio
@@ -153,7 +153,7 @@ async def test_safe_background_processing_integration(real_stash_processor):
         username="test_user",
     )
     performer = PerformerFactory(
-        id="performer_123",
+        id="5132",
         name="test_user",
     )
 

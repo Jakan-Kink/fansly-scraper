@@ -360,7 +360,7 @@ class TestGalleryLookup:
                                     date="2024-04-01",
                                     studio={
                                         "__typename": "Studio",
-                                        "id": "different_studio",
+                                        "id": "9001",
                                         "name": "Wrong Studio",
                                     },
                                 )
@@ -383,7 +383,7 @@ class TestGalleryLookup:
                                     date="2024-04-01",
                                     studio={
                                         "__typename": "Studio",
-                                        "id": "different_studio",
+                                        "id": "9001",
                                         "name": "Wrong Studio",
                                     },
                                 )
@@ -434,7 +434,7 @@ class TestGalleryLookup:
                                     date="2024-04-01",
                                     studio={
                                         "__typename": "Studio",
-                                        "id": "any_studio",
+                                        "id": "9002",
                                         "name": "Any Studio",
                                     },
                                 )
@@ -457,7 +457,7 @@ class TestGalleryLookup:
                                     date="2024-04-01",
                                     studio={
                                         "__typename": "Studio",
-                                        "id": "any_studio",
+                                        "id": "9002",
                                         "name": "Any Studio",
                                     },
                                 )

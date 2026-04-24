@@ -178,7 +178,7 @@ class TestGalleryLookupMethods:
         )
 
         # Create real studio
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        studio = StudioFactory.build(id="10401", name="Test Studio")
 
         # Set up respx - no galleries found
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -223,7 +223,7 @@ class TestGalleryLookupMethods:
         )
 
         # Create real studio
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        studio = StudioFactory.build(id="10401", name="Test Studio")
 
         # Set up respx - gallery found (store.find() makes 2 queries)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -241,7 +241,7 @@ class TestGalleryLookupMethods:
                                         "code": str(post_id),
                                         "date": "2024-04-01",
                                         "studio": {
-                                            "id": "studio_123",
+                                            "id": "10401",
                                             "name": "Test Studio",
                                         },
                                     }
@@ -264,7 +264,7 @@ class TestGalleryLookupMethods:
                                         "code": str(post_id),
                                         "date": "2024-04-01",
                                         "studio": {
-                                            "id": "studio_123",
+                                            "id": "10401",
                                             "name": "Test Studio",
                                         },
                                     }
@@ -633,7 +633,7 @@ class TestHashtagProcessing:
                     json={
                         "data": {
                             "findTags": {
-                                "tags": [{"id": "tag_1", "name": "test1"}],
+                                "tags": [{"id": "100", "name": "test1"}],
                                 "count": 1,
                             }
                         }
@@ -645,7 +645,7 @@ class TestHashtagProcessing:
                     json={
                         "data": {
                             "findTags": {
-                                "tags": [{"id": "tag_2", "name": "test2"}],
+                                "tags": [{"id": "101", "name": "test2"}],
                                 "count": 1,
                             }
                         }

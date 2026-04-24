@@ -111,6 +111,14 @@ async def test_process_creator_posts_with_batch_processing(
                     "findGalleries", create_find_galleries_result(count=0, galleries=[])
                 ),
             ),
+            # findGalleries - populate() filter-query for performers relationship
+            # (SGC v0.12 resolves filter_query strategy before the main mutation)
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findGalleries", create_find_galleries_result(count=0, galleries=[])
+                ),
+            ),
             # galleryCreate - create new gallery
             httpx.Response(
                 200,
@@ -143,7 +151,7 @@ async def test_process_creator_posts_with_batch_processing(
 
     # Verify GraphQL calls were made in expected sequence
     calls = graphql_route.calls
-    assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
+    assert len(calls) == 5, f"Expected 5 GraphQL calls, got {len(calls)}"
 
     # Call 0: findGalleries (by code)
     req0 = json.loads(calls[0].request.content)
@@ -166,13 +174,19 @@ async def test_process_creator_posts_with_batch_processing(
     )
     assert calls[2].response.json()["data"]["findGalleries"]["count"] == 0
 
-    # Call 3: galleryCreate (create new gallery)
+    # Call 3: findGalleries (populate() filter-query for performers relationship)
+    # This is the new call inserted by SGC v0.12; it inlines variables into the query
     req3 = json.loads(calls[3].request.content)
-    assert "galleryCreate" in req3["query"]
-    assert req3["variables"]["input"]["code"] == str(post_id)
-    assert req3["variables"]["input"]["studio_id"] == "999"
-    assert req3["variables"]["input"]["performer_ids"] == ["500"]
-    assert calls[3].response.json()["data"]["galleryCreate"]["id"] == "700"
+    assert "findGalleries" in req3["query"]
+    assert "performers" in req3["query"]
+
+    # Call 4: galleryCreate (create new gallery)
+    req4 = json.loads(calls[4].request.content)
+    assert "galleryCreate" in req4["query"]
+    assert req4["variables"]["input"]["code"] == str(post_id)
+    assert req4["variables"]["input"]["studio_id"] == "999"
+    assert req4["variables"]["input"]["performer_ids"] == ["500"]
+    assert calls[4].response.json()["data"]["galleryCreate"]["id"] == "700"
 
 
 @pytest.mark.asyncio

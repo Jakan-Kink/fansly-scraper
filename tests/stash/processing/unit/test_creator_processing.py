@@ -63,7 +63,7 @@ class TestCreatorProcessing:
 
         # Create performer dict for GraphQL response
         performer_dict = create_performer_dict(
-            id="performer_123",
+            id="5700",
             name="Test User",
         )
 
@@ -168,7 +168,7 @@ class TestCreatorProcessing:
 
         # Create performer dict for GraphQL response
         performer_dict = create_performer_dict(
-            id="new_performer_123",
+            id="5701",
             name="New User",
         )
 
@@ -249,7 +249,7 @@ class TestCreatorProcessing:
 
         # Studio fix pattern: Add Fansly parent studio
         fansly_dict = create_studio_dict(
-            id="fansly_123",
+            id="10400",
             name="Fansly (network)",
             urls=["https://fansly.com"],
         )
@@ -260,7 +260,7 @@ class TestCreatorProcessing:
 
         # Creator studio after creation
         creator_dict = create_studio_dict(
-            id="studio_123",
+            id="10401",
             name="test_user (Fansly)",
             parent_studio=fansly_dict,
         )
@@ -421,7 +421,7 @@ class TestCreatorProcessing:
             "addTime": datetime.now(UTC).isoformat(),
         }
         performer_dict = create_performer_dict(
-            id="performer_123",
+            id="5700",
             name="Test User",
         )
 

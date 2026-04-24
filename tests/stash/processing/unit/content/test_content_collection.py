@@ -26,6 +26,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -285,8 +286,8 @@ class TestProcessItemsWithGallery:
         await entity_store.save(account)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5100", name="test_user")
+        studio = StudioFactory.build(id="10200", name="Test Studio")
 
         # Set up respx - expect NO calls with empty items
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -334,8 +335,8 @@ class TestProcessItemsWithGallery:
         await entity_store.save(post)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5101", name="test_user")
+        studio = StudioFactory.build(id="10201", name="Test Studio")
 
         # Set up respx - expect NO calls for items without attachments
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -408,8 +409,8 @@ class TestProcessItemsWithGallery:
         await post2._add_to_relationship("attachments", att2)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5102", name="test_user")
+        studio = StudioFactory.build(id="10202", name="Test Studio")
 
         # Set up respx with multiple responses for gallery lookups/creates
         generic_response = httpx.Response(
@@ -417,7 +418,7 @@ class TestProcessItemsWithGallery:
             json={
                 "data": {
                     "findGalleries": {"galleries": [], "count": 0},
-                    "galleryCreate": {"id": "new_gallery"},
+                    "galleryCreate": {"id": "20000"},
                 }
             },
         )
@@ -427,14 +428,17 @@ class TestProcessItemsWithGallery:
         )
 
         # Call method (no session= parameter)
-        await respx_stash_processor._process_items_with_gallery(
-            account=account,
-            performer=performer,
-            studio=studio,
-            item_type="post",
-            items=[post1, post2],
-            url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-        )
+        try:
+            await respx_stash_processor._process_items_with_gallery(
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                items=[post1, post2],
+                url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_multiple_items")
 
         # Verify GraphQL calls were made (at least one per item with attachments)
         assert len(graphql_route.calls) > 0
@@ -443,11 +447,12 @@ class TestProcessItemsWithGallery:
         for call in graphql_route.calls:
             req = json.loads(call.request.content)
             assert "query" in req
-            assert "variables" in req
+            # populate()'s filter-query inlines values and omits variables
+            variables = req.get("variables", {})
 
             # If this is a galleryCreate call, verify the input data
             if "galleryCreate" in req["query"]:
-                input_data = req["variables"].get("input", {})
+                input_data = variables.get("input", {})
                 # Gallery should have title from post content
                 assert "title" in input_data
                 # Gallery should have code matching post ID
@@ -482,8 +487,8 @@ class TestProcessCreatorContent:
         await entity_store.save(account)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5103", name="test_user")
+        studio = StudioFactory.build(id="10203", name="Test Studio")
 
         # Set up respx - expect NO calls for account without posts
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -518,8 +523,8 @@ class TestProcessCreatorContent:
         await entity_store.save(account)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5104", name="test_user")
+        studio = StudioFactory.build(id="10204", name="Test Studio")
 
         # Set up respx - expect NO calls for account without messages
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -571,8 +576,8 @@ class TestProcessCreatorContent:
         await entity_store.save(post)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5105", name="test_user")
+        studio = StudioFactory.build(id="10205", name="Test Studio")
 
         # Mock _process_items_with_gallery to raise an exception
         with patch.object(
@@ -633,8 +638,8 @@ class TestProcessCreatorContent:
         await entity_store.save(message)
 
         # Create real performer and studio
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5106", name="test_user")
+        studio = StudioFactory.build(id="10206", name="Test Studio")
 
         # Mock _process_items_with_gallery to raise an exception
         with patch.object(

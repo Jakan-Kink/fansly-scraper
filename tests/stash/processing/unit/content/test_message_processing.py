@@ -22,6 +22,7 @@ from tests.fixtures import (
     StudioFactory,
 )
 from tests.fixtures.metadata.metadata_factories import GroupFactory
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -80,8 +81,8 @@ class TestMessageProcessing:
         account = await store.get(Account, acct_id)
 
         # Create real Performer and Studio using factories
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="5120", name="test_user")
+        studio = StudioFactory.build(id="10220", name="Test Studio")
 
         # Set up respx to capture all GraphQL calls with generic success responses
         # Use side_effect with list that returns same response - catches if call count changes
@@ -91,7 +92,7 @@ class TestMessageProcessing:
                 "data": {
                     # Generic empty responses - we're testing request capture
                     "findGalleries": {"galleries": [], "count": 0},
-                    "galleryCreate": {"id": "new_gallery_1"},
+                    "galleryCreate": {"id": "20010"},
                     "findScenes": {"scenes": [], "count": 0},
                     "findImages": {"images": [], "count": 0},
                 }
@@ -103,11 +104,14 @@ class TestMessageProcessing:
         )
 
         # Call method - let it execute fully to HTTP boundary
-        await respx_stash_processor.process_creator_messages(
-            account=account,
-            performer=performer,
-            studio=studio,
-        )
+        try:
+            await respx_stash_processor.process_creator_messages(
+                account=account,
+                performer=performer,
+                studio=studio,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_creator_messages")
 
         # Verify GraphQL calls were made
         assert len(graphql_route.calls) > 0, "Expected GraphQL calls to be made"
@@ -116,8 +120,7 @@ class TestMessageProcessing:
         for call in graphql_route.calls:
             req = json.loads(call.request.content)
             assert "query" in req or "mutation" in req.get("query", "")
-            # Each call should have variables
-            assert "variables" in req
+            # populate()'s filter-query inlines values and omits variables
 
     @pytest.mark.asyncio
     async def test_process_creator_messages_empty(
@@ -145,8 +148,8 @@ class TestMessageProcessing:
         # Refresh account from store
         account = await store.get(Account, acct_id)
 
-        performer = PerformerFactory.build(id="performer_124", name="test_user_2")
-        studio = StudioFactory.build(id="studio_124", name="Test Studio 2")
+        performer = PerformerFactory.build(id="5121", name="test_user_2")
+        studio = StudioFactory.build(id="10221", name="Test Studio 2")
 
         # Set up respx - expect NO calls for empty messages
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -214,8 +217,8 @@ class TestMessageProcessing:
         # Refresh account from store
         account = await store.get(Account, acct_id)
 
-        performer = PerformerFactory.build(id="performer_125", name="test_user_3")
-        studio = StudioFactory.build(id="studio_125", name="Test Studio 3")
+        performer = PerformerFactory.build(id="5122", name="test_user_3")
+        studio = StudioFactory.build(id="10222", name="Test Studio 3")
 
         # Set up respx with generic responses
         generic_response = httpx.Response(
@@ -223,7 +226,7 @@ class TestMessageProcessing:
             json={
                 "data": {
                     "findGalleries": {"galleries": [], "count": 0},
-                    "galleryCreate": {"id": "gallery_600"},
+                    "galleryCreate": {"id": "20011"},
                 }
             },
         )
@@ -279,8 +282,8 @@ class TestMessageProcessing:
         # Refresh account from store
         account = await store.get(Account, acct_id)
 
-        performer = PerformerFactory.build(id="performer_126", name="test_user_4")
-        studio = StudioFactory.build(id="studio_126", name="Test Studio 4")
+        performer = PerformerFactory.build(id="5123", name="test_user_4")
+        studio = StudioFactory.build(id="10223", name="Test Studio 4")
 
         # Set up respx - expect NO calls for messages without attachments
         graphql_route = respx.post("http://localhost:9999/graphql").mock(

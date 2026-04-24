@@ -81,18 +81,18 @@ async def test_process_hls_variant(
     # Response 1: FindScenes
     # NOTE: The path must contain the VARIANT media ID, not the parent media ID
     scene_data = create_scene_dict(
-        id="scene_123",
+        id="55010",
         title="HLS Test Scene",
         files=[
             {
                 "__typename": "VideoFile",
-                "id": "file_123",
+                "id": "80010",
                 "path": f"/path/to/media_{hls_variant.id}",
                 "basename": f"media_{hls_variant.id}.m3u8",
                 "size": 1024,
                 # VideoFile fields
                 "parent_folder": {
-                    "id": "folder_123",
+                    "id": "90001",
                     "path": "/path/to",
                     "mod_time": "2024-01-01T00:00:00Z",
                 },
@@ -115,7 +115,7 @@ async def test_process_hls_variant(
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
     # Response 3: findStudios - Fansly network studio
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -125,14 +125,14 @@ async def test_process_hls_variant(
 
     # Response 5: studioCreate - Creator-specific studio (get_or_create creates immediately)
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
 
     # Response 6: sceneUpdate - mutation returns the updated scene
     updated_scene_data = create_scene_dict(
-        id="scene_123",
+        id="55010",
         title="HLS Test Scene",  # Will be updated with actual title from test_post
         files=[scene_data["files"][0]],  # Keep the same file
     )
@@ -182,7 +182,7 @@ async def test_process_hls_variant(
     # Assert
     # Verify that a scene was found and added to results
     assert len(result["scenes"]) == 1
-    assert result["scenes"][0].id == "scene_123"
+    assert result["scenes"][0].id == "55010"
 
     # Verify GraphQL call sequence (permanent assertion)
     # v0.10.4: 6 calls: findScenes + findPerformers + findStudios + findStudios + studioCreate + sceneUpdate
@@ -265,11 +265,11 @@ async def test_process_dash_variant(
     # Response 1: findScenes
     # NOTE: The path must contain the VARIANT media ID, not the parent media ID
     scene_data = create_scene_dict(
-        id="scene_456",
+        id="55011",
         title="DASH Test Scene",
         files=[
             {
-                "id": "file_456",
+                "id": "80011",
                 "path": f"/path/to/media_{dash_variant.id}",
                 "basename": f"media_{dash_variant.id}.mpd",
                 "size": 2048,
@@ -298,7 +298,7 @@ async def test_process_dash_variant(
     )
 
     # Response 3: findStudios - Fansly network studio
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -308,14 +308,14 @@ async def test_process_dash_variant(
 
     # Response 5: studioCreate - Creator-specific studio
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
 
     # Response 6: sceneUpdate - mutation returns the updated scene
     updated_scene_data = create_scene_dict(
-        id="scene_456",
+        id="55011",
         title="DASH Test Scene",
         files=[scene_data["files"][0]],
     )
@@ -356,7 +356,7 @@ async def test_process_dash_variant(
     # Assert
     # Verify that a scene was found and added to results
     assert len(result["scenes"]) == 1
-    assert result["scenes"][0].id == "scene_456"
+    assert result["scenes"][0].id == "55011"
 
     # Verify GraphQL call sequence (permanent assertion)
     assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
@@ -434,11 +434,11 @@ async def test_process_preview_variant(
     # Response 1: findImages (for preview variant)
     # NOTE: The path must contain the VARIANT media ID, not the parent media ID
     image_data = create_image_dict(
-        id="image_789",
+        id="45010",
         title="Preview Test Image",
         visual_files=[
             {
-                "id": "file_789",
+                "id": "80012",
                 "path": f"/path/to/media_{preview_variant.id}",
                 "basename": f"media_{preview_variant.id}.jpg",
                 "parent_folder_id": None,
@@ -466,7 +466,7 @@ async def test_process_preview_variant(
     )
 
     # Response 4: findStudios - Fansly network studio
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -476,17 +476,20 @@ async def test_process_preview_variant(
 
     # Response 6: studioCreate - Creator-specific studio
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
 
     # Response 7: imageUpdate - mutation returns the updated image
     updated_image_data = create_image_dict(
-        id="image_789",
+        id="45010",
         title="Preview Test Image",
         visual_files=[image_data["visual_files"][0]],
     )
+
+    # SGC v0.12: add_performer() triggers populate() Performer.images filter_query.
+    empty_images_populate = {"count": 0, "images": []}
 
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
@@ -499,6 +502,10 @@ async def test_process_preview_variant(
             httpx.Response(
                 200,
                 json=create_graphql_response("findPerformers", find_performers_data),
+            ),
+            # [3] SGC v0.12: findImages populate from add_performer
+            httpx.Response(
+                200, json=create_graphql_response("findImages", empty_images_populate)
             ),
             httpx.Response(
                 200, json=create_graphql_response("findStudios", fansly_studio_result)
@@ -520,33 +527,40 @@ async def test_process_preview_variant(
 
     # Act
     result = {"images": [], "scenes": []}
-    await respx_stash_processor._process_media(
-        test_media, test_post, test_account, result
-    )
+    from tests.fixtures.stash import dump_graphql_calls
+
+    try:
+        await respx_stash_processor._process_media(
+            test_media, test_post, test_account, result
+        )
+    finally:
+        dump_graphql_calls(graphql_route.calls, "test_process_preview_variant")
 
     # Assert
     # Verify that an image was found and added to results
     assert len(result["images"]) == 1
-    assert result["images"][0].id == "image_789"
+    assert result["images"][0].id == "45010"
 
     # Verify GraphQL call sequence (permanent assertion)
-    assert len(graphql_route.calls) == 7, "Expected exactly 7 GraphQL calls"
+    # SGC v0.12: 8 calls (was 7) — findImages from add_performer populate filter-query
+    assert len(graphql_route.calls) == 8, "Expected exactly 8 GraphQL calls"
     calls = graphql_route.calls
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
     assert "findScenes" in json.loads(calls[1].request.content)["query"]
     assert "findPerformers" in json.loads(calls[2].request.content)["query"]
-    assert (
-        "findStudios" in json.loads(calls[3].request.content)["query"]
-    )  # Fansly network
+    assert "findImages" in json.loads(calls[3].request.content)["query"]  # populate
     assert (
         "findStudios" in json.loads(calls[4].request.content)["query"]
+    )  # Fansly network
+    assert (
+        "findStudios" in json.loads(calls[5].request.content)["query"]
     )  # Creator studio lookup (not found)
     assert (
-        "studioCreate" in json.loads(calls[5].request.content)["query"]
+        "studioCreate" in json.loads(calls[6].request.content)["query"]
     )  # v0.10.4: Creator studio
-    assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+    assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
 
 
 @pytest.mark.asyncio
@@ -620,11 +634,11 @@ async def test_process_bundle_ordering(
     images_data = []
     for i, account_media in enumerate(media_items):
         image_data = create_image_dict(
-            id=f"image_{200000 + i}",
+            id=f"{45020 + i}",
             title=f"Bundle Image {i}",
             visual_files=[
                 {
-                    "id": f"file_{200000 + i}",
+                    "id": f"{80020 + i}",
                     "path": f"/path/to/media_{account_media.mediaId}",
                     "basename": f"media_{account_media.mediaId}.jpg",
                     "parent_folder_id": None,
@@ -652,7 +666,7 @@ async def test_process_bundle_ordering(
         count=1, performers=[performer_dict]
     )
 
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -660,7 +674,7 @@ async def test_process_bundle_ordering(
     creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
@@ -829,11 +843,11 @@ async def test_process_bundle_with_preview(
     # NOTE: No findScenes call because bundle has no video files
 
     image_data = create_image_dict(
-        id="image_preview",
+        id="45011",
         title="Preview Image",
         visual_files=[
             {
-                "id": "file_preview",
+                "id": "80013",
                 "path": f"/path/to/media_{preview_media.id}",
                 "basename": f"media_{preview_media.id}.jpg",
                 "parent_folder_id": None,
@@ -850,7 +864,7 @@ async def test_process_bundle_with_preview(
     # findPerformers: by name (not found - _find_existing_performer doesn't create)
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -858,7 +872,7 @@ async def test_process_bundle_with_preview(
     creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
@@ -1023,11 +1037,11 @@ async def test_bundle_permission_inheritance(
     images_data = []
     for i, account_media in enumerate(media_items):
         image_data = create_image_dict(
-            id=f"image_{300000 + i}",
+            id=f"{45030 + i}",
             title=f"Permission Image {i}",
             visual_files=[
                 {
-                    "id": f"file_{300000 + i}",
+                    "id": f"{80030 + i}",
                     "path": f"/path/to/media_{account_media.mediaId}",
                     "basename": f"media_{account_media.mediaId}.jpg",
                     "parent_folder_id": None,
@@ -1052,7 +1066,7 @@ async def test_bundle_permission_inheritance(
         count=1, performers=[performer_dict]
     )
 
-    fansly_studio_dict = create_studio_dict(id="fansly_246", name="Fansly (network)")
+    fansly_studio_dict = create_studio_dict(id="10300", name="Fansly (network)")
     fansly_studio_result = create_find_studios_result(
         count=1, studios=[fansly_studio_dict]
     )
@@ -1060,10 +1074,16 @@ async def test_bundle_permission_inheritance(
     creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
     creator_studio_dict = create_studio_dict(
-        id="creator_999",
+        id="10302",
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
+
+    # SGC v0.12: add_performer() triggers populate() of Performer.images
+    # (filter_query) inverse on first call. Both images reference the SAME
+    # performer, so only ONE findImages populate fires (second image's
+    # add_performer finds _received_fields already includes "images").
+    empty_images_result = {"count": 0, "images": []}
 
     # Build response sequence (no findScenes - bundle has only images)
     # Studio lookup is hoisted to batch level (_find_existing_studio called at top of
@@ -1083,14 +1103,17 @@ async def test_bundle_permission_inheritance(
         httpx.Response(
             200, json=create_graphql_response("findImages", find_images_data)
         ),
-        # First image: findPerformers + imageUpdate (studio already resolved at batch level)
+        # First image: findPerformers + populate findImages + imageUpdate
         httpx.Response(
             200, json=create_graphql_response("findPerformers", find_performers_data)
         ),
         httpx.Response(
+            200, json=create_graphql_response("findImages", empty_images_result)
+        ),
+        httpx.Response(
             200, json=create_graphql_response("imageUpdate", images_data[0])
         ),
-        # Second image: findPerformers + imageUpdate (studio already resolved at batch level)
+        # Second image: findPerformers + imageUpdate (no populate — performer cached)
         httpx.Response(
             200, json=create_graphql_response("findPerformers", find_performers_data)
         ),
@@ -1123,26 +1146,23 @@ async def test_bundle_permission_inheritance(
     bundle_media_ids = [m.id for m in test_media_bundle.accountMedia]
     assert bundle_media_ids == [m.id for m in media_items]
 
-    # Verify GraphQL call sequence
-    # Studio lookup hoisted to batch level: 8 calls =
-    #   3 (findStudios + findStudios + studioCreate) + 1 findImages + 2*2 (per-image: findPerformers + imageUpdate)
-    assert len(graphql_route.calls) == 8, (
-        f"Expected exactly 8 GraphQL calls, got {len(graphql_route.calls)}"
+    # SGC v0.12: 9 calls (was 8). First add_performer populates Performer.images;
+    # second add_performer skips populate (same performer, inverse cached).
+    assert len(graphql_route.calls) == 9, (
+        f"Expected exactly 9 GraphQL calls, got {len(graphql_route.calls)}"
     )
     calls = graphql_route.calls
 
-    # Verify query types in order
     # Studio lookup (hoisted to batch level)
-    assert "findStudios" in json.loads(calls[0].request.content)["query"]  # Fansly
-    assert (
-        "findStudios" in json.loads(calls[1].request.content)["query"]
-    )  # Creator lookup (not found)
-    assert "studioCreate" in json.loads(calls[2].request.content)["query"]  # Creator
+    assert "findStudios" in json.loads(calls[0].request.content)["query"]
+    assert "findStudios" in json.loads(calls[1].request.content)["query"]
+    assert "studioCreate" in json.loads(calls[2].request.content)["query"]
     # Find images
     assert "findImages" in json.loads(calls[3].request.content)["query"]
-    # First image: findPerformers + imageUpdate (studio already resolved)
+    # First image: findPerformers + populate findImages + imageUpdate
     assert "findPerformers" in json.loads(calls[4].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
-    # Second image: findPerformers + imageUpdate (studio already resolved)
-    assert "findPerformers" in json.loads(calls[6].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
+    assert "findImages" in json.loads(calls[5].request.content)["query"]
+    assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+    # Second image: findPerformers + imageUpdate (no populate — performer cached)
+    assert "findPerformers" in json.loads(calls[7].request.content)["query"]
+    assert "imageUpdate" in json.loads(calls[8].request.content)["query"]

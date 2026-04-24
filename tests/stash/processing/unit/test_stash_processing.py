@@ -576,7 +576,7 @@ class TestStashProcessingPerformer:
 
             # 1. Fansly parent studio
             fansly_studio = create_studio_dict(
-                id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+                id="10400", name="Fansly (network)", urls=["https://fansly.com"]
             )
             fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -585,7 +585,7 @@ class TestStashProcessingPerformer:
 
             # 3. Creator studio after creation
             creator_studio = create_studio_dict(
-                id="studio_123",
+                id="10401",
                 name="test_user (Fansly)",
                 parent_studio=fansly_studio,
             )

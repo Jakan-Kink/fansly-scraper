@@ -118,8 +118,9 @@ async def test_process_timeline_post(
             cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
-        # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
-        assert len(calls) == 8, f"Expected exactly 8 GraphQL calls, got {len(calls)}"
+        # 3 gallery lookups + 1 populate() filter-query + 1 galleryCreate
+        # + 3 studio calls (hoisted) + 1 media lookup = 9
+        assert len(calls) == 9, f"Expected exactly 9 GraphQL calls, got {len(calls)}"
 
         # Call 0: findGalleries by code
         assert "findGalleries" in calls[0]["query"]
@@ -142,34 +143,39 @@ async def test_process_timeline_post(
         )
         assert "findGalleries" in calls[2]["result"]
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        assert calls[3]["variables"]["input"]["title"] == "Timeline test post"
-        assert calls[3]["variables"]["input"]["code"] == str(post.id)
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        # SGC v0.12 inlines filter values into the query string (no variables)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        assert calls[4]["variables"]["input"]["title"] == "Timeline test post"
+        assert calls[4]["variables"]["input"]["code"] == str(post.id)
         assert (
             f"https://fansly.com/post/{post.id}"
-            in calls[3]["variables"]["input"]["urls"]
+            in calls[4]["variables"]["input"]["urls"]
         )
-        assert performer.id in calls[3]["variables"]["input"]["performer_ids"]
-        assert "galleryCreate" in calls[3]["result"]
-        cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
+        assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
+        assert "galleryCreate" in calls[4]["result"]
+        cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
         studio_calls = [
             c
-            for c in calls[4:7]
+            for c in calls[5:8]
             if "findStudios" in c.get("query", "")
             or "studioCreate" in c.get("query", "")
             or "Studio" in c.get("query", "")
         ]
         assert len(studio_calls) >= 2, (
-            f"Expected studio-related calls at positions 4-6, got {[c['query'][:40] for c in calls[4:7]]}"
+            f"Expected studio-related calls at positions 5-7, got {[c['query'][:40] for c in calls[5:8]]}"
         )
 
-        # Call 7: FindScenes (looking for scenes with media path)
-        assert "FindScenes" in calls[7]["query"]
-        assert str(media.id) in calls[7]["variables"]["scene_filter"]["path"]["value"]
-        assert "findScenes" in calls[7]["result"]
+        # Call 8: FindScenes (looking for scenes with media path)
+        assert "FindScenes" in calls[8]["query"]
+        assert str(media.id) in calls[8]["variables"]["scene_filter"]["path"]["value"]
+        assert "findScenes" in calls[8]["result"]
 
 
 @pytest.mark.asyncio
@@ -273,8 +279,9 @@ async def test_process_timeline_bundle(
             cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
-        # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
-        assert len(calls) == 8, f"Expected exactly 8 GraphQL calls, got {len(calls)}"
+        # 3 gallery lookups + 1 populate() filter-query + 1 galleryCreate
+        # + 3 studio calls (hoisted) + 1 media lookup = 9
+        assert len(calls) == 9, f"Expected exactly 9 GraphQL calls, got {len(calls)}"
 
         # Call 0: findGalleries by code
         assert "findGalleries" in calls[0]["query"]
@@ -297,37 +304,41 @@ async def test_process_timeline_bundle(
         )
         assert "findGalleries" in calls[2]["result"]
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        assert calls[3]["variables"]["input"]["title"] == "Test post with bundle"
-        assert calls[3]["variables"]["input"]["code"] == str(post.id)
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        assert calls[4]["variables"]["input"]["title"] == "Test post with bundle"
+        assert calls[4]["variables"]["input"]["code"] == str(post.id)
         assert (
             f"https://fansly.com/post/{post.id}"
-            in calls[3]["variables"]["input"]["urls"]
+            in calls[4]["variables"]["input"]["urls"]
         )
-        assert performer.id in calls[3]["variables"]["input"]["performer_ids"]
-        assert "galleryCreate" in calls[3]["result"]
-        cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
+        assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
+        assert "galleryCreate" in calls[4]["result"]
+        cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
         studio_calls = [
             c
-            for c in calls[4:7]
+            for c in calls[5:8]
             if "findStudios" in c.get("query", "")
             or "studioCreate" in c.get("query", "")
             or "Studio" in c.get("query", "")
         ]
-        assert len(studio_calls) >= 2, "Expected studio-related calls at positions 4-6"
+        assert len(studio_calls) >= 2, "Expected studio-related calls at positions 5-7"
 
-        # Call 7: findImages (looking for images with media paths from bundle)
-        assert "findImages" in calls[7]["query"]
+        # Call 8: findImages (looking for images with media paths from bundle)
+        assert "findImages" in calls[8]["query"]
         # The regex pattern contains both media IDs (Pattern 5: base_path.*(code1|code2))
-        image_filter = calls[7]["variables"]["image_filter"]
+        image_filter = calls[8]["variables"]["image_filter"]
         assert "path" in image_filter
         # Verify both media IDs are included in the regex pattern
         assert str(media1.id) in str(image_filter)
         assert str(media2.id) in str(image_filter)
-        assert "findImages" in calls[7]["result"]
+        assert "findImages" in calls[8]["result"]
 
 
 @pytest.mark.asyncio
@@ -654,8 +665,9 @@ async def test_process_expired_timeline_post(
             cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
-        # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
-        assert len(calls) == 8, f"Expected exactly 8 GraphQL calls, got {len(calls)}"
+        # 3 gallery lookups + 1 populate() filter-query + 1 galleryCreate
+        # + 3 studio calls (hoisted) + 1 media lookup = 9
+        assert len(calls) == 9, f"Expected exactly 9 GraphQL calls, got {len(calls)}"
 
         # Call 0: findGalleries by code
         assert "findGalleries" in calls[0]["query"]
@@ -677,29 +689,33 @@ async def test_process_expired_timeline_post(
         )
         assert "findGalleries" in calls[2]["result"]
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        assert calls[3]["variables"]["input"]["title"] == "Expiring post"
-        assert calls[3]["variables"]["input"]["code"] == str(post.id)
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        assert calls[4]["variables"]["input"]["title"] == "Expiring post"
+        assert calls[4]["variables"]["input"]["code"] == str(post.id)
         assert (
             f"https://fansly.com/post/{post.id}"
-            in calls[3]["variables"]["input"]["urls"]
+            in calls[4]["variables"]["input"]["urls"]
         )
-        assert performer.id in calls[3]["variables"]["input"]["performer_ids"]
-        assert "galleryCreate" in calls[3]["result"]
-        cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
+        assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
+        assert "galleryCreate" in calls[4]["result"]
+        cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
         studio_calls = [
             c
-            for c in calls[4:7]
+            for c in calls[5:8]
             if "findStudios" in c.get("query", "")
             or "studioCreate" in c.get("query", "")
             or "Studio" in c.get("query", "")
         ]
-        assert len(studio_calls) >= 2, "Expected studio-related calls at positions 4-6"
+        assert len(studio_calls) >= 2, "Expected studio-related calls at positions 5-7"
 
-        # Call 7: FindScenes (looking for scenes with media path)
-        assert "FindScenes" in calls[7]["query"]
-        assert str(media.id) in calls[7]["variables"]["scene_filter"]["path"]["value"]
-        assert "findScenes" in calls[7]["result"]
+        # Call 8: FindScenes (looking for scenes with media path)
+        assert "FindScenes" in calls[8]["query"]
+        assert str(media.id) in calls[8]["variables"]["scene_filter"]["path"]["value"]
+        assert "findScenes" in calls[8]["result"]

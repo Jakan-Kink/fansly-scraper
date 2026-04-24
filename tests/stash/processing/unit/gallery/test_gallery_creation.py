@@ -27,6 +27,7 @@ from tests.fixtures import (
     create_gallery_update_result,
     create_graphql_response,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -104,10 +105,13 @@ class TestGalleryCreation:
             mentions=[mention],
         )
 
-        gallery = GalleryFactory.build(id="gallery_123", title="Test Gallery")
-        main_performer = PerformerFactory.build(id="performer_main", name="post_author")
+        gallery = GalleryFactory.build(id="1023", title="Test Gallery")
+        main_performer = PerformerFactory.build(id="5001", name="post_author")
 
-        # Mock GraphQL call for mention performer lookup
+        empty_find_galleries = httpx.Response(
+            200,
+            json={"data": {"findGalleries": {"count": 0, "galleries": []}}},
+        )
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
@@ -117,7 +121,7 @@ class TestGalleryCreation:
                             "findPerformers": {
                                 "performers": [
                                     {
-                                        "id": "performer_mention1",
+                                        "id": "5101",
                                         "name": "mention1",
                                         "urls": ["https://fansly.com/mention1"],
                                     }
@@ -126,22 +130,25 @@ class TestGalleryCreation:
                             }
                         }
                     },
-                )
+                ),
+                *([empty_find_galleries] * 5),
             ],
         )
 
-        await respx_stash_processor._setup_gallery_performers(
-            gallery, post, main_performer
-        )
+        try:
+            await respx_stash_processor._setup_gallery_performers(
+                gallery, post, main_performer
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_setup_gallery_performers")
 
-        # Gallery should have main performer + mentioned performer
         assert len(gallery.performers) == 2
         assert gallery.performers[0] == main_performer
 
-        # Verify GraphQL call was made for mention lookup
-        assert len(graphql_route.calls) > 0
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findPerformers" in req["query"]
+        find_performer_queries = [
+            json.loads(c.request.content).get("query", "") for c in graphql_route.calls
+        ]
+        assert any("findPerformers" in q for q in find_performer_queries)
 
     @pytest.mark.asyncio
     async def test_setup_gallery_performers_no_mentions(
@@ -155,23 +162,30 @@ class TestGalleryCreation:
             content="Test post no mentions",
         )
 
-        gallery = GalleryFactory.build(id="gallery_124", title="Test Gallery 2")
-        main_performer = PerformerFactory.build(
-            id="performer_main2", name="post_author"
-        )
+        gallery = GalleryFactory.build(id="1024", title="Test Gallery 2")
+        main_performer = PerformerFactory.build(id="5002", name="post_author")
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[],
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"data": {"findGalleries": {"count": 0, "galleries": []}}},
+                ),
+            ],
         )
 
-        await respx_stash_processor._setup_gallery_performers(
-            gallery, post, main_performer
-        )
+        try:
+            await respx_stash_processor._setup_gallery_performers(
+                gallery, post, main_performer
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_setup_gallery_performers_no_mentions"
+            )
 
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
-        # No GraphQL calls for performer lookup (no mentions)
         performer_lookup_calls = [
             c
             for c in graphql_route.calls
@@ -199,10 +213,8 @@ class TestGalleryCreation:
             mentions=[mention],
         )
 
-        gallery = GalleryFactory.build(id="gallery_125", title="Test Gallery 3")
-        main_performer = PerformerFactory.build(
-            id="performer_main3", name="post_author"
-        )
+        gallery = GalleryFactory.build(id="1025", title="Test Gallery 3")
+        main_performer = PerformerFactory.build(id="5003", name="post_author")
 
         empty_performer_response = httpx.Response(
             200,
@@ -265,8 +277,8 @@ class TestGalleryOrchestration:
             )
         ]
 
-        performer = PerformerFactory.build(id="performer_123", name="test_user")
-        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+        performer = PerformerFactory.build(id="10100", name="test_user")
+        studio = StudioFactory.build(id="10200", name="Test Studio")
 
         return {
             "account": account,
@@ -302,8 +314,8 @@ class TestGalleryOrchestration:
             )
         ]
 
-        performer = PerformerFactory.build(id="performer_stash", name="test_user_stash")
-        studio = StudioFactory.build(id="studio_stash", name="Test Studio")
+        performer = PerformerFactory.build(id="5201", name="test_user_stash")
+        studio = StudioFactory.build(id="10201", name="Test Studio")
 
         # First lookup (by stash_id) succeeds
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -464,7 +476,7 @@ class TestGalleryOrchestration:
                                     title="Test post content",
                                     code="",
                                     date="2024-04-01",
-                                    studio={"id": "studio_123"},
+                                    studio={"id": "10200"},
                                 )
                             ],
                         ),
@@ -483,7 +495,7 @@ class TestGalleryOrchestration:
                                     title="Test post content",
                                     code="",
                                     date="2024-04-01",
-                                    studio={"id": "studio_123"},
+                                    studio={"id": "10200"},
                                 )
                             ],
                         ),
@@ -640,48 +652,51 @@ class TestGalleryOrchestration:
         data = orchestration_setup
         post_id = str(data["post"].id)
 
+        empty_find_galleries = httpx.Response(
+            200,
+            json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
+        )
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # Call 0: code → not found
-                httpx.Response(
-                    200,
-                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
-                ),
+                empty_find_galleries,
                 # Call 1: title → not found
-                httpx.Response(
-                    200,
-                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
-                ),
+                empty_find_galleries,
                 # Call 2: url → not found
-                httpx.Response(
-                    200,
-                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
-                ),
-                # Call 3: galleryCreate
+                empty_find_galleries,
+                # Call 3: populate filter-query for gallery inverse
+                empty_find_galleries,
+                # Call 4: galleryCreate
                 httpx.Response(
                     200,
                     json=create_graphql_response(
                         "galleryCreate",
                         create_gallery_create_result(
                             create_gallery_dict(
-                                id="new_gallery_123",
+                                id="20123",
                                 title="Test post content",
                                 code=post_id,
                             )
                         ),
                     ),
                 ),
+                *([empty_find_galleries] * 10),
             ],
         )
 
-        gallery = await respx_stash_processor._get_or_create_gallery(
-            data["post"],
-            data["account"],
-            data["performer"],
-            data["studio"],
-            "post",
-            data["url_pattern"],
-        )
+        try:
+            gallery = await respx_stash_processor._get_or_create_gallery(
+                data["post"],
+                data["account"],
+                data["performer"],
+                data["studio"],
+                "post",
+                data["url_pattern"],
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_gallery_created_when_not_found"
+            )
 
         assert gallery is not None
         assert gallery.title == "Test post content"
@@ -706,6 +721,7 @@ class TestGalleryOrchestration:
         assert "findGalleries" in req2["query"]
         assert "url" in req2["variables"]["gallery_filter"]
 
-        # Call 3: galleryCreate
-        req3 = json.loads(graphql_route.calls[3].request.content)
-        assert "galleryCreate" in req3["query"]
+        gallery_create_queries = [
+            json.loads(c.request.content).get("query", "") for c in graphql_route.calls
+        ]
+        assert any("galleryCreate" in q for q in gallery_create_queries)

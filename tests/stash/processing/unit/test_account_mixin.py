@@ -210,11 +210,11 @@ class TestAccountProcessingMixin:
 
             # Create image dict with visual_files
             image_dict = create_image_dict(
-                id="img_123",
+                id="48000",
                 title=None,
                 visual_files=[
                     {
-                        "id": "file_123",
+                        "id": "48100",
                         "path": str(temp_avatar_path),
                         "basename": "avatar.jpg",
                         "parent_folder_id": "folder_123",
@@ -656,13 +656,13 @@ class TestAccountProcessingMixin:
 
         # Pre-populate store cache with a performer whose alias matches the username
         cached_performer = PerformerFactory.build(
-            id="cached_perf_1",
+            id="5704",
             name="Real Name",
             alias_list=["alias_user"],
         )
         # Save to store to populate identity map cache
         performer_dict = create_performer_dict(
-            id="cached_perf_1",
+            id="5704",
             name="Real Name",
             aliases=["alias_user"],
         )
@@ -710,7 +710,7 @@ class TestAccountProcessingMixin:
 
         await respx_stash_processor.context.get_client()
 
-        performer_dict = create_performer_dict(id="fallback_123", name="test_user")
+        performer_dict = create_performer_dict(id="5702", name="test_user")
 
         route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -736,4 +736,4 @@ class TestAccountProcessingMixin:
             dump_graphql_calls(route.calls, "test_stash_id_exception")
 
         assert result is not None
-        assert result.id == "fallback_123"
+        assert result.id == "5702"

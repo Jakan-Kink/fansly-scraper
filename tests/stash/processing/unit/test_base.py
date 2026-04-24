@@ -186,9 +186,9 @@ class TestPreloadEntities:
     @pytest.mark.asyncio
     async def test_preload_entities_with_data(self, respx_stash_processor):
         """_preload_stash_entities iterates yielded entities (line 146)."""
-        performer = create_performer_dict(id="p1", name="Performer One")
-        tag = create_tag_dict(id="t1", name="Tag One")
-        studio_dict = {"id": "s1", "name": "Studio One", "urls": []}
+        performer = create_performer_dict(id="5703", name="Performer One")
+        tag = create_tag_dict(id="102", name="Tag One")
+        studio_dict = {"id": "10402", "name": "Studio One", "urls": []}
 
         route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[

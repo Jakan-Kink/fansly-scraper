@@ -34,7 +34,7 @@ async def test_process_hashtags_to_tags_alias_match(respx_stash_processor):
     hashtag = HashtagFactory.build(value="alias_name")
 
     # Create responses for get_or_create flow
-    tag_dict = create_tag_dict(id="tag_123", name="alias_name")
+    tag_dict = create_tag_dict(id="123", name="alias_name")
     found_result = create_find_tags_result(count=1, tags=[tag_dict])
 
     # Mock GraphQL responses - get_or_create searches by name
@@ -52,7 +52,7 @@ async def test_process_hashtags_to_tags_alias_match(respx_stash_processor):
     tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     assert len(tags) == 1
-    assert tags[0].id == "tag_123"
+    assert tags[0].id == "123"
     assert tags[0].name == "alias_name"
 
 
@@ -69,7 +69,7 @@ async def test_process_hashtags_to_tags_creation_error_exists(respx_stash_proces
 
     # Create responses
     empty_result = create_find_tags_result(count=0, tags=[])
-    tag_dict = create_tag_dict(id="tag_123", name="test_tag")
+    tag_dict = create_tag_dict(id="123", name="test_tag")
 
     # Mock GraphQL responses
     respx.post("http://localhost:9999/graphql").mock(
@@ -152,19 +152,19 @@ async def test_add_preview_tag_existing_tag(respx_stash_processor):
     # Note: respx_stash_processor already has respx.mock wrapper
     # Create preview tag using factory
     preview_tag = TagFactory.build(
-        id="preview_tag_123",
+        id="500",
         name="Trailer",
     )
 
     # Create Scene with existing preview tag
     scene = SceneFactory.build(
-        id="scene_123",
+        id="300",
         title="Test Scene",
         tags=[preview_tag],
     )
 
     # Create response
-    tag_dict = create_tag_dict(id="preview_tag_123", name="Trailer")
+    tag_dict = create_tag_dict(id="500", name="Trailer")
     tag_result = create_find_tags_result(count=1, tags=[tag_dict])
 
     # Mock GraphQL response
@@ -177,14 +177,14 @@ async def test_add_preview_tag_existing_tag(respx_stash_processor):
 
     # Verify tag is already present
     assert len(scene.tags) == 1
-    assert scene.tags[0].id == "preview_tag_123"
+    assert scene.tags[0].id == "500"
 
     # Add the tag again
     await respx_stash_processor._add_preview_tag(scene)
 
     # Verify tag wasn't duplicated
     assert len(scene.tags) == 1
-    assert scene.tags[0].id == "preview_tag_123"
+    assert scene.tags[0].id == "500"
 
 
 @pytest.mark.asyncio
@@ -193,7 +193,7 @@ async def test_add_preview_tag_no_tag_found(respx_stash_processor):
     # Note: respx_stash_processor already has respx.mock wrapper
     # Create Scene without tags
     scene = SceneFactory.build(
-        id="scene_123",
+        id="300",
         title="Test Scene",
         tags=[],
     )
@@ -223,10 +223,10 @@ async def test_get_or_create_tag_cache_hit(respx_stash_processor):
     """
     # Pre-populate the store cache by saving a tag
     # save() with an existing ID triggers an update mutation, which populates the cache
-    existing_tag = TagFactory.build(id="cached_tag_1", name="cached_tag")
+    existing_tag = TagFactory.build(id="600", name="cached_tag")
 
     # Mock the GraphQL mutation for the save, then the tag is cached
-    tag_dict = create_tag_dict(id="cached_tag_1", name="cached_tag")
+    tag_dict = create_tag_dict(id="600", name="cached_tag")
     route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
             httpx.Response(
@@ -247,7 +247,7 @@ async def test_get_or_create_tag_cache_hit(respx_stash_processor):
     # Now the cache lookup should succeed without any GraphQL call
     tag = await respx_stash_processor._get_or_create_tag("cached_tag")
 
-    assert tag.id == "cached_tag_1"
+    assert tag.id == "600"
     assert tag.name == "cached_tag"
 
 
@@ -260,7 +260,7 @@ async def test_get_or_create_tag_alias_hit(respx_stash_processor):
     """
     empty_result = create_find_tags_result(count=0, tags=[])
     aliased_tag_dict = create_tag_dict(
-        id="alias_match_tag",
+        id="700",
         name="original_name",
         aliases=["my_alias"],
     )
@@ -285,7 +285,7 @@ async def test_get_or_create_tag_alias_hit(respx_stash_processor):
         dump_graphql_calls(route.calls, "test_get_or_create_tag_alias_hit")
 
     assert tag.name == "original_name"
-    assert tag.id == "alias_match_tag"
+    assert tag.id == "700"
 
 
 @pytest.mark.asyncio
@@ -298,8 +298,8 @@ async def test_process_hashtags_batch_exception_fallback(respx_stash_processor):
     hashtag1 = HashtagFactory.build(value="fallback1")
     hashtag2 = HashtagFactory.build(value="fallback2")
 
-    tag1_dict = create_tag_dict(id="fb_tag_1", name="fallback1")
-    tag2_dict = create_tag_dict(id="fb_tag_2", name="fallback2")
+    tag1_dict = create_tag_dict(id="801", name="fallback1")
+    tag2_dict = create_tag_dict(id="802", name="fallback2")
     result1 = create_find_tags_result(count=1, tags=[tag1_dict])
     result2 = create_find_tags_result(count=1, tags=[tag2_dict])
 

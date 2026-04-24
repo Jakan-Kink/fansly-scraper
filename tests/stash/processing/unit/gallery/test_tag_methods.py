@@ -34,10 +34,10 @@ class TestTagMethods:
         hashtags = [hashtag1, hashtag2]
 
         # Create responses
-        tag_dict1 = create_tag_dict(id="tag_123", name="test_tag")
+        tag_dict1 = create_tag_dict(id="123", name="test_tag")
         tag_results1 = create_find_tags_result(count=1, tags=[tag_dict1])
         tag_results2 = create_find_tags_result(count=0, tags=[])
-        new_tag_dict = create_tag_dict(id="tag_456", name="new_tag")
+        new_tag_dict = create_tag_dict(id="456", name="new_tag")
 
         # Mock GraphQL responses
         respx.post("http://localhost:9999/graphql").mock(
@@ -94,7 +94,7 @@ class TestTagMethods:
 
         # Create responses
         empty_result = create_find_tags_result(count=0, tags=[])
-        existing_tag_dict = create_tag_dict(id="tag_123", name="test_tag")
+        existing_tag_dict = create_tag_dict(id="123", name="test_tag")
 
         # Mock GraphQL responses
         respx.post("http://localhost:9999/graphql").mock(
@@ -178,7 +178,7 @@ class TestTagMethods:
         """Test _add_preview_tag method."""
         # Note: respx_stash_processor already has respx.mock wrapper
         # Create response
-        trailer_tag_dict = create_tag_dict(id="tag_trailer", name="Trailer")
+        trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
         # Mock GraphQL response
@@ -197,7 +197,7 @@ class TestTagMethods:
 
         # Verify the tag was added
         assert len(mock_image.tags) == 1
-        assert mock_image.tags[0].id == "tag_trailer"
+        assert mock_image.tags[0].id == "400"
 
     @pytest.mark.asyncio
     async def test_add_preview_tag_existing(self, respx_stash_processor):
@@ -206,15 +206,15 @@ class TestTagMethods:
         from tests.fixtures import ImageFactory, TagFactory
 
         # Create tag and image with that tag
-        existing_tag = TagFactory.build(id="tag_trailer", name="Trailer")
+        existing_tag = TagFactory.build(id="400", name="Trailer")
         mock_image = ImageFactory.build(
-            id="image_123",
+            id="10001",
             title="Test Image",
             tags=[existing_tag],
         )
 
         # Create response
-        trailer_tag_dict = create_tag_dict(id="tag_trailer", name="Trailer")
+        trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
         # Mock GraphQL response

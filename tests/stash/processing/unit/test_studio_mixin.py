@@ -33,18 +33,14 @@ class TestStudioProcessingMixin:
         Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (creator returns existing)
         """
         # Create responses
-        fansly_studio_dict = create_studio_dict(
-            id="fansly_123", name="Fansly (network)"
-        )
+        fansly_studio_dict = create_studio_dict(id="10400", name="Fansly (network)")
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )
 
         creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
-        creator_studio_dict = create_studio_dict(
-            id="studio_123", name="test_user (Fansly)"
-        )
+        creator_studio_dict = create_studio_dict(id="10401", name="test_user (Fansly)")
 
         # Mock GraphQL responses (respx_stash_processor already has respx enabled)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -95,7 +91,7 @@ class TestStudioProcessingMixin:
 
         # Verify result
         assert result is not None
-        assert result.id == "studio_123"
+        assert result.id == "10401"
         assert result.name == "test_user (Fansly)"
 
     @pytest.mark.asyncio
@@ -108,9 +104,7 @@ class TestStudioProcessingMixin:
         Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (new)
         """
         # Create responses
-        fansly_studio_dict = create_studio_dict(
-            id="fansly_123", name="Fansly (network)"
-        )
+        fansly_studio_dict = create_studio_dict(id="10400", name="Fansly (network)")
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )
@@ -222,9 +216,7 @@ class TestStudioProcessingMixin:
         Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (error)
         """
         # Create responses
-        fansly_studio_dict = create_studio_dict(
-            id="fansly_123", name="Fansly (network)"
-        )
+        fansly_studio_dict = create_studio_dict(id="10400", name="Fansly (network)")
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )
@@ -312,9 +304,7 @@ class TestStudioProcessingMixin:
         Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (error) → findStudios (retry, not found)
         """
         # Create responses
-        fansly_studio_dict = create_studio_dict(
-            id="fansly_123", name="Fansly (network)"
-        )
+        fansly_studio_dict = create_studio_dict(id="10400", name="Fansly (network)")
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )

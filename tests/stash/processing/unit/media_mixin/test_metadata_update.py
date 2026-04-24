@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from tests.fixtures.metadata.metadata_factories import PostFactory
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_performers_result,
     create_find_studios_result,
@@ -52,7 +53,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios - Fansly network studio exists
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -61,7 +62,7 @@ class TestMetadataUpdate:
 
         # Response 4: studioCreate - create creator studio
         creator_studio = create_studio_dict(
-            id="creator_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
@@ -76,11 +77,19 @@ class TestMetadataUpdate:
             "details": mock_item.content,
         }
 
+        # SGC v0.12: populate() resolves Performer.images via filter_query after
+        # findPerformers returns a performer, inserting a findImages call.
+        empty_images_result = {"count": 0, "images": []}
+
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", performers_result),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
@@ -102,12 +111,15 @@ class TestMetadataUpdate:
         )
 
         # Call method - real internal methods execute with respx mocking HTTP boundary
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_update_stash_metadata_basic")
 
         # Verify basic metadata was set (check RESULTS, not mock calls)
         assert mock_image.details == mock_item.content
@@ -121,15 +133,17 @@ class TestMetadataUpdate:
         assert f"https://fansly.com/post/{mock_item.id}" in mock_image.urls
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        # SGC v0.12: 6 calls (was 5) — extra findImages from populate() filter-query
+        assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "findImages" in json.loads(calls[1].request.content)["query"]
         assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+        assert "findStudios" in json.loads(calls[3].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[4].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_already_organized(
@@ -169,13 +183,16 @@ class TestMetadataUpdate:
             name=mock_account.username,
         )
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         creator_studio = create_studio_dict(
-            id="creator_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             parent_studio=fansly_studio,
         )
+        # SGC v0.12: populate() filter-query inserts findImages after findPerformers
+        empty_images_result = {"count": 0, "images": []}
+
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
@@ -186,6 +203,10 @@ class TestMetadataUpdate:
                             count=1, performers=[performer_dict]
                         ),
                     ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
                 ),
                 httpx.Response(
                     200,
@@ -210,15 +231,21 @@ class TestMetadataUpdate:
             ]
         )
 
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_stash_metadata_already_organized"
+            )
 
         # Bad title forced full update despite organized=True
-        assert graphql_route.call_count == 5
+        # SGC v0.12: 6 calls (was 5) — extra findImages from populate() filter-query
+        assert graphql_route.call_count == 6
         assert mock_image.title != "Media from old batch"  # Title was replaced
 
     @pytest.mark.asyncio
@@ -260,14 +287,14 @@ class TestMetadataUpdate:
         )
 
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
         creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
         creator_studio = create_studio_dict(
-            id="creator_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
@@ -281,12 +308,19 @@ class TestMetadataUpdate:
             "details": mock_item.content,
         }
 
+        # SGC v0.12: populate() filter-query inserts findImages after findPerformers
+        empty_images_result = {"count": 0, "images": []}
+
         def _make_update_responses():
-            """5 responses for a full metadata update path."""
+            """6 responses for a full metadata update path (SGC v0.12 adds findImages)."""
             return [
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", performers_result),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
@@ -314,21 +348,28 @@ class TestMetadataUpdate:
             side_effect=_make_update_responses()
         )
 
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_stash_metadata_later_date_Test1b"
+            )
 
         # Invalid date was parsed, ValueError caught, update proceeded through full path
-        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        # SGC v0.12: 6 calls (was 5) — extra findImages from populate() filter-query
+        assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
         calls = graphql_route.calls
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "findImages" in json.loads(calls[1].request.content)["query"]
         assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+        assert "findStudios" in json.loads(calls[3].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[4].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
 
         # Test 2: Item is EARLIER than existing date - should UPDATE
         # Performer and studios are now cached from Test 1b, so only imageUpdate needed
@@ -441,7 +482,7 @@ class TestMetadataUpdate:
 
         # Response 7: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -450,7 +491,7 @@ class TestMetadataUpdate:
 
         # Response 9: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="creator_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
@@ -463,20 +504,37 @@ class TestMetadataUpdate:
             "code": "media_123",
         }
 
+        # SGC v0.12: populate() resolves Performer.images via filter_query each time
+        # add_performer() is called on the Image. 3 performers → 3 inserted findImages calls.
+        empty_images_result = {"count": 0, "images": []}
+
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # [0] Main performer lookup (by name — found)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
                         "findPerformers", main_performers_result
                     ),
                 ),
+                # [1] add_performer(main) — findImages populate for Performer.images
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
+                # [2] Mention1 lookup — found
                 httpx.Response(
                     200,
                     json=create_graphql_response(
                         "findPerformers", mention1_performers_result
                     ),
                 ),
+                # [3] add_performer(mention1) — findImages populate
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
+                # [4-6] Mention2 lookups (name, alias, url — all empty)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -495,9 +553,16 @@ class TestMetadataUpdate:
                         "findPerformers", empty_performers_url
                     ),
                 ),
+                # [7] performerCreate for mention2
                 httpx.Response(
                     200, json=create_graphql_response("performerCreate", new_performer)
                 ),
+                # [8] add_performer(new mention2 performer) — findImages populate
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
+                # [9-11] Studio flow
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
@@ -510,6 +575,7 @@ class TestMetadataUpdate:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # [12] imageUpdate
                 httpx.Response(
                     200,
                     json=create_graphql_response("imageUpdate", image_update_result),
@@ -518,12 +584,17 @@ class TestMetadataUpdate:
         )
 
         # Call method - real _find_existing_performer runs with real GraphQL mocking
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_stash_metadata_performers"
+            )
 
         # Verify performers were added (check RESULTS)
         assert len(mock_image.performers) == 3
@@ -536,20 +607,25 @@ class TestMetadataUpdate:
         assert any(mention2.handle in name for name in performer_names)
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 10, "Expected exactly 10 GraphQL calls"
+        # SGC v0.12: 13 calls (was 10) — populate() filter-query inserts 3 findImages,
+        # one per performer added to the Image.
+        assert len(graphql_route.calls) == 13, "Expected exactly 13 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[1].request.content)["query"]
+        assert "findImages" in json.loads(calls[1].request.content)["query"]
         assert "findPerformers" in json.loads(calls[2].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[3].request.content)["query"]
+        assert "findImages" in json.loads(calls[3].request.content)["query"]
         assert "findPerformers" in json.loads(calls[4].request.content)["query"]
-        assert "performerCreate" in json.loads(calls[5].request.content)["query"]
-        assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "findStudios" in json.loads(calls[7].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[9].request.content)["query"]
+        assert "findPerformers" in json.loads(calls[5].request.content)["query"]
+        assert "findPerformers" in json.loads(calls[6].request.content)["query"]
+        assert "performerCreate" in json.loads(calls[7].request.content)["query"]
+        assert "findImages" in json.loads(calls[8].request.content)["query"]
+        assert "findStudios" in json.loads(calls[9].request.content)["query"]
+        assert "findStudios" in json.loads(calls[10].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[11].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[12].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_studio(
@@ -570,7 +646,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios for Fansly (network) - found
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -579,7 +655,7 @@ class TestMetadataUpdate:
 
         # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
@@ -667,7 +743,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -676,17 +752,17 @@ class TestMetadataUpdate:
 
         # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 
         # Response 5-6: findTags for each hashtag
-        tag1 = create_tag_dict(id="tag_123", name="test_tag")
+        tag1 = create_tag_dict(id="100", name="test_tag")
         tag1_result = create_find_tags_result(count=1, tags=[tag1])
 
-        tag2 = create_tag_dict(id="tag_456", name="another_tag")
+        tag2 = create_tag_dict(id="101", name="another_tag")
         tag2_result = create_find_tags_result(count=1, tags=[tag2])
 
         # Response 7: imageUpdate
@@ -695,6 +771,13 @@ class TestMetadataUpdate:
             "title": mock_image.title,
             "code": "media_123",
         }
+
+        # SGC v0.12: add_tag() on Image triggers populate() of Tag.images
+        # (filter_query) inverse relationship. 2 tags → 2 inserted findImages calls.
+        # _process_hashtags_to_tags uses asyncio.gather, so both tag name lookups
+        # fire concurrently BEFORE any add_tag populate. Then sequential add_tag
+        # calls trigger populates.
+        empty_images_result = {"count": 0, "images": []}
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -714,11 +797,23 @@ class TestMetadataUpdate:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # [4] findTags tag1 by name (concurrent gather)
                 httpx.Response(
                     200, json=create_graphql_response("findTags", tag1_result)
                 ),
+                # [5] findTags tag2 by name (concurrent gather)
                 httpx.Response(
                     200, json=create_graphql_response("findTags", tag2_result)
+                ),
+                # [6] add_tag(tag1) populate Tag.images
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
+                # [7] add_tag(tag2) populate Tag.images
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
                 ),
                 httpx.Response(
                     200,
@@ -728,12 +823,15 @@ class TestMetadataUpdate:
         )
 
         # Call method - real _process_hashtags_to_tags runs with respx mocking HTTP boundary
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_update_stash_metadata_tags")
 
         # Verify tags were set (check RESULTS)
         assert len(mock_image.tags) == 2
@@ -742,7 +840,8 @@ class TestMetadataUpdate:
         assert "another_tag" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 7, "Expected exactly 7 GraphQL calls"
+        # SGC v0.12: 9 calls (was 7) — 2 findImages from add_tag populate filter-query
+        assert len(graphql_route.calls) == 9, "Expected exactly 9 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
@@ -752,7 +851,9 @@ class TestMetadataUpdate:
         assert "studioCreate" in json.loads(calls[3].request.content)["query"]
         assert "findTags" in json.loads(calls[4].request.content)["query"]
         assert "findTags" in json.loads(calls[5].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+        assert "findImages" in json.loads(calls[6].request.content)["query"]
+        assert "findImages" in json.loads(calls[7].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[8].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_preview(
@@ -774,7 +875,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -783,14 +884,14 @@ class TestMetadataUpdate:
 
         # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 
         # Response 5: findTags for "Trailer" tag
-        trailer_tag = create_tag_dict(id="preview_tag_id", name="Trailer")
+        trailer_tag = create_tag_dict(id="102", name="Trailer")
         trailer_result = create_find_tags_result(count=1, tags=[trailer_tag])
 
         # Response 6: imageUpdate
@@ -799,6 +900,10 @@ class TestMetadataUpdate:
             "title": mock_image.title,
             "code": "media_123",
         }
+
+        # SGC v0.12: add_tag() on Image triggers populate() of Tag.images
+        # (filter_query) inverse. Preview test has 1 Trailer tag → 1 findImages call.
+        empty_images_result = {"count": 0, "images": []}
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -821,6 +926,11 @@ class TestMetadataUpdate:
                 httpx.Response(
                     200, json=create_graphql_response("findTags", trailer_result)
                 ),
+                # [5] add_tag(Trailer) populate Tag.images
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
                 httpx.Response(
                     200,
                     json=create_graphql_response("imageUpdate", image_update_result),
@@ -829,20 +939,26 @@ class TestMetadataUpdate:
         )
 
         # Call method with preview flag - real _add_preview_tag runs with respx mocking HTTP boundary
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-            is_preview=True,
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_123",
+                is_preview=True,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_stash_metadata_preview"
+            )
 
         # Verify "Trailer" tag was added (check RESULTS)
         tag_names = [t.name for t in mock_image.tags]
         assert "Trailer" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
+        # SGC v0.12: 7 calls (was 6) — findImages from add_tag populate filter-query
+        assert len(graphql_route.calls) == 7, "Expected exactly 7 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
@@ -851,7 +967,8 @@ class TestMetadataUpdate:
         assert "findStudios" in json.loads(calls[2].request.content)["query"]
         assert "studioCreate" in json.loads(calls[3].request.content)["query"]
         assert "findTags" in json.loads(calls[4].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+        assert "findImages" in json.loads(calls[5].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_with_studio_create(
@@ -873,7 +990,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="10300", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -882,7 +999,7 @@ class TestMetadataUpdate:
 
         # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="10301",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
@@ -950,15 +1067,22 @@ class TestMetadataUpdate:
         # Test 2: Performer cache hit — _performer and _account set (line 550)
         # Skips _find_existing_performer GraphQL lookup, uses cached performer
         respx.reset()
-        cached_perf = PerformerFactory.build(
-            id="cached_999", name=mock_account.username
-        )
+        cached_perf = PerformerFactory.build(id="10100", name=mock_account.username)
         respx_stash_processor._performer = cached_perf
         respx_stash_processor._account = mock_account
 
+        # SGC v0.12: add_performer() still triggers populate() for Performer.images
+        # inverse (filter-query) even when the performer is supplied from cache.
+        empty_images_result = {"count": 0, "images": []}
+
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Only imageUpdate — performer cached, studio cached from Test 1
+                # findImages populate for cached performer's inverse
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_result),
+                ),
+                # imageUpdate — studio cached from Test 1
                 httpx.Response(
                     200,
                     json=create_graphql_response("imageUpdate", {"id": mock_image.id}),
@@ -970,17 +1094,26 @@ class TestMetadataUpdate:
         mock_image.organized = False
         mock_image.date = None
 
-        await respx_stash_processor._update_stash_metadata(
-            stash_obj=mock_image,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_cached",
-        )
+        try:
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_cached",
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_update_stash_metadata_with_studio_create_Test2",
+            )
 
-        # Only 1 call — performer and studio were cached
-        assert graphql_route.call_count == 1
+        # SGC v0.12: 2 calls (was 1) — findImages populate + imageUpdate
+        assert graphql_route.call_count == 2
         assert (
-            "imageUpdate" in json.loads(graphql_route.calls[0].request.content)["query"]
+            "findImages" in json.loads(graphql_route.calls[0].request.content)["query"]
+        )
+        assert (
+            "imageUpdate" in json.loads(graphql_route.calls[1].request.content)["query"]
         )
 
         # Test 3: Save error — imageUpdate returns GraphQL error (lines 617-628)

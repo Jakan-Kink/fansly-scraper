@@ -39,7 +39,9 @@ def test_new_message_with_attachments_returns_download_messages() -> None:
         }
     }
     result = dispatch_ws_event(5, 1, event)
-    assert result == DownloadMessagesForGroup(group_id=200_000_000_001)
+    assert result == DownloadMessagesForGroup(
+        group_id=200_000_000_001, sender_id=100_000_000_001
+    )
 
 
 def test_new_message_without_attachments_returns_none() -> None:

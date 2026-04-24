@@ -43,7 +43,7 @@ class TestFileHandling:
         # Test with visual files as dictionaries (with required fields)
         mock_image.visual_files = [
             {
-                "id": "file_123",
+                "id": "80001",
                 "path": "/path/to/image.jpg",
                 "size": 12345,
                 "width": 1920,
@@ -59,7 +59,7 @@ class TestFileHandling:
 
         # Verify file returned and basic properties
         assert file is not None
-        assert file.id == "file_123"
+        assert file.id == "80001"
         assert file.path == "/path/to/image.jpg"
         assert file.size == 12345
 
@@ -67,7 +67,7 @@ class TestFileHandling:
         # This simulates what Stash returns for animated GIFs
         mock_image.visual_files = [
             {
-                "id": "file_gif_123",
+                "id": "80002",
                 "path": "/path/to/animation.gif",
                 "basename": "animation.gif",
                 "parent_folder_id": "folder_123",
@@ -119,7 +119,7 @@ class TestFileHandling:
 
         # Test with multiple files (should return first)
         # Use VideoFileFactory instead of MagicMock
-        mock_video_file2 = VideoFileFactory.build(id="file_789")
+        mock_video_file2 = VideoFileFactory.build(id="80003")
         mock_scene.files = [mock_video_file, mock_video_file2]
 
         file = respx_stash_processor._get_file_from_stash_obj(mock_scene)
@@ -165,7 +165,7 @@ class TestFileHandling:
         # Response 1: findImage - return an image with visual_files
         image_file = {
             "__typename": "ImageFile",
-            "id": "file_image_123",
+            "id": "80004",
             "path": "/path/to/image.jpg",
             "basename": "image.jpg",
             "size": 1024,
@@ -177,7 +177,7 @@ class TestFileHandling:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
-            id="image_123",
+            id="45001",
             title="Test Image",
             visual_files=[image_file],
         )
@@ -185,7 +185,7 @@ class TestFileHandling:
         # Response 2: findScene - return a scene with files
         video_file = {
             "__typename": "VideoFile",
-            "id": "file_scene_123",
+            "id": "80005",
             "path": "/path/to/video.mp4",
             "basename": "video.mp4",
             "size": 2048,
@@ -202,7 +202,7 @@ class TestFileHandling:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         scene_result = create_scene_dict(
-            id="scene_123",
+            id="55001",
             title="Test Scene",
             files=[video_file],
         )
@@ -220,8 +220,8 @@ class TestFileHandling:
 
         # Test with mix of image and scene stash IDs
         stash_files = [
-            ("image_123", "image/jpeg"),
-            ("scene_123", "video/mp4"),
+            ("45001", "image/jpeg"),
+            ("55001", "video/mp4"),
         ]
 
         # Call method
@@ -232,13 +232,13 @@ class TestFileHandling:
 
         # Verify first result is the image
         image_obj, image_file_obj = results[0]
-        assert image_obj.id == "image_123"
+        assert image_obj.id == "45001"
         assert isinstance(image_file_obj, ImageFile)
         assert image_file_obj.path == "/path/to/image.jpg"
 
         # Verify second result is the scene
         scene_obj, video_file_obj = results[1]
-        assert scene_obj.id == "scene_123"
+        assert scene_obj.id == "55001"
         assert isinstance(video_file_obj, VideoFile)
         assert video_file_obj.path == "/path/to/video.mp4"
 
@@ -254,7 +254,7 @@ class TestFileHandling:
         # Response 1: findImages - return images with path filter match
         image_file = {
             "__typename": "ImageFile",
-            "id": "file_test123",
+            "id": "80006",
             "path": "/path/to/media_test123.jpg",
             "basename": "media_test123.jpg",
             "size": 1024,
@@ -266,7 +266,7 @@ class TestFileHandling:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
-            id="img_test123",
+            id="45002",
             title="Test Image",
             visual_files=[image_file],
         )
@@ -297,6 +297,6 @@ class TestFileHandling:
 
         # Verify result structure
         image_obj, file_obj = results[0]
-        assert image_obj.id == "img_test123"
+        assert image_obj.id == "45002"
         assert isinstance(file_obj, ImageFile)
         assert file_obj.path == "/path/to/media_test123.jpg"

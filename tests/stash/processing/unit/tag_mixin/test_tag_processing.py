@@ -21,7 +21,7 @@ from tests.fixtures import (
 def mock_stash_tag():
     """Create a mock Stash tag using factory."""
     return TagFactory.build(
-        id="tag_123",
+        id="123",
         name="test_tag",
     )
 
@@ -49,7 +49,7 @@ async def test_process_hashtags_to_tags_single(respx_stash_processor):
 
     # Create tag response
     tag_dict = create_tag_dict(
-        id="tag_123",
+        id="123",
         name="testtag",
         aliases=[],
         parents=[],
@@ -86,7 +86,7 @@ async def test_process_hashtags_to_tags_not_found_creates_new(respx_stash_proces
     # Create responses
     empty_result = create_find_tags_result(count=0, tags=[])
     new_tag_dict = create_tag_dict(
-        id="new_tag_123",
+        id="200",
         name="newtag",
     )
 
@@ -131,8 +131,8 @@ async def test_process_hashtags_to_tags_multiple(respx_stash_processor):
     hashtag2 = HashtagFactory.build(value="tag2")
 
     # Create tag responses
-    tag1_dict = create_tag_dict(id="tag_1", name="tag1")
-    tag2_dict = create_tag_dict(id="tag_2", name="tag2")
+    tag1_dict = create_tag_dict(id="201", name="tag1")
+    tag2_dict = create_tag_dict(id="202", name="tag2")
 
     # Mock GraphQL responses - need to handle two findTags calls
     result1 = create_find_tags_result(count=1, tags=[tag1_dict])
@@ -164,7 +164,7 @@ async def test_add_preview_tag_not_found(respx_stash_processor):
     # Create Scene using factory
     from tests.fixtures import SceneFactory
 
-    scene = SceneFactory.build(id="scene_123", title="Test Scene", tags=[])
+    scene = SceneFactory.build(id="300", title="Test Scene", tags=[])
 
     # Mock empty findTags response
     empty_result = create_find_tags_result(count=0, tags=[])
@@ -188,10 +188,10 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     # Create Scene using factory
     from tests.fixtures import SceneFactory
 
-    scene = SceneFactory.build(id="scene_123", title="Test Scene", tags=[])
+    scene = SceneFactory.build(id="300", title="Test Scene", tags=[])
 
     # Create Trailer tag response
-    trailer_tag_dict = create_tag_dict(id="trailer_tag_123", name="Trailer")
+    trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
     result = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
     respx.post("http://localhost:9999/graphql").mock(
@@ -206,7 +206,7 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
 
     # Verify the tag was added to scene
     assert len(scene.tags) == 1
-    assert scene.tags[0].id == "trailer_tag_123"
+    assert scene.tags[0].id == "400"
     assert scene.tags[0].name == "Trailer"
 
 
@@ -214,19 +214,19 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
 async def test_add_preview_tag_already_has_tag(respx_stash_processor):
     """Test add_preview_tag when scene already has the Trailer tag."""
     # Create Trailer tag using factory
-    trailer_tag = TagFactory.build(id="trailer_tag_123", name="Trailer")
+    trailer_tag = TagFactory.build(id="400", name="Trailer")
 
     # Create Scene with Trailer tag already added
     from tests.fixtures import SceneFactory
 
     scene = SceneFactory.build(
-        id="scene_123",
+        id="300",
         title="Test Scene",
         tags=[trailer_tag],
     )
 
     # Create response
-    trailer_tag_dict = create_tag_dict(id="trailer_tag_123", name="Trailer")
+    trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
     result = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
     respx.post("http://localhost:9999/graphql").mock(
@@ -241,4 +241,4 @@ async def test_add_preview_tag_already_has_tag(respx_stash_processor):
 
     # Verify the tag was NOT added again (still only one)
     assert len(scene.tags) == 1
-    assert scene.tags[0].id == "trailer_tag_123"
+    assert scene.tags[0].id == "400"

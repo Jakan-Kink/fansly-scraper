@@ -294,7 +294,8 @@ async def test_process_message_with_media(
             else 0
         )
 
-        base_calls = 4
+        # SGC v0.12 inserts a populate() filter-query before galleryCreate (+1 call)
+        base_calls = 5
         media_lookup_calls = (
             individual_image_calls
             + individual_video_calls
@@ -335,9 +336,14 @@ async def test_process_message_with_media(
         assert "findGalleries" in calls[2]["result"]
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        create_input = calls[3]["variables"]["input"]
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        # SGC v0.12 inlines filter values into the query string (no variables)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        create_input = calls[4]["variables"]["input"]
         assert create_input["title"] == message.content
         assert create_input["code"] == str(message.id)
         assert expected_url in create_input["urls"]
@@ -345,28 +351,33 @@ async def test_process_message_with_media(
         assert create_input["organized"] is True
         assert create_input["studio_id"] == str(studio.id)
         assert create_input["performer_ids"] == [str(performer.id)]
-        assert "galleryCreate" in calls[3]["result"]
-        created_gallery_id = calls[3]["result"]["galleryCreate"]["id"]
+        assert "galleryCreate" in calls[4]["result"]
+        created_gallery_id = calls[4]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 
-        # Calls 4+: findImages/findScenes
-        find_calls = calls[4:]
+        # Calls 5+: findImages/findScenes
+        find_calls = calls[5:]
         has_find_images = False
         has_find_scenes = False
 
         for call in find_calls:
+            # populate()'s filter-query inlines values and omits variables;
+            # skip such calls when scanning for the real image/scene lookups.
+            variables = call.get("variables") or {}
             if "findImages" in call["query"]:
-                assert "image_filter" in call["variables"]
+                if "image_filter" not in variables:
+                    continue
                 assert (
-                    "OR" in call["variables"]["image_filter"]
-                    or "path" in call["variables"]["image_filter"]
+                    "OR" in variables["image_filter"]
+                    or "path" in variables["image_filter"]
                 )
                 has_find_images = True
             elif "findScenes" in call["query"]:
-                assert "scene_filter" in call["variables"]
+                if "scene_filter" not in variables:
+                    continue
                 assert (
-                    "OR" in call["variables"]["scene_filter"]
-                    or "path" in call["variables"]["scene_filter"]
+                    "OR" in variables["scene_filter"]
+                    or "path" in variables["scene_filter"]
                 )
                 has_find_scenes = True
 
@@ -496,8 +507,9 @@ async def test_process_message_with_bundle(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        assert len(calls) >= 4, (
-            f"Expected at least 4 GraphQL calls (base gallery operations), got {len(calls)}"
+        # SGC v0.12 inserts a populate() filter-query before galleryCreate (+1 call)
+        assert len(calls) >= 5, (
+            f"Expected at least 5 GraphQL calls (base gallery operations), got {len(calls)}"
         )
 
         # Call 0: findGalleries (by code)
@@ -526,17 +538,21 @@ async def test_process_message_with_bundle(
         assert "findGalleries" in calls[2]["result"]
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        assert str(message.id) == calls[3]["variables"]["input"]["code"]
-        assert expected_url in calls[3]["variables"]["input"]["urls"]
-        assert calls[3]["variables"]["input"]["organized"] is True
-        assert str(studio.id) == calls[3]["variables"]["input"]["studio_id"]
-        assert "galleryCreate" in calls[3]["result"]
-        created_gallery_id = calls[3]["result"]["galleryCreate"]["id"]
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        assert str(message.id) == calls[4]["variables"]["input"]["code"]
+        assert expected_url in calls[4]["variables"]["input"]["urls"]
+        assert calls[4]["variables"]["input"]["organized"] is True
+        assert str(studio.id) == calls[4]["variables"]["input"]["studio_id"]
+        assert "galleryCreate" in calls[4]["result"]
+        created_gallery_id = calls[4]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 
-        if len(calls) > 4:
+        if len(calls) > 5:
             find_images_calls = [c for c in calls if "findImages" in c["query"]]
             if find_images_calls:
                 assert len(find_images_calls) >= 1
@@ -640,7 +656,8 @@ async def test_process_message_with_variants(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        assert len(calls) >= 5, f"Expected at least 5 GraphQL calls, got {len(calls)}"
+        # SGC v0.12 inserts a populate() filter-query before galleryCreate (+1 call)
+        assert len(calls) >= 6, f"Expected at least 6 GraphQL calls, got {len(calls)}"
 
         # Call 0: findGalleries (by code)
         assert "findGalleries" in calls[0]["query"]
@@ -668,29 +685,33 @@ async def test_process_message_with_variants(
         assert "findGalleries" in calls[2]["result"]
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
-        # Call 3: galleryCreate
-        assert "galleryCreate" in calls[3]["query"]
-        assert str(message.id) == calls[3]["variables"]["input"]["code"]
-        assert expected_url == calls[3]["variables"]["input"]["urls"][0]
-        assert calls[3]["variables"]["input"]["organized"] is True
-        assert str(studio.id) == calls[3]["variables"]["input"]["studio_id"]
-        assert "galleryCreate" in calls[3]["result"]
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
+        assert str(message.id) == calls[4]["variables"]["input"]["code"]
+        assert expected_url == calls[4]["variables"]["input"]["urls"][0]
+        assert calls[4]["variables"]["input"]["organized"] is True
+        assert str(studio.id) == calls[4]["variables"]["input"]["studio_id"]
+        assert "galleryCreate" in calls[4]["result"]
 
         # Find the FindScenes call
         scene_calls = [
             c
-            for c in calls[4:]
+            for c in calls[5:]
             if "FindScenes" in c.get("query", "") or "findScenes" in c.get("query", "")
         ]
         assert len(scene_calls) >= 1, (
             f"Expected at least 1 FindScenes call after gallery creation, "
-            f"got calls: {[c['query'][:40] for c in calls[4:]]}"
+            f"got calls: {[c['query'][:40] for c in calls[5:]]}"
         )
         scene_call = scene_calls[0]
         assert str(media.id) in scene_call["variables"]["scene_filter"]["path"]["value"]
         assert scene_call["result"]["findScenes"]["count"] == 0
 
-        created_gallery_id = calls[3]["result"]["galleryCreate"]["id"]
+        created_gallery_id = calls[4]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 
 
@@ -806,13 +827,14 @@ async def test_process_message_batch(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        assert len(calls) >= 12, (
-            f"Expected at least 12 GraphQL calls (base gallery operations), got {len(calls)}"
+        # SGC v0.12 inserts +1 populate() filter-query per gallery create
+        assert len(calls) >= 15, (
+            f"Expected at least 15 GraphQL calls (base gallery operations), got {len(calls)}"
         )
 
         # Verify first message gallery operations
         assert "findGalleries" in calls[0]["query"]
-        assert "code" in calls[0]["variables"]["gallery_filter"]
+        assert "code" in calls[0].get("variables", {}).get("gallery_filter", {})
         assert calls[0]["variables"]["gallery_filter"]["code"]["value"] == str(
             messages[0].id
         )
@@ -823,18 +845,26 @@ async def test_process_message_batch(
         assert "findGalleries" in calls[2]["query"]
         assert "url" in calls[2]["variables"]["gallery_filter"]
 
-        assert "galleryCreate" in calls[3]["query"]
+        # Call 3: findGalleries (populate() filter-query for performers relationship)
+        # SGC v0.12 inlines values; no variables field
+        assert "findGalleries" in calls[3]["query"]
+        assert "performers" in calls[3]["query"]
+
+        # Call 4: galleryCreate
+        assert "galleryCreate" in calls[4]["query"]
 
         gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
         assert 1 <= len(gallery_creates) <= 3, (
             f"Expected 1-3 galleries (deduplication), got {len(gallery_creates)}"
         )
 
+        # findGalleries by code is distinct from the populate() filter-query, which
+        # uses performers filter. Guard against the filter-query (no variables).
         find_galleries_by_code = [
             c
             for c in calls
             if "findGalleries" in c["query"]
-            and "code" in c["variables"]["gallery_filter"]
+            and "code" in c.get("variables", {}).get("gallery_filter", {})
         ]
         assert len(find_galleries_by_code) == 3, (
             f"Expected 3 findGalleries by code, got {len(find_galleries_by_code)}"
