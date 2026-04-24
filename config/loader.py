@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import configparser
 import copy
-import fcntl
 from datetime import UTC, datetime
 from pathlib import Path
 
+from filelock import FileLock, Timeout
 from loguru import logger
 from pydantic import SecretStr
 
@@ -219,12 +219,13 @@ def migrate_ini_to_yaml(
         )
 
     # --- Acquire an exclusive non-blocking file lock to prevent concurrent migration ---
+    # filelock chooses the right platform primitive (fcntl.flock on POSIX,
+    # msvcrt.locking on Windows), so this path works on both.
     lock_path = ini_path.with_name(f"{ini_path.name}.migrating.lock")
-    lock_fd = lock_path.open("a")
+    lock = FileLock(str(lock_path), blocking=False)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
-        lock_fd.close()
+        lock.acquire()
+    except Timeout as exc:
         raise ConfigError(
             f"Another process is migrating {ini_path}. "
             f"Lock held by: {lock_path}. Retry after the other process finishes."
@@ -258,11 +259,9 @@ def migrate_ini_to_yaml(
         # --- Step 4: Rename the ini to a timestamped backup ---
         ini_path.rename(backup_path)
     finally:
-        # Release the lock (closing the fd implicitly releases flock on this fd).
-        # The lock file is intentionally left on disk — removing it would open a
-        # TOCTOU race with a concurrent acquirer that just opened but not yet locked.
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        lock_fd.close()
+        # Release the lock; filelock cleans up the on-disk lock file safely
+        # (no TOCTOU window — the unlink happens while we still hold the lock).
+        lock.release()
 
     return schema_from_ini
 

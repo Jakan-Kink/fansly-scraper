@@ -21,6 +21,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.13.1] - 2026-04-23
+
+Patch release fixing two issues reported on Windows + Python 3.14, plus
+rolling up incidental `fork-main` commits since v0.13.0.
+
+### Added
+
+- `docs/reference/request-signing.md` — reverse-engineered notes on Fansly's
+  request-signing scheme.
+
+### Changed
+
+- **Dependency**: added `filelock ^3.29.0` as a direct runtime dep, replacing
+  POSIX-only `fcntl` usage in the `config.ini → config.yaml` migration lock
+  (see #77). filelock picks the right platform primitive automatically
+  (`fcntl.flock` on POSIX, `msvcrt.locking` on Windows).
+- `poetry.lock` and pre-commit hook versions refreshed.
+
+### Fixed
+
+- **#77** — Unconditional `import fcntl` at `config/loader.py:28` crashed app
+  startup on Windows (fcntl is POSIX-only). Swapped to
+  [filelock](https://github.com/tox-dev/filelock) with identical non-blocking
+  semantics. Bonus: filelock cleans up stale `config.ini.migrating.lock` files
+  on release (safe — unlink happens while the lock is still held, no TOCTOU).
+- **#78** — Fansly returns `locations=[{"location": null, "locationId": 1}]`
+  for some media (Direct slots with no CDN path resolved yet), which the
+  required-str typing on `MediaLocation.location` rejected with 8 Pydantic
+  validation errors per affected `Media`. Relaxed the field to `str | None`
+  and the DB column to NULL-tolerant (Alembic migration
+  `bb7006ec7c0e_make_media_locations_location_nullable`). Downstream readers
+  at `media/media.py:27` already handled `None` via the `loc.raw_url or
+  loc.location` fallback.
+
 ## [0.13.0] - 2026-04-22
 
 First release under the Keep-a-Changelog format. Flagship feature: the
@@ -126,5 +160,6 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0

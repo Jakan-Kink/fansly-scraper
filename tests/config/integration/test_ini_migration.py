@@ -7,13 +7,13 @@ call migrate_ini_to_yaml, inspect the produced YAML and backup file.
 
 from __future__ import annotations
 
-import fcntl
 import shutil
 import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from filelock import FileLock
 from pydantic import SecretStr
 
 from config.loader import migrate_ini_to_yaml
@@ -525,9 +525,9 @@ def test_migration_from_legacy_ini_fixture(tmp_path: Path) -> None:
 def test_migration_lock_happy_path(tmp_path: Path) -> None:
     """Migration acquires a .migrating.lock file, completes, and releases it.
 
-    The lock file remains on disk after migration (intentional — removing it
-    mid-race creates a TOCTOU window).  The lock is released so another
-    migration can proceed immediately after.
+    The lock is released so another migration can proceed immediately after.
+    filelock cleans up the on-disk lock file on release; the acquire-after-
+    release test below verifies the lock state, not the file's persistence.
     """
     ini_path = tmp_path / "config.ini"
     yaml_path = tmp_path / "config.yaml"
@@ -570,17 +570,11 @@ def test_migration_lock_happy_path(tmp_path: Path) -> None:
     assert isinstance(schema, ConfigSchema)
     assert yaml_path.exists()
 
-    # Lock file exists on disk (left intentionally — harmless, advisory)
-    assert lock_path.exists()
-
-    # The lock is RELEASED — we can acquire it ourselves immediately
-    fd = lock_path.open("a")
-    try:
-        # This must not raise (non-blocking exclusive acquire succeeds)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        fd.close()
+    # The lock is RELEASED — we can acquire it ourselves immediately.
+    # This must not raise (non-blocking exclusive acquire succeeds).
+    verify_lock = FileLock(str(lock_path), blocking=False)
+    verify_lock.acquire()
+    verify_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -626,11 +620,9 @@ def test_migration_lock_contention_raises_config_error(tmp_path: Path) -> None:
     )
 
     # Simulate "another process" by acquiring the lock ourselves before calling migrate
-    lock_path.touch()
-    holder_fd = lock_path.open("a")
+    holder = FileLock(str(lock_path), blocking=False)
+    holder.acquire()
     try:
-        fcntl.flock(holder_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
         with pytest.raises(ConfigError, match=r"(?i)another process is migrating"):
             migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="contention")
 
@@ -638,8 +630,7 @@ def test_migration_lock_contention_raises_config_error(tmp_path: Path) -> None:
         assert ini_path.exists()
         assert not yaml_path.exists()
     finally:
-        fcntl.flock(holder_fd, fcntl.LOCK_UN)
-        holder_fd.close()
+        holder.release()
 
 
 # ---------------------------------------------------------------------------

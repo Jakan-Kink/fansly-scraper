@@ -97,7 +97,7 @@ media_locations = Table(
     metadata,
     Column("mediaId", BigInteger, ForeignKey("media.id"), primary_key=True),
     Column("locationId", BigInteger, primary_key=True),
-    Column("location", String, nullable=False),
+    Column("location", String, nullable=True),
     # Explicit UC exists in the database (created by migration), redundant with PK
     # but kept here to match the actual schema for zero Alembic drift.
     UniqueConstraint("mediaId", "locationId"),
