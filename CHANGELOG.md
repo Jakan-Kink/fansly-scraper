@@ -160,5 +160,6 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0
