@@ -343,7 +343,10 @@ class StashProcessingBase(StashProcessingProtocol):
                     finished_job = await self.context.client.wait_for_job(job_id)
                 except Exception:
                     finished_job = False
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
+            # ValueError catches the lib's own failure shape:
+            # stash_graphql_client's ``metadata_scan`` raises
+            # ``ValueError("Failed to start metadata scan: ...")``
             raise RuntimeError(f"Failed to process metadata: {e}") from e
 
     async def start_creator_processing(self) -> None:

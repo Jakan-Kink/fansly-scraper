@@ -195,39 +195,41 @@ async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
     # Mock the API call for the 2 missing accountMedia items
     # get_with_ngsw does OPTIONS preflight + GET
     respx.options(url__regex=r".*account/media.*").mock(
-        return_value=httpx.Response(200),
+        side_effect=[httpx.Response(200)],
     )
     respx.get(url__regex=r".*account/media.*").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "success": True,
-                "response": [
-                    {
-                        "id": str(am_ids[5]),
-                        "accountId": str(account_id),
-                        "mediaId": str(media_ids[5]),
-                        "createdAt": int(datetime.now(UTC).timestamp()),
-                        "media": {
-                            "id": str(media_ids[5]),
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": [
+                        {
+                            "id": str(am_ids[5]),
                             "accountId": str(account_id),
-                            "mimetype": "image/jpeg",
+                            "mediaId": str(media_ids[5]),
+                            "createdAt": int(datetime.now(UTC).timestamp()),
+                            "media": {
+                                "id": str(media_ids[5]),
+                                "accountId": str(account_id),
+                                "mimetype": "image/jpeg",
+                            },
                         },
-                    },
-                    {
-                        "id": str(am_ids[6]),
-                        "accountId": str(account_id),
-                        "mediaId": str(media_ids[6]),
-                        "createdAt": int(datetime.now(UTC).timestamp()),
-                        "media": {
-                            "id": str(media_ids[6]),
+                        {
+                            "id": str(am_ids[6]),
                             "accountId": str(account_id),
-                            "mimetype": "image/jpeg",
+                            "mediaId": str(media_ids[6]),
+                            "createdAt": int(datetime.now(UTC).timestamp()),
+                            "media": {
+                                "id": str(media_ids[6]),
+                                "accountId": str(account_id),
+                                "mimetype": "image/jpeg",
+                            },
                         },
-                    },
-                ],
-            },
-        ),
+                    ],
+                },
+            ),
+        ],
     )
 
     # Bundle dict as it comes from the API — all 7 IDs listed,

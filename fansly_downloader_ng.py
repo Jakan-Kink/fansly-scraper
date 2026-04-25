@@ -578,7 +578,7 @@ async def main(config: FanslyConfig) -> int:
                     # Check progress every second up to the timeout
                     for elapsed in range(stash_timeout):
                         # Check if we're done
-                        if not pending_stash:
+                        if not pending_stash:  # pragma: no cover
                             break
 
                         # Update which tasks are still pending

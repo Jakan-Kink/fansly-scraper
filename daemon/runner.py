@@ -276,7 +276,9 @@ async def _handle_full_creator_item(
         await download_timeline(config, state)
         await download_stories(config, state, mark_viewed=False)
         await download_messages(config, state)
-        await download_wall(config, state)
+        if state.walls:
+            for wall_id in sorted(state.walls):
+                await download_wall(config, state, wall_id)
     except Exception as exc:
         logger.opt(exception=exc).error(
             "daemon.runner: FullCreatorDownload failed for {} - {}",
@@ -408,7 +410,19 @@ async def _handle_timeline_only_item(
         config: FanslyConfig instance.
         item: Work item specifying the creator whose timeline to download.
     """
-    state = DownloadState(creator_id=item.creator_id, creator_name="")
+    # Resolve creator_name from the local store first; an empty string
+    # would slip past the ``state.creator_name is None`` check in
+    # ``_get_account_response`` and produce ``/account?usernames=`` with
+    # no value. Mirrors _handle_full_creator_item:260.
+    creator_name = await _resolve_creator_name(item.creator_id)
+    if creator_name is None:
+        logger.warning(
+            "daemon.runner: skipping DownloadTimelineOnly - unknown creator {}",
+            item.creator_id,
+        )
+        return
+
+    state = DownloadState(creator_id=item.creator_id, creator_name=creator_name)
     try:
         await get_creator_account_info(config, state)
         await download_timeline(config, state)
@@ -781,6 +795,11 @@ async def _refresh_following(config: FanslyConfig) -> None:
     """
     try:
         state = DownloadState()
+        # Resolve client account first so state.creator_id is set;
+        # get_following_accounts requires it (otherwise raises
+        # RuntimeError("client ID not set") and the refresh silently
+        # no-ops). Mirrors fansly_downloader_ng.py:353-361.
+        await get_creator_account_info(config, state)
         new_names = await get_following_accounts(config, state)
         if new_names:
             config.user_names = new_names

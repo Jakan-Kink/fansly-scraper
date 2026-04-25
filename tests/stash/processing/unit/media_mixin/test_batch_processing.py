@@ -1,24 +1,67 @@
-"""Tests for media batch processing methods.
+"""Tests for media batch chunking and routing logic.
 
-This module tests the batch processing methods that handle collections of media
-objects efficiently by grouping them by mimetype and processing in batches.
+Two distinct concerns under test:
 
-Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
+* **Chunking** (tests 1-2): ``_process_media_batch_by_mimetype`` splits
+  ``media_list`` into chunks of ``max_batch_size = 20`` before delegating
+  to ``_process_batch_internal``. Verified by TrueSpy on the inner method
+  per the canonical pattern at
+  ``tests/stash/processing/integration/test_message_processing.py:173-238``.
+* **Routing** (tests 3-5): ``_process_batch_internal`` groups media by
+  ``stash_id`` vs path-based, then groups path media by image vs scene
+  mimetype. Verified by patching the EntityStore leaves
+  (``store.get_many`` / ``store.find_iter``, both rule-compliant external
+  lib leaves per CLAUDE.md) to inject organized fakes, which causes
+  ``_update_stash_metadata`` to take its production short-circuit at
+  ``stash/processing/mixins/media.py:472-486`` instead of issuing
+  GraphQL update mutations.
 """
 
-from unittest.mock import AsyncMock, patch
+from collections.abc import AsyncIterator
+from unittest.mock import patch
 
 import pytest
-from stash_graphql_client.types import Studio
+from stash_graphql_client.types import Image, Scene, Studio
 
 from tests.fixtures.metadata.metadata_factories import MediaFactory
 from tests.fixtures.stash.stash_type_factories import (
-    ImageFactory,
     ImageFileFactory,
-    SceneFactory,
     VideoFileFactory,
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
+
+
+def _organized_image(stash_id: str | int, path: str | None = None) -> Image:
+    """Build an Image with ``organized=True`` so the metadata update short-circuits."""
+    return Image(
+        id=str(stash_id),
+        organized=True,
+        visual_files=[ImageFileFactory(path=path or f"/stash/{stash_id}.jpg")],
+    )
+
+
+def _organized_scene(stash_id: str | int, path: str | None = None) -> Scene:
+    """Build a Scene with ``organized=True`` so the metadata update short-circuits."""
+    return Scene(
+        id=str(stash_id),
+        organized=True,
+        files=[VideoFileFactory(path=path or f"/stash/{stash_id}.mp4")],
+    )
+
+
+def _async_iter(items: list) -> AsyncIterator:
+    """Wrap a list as an async iterator (matches ``store.find_iter`` shape)."""
+
+    async def _gen():
+        for item in items:
+            yield item
+
+    return _gen()
+
+
+@pytest.fixture
+def fake_studio():
+    return Studio(id="9999", name="test_user (Fansly)")
 
 
 class TestBatchProcessing:
@@ -26,263 +69,199 @@ class TestBatchProcessing:
 
     @pytest.mark.asyncio
     async def test_process_media_batch_small(
-        self, respx_stash_processor, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
     ):
-        """Test _process_media_batch_by_mimetype with small batch (< 20 items)."""
-        # Create a small batch of media (under max_batch_size of 20)
-        media_list = []
-        for i in range(5):
-            media = MediaFactory.build(
+        """``_process_media_batch_by_mimetype`` does not split when batch <= 20."""
+        media_list = [
+            MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
                 stash_id=20000 + i,
             )
-            media_list.append(media)
+            for i in range(5)
+        ]
 
-        # Track calls to the internal processing method
-        internal_calls = []
+        # Pre-set studio (production short-circuit; see _process_batch_internal:996-998).
+        respx_stash_processor._studio = fake_studio
+        # store.get_many is the external-lib leaf called by _find_stash_files_by_id;
+        # returning [] is sufficient — the chunking math under test is upstream.
+        monkeypatch.setattr(
+            respx_stash_processor.store,
+            "get_many",
+            lambda *_args, **_kwargs: _empty_list(),
+        )
 
-        async def mock_process_internal(media_list, item, account):
-            internal_calls.append(
-                {
-                    "media_count": len(media_list),
-                    "media_ids": [m.id for m in media_list],
-                }
+        captured_chunks = []
+        original_process_batch = respx_stash_processor._process_batch_internal
+
+        async def spy_process_batch(media_list, item, account):
+            captured_chunks.append(
+                {"size": len(media_list), "ids": [m.id for m in media_list]}
             )
-            # Return fake results
-            return {"images": [ImageFactory() for _ in media_list], "scenes": []}
+            return await original_process_batch(media_list, item, account)
 
-        # Mock the internal batch processing method
         with patch.object(
-            respx_stash_processor, "_process_batch_internal", mock_process_internal
+            respx_stash_processor,
+            "_process_batch_internal",
+            side_effect=spy_process_batch,
         ):
-            # Call the method
             result = await respx_stash_processor._process_media_batch_by_mimetype(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
             )
 
-            # Verify it called _process_batch_internal ONCE (no splitting)
-            assert len(internal_calls) == 1
-            assert internal_calls[0]["media_count"] == 5
-
-            # Verify results
-            assert len(result["images"]) == 5
-            assert len(result["scenes"]) == 0
+        # Single delegated call carrying all 5 items.
+        assert len(captured_chunks) == 1
+        assert captured_chunks[0]["size"] == 5
+        assert "images" in result
+        assert "scenes" in result
 
     @pytest.mark.asyncio
     async def test_process_media_batch_large(
-        self, respx_stash_processor, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
     ):
-        """Test _process_media_batch_by_mimetype splits large batches (> 20 items)."""
-        # Create a large batch that exceeds max_batch_size of 20
-        media_list = []
-        for i in range(45):  # 45 items should split into 3 batches (20+20+5)
-            media = MediaFactory.build(
+        """``_process_media_batch_by_mimetype`` splits 45 items into 20+20+5."""
+        media_list = [
+            MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
                 stash_id=30000 + i,
             )
-            media_list.append(media)
+            for i in range(45)
+        ]
 
-        # Track calls to the internal processing method
-        internal_calls = []
+        respx_stash_processor._studio = fake_studio
+        monkeypatch.setattr(
+            respx_stash_processor.store,
+            "get_many",
+            lambda *_args, **_kwargs: _empty_list(),
+        )
 
-        async def mock_process_internal(media_list, item, account):
-            internal_calls.append(
-                {
-                    "media_count": len(media_list),
-                }
-            )
-            # Return fake results
-            return {"images": [ImageFactory() for _ in media_list], "scenes": []}
+        captured_chunks = []
+        original_process_batch = respx_stash_processor._process_batch_internal
 
-        # Mock the internal batch processing method
+        async def spy_process_batch(media_list, item, account):
+            captured_chunks.append({"size": len(media_list)})
+            return await original_process_batch(media_list, item, account)
+
         with patch.object(
-            respx_stash_processor, "_process_batch_internal", mock_process_internal
+            respx_stash_processor,
+            "_process_batch_internal",
+            side_effect=spy_process_batch,
         ):
-            # Call the method
-            result = await respx_stash_processor._process_media_batch_by_mimetype(
+            await respx_stash_processor._process_media_batch_by_mimetype(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
             )
 
-            # Verify it split into multiple batches (3 batches: 20, 20, 5)
-            assert len(internal_calls) == 3
-            assert internal_calls[0]["media_count"] == 20
-            assert internal_calls[1]["media_count"] == 20
-            assert internal_calls[2]["media_count"] == 5
-
-            # Verify all results were collected
-            assert len(result["images"]) == 45
-            assert len(result["scenes"]) == 0
+        # Chunk sizes match max_batch_size=20 split of 45 items.
+        assert [c["size"] for c in captured_chunks] == [20, 20, 5]
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_stash_ids(
-        self, respx_stash_processor, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
     ):
-        """Test _process_batch_internal processes media with stash_ids."""
-        # Create media with stash_ids
-        media_list = []
-        for i in range(3):
-            media = MediaFactory.build(
+        """Media with ``stash_id`` route through ``store.get_many`` once per type."""
+        media_list = [
+            MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
                 stash_id=40000 + i,
             )
-            media_list.append(media)
+            for i in range(3)
+        ]
 
-        # Mock the stash file lookup methods
-        find_by_id_calls = []
+        respx_stash_processor._studio = fake_studio
 
-        async def mock_find_by_id(lookup_data):
-            find_by_id_calls.append({"lookup_count": len(lookup_data)})
-            # Return fake results
-            results = []
-            for stash_id, _mimetype in lookup_data:
-                image = ImageFactory(id=str(stash_id))
-                image_file = ImageFileFactory()
-                results.append((image, image_file))
-            return results
+        captured_get_many = []
 
-        update_calls = []
-
-        async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False, studio=None
-        ):
-            update_calls.append(
-                {
-                    "stash_obj_id": stash_obj.id,
-                    "media_id": media_id,
-                }
+        async def fake_get_many(entity_type, ids):
+            captured_get_many.append(
+                {"entity_type": entity_type.__name__, "ids": list(ids)}
             )
+            return [_organized_image(stash_id=i) for i in ids]
 
-        # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="9999", name="test (Fansly)")
+        monkeypatch.setattr(respx_stash_processor.store, "get_many", fake_get_many)
 
-        # Mock the methods using patch.object
-        with (
-            patch.object(
-                respx_stash_processor,
-                "_find_existing_studio",
-                AsyncMock(return_value=mock_studio),
-            ),
-            patch.object(
-                respx_stash_processor, "_find_stash_files_by_id", mock_find_by_id
-            ),
-            patch.object(
-                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
-            ),
-        ):
-            # Call the method
-            result = await respx_stash_processor._process_batch_internal(
-                media_list=media_list,
-                item=mock_item,
-                account=mock_account,
-            )
+        result = await respx_stash_processor._process_batch_internal(
+            media_list=media_list,
+            item=mock_item,
+            account=mock_account,
+        )
 
-            # Verify it called _find_stash_files_by_id
-            assert len(find_by_id_calls) == 1
-            assert find_by_id_calls[0]["lookup_count"] == 3
+        # Single Image-typed lookup carrying all 3 stash_ids.
+        assert len(captured_get_many) == 1
+        assert captured_get_many[0]["entity_type"] == "Image"
+        assert len(captured_get_many[0]["ids"]) == 3
 
-            # Verify metadata was updated for each media
-            assert len(update_calls) == 3
-
-            # Verify results
-            assert len(result["images"]) == 3
-            assert len(result["scenes"]) == 0
+        # All 3 organized Images flowed into result.
+        assert len(result["images"]) == 3
+        assert len(result["scenes"]) == 0
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_paths(
-        self, respx_stash_processor, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
     ):
-        """Test _process_batch_internal processes media without stash_ids (path-based)."""
-        # Create media WITHOUT stash_ids (will use path-based lookup)
+        """Media without ``stash_id`` route through ``store.find_iter`` for path lookup."""
         media_list = []
-        for _i in range(3):
+        for _ in range(3):
             media = MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
-                # NO stash_id - will trigger path-based lookup
+                # No stash_id → path-based lookup.
             )
-            media.variants = set()  # No variants
+            media.variants = set()
             media_list.append(media)
 
-        # Mock the path-based lookup methods
-        find_by_path_calls = []
+        respx_stash_processor._studio = fake_studio
 
-        async def mock_find_by_path(lookup_data):
-            find_by_path_calls.append({"lookup_count": len(lookup_data)})
-            # Return fake results
-            results = []
-            for path, _mimetype in lookup_data:
-                image = ImageFactory()
-                image_file = ImageFileFactory(path=f"/stash/media/{path}.jpg")
-                results.append((image, image_file))
-            return results
+        captured_find_iter = []
 
-        update_calls = []
-
-        async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False, studio=None
-        ):
-            update_calls.append({"media_id": media_id})
-
-        # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="9999", name="test (Fansly)")
-
-        # Mock the methods using patch.object
-        with (
-            patch.object(
-                respx_stash_processor,
-                "_find_existing_studio",
-                AsyncMock(return_value=mock_studio),
-            ),
-            patch.object(
-                respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
-            ),
-            patch.object(
-                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
-            ),
-        ):
-            # Call the method
-            result = await respx_stash_processor._process_batch_internal(
-                media_list=media_list,
-                item=mock_item,
-                account=mock_account,
+        def fake_find_iter(entity_type, **filters):
+            captured_find_iter.append(
+                {"entity_type": entity_type.__name__, "filters": filters}
+            )
+            return _async_iter(
+                [
+                    _organized_image(
+                        stash_id=str(media.id), path=f"/stash/{media.id}.jpg"
+                    )
+                    for media in media_list
+                ]
             )
 
-            # Verify it called _find_stash_files_by_path (for images)
-            assert len(find_by_path_calls) == 1
-            assert find_by_path_calls[0]["lookup_count"] == 3
+        monkeypatch.setattr(respx_stash_processor.store, "find_iter", fake_find_iter)
 
-            # Verify metadata was updated
-            assert len(update_calls) == 3
+        result = await respx_stash_processor._process_batch_internal(
+            media_list=media_list,
+            item=mock_item,
+            account=mock_account,
+        )
 
-            # Verify results
-            assert len(result["images"]) == 3
-            assert len(result["scenes"]) == 0
+        # find_iter called for Image lookup (path-regex fallback path).
+        assert len(captured_find_iter) == 1
+        assert captured_find_iter[0]["entity_type"] == "Image"
+
+        assert len(result["images"]) == 3
+        assert len(result["scenes"]) == 0
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_mixed_mimetype(
-        self, respx_stash_processor, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
     ):
-        """Test _process_batch_internal with mixed mimetypes (images + videos)."""
-        # Create mixed media (images and videos)
+        """Mixed image+video media route to result['images'] and result['scenes']."""
         media_list = []
-
-        # Add 2 images
-        for _i in range(2):
+        for _ in range(2):
             media = MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="image/jpeg",
@@ -291,9 +270,7 @@ class TestBatchProcessing:
             )
             media.variants = set()
             media_list.append(media)
-
-        # Add 2 videos
-        for _i in range(2):
+        for _ in range(2):
             media = MediaFactory.build(
                 id=snowflake_id(),
                 mimetype="video/mp4",
@@ -303,62 +280,57 @@ class TestBatchProcessing:
             media.variants = set()
             media_list.append(media)
 
-        # Mock path-based lookup to return appropriate types
-        async def mock_find_by_path(lookup_data):
-            results = []
-            for path, mimetype in lookup_data:
-                if mimetype.startswith("image"):
-                    stash_obj = ImageFactory()
-                    file_obj = ImageFileFactory(path=f"/stash/media/{path}.jpg")
-                else:
-                    stash_obj = SceneFactory()
-                    file_obj = VideoFileFactory(path=f"/stash/media/{path}.mp4")
-                results.append((stash_obj, file_obj))
-            return results
+        image_ids = [m.id for m in media_list[:2]]
+        scene_ids = [m.id for m in media_list[2:]]
 
-        async def mock_update_metadata(*args, **kwargs):
-            """No-op async mock for metadata update."""
+        respx_stash_processor._studio = fake_studio
 
-        # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="9999", name="test (Fansly)")
-
-        # Mock the methods using patch.object
-        with (
-            patch.object(
-                respx_stash_processor,
-                "_find_existing_studio",
-                AsyncMock(return_value=mock_studio),
-            ),
-            patch.object(
-                respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
-            ),
-            patch.object(
-                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
-            ),
-        ):
-            # Call the method
-            result = await respx_stash_processor._process_batch_internal(
-                media_list=media_list,
-                item=mock_item,
-                account=mock_account,
+        def fake_find_iter(entity_type, **filters):
+            if entity_type is Image:
+                return _async_iter(
+                    [
+                        _organized_image(
+                            stash_id=str(media_id), path=f"/stash/{media_id}.jpg"
+                        )
+                        for media_id in image_ids
+                    ]
+                )
+            return _async_iter(
+                [
+                    _organized_scene(
+                        stash_id=str(media_id), path=f"/stash/{media_id}.mp4"
+                    )
+                    for media_id in scene_ids
+                ]
             )
 
-            # Verify results contain both images and scenes
-            assert len(result["images"]) == 2
-            assert len(result["scenes"]) == 2
+        monkeypatch.setattr(respx_stash_processor.store, "find_iter", fake_find_iter)
+
+        result = await respx_stash_processor._process_batch_internal(
+            media_list=media_list,
+            item=mock_item,
+            account=mock_account,
+        )
+
+        # Routing: images and scenes land in their respective result lists.
+        assert len(result["images"]) == 2
+        assert len(result["scenes"]) == 2
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_empty_list(
         self, respx_stash_processor, mock_item, mock_account
     ):
-        """Test _process_batch_internal handles empty media list gracefully."""
-        # Call with empty list
+        """Empty media_list → early return with empty dict."""
         result = await respx_stash_processor._process_batch_internal(
             media_list=[],
             item=mock_item,
             account=mock_account,
         )
 
-        # Verify empty results
         assert result["images"] == []
         assert result["scenes"] == []
+
+
+async def _empty_list():
+    """Async helper returning an empty list (for ``store.get_many`` stand-in)."""
+    return []

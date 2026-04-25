@@ -30,6 +30,7 @@ from tests.fixtures import (
     create_studio_dict,
 )
 from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_type_factories import JobFactory
 
 
@@ -595,38 +596,72 @@ class TestCreatorProcessing:
     async def test_scan_creator_folder_metadata_scan_error(
         self, respx_stash_processor, tmp_path
     ):
-        """Test scan_creator_folder raises ValueError when metadataScan fails."""
+        """scan_creator_folder re-raises GraphQL failures as RuntimeError.
+
+        The lib's ``metadata_scan`` raises ``ValueError("Failed to start
+        metadata scan: ...")`` on transport/GraphQL errors (see
+        ``stash_graphql_client/client/mixins/metadata.py:201-203``). The
+        production except at ``stash/processing/base.py:346`` catches both
+        ``RuntimeError`` and ``ValueError`` and re-raises as the documented
+        ``RuntimeError("Failed to process metadata: ...")`` with the
+        original exception chained via ``raise ... from e``.
+        """
         processor = respx_stash_processor
-        # Setup
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        # Mock GraphQL HTTP error response for metadataScan
+        # scan_creator_folder() first fetches ConfigurationDefaults (to get scan
+        # defaults), then issues the MetadataScan mutation. Both will hit this
+        # error response, and the code falls back to hardcoded defaults before
+        # raising on the scan itself. So exactly 2 GraphQL calls are expected.
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "data": {"metadataScan": None},
-                    "errors": [{"message": "Test error"}],
-                },
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {"metadataScan": None},
+                        "errors": [{"message": "Test error"}],
+                    },
+                )
+            ]
+            * 2
         )
 
-        # Initialize client
         await processor.context.get_client()
 
-        # Expect ValueError with specific message (actual error type from code)
-        with pytest.raises(
-            ValueError, match=r"Failed to start metadata scan"
-        ) as excinfo:
-            await processor.scan_creator_folder()
+        try:
+            with pytest.raises(
+                RuntimeError, match=r"Failed to process metadata"
+            ) as excinfo:
+                await processor.scan_creator_folder()
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_scan_creator_folder_metadata_scan_error"
+            )
 
-        # Verify error message includes both failure message and original error
+        # Outer message wraps the lib's ValueError via ``raise ... from e``.
+        assert "Failed to process metadata" in str(excinfo.value)
         assert "Failed to start metadata scan" in str(excinfo.value)
         assert "Test error" in str(excinfo.value)
+        # Cause is preserved as the lib's ValueError.
+        assert isinstance(excinfo.value.__cause__, ValueError)
+        assert "Failed to start metadata scan" in str(excinfo.value.__cause__)
 
-        # Verify respx was hit
-        assert graphql_route.called
+        # Exact count + per-call request + response verification.
+        assert len(graphql_route.calls) == 2, (
+            f"Expected exactly 2 GraphQL calls "
+            f"(ConfigurationDefaults + MetadataScan), got {len(graphql_route.calls)}"
+        )
+        req0 = json.loads(graphql_route.calls[0].request.content)
+        assert "ConfigurationDefaults" in req0["query"]
+        resp0 = graphql_route.calls[0].response.json()
+        assert resp0["errors"][0]["message"] == "Test error"
+
+        req1 = json.loads(graphql_route.calls[1].request.content)
+        assert "MetadataScan" in req1["query"]
+        assert req1["variables"]["input"]["paths"] == [str(processor.state.base_path)]
+        resp1 = graphql_route.calls[1].response.json()
+        assert resp1["errors"][0]["message"] == "Test error"
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_no_base_path(

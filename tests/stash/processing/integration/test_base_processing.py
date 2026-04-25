@@ -18,49 +18,66 @@ class TestStashProcessingBaseErrorPaths:
     async def test_scan_creator_folder_metadata_scan_error(
         self, real_stash_processor, stash_cleanup_tracker
     ):
-        """Test scan_creator_folder when metadata_scan raises RuntimeError (line 154).
+        """scan_creator_folder re-raises GraphQL transport failures with context.
 
-        This test patches metadata_scan to raise RuntimeError, verifying that
-        it gets re-raised with additional context on line 154.
+        Patch the gql leaf (`client.execute`) so the real `metadata_scan`
+        runs end-to-end and raises its documented `ValueError("Failed to
+        start metadata scan: ...")` shape. The production except at
+        `stash/processing/base.py:346` then re-raises as
+        `RuntimeError("Failed to process metadata: ...")`.
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
-            # Patch metadata_scan to raise RuntimeError
             with patch.object(
                 real_stash_processor.context.client,
-                "metadata_scan",
-                side_effect=RuntimeError("Metadata scan failed"),
+                "execute",
+                side_effect=Exception("transport failure"),
             ):
-                # Call scan_creator_folder - should hit line 154 which re-raises with context
                 with pytest.raises(RuntimeError, match="Failed to process metadata"):
                     await real_stash_processor.scan_creator_folder()
-
-            # Test successfully caught the re-raised RuntimeError from line 154
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_wait_for_job_retry(
         self, real_stash_processor, stash_cleanup_tracker
     ):
-        """Test scan_creator_folder when wait_for_job raises exception and retries (lines 151-152).
+        """scan_creator_folder retries when wait_for_job fails transiently.
 
-        This test patches wait_for_job to raise an exception on first call,
-        then succeed on second call, verifying the retry logic in lines 151-152.
+        Patch the gql leaf (`client.execute`) so the real `metadata_scan`
+        and `wait_for_job` run end-to-end. The orchestrated responses are:
+
+        1. ``CONFIG_DEFAULTS_QUERY`` → raise; ``metadata_scan``'s inner
+           ``try/except`` swallows it and falls back to hardcoded defaults.
+        2. ``METADATA_SCAN_MUTATION`` → return job id, completing
+           ``metadata_scan``.
+        3. ``FIND_JOB_QUERY`` (call 1) → raise; ``find_job`` swallows and
+           returns ``None``, so ``wait_for_job`` raises ``ValueError``,
+           which the production loop at base.py:343-345 catches and retries.
+        4. ``FIND_JOB_QUERY`` (call 2) → return a FINISHED Job dict;
+           ``wait_for_job`` returns ``True`` and the loop exits.
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
-            # Patch wait_for_job to raise exception first, then succeed
-            # This will trigger the exception handler on lines 151-152 which sets finished_job=False
-            # causing the loop to retry
             with patch.object(
                 real_stash_processor.context.client,
-                "wait_for_job",
+                "execute",
                 side_effect=[
-                    Exception("Transient job polling error"),  # First call fails
-                    True,  # Second call succeeds
+                    Exception("config defaults transient"),
+                    {"metadataScan": "test-job-1"},
+                    Exception("find_job transient"),
+                    {
+                        "findJob": {
+                            "id": "test-job-1",
+                            "status": "FINISHED",
+                            "subTasks": [],
+                            "description": "metadata scan",
+                            "progress": 100.0,
+                            "startTime": None,
+                            "endTime": None,
+                            "addTime": None,
+                            "error": None,
+                        }
+                    },
                 ],
             ):
-                # Call scan_creator_folder - should retry after first wait_for_job failure
                 await real_stash_processor.scan_creator_folder()
-
-            # Test completes successfully, proving retry logic works
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_download_path_creation_fails(
@@ -559,21 +576,22 @@ class TestPreloadIntegration:
     async def test_preload_creator_media_exception(
         self, real_stash_processor, stash_cleanup_tracker
     ):
-        """_preload_creator_media catches exceptions (lines 206-207).
+        """_preload_creator_media catches exceptions raised during iteration.
 
-        When _index_scene_files raises during iteration, the except block
-        catches the error and logs a warning.
+        Patch the external-lib leaf (`store.find_iter`) to raise — this
+        is the actual entry point production iterates over at base.py:179.
+        The production ``except Exception`` at base.py:197-198 catches the
+        error and logs a warning rather than letting it propagate.
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
             assert real_stash_processor.state.base_path is not None
 
-            # Patch _index_scene_files to raise, triggering the except at 206-207
             with patch.object(
-                real_stash_processor,
-                "_index_scene_files",
+                real_stash_processor.store,
+                "find_iter",
                 side_effect=RuntimeError("indexing failed"),
             ):
-                # Should not raise — exception caught at lines 206-207
+                # Should not raise — exception caught at base.py:197-198
                 await real_stash_processor._preload_creator_media()
 
     @pytest.mark.asyncio

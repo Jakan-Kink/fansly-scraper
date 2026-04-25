@@ -18,6 +18,12 @@ from alembic import command, script
 from tests.fixtures.database.database_fixtures import TestDatabase
 
 
+# Opt out of the templated-DB fast path: these tests walk Alembic up/down
+# from "base" and need an empty database, not one pre-populated with the
+# full schema by the session-scoped pg_template_db fixture.
+pytestmark = pytest.mark.empty_db
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
 

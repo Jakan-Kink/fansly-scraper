@@ -79,6 +79,7 @@ __all__ = [
     "factory_session",
     "json_conversation_data",
     "mock_account",
+    "pg_template_db",
     # "safe_name",  # Commented out - fixture is not currently defined
     "session",
     "session_factory",
@@ -105,43 +106,157 @@ __all__ = [
 # ============================================================================
 
 
-@pytest.fixture
-def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
-    """Factory fixture that creates isolated PostgreSQL databases for each test.
-
-    This fixture provides perfect test isolation by:
-    1. Creating a unique PostgreSQL database per test (using UUID)
-    2. Running migrations on the fresh database
-    3. Automatically dropping the database after test completion
-
-    Usage in test fixtures:
-        config = uuid_test_db_factory()
-        database = Database(config)
+def _pg_connection_params() -> tuple[str, int, str, str, str]:
+    """Resolve PostgreSQL connection parameters from environment.
 
     Returns:
-        FanslyConfig configured with a unique test database
+        Tuple of (host, port, user, password, admin_url) where admin_url
+        targets the bootstrap ``postgres`` database (used for CREATE/DROP).
     """
-    # Generate unique database name using UUID
-    test_db_name = f"test_{uuid.uuid4().hex[:8]}"
-
-    # Get PostgreSQL connection parameters
-    # Use current system user as default (usually has superuser access locally)
     pg_host = os.getenv("FANSLY_PG_HOST", "localhost")
     pg_port = int(os.getenv("FANSLY_PG_PORT", "5432"))
     pg_user = os.getenv("FANSLY_PG_USER", os.getenv("USER", "postgres"))
     pg_password = os.getenv("FANSLY_PG_PASSWORD", "")
-
-    # Build admin connection URL (to postgres database)
     password_encoded = quote_plus(pg_password) if pg_password else ""
     admin_url = (
         f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/postgres"
     )
+    return pg_host, pg_port, pg_user, pg_password, admin_url
 
-    # Create the test database
+
+@pytest.fixture(scope="session")
+def pg_template_db() -> Generator[str, None, None]:
+    """Session-scoped template database with all tables pre-created.
+
+    PostgreSQL's ``CREATE DATABASE x TEMPLATE y`` clones a database at the
+    file-system level — orders of magnitude faster than re-running
+    ``table_metadata.create_all()`` per test. We build the schema ONCE
+    here, then ``uuid_test_db_factory`` clones from this template.
+
+    The template MUST have no active connections during clone, so we
+    fully dispose the SQLAlchemy engine before yielding. Each clone in
+    ``uuid_test_db_factory`` also belt-and-suspenders ``pg_terminate_backend``
+    against the template before issuing its CREATE.
+
+    Yields:
+        The template database name (used as ``TEMPLATE`` clause source).
+    """
+    pg_host, pg_port, pg_user, pg_password, admin_url = _pg_connection_params()
+    template_name = f"test_template_{uuid.uuid4().hex[:8]}"
+
+    # 1. Create the template DB
     admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     try:
         with admin_engine.connect() as conn:
-            conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+            conn.execute(text(f"CREATE DATABASE {template_name}"))
+    except Exception as e:
+        admin_engine.dispose()
+        pytest.skip(
+            f"PostgreSQL not available at {pg_host}:{pg_port} (user={pg_user}): {e}"
+        )
+    finally:
+        admin_engine.dispose()
+
+    # 2. Build schema once via create_all() (mirrors the per-test cost we're
+    # eliminating from test_engine / test_async_session / entity_store).
+    password_encoded = quote_plus(pg_password) if pg_password else ""
+    template_url = (
+        f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/{template_name}"
+    )
+    template_engine = create_engine(template_url, isolation_level="AUTOCOMMIT")
+    try:
+        table_metadata.create_all(template_engine)
+
+        # Stamp the alembic_version table to "head" so production callers that
+        # construct Database(config) without skip_migrations=True (notably
+        # ``fansly_downloader_ng.py:313`` exercised by main()-integration
+        # tests) get a no-op ``alembic upgrade head`` instead of attempting
+        # to re-run all migrations against tables that already exist.
+        from alembic.config import Config as AlembicConfig
+
+        from alembic import command as alembic_command
+
+        alembic_cfg = AlembicConfig("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", template_url)
+        alembic_command.stamp(alembic_cfg, "head")
+    finally:
+        # Fully dispose so PostgreSQL can clone the template (no active backends).
+        template_engine.dispose()
+
+    # 3. Mark as template (permission flag — lets non-superusers clone).
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(
+                text("UPDATE pg_database SET datistemplate = true WHERE datname = :n"),
+                {"n": template_name},
+            )
+    finally:
+        admin_engine.dispose()
+
+    yield template_name
+
+    # 4. Teardown: unset template flag and force-drop.
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with suppress(Exception), admin_engine.connect() as conn:
+        conn.execute(
+            text("UPDATE pg_database SET datistemplate = false WHERE datname = :n"),
+            {"n": template_name},
+        )
+        conn.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = :n AND pid <> pg_backend_pid()"
+            ),
+            {"n": template_name},
+        )
+        try:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {template_name} WITH (FORCE)"))
+        except Exception:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {template_name}"))
+    admin_engine.dispose()
+
+
+@pytest.fixture
+def uuid_test_db_factory(
+    request: Any, pg_template_db: str
+) -> Generator[FanslyConfig, None, None]:
+    """Factory fixture that creates isolated PostgreSQL databases for each test.
+
+    Default behavior: clones from the session-scoped ``pg_template_db`` (fast).
+    Tests that need a bare empty database (e.g., Alembic upgrade/downgrade
+    walks) opt out via ``@pytest.mark.empty_db``.
+
+    Returns:
+        FanslyConfig configured with a unique test database
+    """
+    test_db_name = f"test_{uuid.uuid4().hex[:8]}"
+    pg_host, pg_port, pg_user, pg_password, admin_url = _pg_connection_params()
+
+    # Opt out of template cloning when the test needs a bare empty DB
+    # (Alembic walk tests in tests/alembic/* set this via pytestmark).
+    use_template = request.node.get_closest_marker("empty_db") is None
+
+    # Create the test database (cloned from template by default)
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            if use_template:
+                # Belt: terminate any straggler connections to the template
+                # before issuing CREATE TEMPLATE (PG holds ACCESS EXCLUSIVE
+                # during clone and rejects the operation otherwise).
+                conn.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                        "WHERE datname = :tpl AND pid <> pg_backend_pid()"
+                    ),
+                    {"tpl": pg_template_db},
+                )
+                conn.execute(
+                    text(f"CREATE DATABASE {test_db_name} TEMPLATE {pg_template_db}")
+                )
+            else:
+                conn.execute(text(f"CREATE DATABASE {test_db_name}"))
     except Exception as e:
         admin_engine.dispose()
         pytest.skip(
@@ -369,8 +484,13 @@ class TestDatabase(Database):
 
 @pytest.fixture(scope="session")
 def test_data_dir() -> str:
-    """Get the directory containing test data files."""
-    return str(Path(__file__).parent.parent.parent / "json")
+    """Get the directory containing test data files.
+
+    Files live at tests/fixtures/json_data/. The file is at
+    tests/fixtures/database/database_fixtures.py, so .parent.parent takes us
+    to tests/fixtures/ and appending "json_data" lands on the right directory.
+    """
+    return str(Path(__file__).parent.parent / "json_data")
 
 
 @pytest.fixture(scope="session")
@@ -426,31 +546,15 @@ def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., An
 async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]:
     """Create a test database engine with isolated PostgreSQL database (UUID-based).
 
-    Each test gets its own database for perfect isolation.
+    Tables are pre-created in the session-scoped ``pg_template_db`` and
+    cloned into each test's database via ``uuid_test_db_factory`` —
+    no per-test ``create_all()`` needed.
     """
     config = uuid_test_db_factory
     password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
 
-    db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
     async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
 
-    # Create sync engine for table creation
-    sync_engine = create_engine(
-        db_url,
-        isolation_level="SERIALIZABLE",
-        echo=False,
-        pool_pre_ping=True,
-    )
-
-    # Create tables
-    try:
-        table_metadata.create_all(sync_engine, checkfirst=True)
-    except Exception as e:
-        # Ignore "already exists" errors that can occur with parallel test execution
-        if "already exists" not in str(e).lower():
-            raise
-
-    # Create async engine
     engine = create_async_engine(
         async_url,
         isolation_level="SERIALIZABLE",
@@ -460,9 +564,7 @@ async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]
 
     yield engine
 
-    # Cleanup
     await engine.dispose()
-    sync_engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -471,31 +573,13 @@ async def test_async_session(
 ) -> AsyncGenerator[AsyncSession, None]:
     """Create a test async database session with isolated PostgreSQL database (UUID-based).
 
-    Each test gets its own database for perfect isolation.
+    Tables come from the cloned template (see ``pg_template_db``).
     """
     config = uuid_test_db_factory
     password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
 
-    db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
     async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
 
-    # Create sync engine for table creation
-    sync_engine = create_engine(
-        db_url,
-        isolation_level="SERIALIZABLE",
-        echo=False,
-        pool_pre_ping=True,
-    )
-
-    # Create all tables
-    try:
-        table_metadata.create_all(sync_engine, checkfirst=True)
-    except Exception as e:
-        # Ignore "already exists" errors that can occur with parallel test execution
-        if "already exists" not in str(e).lower():
-            raise
-
-    # Create async engine
     engine = create_async_engine(
         async_url,
         isolation_level="SERIALIZABLE",
@@ -503,23 +587,19 @@ async def test_async_session(
         pool_pre_ping=True,
     )
 
-    # Create session factory
     async_session_factory = async_sessionmaker(
         bind=engine,
         expire_on_commit=False,
         class_=AsyncSession,
     )
 
-    # Create session
     session = async_session_factory()
     try:
-        # PostgreSQL: No PRAGMA statements needed
         yield session
     finally:
         await session.rollback()
         await session.close()
         await engine.dispose()
-        sync_engine.dispose()
 
 
 @pytest.fixture
@@ -557,8 +637,7 @@ async def entity_store(config):
     """Create a PostgresEntityStore backed by an isolated test database.
 
     Provides the Pydantic EntityStore for tests that don't need SA sessions.
-    Each test gets its own PostgreSQL database (via config → uuid_test_db_factory),
-    with tables created and an asyncpg pool connected.
+    Tables come from the cloned ``pg_template_db`` (no per-test ``create_all``).
 
     The store is registered as the global singleton (FanslyObject._store),
     so code calling get_store() will use this store.
@@ -566,7 +645,6 @@ async def entity_store(config):
     from metadata.models import FanslyObject
 
     db = Database(config, skip_migrations=True)
-    table_metadata.create_all(db._sync_engine)
     store = await db.create_entity_store()
 
     yield store

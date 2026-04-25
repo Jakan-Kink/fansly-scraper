@@ -14,7 +14,6 @@ Organization:
 
 import asyncio
 import gc
-import json
 import logging
 import os
 import shutil
@@ -236,60 +235,6 @@ def setup_test_logging():
 # ============================================================================
 # Test Data Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def json_timeline_data():
-    """Load timeline test data from JSON file.
-
-    Returns:
-        dict: Timeline API response data
-    """
-    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
-    timeline_file = fixtures_dir / "timeline_response.json"
-
-    if not timeline_file.exists():
-        return {
-            "response": [],
-            "aggregationData": {},
-        }
-
-    with timeline_file.open() as f:
-        return json.load(f)
-
-
-@pytest.fixture
-def json_messages_group_data():
-    """Load messages group test data from JSON file.
-
-    Returns:
-        dict: Messages API response data
-    """
-    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
-    messages_file = fixtures_dir / "messages_group_response.json"
-
-    if not messages_file.exists():
-        return {"response": [], "aggregationData": {}}
-
-    with messages_file.open() as f:
-        return json.load(f)
-
-
-@pytest.fixture
-def json_conversation_data():
-    """Load conversation test data from JSON file.
-
-    Returns:
-        dict: Conversation API response data
-    """
-    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
-    conversation_file = fixtures_dir / "conversation_response.json"
-
-    if not conversation_file.exists():
-        return {"response": [], "aggregationData": {}}
-
-    with conversation_file.open() as f:
-        return json.load(f)
 
 
 # ============================================================================
@@ -648,9 +593,6 @@ def performance_tracker(performance_log_dir, request):
 __all__ = [
     "clean_model_data",
     "cleanup_tasks",
-    "json_conversation_data",
-    "json_messages_group_data",
-    "json_timeline_data",
     "mock_download_state",
     "performance_log_dir",
     "performance_threshold",

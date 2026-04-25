@@ -232,11 +232,14 @@ async def respx_stash_client(
         ```python
         @pytest.mark.asyncio
         async def test_find_studio(respx_stash_client):
-            # Set up mock response
+            # Set up mock response — per-test routes must use side_effect=[]
+            # per CLAUDE.md (return_value defeats retry-budget accounting).
             respx.post("http://localhost:9999/graphql").mock(
-                return_value=httpx.Response(200, json={
-                    "data": {"findStudio": {"id": "123", "name": "Test"}}
-                })
+                side_effect=[
+                    httpx.Response(200, json={
+                        "data": {"findStudio": {"id": "123", "name": "Test"}}
+                    })
+                ]
             )
 
             # Now the client will use your mocked response
@@ -255,6 +258,9 @@ async def respx_stash_client(
 
         # Reset all routes and global call history so tests start clean
         respx.reset()
+        # Intentional `return_value` — fixture-level blanket default responder
+        # for any GraphQL call a test does not explicitly route. Per-test
+        # routes added on top of this MUST use `side_effect=[...]`.
         respx.post("http://localhost:9999/graphql").mock(
             return_value=httpx.Response(200, json={"data": {}})
         )

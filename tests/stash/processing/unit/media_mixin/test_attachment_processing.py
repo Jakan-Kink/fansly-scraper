@@ -1,308 +1,293 @@
-"""Tests for batch processing of creator attachments.
+"""Tests for batch composition of creator attachments.
 
-This module tests the process_creator_attachment method which collects media
-from attachments into batches for efficient processing.
+These tests verify which Media objects flatten into the batch list passed
+to ``_process_batch_internal`` from various attachment shapes (direct
+media, bundle, aggregated post recursion). They sit at the
+``unit/media_mixin/`` location historically, but since the rewrite to
+remove the AsyncMock that was hiding production they exercise the real
+``_process_batch_internal`` end-to-end against Docker Stash via
+``real_stash_processor`` — the canonical TrueSpy pattern documented at
+``tests/stash/processing/integration/test_message_processing.py:173-238``
+(audit Cat-D #13). The unique value preserved over the existing
+integration tests in ``test_media_processing.py:505,664,827`` is the
+intermediate batch-composition assertion (which Media objects the spy
+captures), not the eventual created Image/Scene shape.
 
-User authorized mocking only because of over-testing of deeper methods.
+Follow-up: relocating these to ``integration/`` is a separate cleanup
+decision; Wave 2's mission is mocks-out, not directory hygiene.
 """
 
-from unittest.mock import AsyncMock, patch
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
 from metadata import ContentType
 from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash import ImageFactory, SceneFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestAttachmentProcessing:
-    """Test batch processing of creator attachments."""
+    """Verify batch composition produced by ``process_creator_attachment``."""
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_direct_media(
-        self, respx_stash_processor, mock_item, mock_account, entity_store
+        self, real_stash_processor, stash_cleanup_tracker, entity_store
     ):
-        """Test process_creator_attachment collects media from direct attachment.
+        """Direct attachment.media collects exactly that Media into the batch."""
+        async with stash_cleanup_tracker(real_stash_processor.context.client):
+            account = AccountFactory.build(username="attach_direct")
+            await entity_store.save(account)
 
-        User authorized mocking only because of over-testing of deeper methods.
-        """
-        # Create real Media object using factory
-        media_id = snowflake_id()
-        acct_media_id = snowflake_id()
-        media = MediaFactory.build(
-            id=media_id,
-            mimetype="image/jpeg",
-            is_downloaded=True,
-            accountId=mock_account.id,
-            stash_id=789,
-        )
-
-        # Create real AccountMedia object using factory
-        account_media = AccountMediaFactory.build(
-            id=acct_media_id,
-            accountId=mock_account.id,
-            mediaId=media.id,
-        )
-        # Populate identity map so property lookups resolve
-        store = entity_store
-        store.cache_instance(media)
-        store.cache_instance(account_media)
-
-        # Create real Attachment object using factory
-        attachment = AttachmentFactory.build(
-            id=60123,
-            contentId=account_media.id,
-            contentType=1,  # ContentType.ACCOUNT_MEDIA
-            postId=mock_item.id,
-        )
-
-        # Mock result to return
-        mock_image = ImageFactory.build(id="123", title=mock_item.content)
-        mock_batch_result = {"images": [mock_image], "scenes": []}
-
-        # Mock _process_batch_internal to capture what gets passed
-        mock_process_batch = AsyncMock(return_value=mock_batch_result)
-
-        with patch.object(
-            respx_stash_processor,
-            "_process_batch_internal",
-            mock_process_batch,
-        ):
-            # Call the method
-            result = await respx_stash_processor.process_creator_attachment(
-                attachment=attachment,
-                item=mock_item,
-                account=mock_account,
+            post = PostFactory.build(
+                accountId=account.id,
+                content="direct media post",
+                createdAt=datetime(2024, 1, 1, tzinfo=UTC),
             )
+            await entity_store.save(post)
 
-        # Verify _process_batch_internal was called once
-        assert mock_process_batch.call_count == 1
+            media = MediaFactory.build(
+                id=snowflake_id(),
+                mimetype="image/jpeg",
+                is_downloaded=True,
+                accountId=account.id,
+                stash_id=789,
+            )
+            await entity_store.save(media)
 
-        # Verify the media list passed to batch processing (positional args)
-        call_args = mock_process_batch.call_args
-        media_list, item, account = call_args[0]  # Unpack positional args
-        assert len(media_list) == 1, f"Expected 1 media item, got {len(media_list)}"
-        assert media_list[0].id == media.id
-        assert media_list[0].mimetype == "image/jpeg"
-        assert media_list[0].stash_id == 789
+            account_media = AccountMediaFactory.build(
+                id=snowflake_id(),
+                accountId=account.id,
+                mediaId=media.id,
+            )
+            await entity_store.save(account_media)
 
-        # Verify item and account were passed correctly
-        assert item == mock_item
-        assert account == mock_account
+            attachment = AttachmentFactory.build(
+                contentId=account_media.id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                postId=post.id,
+            )
+            await entity_store.save(attachment)
 
-        # Verify results contain the mock image
-        assert "images" in result
-        assert len(result["images"]) == 1
-        assert result["images"][0] == mock_image
+            captured_batches = []
+            original_process_batch = real_stash_processor._process_batch_internal
+
+            async def spy_process_batch(media_list, item, account):
+                # Capture composition BEFORE delegating so the assertion fires
+                # even if the underlying Stash call returns nothing.
+                captured_batches.append(
+                    {
+                        "media_ids": [m.id for m in media_list],
+                        "mimetypes": [m.mimetype for m in media_list],
+                        "stash_ids": [m.stash_id for m in media_list],
+                        "item": item,
+                        "account": account,
+                    }
+                )
+                return await original_process_batch(media_list, item, account)
+
+            with patch.object(
+                real_stash_processor,
+                "_process_batch_internal",
+                side_effect=spy_process_batch,
+            ):
+                result = await real_stash_processor.process_creator_attachment(
+                    attachment=attachment,
+                    item=post,
+                    account=account,
+                )
+
+            # Batch composition: exactly one media, the direct one.
+            assert len(captured_batches) == 1
+            batch = captured_batches[0]
+            assert batch["media_ids"] == [media.id]
+            assert batch["mimetypes"] == ["image/jpeg"]
+            assert batch["stash_ids"] == [789]
+            assert batch["item"] is post
+            assert batch["account"] is account
+
+            # Smoke check: delegation completed and produced the expected dict shape.
+            assert "images" in result
+            assert "scenes" in result
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_bundle(
-        self, respx_stash_processor, mock_item, mock_account, entity_store
+        self, real_stash_processor, stash_cleanup_tracker, entity_store
     ):
-        """Test process_creator_attachment collects media from bundle.
+        """Bundle attachment flattens accountMedia[*].media into the batch."""
+        async with stash_cleanup_tracker(real_stash_processor.context.client):
+            account = AccountFactory.build(username="attach_bundle")
+            await entity_store.save(account)
 
-        User authorized mocking only because of over-testing of deeper methods.
-        """
-        # Create real Media objects using factory
-        media_id_1 = snowflake_id()
-        media_id_2 = snowflake_id()
-        acct_media_id_1 = snowflake_id()
-        acct_media_id_2 = snowflake_id()
-        bundle_id = snowflake_id()
-        media1 = MediaFactory.build(
-            id=media_id_1,
-            mimetype="image/jpeg",
-            is_downloaded=True,
-            accountId=mock_account.id,
-            stash_id=456,
-        )
-        media2 = MediaFactory.build(
-            id=media_id_2,
-            mimetype="video/mp4",
-            is_downloaded=True,
-            accountId=mock_account.id,
-            stash_id=457,
-        )
-
-        # Create real AccountMedia objects
-        account_media1 = AccountMediaFactory.build(
-            id=acct_media_id_1,
-            accountId=mock_account.id,
-            mediaId=media1.id,
-        )
-        account_media2 = AccountMediaFactory.build(
-            id=acct_media_id_2,
-            accountId=mock_account.id,
-            mediaId=media2.id,
-        )
-
-        # Create real AccountMediaBundle object using factory
-        bundle = AccountMediaBundleFactory.build(
-            id=bundle_id,
-            accountId=mock_account.id,
-        )
-        # Set up the relationship (accountMedia is a list field)
-        bundle.accountMedia = [account_media1, account_media2]
-
-        # Populate identity map so property lookups resolve
-        store = entity_store
-        store.cache_instance(media1)
-        store.cache_instance(media2)
-        store.cache_instance(account_media1)
-        store.cache_instance(account_media2)
-        store.cache_instance(bundle)
-
-        # Create real Attachment object using factory
-        attachment = AttachmentFactory.build(
-            id=60456,
-            contentId=bundle.id,
-            contentType=2,  # ContentType.ACCOUNT_MEDIA_BUNDLE
-            postId=mock_item.id,
-        )
-
-        # Mock results to return
-        mock_image = ImageFactory.build(id="456", title=mock_item.content)
-        mock_scene = SceneFactory.build(id="457", title=mock_item.content)
-        mock_batch_result = {"images": [mock_image], "scenes": [mock_scene]}
-
-        # Mock _process_batch_internal to capture what gets passed
-        mock_process_batch = AsyncMock(return_value=mock_batch_result)
-
-        with patch.object(
-            respx_stash_processor,
-            "_process_batch_internal",
-            mock_process_batch,
-        ):
-            # Call the method
-            result = await respx_stash_processor.process_creator_attachment(
-                attachment=attachment,
-                item=mock_item,
-                account=mock_account,
+            post = PostFactory.build(
+                accountId=account.id,
+                content="bundle post",
+                createdAt=datetime(2024, 1, 1, tzinfo=UTC),
             )
+            await entity_store.save(post)
 
-        # Verify _process_batch_internal was called once
-        assert mock_process_batch.call_count == 1
+            media1 = MediaFactory.build(
+                id=snowflake_id(),
+                mimetype="image/jpeg",
+                is_downloaded=True,
+                accountId=account.id,
+                stash_id=456,
+            )
+            media2 = MediaFactory.build(
+                id=snowflake_id(),
+                mimetype="video/mp4",
+                is_downloaded=True,
+                accountId=account.id,
+                stash_id=457,
+            )
+            await entity_store.save(media1)
+            await entity_store.save(media2)
 
-        # Verify the media list passed contains both media items (positional args)
-        call_args = mock_process_batch.call_args
-        media_list, item, account = call_args[0]  # Unpack positional args
-        assert len(media_list) == 2, f"Expected 2 media items, got {len(media_list)}"
+            account_media1 = AccountMediaFactory.build(
+                id=snowflake_id(), accountId=account.id, mediaId=media1.id
+            )
+            account_media2 = AccountMediaFactory.build(
+                id=snowflake_id(), accountId=account.id, mediaId=media2.id
+            )
+            await entity_store.save(account_media1)
+            await entity_store.save(account_media2)
 
-        # Verify both media items are in the list (order may vary due to set)
-        media_ids = {m.id for m in media_list}
-        assert media1.id in media_ids
-        assert media2.id in media_ids
+            bundle = AccountMediaBundleFactory.build(
+                id=snowflake_id(), accountId=account.id
+            )
+            bundle.accountMedia = [account_media1, account_media2]
+            await entity_store.save(bundle)
 
-        # Verify item and account were passed correctly
-        assert item == mock_item
-        assert account == mock_account
+            attachment = AttachmentFactory.build(
+                contentId=bundle.id,
+                contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
+                postId=post.id,
+            )
+            await entity_store.save(attachment)
 
-        # Verify results contain both image and scene
-        assert "images" in result
-        assert len(result["images"]) == 1
-        assert result["images"][0] == mock_image
-        assert "scenes" in result
-        assert len(result["scenes"]) == 1
-        assert result["scenes"][0] == mock_scene
+            captured_batches = []
+            original_process_batch = real_stash_processor._process_batch_internal
+
+            async def spy_process_batch(media_list, item, account):
+                captured_batches.append(
+                    {
+                        "media_ids": [m.id for m in media_list],
+                        "mimetypes": [m.mimetype for m in media_list],
+                    }
+                )
+                return await original_process_batch(media_list, item, account)
+
+            with patch.object(
+                real_stash_processor,
+                "_process_batch_internal",
+                side_effect=spy_process_batch,
+            ):
+                result = await real_stash_processor.process_creator_attachment(
+                    attachment=attachment,
+                    item=post,
+                    account=account,
+                )
+
+            # Bundle flattens into a single batch with both media.
+            assert len(captured_batches) == 1
+            batch = captured_batches[0]
+            assert set(batch["media_ids"]) == {media1.id, media2.id}
+            assert set(batch["mimetypes"]) == {"image/jpeg", "video/mp4"}
+
+            assert "images" in result
+            assert "scenes" in result
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_aggregated_post(
-        self, respx_stash_processor, mock_item, mock_account, entity_store
+        self, real_stash_processor, stash_cleanup_tracker, entity_store
     ):
-        """Test process_creator_attachment recursively processes aggregated posts.
+        """Aggregated-post attachment recursively collects from nested attachments."""
+        async with stash_cleanup_tracker(real_stash_processor.context.client):
+            account = AccountFactory.build(username="attach_agg")
+            await entity_store.save(account)
 
-        User authorized mocking only because of over-testing of deeper methods.
-        """
-        # Create an aggregated post using factory
-        agg_post_id = snowflake_id()
-        agg_media_id = snowflake_id()
-        agg_acct_media_id = snowflake_id()
-        agg_post = PostFactory.build(
-            id=agg_post_id,
-            accountId=mock_account.id,
-            content="Aggregated post content",
-        )
-
-        # Create media for the aggregated post's attachment
-        agg_media = MediaFactory.build(
-            id=agg_media_id,
-            mimetype="image/jpeg",
-            is_downloaded=True,
-            accountId=mock_account.id,
-            stash_id=999,
-        )
-
-        agg_account_media = AccountMediaFactory.build(
-            id=agg_acct_media_id,
-            accountId=mock_account.id,
-            mediaId=agg_media.id,
-        )
-
-        # Create an attachment that belongs to the aggregated post
-        agg_attachment = AttachmentFactory.build(
-            id=61000,
-            contentId=agg_account_media.id,
-            contentType=1,  # ContentType.ACCOUNT_MEDIA
-            postId=agg_post.id,
-        )
-
-        # Set up post's attachments list
-        agg_post.attachments = [agg_attachment]
-
-        # Create main attachment with aggregated post
-        attachment = AttachmentFactory.build(
-            id=60789,
-            contentId=agg_post.id,
-            contentType=ContentType.AGGREGATED_POSTS,
-            postId=mock_item.id,
-        )
-
-        # Populate identity map so property lookups resolve
-        store = entity_store
-        store.cache_instance(agg_media)
-        store.cache_instance(agg_account_media)
-        store.cache_instance(agg_post)
-
-        # Mock result to return
-        mock_image = ImageFactory.build(id="999", title=agg_post.content)
-        mock_batch_result = {"images": [mock_image], "scenes": []}
-
-        # Mock _process_batch_internal to capture what gets passed
-        mock_process_batch = AsyncMock(return_value=mock_batch_result)
-
-        with patch.object(
-            respx_stash_processor,
-            "_process_batch_internal",
-            mock_process_batch,
-        ):
-            # Call the method
-            result = await respx_stash_processor.process_creator_attachment(
-                attachment=attachment,
-                item=mock_item,
-                account=mock_account,
+            outer_post = PostFactory.build(
+                accountId=account.id,
+                content="outer post",
+                createdAt=datetime(2024, 1, 1, tzinfo=UTC),
             )
+            await entity_store.save(outer_post)
 
-        # Verify _process_batch_internal was called once (from recursive call)
-        assert mock_process_batch.call_count == 1
+            agg_post = PostFactory.build(
+                accountId=account.id,
+                content="aggregated post content",
+                createdAt=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+            await entity_store.save(agg_post)
 
-        # Verify the media from aggregated post's attachment was collected (positional args)
-        call_args = mock_process_batch.call_args
-        media_list, item, account = call_args[0]  # Unpack positional args
-        assert len(media_list) == 1, f"Expected 1 media item, got {len(media_list)}"
-        assert media_list[0].id == agg_media.id
+            agg_media = MediaFactory.build(
+                id=snowflake_id(),
+                mimetype="image/jpeg",
+                is_downloaded=True,
+                accountId=account.id,
+                stash_id=999,
+            )
+            await entity_store.save(agg_media)
 
-        # Verify the item passed is the aggregated post, not the main item
-        assert item == agg_post
-        assert account == mock_account
+            agg_account_media = AccountMediaFactory.build(
+                id=snowflake_id(), accountId=account.id, mediaId=agg_media.id
+            )
+            await entity_store.save(agg_account_media)
 
-        # Verify results contain image from aggregated post
-        assert "images" in result
-        assert len(result["images"]) == 1
-        assert result["images"][0] == mock_image
+            agg_attachment = AttachmentFactory.build(
+                contentId=agg_account_media.id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                postId=agg_post.id,
+            )
+            await entity_store.save(agg_attachment)
+
+            agg_post.attachments = [agg_attachment]
+
+            outer_attachment = AttachmentFactory.build(
+                contentId=agg_post.id,
+                contentType=ContentType.AGGREGATED_POSTS,
+                postId=outer_post.id,
+            )
+            await entity_store.save(outer_attachment)
+
+            captured_batches = []
+            original_process_batch = real_stash_processor._process_batch_internal
+
+            async def spy_process_batch(media_list, item, account):
+                captured_batches.append(
+                    {
+                        "media_ids": [m.id for m in media_list],
+                        "mimetypes": [m.mimetype for m in media_list],
+                        "item_id": item.id,
+                    }
+                )
+                return await original_process_batch(media_list, item, account)
+
+            with patch.object(
+                real_stash_processor,
+                "_process_batch_internal",
+                side_effect=spy_process_batch,
+            ):
+                result = await real_stash_processor.process_creator_attachment(
+                    attachment=outer_attachment,
+                    item=outer_post,
+                    account=account,
+                )
+
+            # Recursion: the inner attachment's media surfaces in a single batch
+            # whose `item` is the aggregated post (not the outer one).
+            assert len(captured_batches) == 1
+            batch = captured_batches[0]
+            assert batch["media_ids"] == [agg_media.id]
+            assert batch["mimetypes"] == ["image/jpeg"]
+            assert batch["item_id"] == agg_post.id
+
+            assert "images" in result
+            assert "scenes" in result

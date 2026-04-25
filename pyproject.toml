@@ -334,6 +334,7 @@ markers = [
     "performance: marks tests as performance tests",
     "full_workflow: marks tests that run the complete workflow",
     "comprehensive: marks tests that check for comprehensive coverage",
+    "empty_db: opt out of the pg_template_db fast path; get a bare empty database (Alembic walk tests)",
 ]
 
 [tool.coverage.run]

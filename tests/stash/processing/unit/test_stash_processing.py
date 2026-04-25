@@ -8,6 +8,7 @@ Migrated to use respx_stash_processor fixture with proper edge-mocking:
 """
 
 import json
+import logging
 from unittest.mock import patch
 
 import httpx
@@ -324,9 +325,12 @@ class TestStashProcessingPerformer:
 
         # Mock findImages GraphQL response
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200, json=create_graphql_response("findImages", empty_images_response)
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findImages", empty_images_response),
+                )
+            ]
         )
 
         await respx_stash_processor._update_performer_avatar(
@@ -441,7 +445,7 @@ class TestStashProcessingPerformer:
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_exception(
-        self, respx_stash_processor, tmp_path
+        self, respx_stash_processor, tmp_path, caplog
     ):
         """Test _update_performer_avatar when file doesn't exist (triggers exception).
 
@@ -497,43 +501,74 @@ class TestStashProcessingPerformer:
         )
         images_response = create_find_images_result(count=1, images=[image_data])
 
-        # Mock findImages GraphQL response
+        # Mock findImages GraphQL response. _update_performer_avatar calls
+        # findImages twice (once to look up by path for Performer.image_path,
+        # and once inside the file-not-found exception handler).
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200, json=create_graphql_response("findImages", images_response)
-            )
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findImages", images_response)
+                )
+            ]
+            * 2
         )
 
-        # Mock print_error and logger to verify error handling
-        with (
-            patch("stash.processing.mixins.account.print_error") as mock_print_error,
-            patch(
-                "stash.processing.mixins.account.logger.exception"
-            ) as mock_logger_exception,
-            patch("stash.processing.mixins.account.debug_print") as mock_debug_print,
-        ):
+        # Capture log output via caplog (replaces print_error / logger.exception /
+        # debug_print mock-patches — pytest-loguru routes loguru into caplog).
+        caplog.set_level(logging.DEBUG)
+
+        try:
             # Call _update_performer_avatar - should handle FileNotFoundError
             await respx_stash_processor._update_performer_avatar(
                 test_account, test_performer
             )
-
-            # Verify error handling was triggered
-            mock_print_error.assert_called_once()
-            assert "Failed to update performer avatar" in str(
-                mock_print_error.call_args
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_performer_avatar_exception"
             )
-            mock_logger_exception.assert_called_once()
-            mock_debug_print.assert_called_once()
-            assert "avatar_update_failed" in str(mock_debug_print.call_args)
 
-        # Verify findImages was called (exception prevented performerUpdate)
-        # Note: store.find() may make multiple findImages calls
-        assert len(graphql_route.calls) >= 1
+        # Verify error handling logged the expected messages
+        error_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "ERROR"
+        ]
+        assert any(
+            "Failed to update performer avatar" in msg for msg in error_messages
+        ), f"Expected error log, got ERROR records: {error_messages}"
+        # logger.exception records ERROR-level with exc_info
+        exception_records = [
+            r for r in caplog.records if r.levelname == "ERROR" and r.exc_info
+        ]
+        assert len(exception_records) >= 1, (
+            f"Expected at least one logger.exception record, got {exception_records}"
+        )
+        # debug_print emits at DEBUG level; look for "avatar_update_failed" tag
+        debug_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "DEBUG"
+        ]
+        assert any("avatar_update_failed" in msg for msg in debug_messages), (
+            f"Expected avatar_update_failed debug log, got DEBUG records: {debug_messages}"
+        )
+
+        # Exact count + per-call request + response verification.
+        assert len(graphql_route.calls) == 2, (
+            f"Expected exactly 2 findImages calls, got {len(graphql_route.calls)}"
+        )
+        for i, call in enumerate(graphql_route.calls):
+            req = json.loads(call.request.content)
+            assert "findImages" in req["query"], (
+                f"Call {i}: expected findImages, got {req['query'][:60]}"
+            )
+            assert req["variables"]["image_filter"]["path"]["value"] == str(
+                nonexistent_file
+            ), f"Call {i}: wrong path filter"
+            resp = call.response.json()
+            assert "findImages" in resp["data"], (
+                f"Call {i}: response missing findImages"
+            )
+        # Verify performerUpdate was NOT called (exception prevented it)
         request_bodies = [
             json.loads(call.request.content) for call in graphql_route.calls
         ]
-        assert any("findImages" in body["query"] for body in request_bodies)
-        # Verify performerUpdate was NOT called (exception prevented it)
         assert not any("performerUpdate" in body["query"] for body in request_bodies)
 
     @pytest.mark.asyncio

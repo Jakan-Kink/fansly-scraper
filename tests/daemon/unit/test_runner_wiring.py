@@ -48,7 +48,12 @@ from daemon.runner import (
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
 from tests.daemon.conftest import _fake_ws_factory
-from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.api import (
+    dump_fansly_calls,
+    mount_client_account_me_route,
+    mount_empty_creator_pipeline,
+    mount_empty_following_route,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -58,6 +63,40 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 HOME_TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timeline/home"
 STORY_STATES_URL = "https://apiv3.fansly.com/api/v1/mediastories/following"
+
+
+# ---------------------------------------------------------------------------
+# Shared payload helpers for real-pipeline dispatch tests
+# ---------------------------------------------------------------------------
+
+
+def _account_response_payload(creator_id: int, creator_name: str) -> dict:
+    """Build a /api/v1/account?usernames=... response with required ``timelineStats``.
+
+    ``timelineStats`` is mandatory — ``_update_state_from_account``
+    raises ``ApiAccountInfoError("...you most likely misspelled it!")``
+    when it's missing. Real Fansly responses always include it for
+    valid creators.
+    """
+    return {
+        "success": True,
+        "response": [
+            {
+                "id": creator_id,
+                "username": creator_name,
+                "createdAt": 1700000000,
+                "timelineStats": {
+                    "accountId": creator_id,
+                    "imageCount": 1,
+                    "videoCount": 0,
+                    "bundleCount": 0,
+                    "bundleImageCount": 0,
+                    "bundleVideoCount": 0,
+                    "fetchedAt": 1700000000,
+                },
+            }
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +181,7 @@ class TestRunDaemonBootstrapFallback:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_fallback_builds_fresh_ws_and_reuses_collaborators(
-        self, config_wired, entity_store, fake_ws
+        self, config_wired, entity_store, fake_ws, monkeypatch
     ):
         """ws_started=False → ws_factory called, queue/simulator reused."""
         from daemon.bootstrap import DaemonBootstrap
@@ -166,35 +205,29 @@ class TestRunDaemonBootstrapFallback:
         # Capture the queue the worker loop actually drains so we can
         # assert identity against the bootstrap's queue.
         captured_queue: list[asyncio.Queue] = []
-        original_worker = None
-
-        from daemon import runner as _runner
 
         async def _instrumented_worker(config, queue, stop_ev, use_following, budget):
             captured_queue.append(queue)
             # Drain nothing — we only care about identity.
             await stop_ev.wait()
 
-        original_worker = _runner._worker_loop
-        _runner._worker_loop = _instrumented_worker
-        try:
-            task = asyncio.create_task(
-                run_daemon(
-                    config_wired,
-                    ws_factory=_fake_ws_factory(fake_ws),
-                    stop_event=stop_event,
-                    bootstrap=bootstrap,
-                )
+        monkeypatch.setattr("daemon.runner._worker_loop", _instrumented_worker)
+
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
+                bootstrap=bootstrap,
             )
-            await asyncio.sleep(0.05)
-            stop_event.set()
-            try:
-                await asyncio.wait_for(task, timeout=5.0)
-            except (TimeoutError, asyncio.CancelledError):
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-        finally:
-            _runner._worker_loop = original_worker
+        )
+        await asyncio.sleep(0.05)
+        stop_event.set()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
         # Fresh WS was constructed via ws_factory and started.
         assert fake_ws.started, "Fallback did not build + start a fresh WS"
@@ -437,61 +470,165 @@ class TestHandleTimelineOnlyItem:
 
     @pytest.mark.asyncio
     async def test_timeline_only_calls_download_timeline(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """_handle_timeline_only_item invokes get_creator_account_info + download_timeline."""
-        timeline_called = False
-        account_info_called = False
+        """_handle_timeline_only_item drives the real account + timeline HTTP pipeline.
 
-        async def _spy_download_timeline(*args, **kwargs):
-            nonlocal timeline_called
-            timeline_called = True
+        Real-pipeline rewrite (Wave 2.6 carry-over): asserts via the real
+        Fansly HTTP boundary instead of an internal mock of
+        ``daemon.runner.{get_creator_account_info,download_timeline}``.
+        Account route MUST fire (real ``get_creator_account_info``) and
+        timeline route MUST fire (real ``download_timeline``). An empty
+        timeline response terminates the pagination loop on the first page.
 
-        async def _spy_account_info(*args, **kwargs):
-            nonlocal account_info_called
-            account_info_called = True
+        ``respx_fansly_api`` provides the ``with respx.mock`` context and
+        the blanket OPTIONS preflight route — see
+        ``tests/fixtures/api/api_fixtures.py``.
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
 
-        with (
-            patch(
-                "daemon.runner.get_creator_account_info", side_effect=_spy_account_info
-            ),
-            patch(
-                "daemon.runner.download_timeline", side_effect=_spy_download_timeline
-            ),
-        ):
-            item = DownloadTimelineOnly(creator_id=saved_account.id)
+        creator_id = saved_account.id
+        creator_name = saved_account.username
+
+        account_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account"
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=_account_response_payload(creator_id, creator_name),
+                )
+            ]
+        )
+        # Empty posts response terminates pagination on page 1.
+        timeline_route = respx.get(
+            url__startswith=(
+                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
+            )
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [],
+                            "aggregationData": {
+                                "accountMedia": [],
+                                "media": [],
+                                "accounts": [],
+                            },
+                        },
+                    },
+                )
+            ]
+        )
+
+        # Patch only the leaf timing/IO calls — same pattern as
+        # tests/download/unit/test_timeline_download.py.
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+
+        item = DownloadTimelineOnly(creator_id=creator_id)
+        try:
             await _handle_timeline_only_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="timeline_only_calls_pipeline")
 
-        assert account_info_called, "get_creator_account_info should be called"
-        assert timeline_called, "download_timeline should be called"
+        assert account_route.call_count >= 1, (
+            "get_creator_account_info should have hit /api/v1/account"
+        )
+        assert timeline_route.call_count >= 1, (
+            "download_timeline should have hit /api/v1/timelinenew/{id}"
+        )
 
     @pytest.mark.asyncio
     async def test_timeline_only_does_not_call_stories_or_messages(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """_handle_timeline_only_item does NOT call download_stories or download_messages."""
-        stories_called = False
-        messages_called = False
+        """_handle_timeline_only_item never hits stories or messages endpoints.
 
-        async def _spy_stories(*args, **kwargs):
-            nonlocal stories_called
-            stories_called = True
+        Real-pipeline rewrite (Wave 2.6 carry-over): asserts via the real
+        Fansly HTTP boundary that ``/api/v1/mediastoriesnew`` and
+        ``/api/v1/messaging/groups`` receive zero calls. Stronger
+        guarantee than the previous internal-mock version, which would
+        have silently passed if the handler ever bypassed the dispatch
+        table by calling those endpoints directly.
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
 
-        async def _spy_messages(*args, **kwargs):
-            nonlocal messages_called
-            messages_called = True
+        creator_id = saved_account.id
+        creator_name = saved_account.username
 
-        with (
-            patch("daemon.runner.get_creator_account_info", new=AsyncMock()),
-            patch("daemon.runner.download_timeline", new=AsyncMock()),
-            patch("daemon.runner.download_stories", side_effect=_spy_stories),
-            patch("daemon.runner.download_messages", side_effect=_spy_messages),
-        ):
-            item = DownloadTimelineOnly(creator_id=saved_account.id)
+        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=_account_response_payload(creator_id, creator_name),
+                )
+            ]
+        )
+        respx.get(
+            url__startswith=(
+                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
+            )
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [],
+                            "aggregationData": {
+                                "accountMedia": [],
+                                "media": [],
+                                "accounts": [],
+                            },
+                        },
+                    },
+                )
+            ]
+        )
+        # Mounted-but-not-expected routes — assert call_count == 0.
+        stories_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/mediastoriesnew"
+        ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
+        messages_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/messaging/groups"
+        ).mock(side_effect=[httpx.Response(200, json={"response": []})])
+
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+
+        item = DownloadTimelineOnly(creator_id=creator_id)
+        try:
             await _handle_timeline_only_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="timeline_only_no_stories_msgs")
 
-        assert not stories_called, "download_stories should NOT be called"
-        assert not messages_called, "download_messages should NOT be called"
+        assert stories_route.call_count == 0, (
+            "DownloadTimelineOnly must NEVER hit /api/v1/mediastoriesnew"
+        )
+        assert messages_route.call_count == 0, (
+            "DownloadTimelineOnly must NEVER hit /api/v1/messaging/groups"
+        )
 
     def test_timeline_only_in_dispatch_table(self):
         """DownloadTimelineOnly is registered in _WORK_DISPATCH mapping."""
@@ -500,6 +637,50 @@ class TestHandleTimelineOnlyItem:
         )
         assert _WORK_DISPATCH[DownloadTimelineOnly] is _handle_timeline_only_item, (
             "DownloadTimelineOnly must map to _handle_timeline_only_item"
+        )
+
+    @pytest.mark.asyncio
+    async def test_timeline_only_unknown_creator_skips_with_warning(
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        caplog,
+    ):
+        """Unknown creator_id → warning logged, function returns, NO HTTP fired.
+
+        Coverage of the Bug #3 fix's skip-with-warning branch (added in
+        the same patch as the test rewrites — covers daemon/runner.py:419-423,
+        the ``if creator_name is None: logger.warning(...); return`` block
+        I introduced). Without this test, the new branch would be
+        uncovered — repeating the original "mock-hides-bug" failure mode
+        but on test code instead of production code.
+
+        Mounts catch-all routes that should NEVER fire; asserts
+        ``call_count == 0`` on each.
+        """
+        # creator_id NOT in the entity store → _resolve_creator_name returns None.
+        unknown_creator_id = snowflake_id()
+
+        account_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account"
+        ).mock(side_effect=[httpx.Response(200, json={"response": []})])
+        timeline_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+        ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
+
+        item = DownloadTimelineOnly(creator_id=unknown_creator_id)
+        try:
+            # Should return cleanly — no exception, no HTTP.
+            await _handle_timeline_only_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="timeline_only_unknown_creator")
+
+        assert account_route.call_count == 0, (
+            "Unknown creator must NOT hit /api/v1/account"
+        )
+        assert timeline_route.call_count == 0, (
+            "Unknown creator must NOT hit /api/v1/timelinenew"
         )
 
 
@@ -780,38 +961,31 @@ class TestSessionBaseline:
         """First should_process_creator call uses session_baseline; second uses None.
 
         We cannot drive run_daemon's internal state from outside, so we verify
-        the consumption logic by directly calling the poll logic with a shared
+        the consumption logic by invoking a spec'd AsyncMock with a shared
         baseline_consumed set, mirroring how _timeline_poll_loop works.
         """
         creator_id = saved_account.id
         session_baseline = datetime(2020, 1, 1, tzinfo=UTC)
         baseline_consumed: set[int] = set()
 
-        calls: list[datetime | None] = []
+        spy = AsyncMock(spec=should_process_creator, return_value=True)
 
-        async def _spy_should_process(config, cid, *, session_baseline=None, **kw):
-            calls.append(session_baseline)
-            return True
+        # First call - creator not yet in consumed
+        baseline = session_baseline if creator_id not in baseline_consumed else None
+        baseline_consumed.add(creator_id)
+        await spy(config_wired, creator_id, session_baseline=baseline)
 
-        with patch(
-            "daemon.runner.should_process_creator", side_effect=_spy_should_process
-        ):
-            # First call - creator not yet in consumed
-            baseline = session_baseline if creator_id not in baseline_consumed else None
-            baseline_consumed.add(creator_id)
-            await _spy_should_process(
-                config_wired, creator_id, session_baseline=baseline
-            )
+        # Second call - creator already consumed
+        baseline = session_baseline if creator_id not in baseline_consumed else None
+        baseline_consumed.add(creator_id)
+        await spy(config_wired, creator_id, session_baseline=baseline)
 
-            # Second call - creator already consumed
-            baseline = session_baseline if creator_id not in baseline_consumed else None
-            baseline_consumed.add(creator_id)
-            await _spy_should_process(
-                config_wired, creator_id, session_baseline=baseline
-            )
-
-        assert calls[0] == session_baseline, "First call should use session_baseline"
-        assert calls[1] is None, "Second call should use None (baseline consumed)"
+        assert spy.call_args_list[0].kwargs["session_baseline"] == session_baseline, (
+            "First call should use session_baseline"
+        )
+        assert spy.call_args_list[1].kwargs["session_baseline"] is None, (
+            "Second call should use None (baseline consumed)"
+        )
 
     @pytest.mark.asyncio
     async def test_baseline_consumed_set_is_per_creator(
@@ -846,104 +1020,181 @@ class TestFollowingRefresh:
 
     @pytest.mark.asyncio
     async def test_full_creator_download_with_uf_refreshes_following(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """FullCreatorDownload item processed with use_following=True triggers refresh.
+        """FullCreatorDownload + use_following=True hits the real /following endpoint.
 
-        We test the _worker_loop path: on FullCreatorDownload completion with
-        use_following=True, get_following_accounts is called.
+        Real-pipeline rewrite (Wave 2.6 carry-over). Drives the
+        `_worker_loop` end-to-end: real `_handle_work_item` →
+        `_handle_full_creator_item` (full 5-step download pipeline) →
+        clean success branch → real `_refresh_following` →
+        `get_creator_account_info` (client variant via
+        `/api/v1/account/me`) → `get_following_accounts` →
+        `/api/v1/account/{client_id}/following`. The assertion lands
+        on the real `/following` HTTP boundary.
+
+        Production bug discovered while writing this test: the
+        original `_refresh_following` constructed `state =
+        DownloadState()` with no `creator_id` and called
+        `get_following_accounts(config, state)` directly, which
+        immediately raised `RuntimeError("client ID not set")`. The
+        outer `try/except Exception` swallowed it and the refresh
+        silently no-op'd in production. Fixed in the same patch by
+        adding `await get_creator_account_info(config, state)`
+        before the following-list call (mirroring
+        `fansly_downloader_ng.py:353-361`'s legacy convention).
         """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
         config_wired.use_following = True
-        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
-        stop_event = asyncio.Event()
-        refresh_called = False
-
-        async def _fake_handle_work_item(config, item):
-            # Do nothing - just let the worker route to _refresh_following
-            pass
-
-        async def _fake_refresh(config):
-            nonlocal refresh_called
-            refresh_called = True
 
         creator_id = saved_account.id
+        creator_name = saved_account.username
+        client_id = snowflake_id()
+
+        mount_empty_creator_pipeline(creator_id, creator_name)
+        mount_client_account_me_route(client_id)
+        following_route = mount_empty_following_route(client_id)
+
+        # The handler also calls mark_creator_processed which touches
+        # the entity_store — no patch needed; uses the real DB.
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            "download.account.asyncio.sleep", AsyncMock(return_value=None)
+        )
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+        monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+
+        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
+        stop_event = asyncio.Event()
         await queue.put(FullCreatorDownload(creator_id=creator_id))
-        stop_event.set()  # Stop after draining
+        stop_event.set()
 
-        with (
-            patch(
-                "daemon.runner._handle_work_item", side_effect=_fake_handle_work_item
-            ),
-            patch("daemon.runner._refresh_following", side_effect=_fake_refresh),
-            patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
-        ):
+        try:
             await _worker_loop(config_wired, queue, stop_event, use_following=True)
+        finally:
+            dump_fansly_calls(respx.calls, label="full_creator_with_uf")
 
-        assert refresh_called, "get_following_accounts should be called with -uf"
+        assert following_route.call_count >= 1, (
+            "_refresh_following should have hit "
+            "/api/v1/account/{client_id}/following with use_following=True"
+        )
 
     @pytest.mark.asyncio
     async def test_full_creator_download_without_uf_skips_refresh(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """FullCreatorDownload without use_following does not refresh following list."""
+        """FullCreatorDownload + use_following=False NEVER hits /following.
+
+        Real-pipeline rewrite (Wave 2.6 carry-over). Same handler
+        pipeline as the with-uf variant, but with `use_following=False`
+        the worker loop short-circuits the refresh branch entirely.
+        Mounted-but-not-expected `/following` route asserts
+        `call_count == 0` — stronger than the previous internal
+        `nonlocal refresh_called` flag because it would also fire if
+        any code path ever bypassed `_refresh_following` to hit
+        `/following` directly.
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
         config_wired.use_following = False
-        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
-        stop_event = asyncio.Event()
-        refresh_called = False
-
-        async def _fake_handle_work_item(config, item):
-            pass
-
-        async def _fake_refresh(config):
-            nonlocal refresh_called
-            refresh_called = True
 
         creator_id = saved_account.id
+        creator_name = saved_account.username
+        client_id = snowflake_id()
+
+        mount_empty_creator_pipeline(creator_id, creator_name)
+        # Mount /me + /following anyway so we can assert call_count == 0.
+        mount_client_account_me_route(client_id)
+        following_route = mount_empty_following_route(client_id)
+
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+        monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+
+        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
+        stop_event = asyncio.Event()
         await queue.put(FullCreatorDownload(creator_id=creator_id))
         stop_event.set()
 
-        with (
-            patch(
-                "daemon.runner._handle_work_item", side_effect=_fake_handle_work_item
-            ),
-            patch("daemon.runner._refresh_following", side_effect=_fake_refresh),
-            patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
-        ):
+        try:
             await _worker_loop(config_wired, queue, stop_event, use_following=False)
+        finally:
+            dump_fansly_calls(respx.calls, label="full_creator_without_uf")
 
-        assert not refresh_called, "Refresh should NOT be called without -uf"
+        assert following_route.call_count == 0, (
+            "_refresh_following must NOT fire when use_following=False"
+        )
 
     @pytest.mark.asyncio
     async def test_timeline_only_with_uf_refreshes_following(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """DownloadTimelineOnly processed with use_following=True also triggers refresh."""
+        """DownloadTimelineOnly + use_following=True also triggers /following.
+
+        Real-pipeline rewrite (Wave 2.6 carry-over). Confirms the
+        worker loop's post-success refresh branch fires for BOTH
+        FullCreatorDownload and DownloadTimelineOnly items (the
+        production code's `isinstance(item, (FullCreatorDownload,
+        DownloadTimelineOnly))` check). Asserts via the real
+        `/following` boundary.
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
         config_wired.use_following = True
-        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
-        stop_event = asyncio.Event()
-        refresh_called = False
-
-        async def _fake_handle_work_item(config, item):
-            pass
-
-        async def _fake_refresh(config):
-            nonlocal refresh_called
-            refresh_called = True
 
         creator_id = saved_account.id
+        creator_name = saved_account.username
+        client_id = snowflake_id()
+
+        # TimelineOnly handler uses just account + timeline — but
+        # mount_empty_creator_pipeline overshooting (also mounting
+        # stories + messages) is harmless: those routes simply receive
+        # zero calls.
+        mount_empty_creator_pipeline(creator_id, creator_name)
+        mount_client_account_me_route(client_id)
+        following_route = mount_empty_following_route(client_id)
+
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            "download.account.asyncio.sleep", AsyncMock(return_value=None)
+        )
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+
+        queue: asyncio.Queue[WorkItem] = asyncio.Queue()
+        stop_event = asyncio.Event()
         await queue.put(DownloadTimelineOnly(creator_id=creator_id))
         stop_event.set()
 
-        with (
-            patch(
-                "daemon.runner._handle_work_item", side_effect=_fake_handle_work_item
-            ),
-            patch("daemon.runner._refresh_following", side_effect=_fake_refresh),
-            patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
-        ):
+        try:
             await _worker_loop(config_wired, queue, stop_event, use_following=True)
+        finally:
+            dump_fansly_calls(respx.calls, label="timeline_only_with_uf")
 
-        assert refresh_called, "DownloadTimelineOnly with -uf should trigger refresh"
+        assert following_route.call_count >= 1, (
+            "DownloadTimelineOnly with use_following=True should hit /following"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -956,57 +1207,410 @@ class TestMarkViewedFalse:
 
     @pytest.mark.asyncio
     async def test_full_creator_download_passes_mark_viewed_false(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """FullCreatorDownload calls download_stories with mark_viewed=False."""
-        mark_viewed_values: list[bool | None] = []
+        """FullCreatorDownload never POSTs to /mediastory/view (real-pipeline boundary).
 
-        async def _spy_download_stories(config, state, *, mark_viewed=True):
-            mark_viewed_values.append(mark_viewed)
+        Real-pipeline rewrite (Wave 2.6 carry-over). Drives the full
+        handler pipeline end-to-end: account → timeline → stories
+        (``mark_viewed=False``) → messages → walls. All Fansly endpoints
+        are real respx routes; the assertion lands on the real
+        ``/api/v1/mediastory/view`` boundary (``call_count == 0``).
 
-        # Patch everything except download_stories
-        with (
-            patch("daemon.runner.get_creator_account_info", new=AsyncMock()),
-            patch("daemon.runner.download_timeline", new=AsyncMock()),
-            patch(
-                "daemon.runner.download_stories",
-                side_effect=_spy_download_stories,
-            ),
-            patch("daemon.runner.download_messages", new=AsyncMock()),
-            patch("daemon.runner.download_wall", new=AsyncMock()),
-        ):
-            # Seed the account into the store so _resolve_creator_name works
-            item = FullCreatorDownload(creator_id=saved_account.id)
+        This regression guard is the strictest possible: the daemon
+        must NEVER mark stories viewed in the user's real Fansly
+        account, regardless of which dispatch path triggered the
+        download. The previous internal-mock version asserted on
+        ``stories_mock.call_args.kwargs["mark_viewed"]``, which would
+        silently pass any of: a renamed gate, a relocated
+        ``_mark_stories_viewed``, an internal helper bypassing the
+        gate by calling the API directly, or even the
+        ``_handle_full_creator_item`` ever swapping its handler order.
+
+        Production bug discovered while writing this test: the original
+        ``await download_wall(config, state)`` at runner.py:279 was
+        missing the required ``wall_id`` positional. The daemon raised
+        ``TypeError`` on every FullCreatorDownload's wall step, caught
+        + re-raised by the outer except, tripping the worker loop's
+        error budget. Fixed in the same patch by mirroring the legacy
+        batch convention (``if state.walls: for wall_id in sorted(...):
+        await download_wall(config, state, wall_id)``).
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
+
+        creator_id = saved_account.id
+        creator_name = saved_account.username
+
+        # /api/v1/account?usernames=... — get_creator_account_info.
+        # No ``walls`` field → state.walls stays unset → the wall
+        # iteration in _handle_full_creator_item is a no-op.
+        account_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account"
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=_account_response_payload(creator_id, creator_name),
+                )
+            ]
+        )
+        # /api/v1/timelinenew/{id} — empty posts terminates pagination
+        # on page 1.
+        timeline_route = respx.get(
+            url__startswith=(
+                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
+            )
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [],
+                            "aggregationData": {
+                                "accountMedia": [],
+                                "media": [],
+                                "accounts": [],
+                            },
+                        },
+                    },
+                )
+            ]
+        )
+        # /api/v1/mediastoriesnew — empty mediaStories, no
+        # accountMedia → no media downloads, but the gate code
+        # path still executes with mark_viewed=False.
+        stories_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/mediastoriesnew"
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "mediaStories": [],
+                            "aggregationData": {
+                                "accountMedia": [],
+                                "media": [],
+                                "accounts": [],
+                            },
+                        },
+                    },
+                )
+            ]
+        )
+        # /api/v1/messaging/groups — download_messages searches
+        # groups for one whose users include state.creator_id.
+        # Empty groups → early "Could not find a chat history" return.
+        messages_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/messaging/groups"
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "data": [],
+                            "aggregationData": {"groups": [], "accounts": []},
+                        },
+                    },
+                )
+            ]
+        )
+        # The critical regression guard — must NEVER fire.
+        mark_view_route = respx.post(
+            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+        ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
+
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+        monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+
+        item = FullCreatorDownload(creator_id=creator_id)
+        try:
             await _handle_full_creator_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="full_creator_mark_false")
 
-        assert len(mark_viewed_values) == 1, "download_stories should have been called"
-        assert mark_viewed_values[0] is False, (
-            f"mark_viewed must be False from daemon, got {mark_viewed_values[0]!r}"
+        assert mark_view_route.call_count == 0, (
+            "FullCreatorDownload must NEVER POST to /mediastory/view — "
+            "the daemon must not affect the user's real Fansly UX"
+        )
+        # Sanity: every step of the real pipeline DID run, so the
+        # zero-count above is meaningful, not vacuous.
+        assert account_route.call_count >= 1, (
+            "get_creator_account_info should have hit /api/v1/account"
+        )
+        assert timeline_route.call_count >= 1, (
+            "download_timeline should have hit /api/v1/timelinenew/{id}"
+        )
+        assert stories_route.call_count >= 1, (
+            "download_stories should have hit /api/v1/mediastoriesnew"
+        )
+        assert messages_route.call_count >= 1, (
+            "download_messages should have hit /api/v1/messaging/groups"
         )
 
     @pytest.mark.asyncio
     async def test_download_stories_only_passes_mark_viewed_false(
-        self, config_wired, entity_store, saved_account
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
     ):
-        """DownloadStoriesOnly calls download_stories with mark_viewed=False."""
-        mark_viewed_values: list[bool | None] = []
+        """DownloadStoriesOnly never POSTs to /mediastory/view (real-pipeline boundary).
 
-        async def _spy_download_stories(config, state, *, mark_viewed=True):
-            mark_viewed_values.append(mark_viewed)
+        Asserts via the real HTTP boundary instead of an internal mock of
+        ``daemon.runner.download_stories``: the ``/mediastory/view`` respx
+        route MUST receive zero calls. This regression guard fires not
+        only if ``mark_viewed=False`` plumbing breaks, but also if the
+        handler ever bypasses the gate by calling the API directly, or
+        if ``_mark_stories_viewed`` is renamed/relocated. The previous
+        internal-mock version asserted on ``stories_mock.call_args.kwargs``,
+        which would have silently passed any of those regressions.
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
 
-        with (
-            patch("daemon.runner.get_creator_account_info", new=AsyncMock()),
-            patch(
-                "daemon.runner.download_stories",
-                side_effect=_spy_download_stories,
-            ),
-        ):
-            item = DownloadStoriesOnly(creator_id=saved_account.id)
+        creator_id = saved_account.id
+        creator_name = saved_account.username
+        story_id = snowflake_id()
+        media_id = snowflake_id()
+
+        # AccountMedia payload meeting production-pipeline shape requirements
+        # (nested ``media`` for FK, ``previewId`` to avoid KeyError, signed
+        # CDN URL with ``Key-Pair-Id`` so media/media.py:185 doesn't fall
+        # into raw input(); see ``project_fansly_payload_shape_requirements.md``).
+        am_entry = {
+            "id": media_id,
+            "accountId": creator_id,
+            "mediaId": media_id,
+            "previewId": None,
+            "createdAt": 1700000000,
+            "deleted": False,
+            "access": True,
+            "mimetype": "image/jpeg",
+            "media": {
+                "id": media_id,
+                "accountId": creator_id,
+                "mimetype": "image/jpeg",
+                "createdAt": 1700000000,
+                "locations": [
+                    {
+                        "locationId": "1",
+                        "location": (
+                            "https://cdn.example.com/img.jpg"
+                            "?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+                        ),
+                    }
+                ],
+            },
+        }
+        stories_response = {
+            "success": True,
+            "response": {
+                "mediaStories": [
+                    {
+                        "id": story_id,
+                        "accountId": creator_id,
+                        "createdAt": 1700000000,
+                    }
+                ],
+                "aggregationData": {
+                    "accountMedia": [am_entry],
+                    "media": [],
+                    "accounts": [],
+                },
+            },
+        }
+        # /api/v1/account?usernames={creator_name} returns a list (the
+        # creator-info shape; client-info would be wrapped under "account").
+        # ``timelineStats`` is required — _update_state_from_account raises
+        # ApiAccountInfoError("...you most likely misspelled it!") when it's
+        # missing. Real Fansly responses always include it for valid creators.
+        account_response = {
+            "success": True,
+            "response": [
+                {
+                    "id": creator_id,
+                    "username": creator_name,
+                    "createdAt": 1700000000,
+                    "timelineStats": {
+                        "accountId": creator_id,
+                        "imageCount": 1,
+                        "videoCount": 0,
+                        "bundleCount": 0,
+                        "bundleImageCount": 0,
+                        "bundleVideoCount": 0,
+                        "fetchedAt": 1700000000,
+                    },
+                }
+            ],
+        }
+
+        # Single ``url__startswith="...account"`` route serves BOTH
+        # /api/v1/account?usernames=... (get_creator_account_info) and
+        # /api/v1/account/media?ids=... (fetch_and_process_media via
+        # download_stories), in call order.
+        account_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account"
+        ).mock(
+            side_effect=[
+                httpx.Response(200, json=account_response),
+                httpx.Response(
+                    200,
+                    json={"success": True, "response": [am_entry]},
+                ),
+            ]
+        )
+        stories_route = respx.get(
+            "https://apiv3.fansly.com/api/v1/mediastoriesnew"
+        ).mock(side_effect=[httpx.Response(200, json=stories_response)])
+
+        # The critical regression-guard route — must NEVER fire.
+        mark_view_route = respx.post(
+            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+        ).mock(side_effect=[httpx.Response(200, json={"storyId": str(story_id)})])
+
+        # Patch the leaf CDN-download call at both binding sites
+        # (download.common imports it at module scope).
+        _noop_download = AsyncMock(return_value=None)
+        monkeypatch.setattr("download.common.download_media", _noop_download)
+        monkeypatch.setattr("download.media.download_media", _noop_download)
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.common.input_enter_continue", _noop)
+        monkeypatch.setattr("download.media.input_enter_continue", _noop)
+
+        item = DownloadStoriesOnly(creator_id=creator_id)
+        try:
             await _handle_stories_only_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="stories_only_mark_false")
 
-        assert len(mark_viewed_values) == 1, "download_stories should have been called"
-        assert mark_viewed_values[0] is False, (
-            f"mark_viewed must be False from daemon, got {mark_viewed_values[0]!r}"
+        assert mark_view_route.call_count == 0, (
+            "DownloadStoriesOnly must NEVER POST to /mediastory/view — "
+            "the daemon must not affect the user's real Fansly UX"
+        )
+        # Sanity: the real pipeline DID run (account fetched, stories fetched)
+        # so the zero-count above is meaningful, not vacuous.
+        assert account_route.call_count >= 1, (
+            "get_creator_account_info should have hit /api/v1/account"
+        )
+        assert stories_route.call_count == 1, (
+            "download_stories should have hit /api/v1/mediastoriesnew exactly once"
+        )
+
+    @pytest.mark.asyncio
+    async def test_full_creator_download_iterates_walls(
+        self,
+        respx_fansly_api,
+        config_wired,
+        entity_store,
+        saved_account,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Account with walls → wall iteration fires for each wall.
+
+        Coverage of the Bug #1 fix's iteration body (added in the same
+        patch as the test rewrites — covers daemon/runner.py:280-281,
+        the ``for wall_id in sorted(state.walls): await
+        download_wall(config, state, wall_id)`` loop). The mark-viewed
+        regression guard (``mark_view_route.call_count == 0``) is also
+        asserted to confirm the wall path doesn't accidentally bypass
+        the gate.
+
+        Two walls are seeded in the account response so the iteration
+        runs more than once (single-iteration would not distinguish
+        ``for x in [a]: f(x)`` from ``f(walls[0])``). The
+        ``mount_empty_creator_pipeline`` helper's ``response_count=5``
+        absorbs the extra ``/timelinenew`` calls (one for the timeline
+        download itself, two for the wall iteration).
+        """
+        config_wired.download_directory = tmp_path
+        config_wired.interactive = False
+
+        creator_id = saved_account.id
+        creator_name = saved_account.username
+        wall_id_a = snowflake_id()
+        wall_id_b = snowflake_id()
+
+        routes = mount_empty_creator_pipeline(
+            creator_id,
+            creator_name,
+            walls=[
+                {
+                    "id": str(wall_id_a),
+                    "accountId": str(creator_id),
+                    "pos": 1,
+                    "name": "Main",
+                    "description": "",
+                },
+                {
+                    "id": str(wall_id_b),
+                    "accountId": str(creator_id),
+                    "pos": 2,
+                    "name": "Behind the scenes",
+                    "description": "",
+                },
+            ],
+            response_count=10,
+        )
+        # Critical regression guard — must NEVER fire even with walls.
+        mark_view_route = respx.post(
+            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+        ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
+
+        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.wall.sleep", AsyncMock(return_value=None))
+        _noop = lambda _: None  # noqa: E731
+        monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+        monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+        monkeypatch.setattr("download.wall.input_enter_continue", _noop)
+
+        item = FullCreatorDownload(creator_id=creator_id)
+        try:
+            await _handle_full_creator_item(config_wired, item)
+        finally:
+            dump_fansly_calls(respx.calls, label="full_creator_with_walls")
+
+        # /timelinenew/{creator_id}?wallId=... is the wall-fetch URL shape
+        # (set by api.fansly.get_wall_posts via custom_params). The main
+        # timeline call has no wallId= param, so filtering on it
+        # discriminates wall iterations from timeline pagination — a
+        # tighter assertion than counting raw call volume on the URL
+        # prefix, which would silently pass if download_timeline ever
+        # gained extra retries while the wall iteration broke.
+        # Check distinct wall IDs visited rather than raw call count
+        # because download_wall retries each wall (config.timeline_retries
+        # rounds), so call volume per wall is implementation-detail.
+        wall_ids_visited = {
+            wall_id_param
+            for call in routes["timeline"].calls
+            if (wall_id_param := call.request.url.params.get("wallId"))
+        }
+        assert wall_ids_visited == {str(wall_id_a), str(wall_id_b)}, (
+            f"Expected both seeded walls to be iterated. "
+            f"Visited: {wall_ids_visited}, expected: "
+            f"{{{wall_id_a!r}, {wall_id_b!r}}}"
+        )
+        assert mark_view_route.call_count == 0, (
+            "FullCreatorDownload with walls must STILL NOT POST to "
+            "/mediastory/view — the wall path must not bypass the gate"
         )
 
     @pytest.mark.asyncio

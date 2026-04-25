@@ -169,10 +169,12 @@ async def test_add_preview_tag_existing_tag(respx_stash_processor):
 
     # Mock GraphQL response
     respx.post("http://localhost:9999/graphql").mock(
-        return_value=httpx.Response(
-            200,
-            json=create_graphql_response("findTags", tag_result),
-        )
+        side_effect=[
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", tag_result),
+            )
+        ]
     )
 
     # Verify tag is already present
@@ -201,10 +203,12 @@ async def test_add_preview_tag_no_tag_found(respx_stash_processor):
     # Mock tag search to return no results
     empty_result = create_find_tags_result(count=0, tags=[])
     respx.post("http://localhost:9999/graphql").mock(
-        return_value=httpx.Response(
-            200,
-            json=create_graphql_response("findTags", empty_result),
-        )
+        side_effect=[
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            )
+        ]
     )
 
     # Add the tag

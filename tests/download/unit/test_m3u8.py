@@ -1,14 +1,58 @@
-"""Unit tests for the m3u8 module."""
+"""Unit tests for the m3u8 module.
 
-from unittest.mock import MagicMock, patch
+Post-Wave-2.3 rewrite: previously every test used
+``MagicMock(spec=FanslyConfig)`` + ``@patch("pathlib.Path.exists/stat/unlink")``
++ ``@patch("download.m3u8.ffmpeg")`` / ``@patch("download.m3u8.av")``, which
+stubbed the entire external libraries and replaced every filesystem check.
+Tests exercised mocks, not production code — download/m3u8.py sat at 60.88%
+line coverage with the majority of ``_mux_segments_with_pyav`` (lines 418-516),
+``_mux_segments_with_ffmpeg`` (lines 532-555), and ``_try_segment_download``'s
+real segment-download inner function (lines 593-618) never exercised.
 
+Replacement strategy:
+- **Real ``tmp_path``** — stub files are written by fakes rather than
+  ``@patch("pathlib.Path.exists/stat/unlink")`` stubs. The production
+  ``exists()``/``stat()`` calls see real filesystem state.
+- **Leaf-level library patches** — ``ffmpeg.input``/``ffmpeg.probe``/
+  ``ffmpeg.Error`` and ``av.open``/``av.error.FFmpegError`` are the true
+  external edges. Stubs replace those calls while every wrapper
+  function (``_try_direct_download_ffmpeg``, ``_mux_segments_with_pyav``
+  etc.) runs its real logic.
+- **Real ``FanslyConfig``** — no ``MagicMock(spec=FanslyConfig)``.
+- **Stateful fakes for muxer paths** — tests for ``_mux_segments_with_pyav``
+  use small classes that track per-segment state (packet demux, codec
+  context etc.) so the corrupt-packet-skip, per-segment error, and
+  >25% abort-threshold branches all execute real code.
+
+Orchestration tests for ``download_m3u8`` (the three-tier dispatcher)
+still mock the three wrappers — that's the documented orchestration seam.
+Each mocked wrapper has dedicated leaf-level tests below:
+- ``TestDirectDownloadPyAV`` for ``_try_direct_download_pyav``
+- ``TestDirectDownloadFFmpeg`` for ``_try_direct_download_ffmpeg``
+- ``TestSegmentDownload`` for ``_try_segment_download``
+- ``TestMuxSegmentsWithPyAV`` (NEW) for ``_mux_segments_with_pyav``
+- ``TestMuxSegmentsWithFFmpeg`` (NEW) for ``_mux_segments_with_ffmpeg``
+
+The integration test suite at
+``tests/download/integration/test_m3u8_integration.py`` also patches the
+three wrappers and its justification is the in-file comment plus this
+dedicated-unit-coverage suite.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+import av
 import ffmpeg
-import httpx
 import pytest
 from m3u8 import M3U8
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import (
+    _mux_segments_with_ffmpeg,
+    _mux_segments_with_pyav,
     _try_direct_download_ffmpeg,
     _try_direct_download_pyav,
     _try_segment_download,
@@ -18,80 +62,208 @@ from download.m3u8 import (
     get_m3u8_progress,
 )
 from errors import M3U8Error
+from tests.fixtures.utils import SyncExecutor
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers + fake classes
+# ---------------------------------------------------------------------------
+
+
+def _make_real_config() -> FanslyConfig:
+    """Return a fresh real ``FanslyConfig`` with no API attached.
+
+    Tests that need ``config.get_api().get_with_ngsw(...)`` attach a small
+    namespace-object API via ``config._api = ...``.
+    """
+    return FanslyConfig(program_version="0.13.0-test")
+
+
+class _FakeFFmpegStream:
+    """Stub for ``ffmpeg.input(...).output(...).overwrite_output()``.
+
+    ``run()`` creates a real file at ``output_path`` so the production
+    code's ``output_path.exists()`` and ``output_path.stat().st_size > 0``
+    checks exercise REAL filesystem behavior.
+    """
+
+    def __init__(self, output_path: Path, *, write_bytes: bytes = b"\x00" * 1024):
+        self._output_path = output_path
+        self._write_bytes = write_bytes
+
+    def get_args(self) -> list[str]:
+        return ["ffmpeg", "-i", "hls", str(self._output_path)]
+
+    def global_args(self, *_a, **_k) -> _FakeFFmpegStream:
+        return self
+
+    def run(
+        self,
+        capture_stdout: bool = True,
+        capture_stderr: bool = True,
+        quiet: bool = False,
+    ) -> None:
+        self._output_path.write_bytes(self._write_bytes)
+
+
+class _FakeFFmpegStreamNoFile:
+    """Stub whose ``run()`` does NOT create a file (for empty-file branch)."""
+
+    def get_args(self) -> list[str]:
+        return ["ffmpeg", "-i", "hls", "output.mp4"]
+
+    def global_args(self, *_a, **_k) -> _FakeFFmpegStreamNoFile:
+        return self
+
+    def run(self, *_a, **_k) -> None:
+        # deliberately do nothing — output file will not exist
+        pass
+
+
+class _FakeFFmpegStreamRaising:
+    """Stub whose ``run()`` raises ``ffmpeg.Error`` to hit the error branch."""
+
+    def get_args(self) -> list[str]:
+        return ["ffmpeg", "-i", "hls", "output.mp4"]
+
+    def global_args(self, *_a, **_k) -> _FakeFFmpegStreamRaising:
+        return self
+
+    def run(self, *_a, **_k) -> None:
+        raise ffmpeg.Error("ffmpeg", b"", b"simulated ffmpeg failure")
+
+
+def _install_fake_ffmpeg_input(monkeypatch, fake_stream):
+    """Wire ``ffmpeg.input(...).output(...).overwrite_output()`` → fake_stream.
+
+    Used by tests that need only the success/failure side-effect of ``run``;
+    the intermediate fluent-API objects are also fakes.
+    """
+
+    def _fake_input(*_a, **_k):
+        class _Input:
+            def output(self, *_aa, **_kk):
+                class _Output:
+                    def overwrite_output(self_inner):  # noqa: N805
+                        return fake_stream
+
+                return _Output()
+
+        return _Input()
+
+    monkeypatch.setattr(ffmpeg, "input", _fake_input)
+
+
+# ---------------------------------------------------------------------------
+# TestM3U8Cookies — get_m3u8_cookies (pure function, no external deps)
+# ---------------------------------------------------------------------------
 
 
 class TestM3U8Cookies:
-    """Tests for the get_m3u8_cookies function."""
+    """CloudFront cookie extraction from M3U8 URL query strings."""
 
-    def test_get_m3u8_cookies_all_values(self):
-        """Test getting CloudFront cookies from a complete M3U8 URL."""
-        test_url = "https://media.example.com/hls/video.m3u8?Policy=abc123&Key-Pair-Id=xyz789&Signature=def456"
-        cookies = get_m3u8_cookies(test_url)
-
-        assert cookies == {
+    def test_all_values_present(self):
+        url = (
+            "https://media.example.com/hls/video.m3u8"
+            "?Policy=abc123&Key-Pair-Id=xyz789&Signature=def456"
+        )
+        assert get_m3u8_cookies(url) == {
             "CloudFront-Key-Pair-Id": "xyz789",
             "CloudFront-Policy": "abc123",
             "CloudFront-Signature": "def456",
         }
 
-    def test_get_m3u8_cookies_missing_values(self):
-        """Test handling missing values in M3U8 URL."""
-        test_url = "https://media.example.com/hls/video.m3u8?Policy=abc123"
-        cookies = get_m3u8_cookies(test_url)
-
-        assert cookies == {
-            "CloudFront-Key-Pair-Id": None,  # None for missing value
-            "CloudFront-Policy": "abc123",  # Present value
-            "CloudFront-Signature": None,  # None for missing value
+    def test_missing_values_become_none(self):
+        url = "https://media.example.com/hls/video.m3u8?Policy=abc123"
+        assert get_m3u8_cookies(url) == {
+            "CloudFront-Key-Pair-Id": None,
+            "CloudFront-Policy": "abc123",
+            "CloudFront-Signature": None,
         }
 
-    def test_get_m3u8_cookies_no_values(self):
-        """Test handling M3U8 URL with no query parameters."""
-        test_url = "https://media.example.com/hls/video.m3u8"
-        cookies = get_m3u8_cookies(test_url)
-
-        assert cookies == {
+    def test_no_query_string_returns_all_none(self):
+        url = "https://media.example.com/hls/video.m3u8"
+        assert get_m3u8_cookies(url) == {
             "CloudFront-Key-Pair-Id": None,
             "CloudFront-Policy": None,
             "CloudFront-Signature": None,
         }
 
 
-class TestM3U8Progress:
-    """Tests for the get_m3u8_progress function."""
+# ---------------------------------------------------------------------------
+# TestM3U8Progress — get_m3u8_progress (Rich wrapper, no external deps)
+# ---------------------------------------------------------------------------
 
-    def test_progress_bar_enabled(self):
-        """Test progress bar is enabled when not disabled."""
+
+class TestM3U8Progress:
+    def test_enabled(self):
         progress = get_m3u8_progress(disable_loading_bar=False)
         assert progress.disable is False
         assert progress.expand is True
-        # Note: transient is a constructor parameter but not exposed as an attribute
 
-    def test_progress_bar_disabled(self):
-        """Test progress bar is disabled when requested."""
-        progress = get_m3u8_progress(disable_loading_bar=True)
-        assert progress.disable is True
+    def test_disabled(self):
+        assert get_m3u8_progress(disable_loading_bar=True).disable is True
+
+
+# ---------------------------------------------------------------------------
+# TestFetchM3U8SegmentPlaylist — fetch_m3u8_segment_playlist via fake API
+# ---------------------------------------------------------------------------
+
+
+class _FakeHttpxResponse:
+    """Small ``httpx.Response``-like stub."""
+
+    def __init__(self, status_code: int, text: str):
+        self.status_code = status_code
+        self.text = text
+
+
+class _FakeApi:
+    """``FanslyApi``-like stub exposing only ``get_with_ngsw``.
+
+    Tests load the ``responses`` list with fake HttpxResponse objects in
+    call order; each invocation pops the next. Real ``FanslyApi`` is not
+    instantiated — avoids its heavy HTTP/WebSocket setup — while the
+    production ``fetch_m3u8_segment_playlist`` runs its real parsing,
+    recursion, and error-raising logic against these responses.
+    """
+
+    def __init__(self, responses: list[_FakeHttpxResponse]):
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    def get_with_ngsw(
+        self,
+        *,
+        url: str,
+        cookies: dict | None = None,
+        add_fansly_headers: bool = True,
+        stream: bool = False,
+        bypass_rate_limit: bool = False,
+    ) -> _FakeHttpxResponse:
+        self.calls.append(
+            {
+                "url": url,
+                "cookies": cookies,
+                "add_fansly_headers": add_fansly_headers,
+                "stream": stream,
+                "bypass_rate_limit": bypass_rate_limit,
+            }
+        )
+        return self._responses.pop(0)
 
 
 class TestFetchM3U8SegmentPlaylist:
-    """Tests for the fetch_m3u8_segment_playlist function."""
+    """Tests for ``fetch_m3u8_segment_playlist`` — real parser + fake API."""
 
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig."""
-        config = MagicMock(spec=FanslyConfig)
-        mock_api = MagicMock()
-        mock_response = MagicMock(spec=httpx.Response)
-        # get_with_ngsw returns httpx.Response directly, not a context manager
-        mock_api.get_with_ngsw.return_value = mock_response
-        config.get_api.return_value = mock_api
-        return config, mock_api, mock_response
-
-    def test_fetch_m3u8_segment_playlist_endlist_vod(self, mock_config):
-        """Test fetching an M3U8 playlist that is an endlist VOD."""
-        config, _, mock_response = mock_config
-        mock_response.status_code = 200
-        mock_response.text = """#EXTM3U
+    def test_endlist_vod_returned_directly(self):
+        """VOD endlist playlist → returned directly without recursion."""
+        config = _make_real_config()
+        config._api = _FakeApi(
+            [
+                _FakeHttpxResponse(
+                    200,
+                    """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-PLAYLIST-TYPE:VOD
 #EXT-X-TARGETDURATION:10
@@ -99,689 +271,1822 @@ class TestFetchM3U8SegmentPlaylist:
 segment1.ts
 #EXTINF:8.0,
 segment2.ts
-#EXT-X-ENDLIST"""
+#EXT-X-ENDLIST""",
+                )
+            ]
+        )
 
         result = fetch_m3u8_segment_playlist(
             config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+            m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
         )
 
         assert isinstance(result, M3U8)
         assert result.is_endlist is True
         assert result.playlist_type == "vod"
         assert len(result.segments) == 2
+        # Single HTTP call — no recursion.
+        assert len(config._api.calls) == 1
 
-    def test_fetch_m3u8_segment_playlist_select_highest_resolution(self, mock_config):
-        """Test fetching an M3U8 master playlist selects highest resolution."""
-        config, mock_api, mock_response = mock_config
+    def test_master_playlist_selects_highest_resolution(self):
+        """Master playlist → recursive fetch of highest-resolution variant.
 
-        master_playlist_text = """#EXTM3U
+        The real code calls _get_highest_quality_variant_url which fetches
+        the master playlist AGAIN (internally) and then recurses with the
+        variant URL. Three total HTTP calls.
+        """
+        config = _make_real_config()
+
+        master = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360
 video_360.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720
-video_720.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080
 video_1080.m3u8"""
 
-        # First response - master playlist (by fetch_m3u8_segment_playlist)
-        mock_response.status_code = 200
-        mock_response.text = master_playlist_text
-
-        # Second response - master playlist again (by _get_highest_quality_variant_url)
-        second_response = MagicMock(spec=httpx.Response)
-        second_response.status_code = 200
-        second_response.text = master_playlist_text
-
-        # Third response - segment playlist (recursive call)
-        third_response = MagicMock(spec=httpx.Response)
-        third_response.status_code = 200
-        third_response.text = """#EXTM3U
+        segment_list = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
 #EXTINF:10.0,
 segment1.ts
-#EXTINF:8.0,
-segment2.ts
 #EXT-X-ENDLIST"""
 
-        mock_api.get_with_ngsw.side_effect = [
-            mock_response,  # fetch_m3u8_segment_playlist (master)
-            second_response,  # _get_highest_quality_variant_url (master again)
-            third_response,  # fetch_m3u8_segment_playlist (segments)
-        ]
+        config._api = _FakeApi(
+            [
+                _FakeHttpxResponse(200, master),  # first fetch (master)
+                _FakeHttpxResponse(200, master),  # variant-selection re-fetch
+                _FakeHttpxResponse(200, segment_list),  # recursive variant fetch
+            ]
+        )
 
         result = fetch_m3u8_segment_playlist(
             config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+            m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
         )
 
         assert isinstance(result, M3U8)
-        assert result.is_endlist is True
         assert result.playlist_type == "vod"
-        assert len(result.segments) == 2
+        # Third call targets the 1080p variant URL.
+        assert "video_1080.m3u8" in config._api.calls[2]["url"]
 
-        # Third call should target the highest resolution variant
-        calls = mock_api.get_with_ngsw.call_args_list
-        assert len(calls) == 3
-        _, kwargs = calls[2]
-        assert "video_1080.m3u8" in kwargs["url"]
+    def test_master_playlist_fallback_guesses_1080p_url(self):
+        """Master playlist with no variants → guesses ``_1080.m3u8`` fallback URL."""
+        config = _make_real_config()
 
-    def test_fetch_m3u8_segment_playlist_empty_playlist(self, mock_config):
-        """Test handling an empty M3U8 playlist."""
-        config, mock_api, mock_response = mock_config
-
-        empty_playlist_text = """#EXTM3U8
+        empty_master = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-STREAM-INF:BANDWIDTH=0,RESOLUTION=0x0"""
 
-        # First response - empty playlist (by fetch_m3u8_segment_playlist)
-        mock_response.status_code = 200
-        mock_response.text = empty_playlist_text
-
-        # Second response - empty playlist again (by _get_highest_quality_variant_url)
-        second_response = MagicMock(spec=httpx.Response)
-        second_response.status_code = 200
-        second_response.text = empty_playlist_text
-
-        # Third response - segment playlist (recursive call with guessed 1080p URL)
-        third_response = MagicMock(spec=httpx.Response)
-        third_response.status_code = 200
-        third_response.text = """#EXTM3U
+        segment_list = """#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
 #EXTINF:10.0,
 segment1.ts
-#EXTINF:8.0,
-segment2.ts
 #EXT-X-ENDLIST"""
 
-        mock_api.get_with_ngsw.side_effect = [
-            mock_response,  # fetch_m3u8_segment_playlist (empty master)
-            second_response,  # _get_highest_quality_variant_url (empty again)
-            third_response,  # fetch_m3u8_segment_playlist (segments via guessed URL)
-        ]
-
-        result = fetch_m3u8_segment_playlist(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+        config._api = _FakeApi(
+            [
+                _FakeHttpxResponse(200, empty_master),
+                _FakeHttpxResponse(200, empty_master),
+                _FakeHttpxResponse(200, segment_list),
+            ]
         )
 
-        assert isinstance(result, M3U8)
-        assert result.is_endlist is True
-        assert result.playlist_type == "vod"
-        assert len(result.segments) == 2
+        fetch_m3u8_segment_playlist(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+        )
 
-        # Third call should use the 1080p fallback URL
-        calls = mock_api.get_with_ngsw.call_args_list
-        assert len(calls) == 3
-        _, kwargs = calls[2]
-        assert "_1080.m3u8" in kwargs["url"]
+        # Third call should use the guessed 1080p URL — real code builds
+        # this by splitting on ".m3u8" and appending "_1080.m3u8".
+        assert "_1080.m3u8" in config._api.calls[2]["url"]
 
-    def test_fetch_m3u8_segment_playlist_http_error(self, mock_config):
-        """Test handling HTTP error when fetching M3U8 playlist."""
-        config, _, mock_response = mock_config
-        mock_response.status_code = 404
-        mock_response.text = "Not Found"
+    def test_http_error_raises_m3u8error(self):
+        """Non-200 response → real ``raise M3U8Error`` fires."""
+        config = _make_real_config()
+        config._api = _FakeApi([_FakeHttpxResponse(404, "Not Found")])
 
         with pytest.raises(M3U8Error) as excinfo:
             fetch_m3u8_segment_playlist(
                 config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             )
 
         assert "Failed downloading M3U8 playlist" in str(excinfo.value)
         assert "404" in str(excinfo.value)
 
 
-@patch("download.m3u8._try_direct_download_pyav")
-@patch("download.m3u8._try_direct_download_ffmpeg")
+# ---------------------------------------------------------------------------
+# TestDownloadM3U8ThreeTierStrategy — orchestration tests only
+# ---------------------------------------------------------------------------
+#
+# The three wrapper functions patched here each have dedicated unit-level
+# coverage below (TestDirectDownloadPyAV, TestDirectDownloadFFmpeg,
+# TestSegmentDownload, TestMuxSegmentsWithPyAV, TestMuxSegmentsWithFFmpeg).
+# Those dedicated suites exercise the real av/ffmpeg code paths via leaf-
+# level library patches; this suite focuses strictly on download_m3u8's
+# orchestration logic — which tier it tries, when it falls back, and how
+# the created_at parameter flows through.
+
+
 @patch("download.m3u8._try_segment_download")
+@patch("download.m3u8._try_direct_download_ffmpeg")
+@patch("download.m3u8._try_direct_download_pyav")
 class TestDownloadM3U8ThreeTierStrategy:
-    """Tests for the download_m3u8 function with three-tier strategy."""
+    """Orchestration tests for ``download_m3u8`` (see module comment)."""
 
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig."""
-        config = MagicMock(spec=FanslyConfig)
-        mock_api = MagicMock()
-        config.get_api.return_value = mock_api
-        return config
-
-    def test_download_m3u8_pyav_success(
-        self,
-        mock_segment_download,
-        mock_ffmpeg_download,
-        mock_pyav_download,
-        mock_config,
-        tmp_path,
+    def test_pyav_success_short_circuits(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
     ):
-        """Test M3U8 download when PyAV download succeeds (fastest path)."""
-        config = mock_config
+        """PyAV succeeds → FFmpeg + segment paths are not tried."""
+        config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        m3u8_url = (
-            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
-        )
-
-        mock_pyav_download.return_value = True
+        mock_pyav.return_value = True
 
         result = download_m3u8(
             config=config,
-            m3u8_url=m3u8_url,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
         )
 
         assert result == save_path.parent / "video.mp4"
-        mock_pyav_download.assert_called_once()
-        mock_ffmpeg_download.assert_not_called()
-        mock_segment_download.assert_not_called()
+        mock_pyav.assert_called_once()
+        mock_ffmpeg.assert_not_called()
+        mock_segment.assert_not_called()
 
-    def test_download_m3u8_ffmpeg_fallback(
-        self,
-        mock_segment_download,
-        mock_ffmpeg_download,
-        mock_pyav_download,
-        mock_config,
-        tmp_path,
+    def test_ffmpeg_fallback_when_pyav_fails(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
     ):
-        """Test M3U8 download falls back to FFmpeg when PyAV fails."""
-        config = mock_config
+        """PyAV fails → FFmpeg tried → succeeds → segment path skipped."""
+        config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        m3u8_url = (
-            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
-        )
-
-        mock_pyav_download.return_value = False
-        mock_ffmpeg_download.return_value = True
+        mock_pyav.return_value = False
+        mock_ffmpeg.return_value = True
 
         result = download_m3u8(
             config=config,
-            m3u8_url=m3u8_url,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
         )
 
         assert result == save_path.parent / "video.mp4"
-        mock_pyav_download.assert_called_once()
-        mock_ffmpeg_download.assert_called_once()
-        mock_segment_download.assert_not_called()
+        mock_pyav.assert_called_once()
+        mock_ffmpeg.assert_called_once()
+        mock_segment.assert_not_called()
 
-    def test_download_m3u8_segment_fallback(
-        self,
-        mock_segment_download,
-        mock_ffmpeg_download,
-        mock_pyav_download,
-        mock_config,
-        tmp_path,
+    def test_segment_fallback_when_both_direct_fail(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
     ):
-        """Test M3U8 download falls back to segments when both direct fail."""
-        config = mock_config
+        """Both PyAV + FFmpeg fail → segment path is tried."""
+        config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        m3u8_url = (
-            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
-        )
-
-        mock_pyav_download.return_value = False
-        mock_ffmpeg_download.return_value = False
-        mock_segment_download.return_value = save_path.parent / "video.mp4"
+        mock_pyav.return_value = False
+        mock_ffmpeg.return_value = False
+        mock_segment.return_value = save_path.parent / "video.mp4"
 
         result = download_m3u8(
             config=config,
-            m3u8_url=m3u8_url,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
         )
 
         assert result == save_path.parent / "video.mp4"
-        mock_pyav_download.assert_called_once()
-        mock_ffmpeg_download.assert_called_once()
-        mock_segment_download.assert_called_once()
+        mock_segment.assert_called_once()
 
-    @patch("os.utime")
-    def test_download_m3u8_with_created_at_pyav(
-        self,
-        mock_utime,
-        mock_segment_download,
-        mock_ffmpeg_download,
-        mock_pyav_download,
-        mock_config,
-        tmp_path,
+    def test_created_at_set_on_pyav_success(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
     ):
-        """Test M3U8 download with timestamp when PyAV succeeds."""
-        config = mock_config
+        """created_at is applied via os.utime on the resulting path."""
+        config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        m3u8_url = (
-            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        mock_pyav.return_value = True
+
+        utime_calls: list[tuple] = []
+        monkeypatch.setattr(
+            "download.m3u8.os.utime", lambda p, t: utime_calls.append((p, t))
         )
-        created_at = 1633046400
 
-        mock_pyav_download.return_value = True
-
-        result = download_m3u8(
+        download_m3u8(
             config=config,
-            m3u8_url=m3u8_url,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
-            created_at=created_at,
+            created_at=1633046400,
         )
 
-        assert result == save_path.parent / "video.mp4"
-        mock_pyav_download.assert_called_once()
-        mock_utime.assert_called_once_with(
-            save_path.parent / "video.mp4", (created_at, created_at)
-        )
+        assert utime_calls == [
+            (save_path.parent / "video.mp4", (1633046400, 1633046400))
+        ]
 
-    def test_download_m3u8_with_created_at_segment_fallback(
-        self,
-        mock_segment_download,
-        mock_ffmpeg_download,
-        mock_pyav_download,
-        mock_config,
-        tmp_path,
+    def test_created_at_set_on_ffmpeg_fallback(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
     ):
-        """Test M3U8 download with timestamp when falling back to segments."""
-        config = mock_config
+        """FFmpeg fallback succeeds → created_at applied on that path too.
+
+        Covers line 727 (os.utime in the FFmpeg-success branch of download_m3u8).
+        """
+        config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        m3u8_url = (
-            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        mock_pyav.return_value = False
+        mock_ffmpeg.return_value = True
+
+        utime_calls: list[tuple] = []
+        monkeypatch.setattr(
+            "download.m3u8.os.utime", lambda p, t: utime_calls.append((p, t))
         )
-        created_at = 1633046400
 
-        mock_pyav_download.return_value = False
-        mock_ffmpeg_download.return_value = False
-        mock_segment_download.return_value = save_path.parent / "video.mp4"
-
-        result = download_m3u8(
+        download_m3u8(
             config=config,
-            m3u8_url=m3u8_url,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
-            created_at=created_at,
+            created_at=1700000000,
         )
 
-        assert result == save_path.parent / "video.mp4"
-        mock_pyav_download.assert_called_once()
-        mock_ffmpeg_download.assert_called_once()
-        mock_segment_download.assert_called_once()
+        assert utime_calls == [
+            (save_path.parent / "video.mp4", (1700000000, 1700000000))
+        ]
 
-        # created_at passed as 5th positional arg
-        args, _ = mock_segment_download.call_args
-        assert args[4] == created_at
-
-
-@patch("download.m3u8.ffmpeg")
-@patch("download.m3u8._get_highest_quality_variant_url")
-class TestDirectDownloadFFmpeg:
-    """Tests for the _try_direct_download_ffmpeg function."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig."""
-        config = MagicMock(spec=FanslyConfig)
-        mock_api = MagicMock()
-        config.get_api.return_value = mock_api
-        return config
-
-    @patch("helpers.rich_progress.ffmpeg_progress")
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.stat")
-    @patch("pathlib.Path.unlink")
-    def test_ffmpeg_download_success(
-        self,
-        mock_unlink,
-        mock_stat,
-        mock_exists,
-        mock_ffmpeg_progress,
-        mock_variant_url,
-        mock_ffmpeg,
-        mock_config,
-        tmp_path,
+    def test_created_at_passed_through_to_segment_fallback(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
     ):
-        """Test successful direct HLS download using ffmpeg subprocess."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc", "CloudFront-Key-Pair-Id": "xyz"}
+        """When falling back to segment download, created_at is forwarded."""
+        config = _make_real_config()
+        save_path = tmp_path / "video.mp4"
+        mock_pyav.return_value = False
+        mock_ffmpeg.return_value = False
+        mock_segment.return_value = save_path.parent / "video.mp4"
 
-        mock_variant_url.return_value = "https://example.com/video_1080.m3u8"
-
-        # Mock ffmpeg chain
-        mock_stream = MagicMock()
-        mock_stream.get_args.return_value = ["ffmpeg", "-i", "input.m3u8", "output.mp4"]
-        mock_stream.run.return_value = None
-        mock_stream.global_args.return_value = mock_stream
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
-
-        # Mock ffmpeg_progress context manager
-        mock_ffmpeg_progress.return_value.__enter__ = MagicMock(
-            return_value="progress.txt"
-        )
-        mock_ffmpeg_progress.return_value.__exit__ = MagicMock(return_value=False)
-
-        # Mock probe for duration detection (best-effort)
-        mock_ffmpeg.probe.return_value = {"format": {"duration": "120.5"}}
-
-        # Mock file existence and size check
-        mock_exists.return_value = True
-        mock_stat_result = MagicMock()
-        mock_stat_result.st_size = 1000000
-        mock_stat.return_value = mock_stat_result
-
-        # Mock probe for stream verification
-        mock_ffmpeg.probe.return_value = {
-            "format": {"duration": "120.5"},
-            "streams": [
-                {"codec_type": "video"},
-                {"codec_type": "audio"},
-            ],
-        }
-
-        result = _try_direct_download_ffmpeg(
+        download_m3u8(
             config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            save_path=save_path,
+            created_at=1633046400,
         )
 
-        assert result is True
-        mock_ffmpeg.input.assert_called_once()
+        args, _ = mock_segment.call_args
+        assert args[4] == 1633046400
 
-    @patch("helpers.rich_progress.ffmpeg_progress")
-    def test_ffmpeg_download_error(
-        self,
-        mock_ffmpeg_progress,
-        mock_variant_url,
-        mock_ffmpeg,
-        mock_config,
-        tmp_path,
+    def test_non_m3u8error_exception_is_wrapped(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
     ):
-        """Test FFmpeg download handles errors and returns False."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
+        """Generic exception from any tier → wrapped in M3U8Error."""
+        config = _make_real_config()
+        save_path = tmp_path / "video.mp4"
+        mock_pyav.side_effect = RuntimeError("unexpected crash")
 
-        mock_variant_url.return_value = "https://example.com/video_1080.m3u8"
-
-        # Mock ffmpeg to raise an error
-        mock_stream = MagicMock()
-        mock_stream.global_args.return_value = mock_stream
-        mock_stream.run.side_effect = ffmpeg.Error("ffmpeg", b"", b"Error message")
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
-        mock_ffmpeg.Error = ffmpeg.Error
-        mock_ffmpeg.probe.side_effect = Exception("probe failed")
-
-        # Mock ffmpeg_progress context manager
-        mock_ffmpeg_progress.return_value.__enter__ = MagicMock(
-            return_value="progress.txt"
-        )
-        mock_ffmpeg_progress.return_value.__exit__ = MagicMock(return_value=False)
-
-        result = _try_direct_download_ffmpeg(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
-        )
-
-        assert result is False
-
-
-@patch("download.m3u8.av")
-@patch("download.m3u8._get_highest_quality_variant_url")
-class TestDirectDownloadPyAV:
-    """Tests for the _try_direct_download_pyav function."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig."""
-        config = MagicMock(spec=FanslyConfig)
-        return config
-
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.stat")
-    def test_pyav_download_success(
-        self,
-        mock_stat,
-        mock_exists,
-        mock_variant_url,
-        mock_av,
-        mock_config,
-        tmp_path,
-    ):
-        """Test successful direct HLS download using PyAV."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
-
-        mock_variant_url.return_value = "https://example.com/video_1080.m3u8"
-
-        # Mock PyAV containers
-        mock_input = MagicMock()
-        mock_output = MagicMock()
-        mock_av.open.side_effect = [mock_input, mock_output]
-
-        # Mock streams with codec_context
-        mock_stream = MagicMock()
-        mock_stream.codec_context = MagicMock()
-        mock_input.streams = [mock_stream]
-
-        mock_output_stream = MagicMock()
-        mock_output.add_stream.return_value = mock_output_stream
-
-        # Mock demux packets
-        mock_packet = MagicMock()
-        mock_packet.stream = mock_stream
-        mock_input.demux.return_value = [mock_packet]
-
-        # Mock file verification
-        mock_exists.return_value = True
-        mock_stat_result = MagicMock()
-        mock_stat_result.st_size = 500000
-        mock_stat.return_value = mock_stat_result
-
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
-        )
-
-        assert result is True
-        assert mock_av.open.call_count == 2
-        mock_output.mux.assert_called_once()
-
-    def test_pyav_download_error(
-        self,
-        mock_variant_url,
-        mock_av,
-        mock_config,
-        tmp_path,
-    ):
-        """Test PyAV download handles errors and returns False."""
-        import av as real_av
-
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
-
-        mock_variant_url.return_value = "https://example.com/video_1080.m3u8"
-        mock_av.open.side_effect = Exception("Connection refused")
-        mock_av.error.FFmpegError = real_av.error.FFmpegError
-
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
-        )
-
-        assert result is False
-
-
-@patch("download.m3u8._mux_segments_with_pyav")
-@patch("download.m3u8._mux_segments_with_ffmpeg")
-@patch("download.m3u8.fetch_m3u8_segment_playlist")
-@patch("download.m3u8.concurrent.futures.ThreadPoolExecutor")
-@patch("download.m3u8.get_m3u8_progress")
-class TestSegmentDownload:
-    """Tests for the _try_segment_download function."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig."""
-        config = MagicMock(spec=FanslyConfig)
-        mock_api = MagicMock()
-        config.get_api.return_value = mock_api
-        return config
-
-    @pytest.fixture
-    def mock_segment_playlist(self):
-        """Fixture for a mocked M3U8 segment playlist."""
-        playlist = MagicMock(spec=M3U8)
-
-        segment1 = MagicMock()
-        segment1.absolute_uri = "https://example.com/segment1.ts"
-        segment2 = MagicMock()
-        segment2.absolute_uri = "https://example.com/segment2.ts"
-
-        playlist.segments = [segment1, segment2]
-        return playlist
-
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.unlink")
-    @patch("pathlib.Path.stat")
-    def test_segment_download_pyav_mux_success(
-        self,
-        mock_stat,
-        mock_unlink,
-        mock_exists,
-        mock_progress,
-        mock_thread_executor,
-        mock_fetch_playlist,
-        mock_ffmpeg_mux,
-        mock_pyav_mux,
-        mock_segment_playlist,
-        mock_config,
-        tmp_path,
-    ):
-        """Test successful segment download with PyAV muxing."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
-
-        mock_exists.return_value = True
-        mock_stat_result = MagicMock()
-        mock_stat_result.st_size = 1000000
-        mock_stat.return_value = mock_stat_result
-
-        mock_executor = MagicMock()
-        mock_thread_executor.return_value.__enter__.return_value = mock_executor
-
-        mock_progress_bar = MagicMock()
-        mock_progress.return_value = mock_progress_bar
-
-        mock_fetch_playlist.return_value = mock_segment_playlist
-
-        # PyAV mux succeeds
-        mock_pyav_mux.return_value = True
-
-        result = _try_segment_download(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
-        )
-
-        assert result == output_path
-        mock_fetch_playlist.assert_called_once()
-        mock_pyav_mux.assert_called_once()
-        mock_ffmpeg_mux.assert_not_called()  # PyAV succeeded, no ffmpeg fallback
-
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.unlink")
-    @patch("pathlib.Path.stat")
-    def test_segment_download_ffmpeg_mux_fallback(
-        self,
-        mock_stat,
-        mock_unlink,
-        mock_exists,
-        mock_progress,
-        mock_thread_executor,
-        mock_fetch_playlist,
-        mock_ffmpeg_mux,
-        mock_pyav_mux,
-        mock_segment_playlist,
-        mock_config,
-        tmp_path,
-    ):
-        """Test segment download falls back to ffmpeg concat when PyAV fails."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
-
-        mock_exists.return_value = True
-        mock_stat_result = MagicMock()
-        mock_stat_result.st_size = 1000000
-        mock_stat.return_value = mock_stat_result
-
-        mock_executor = MagicMock()
-        mock_thread_executor.return_value.__enter__.return_value = mock_executor
-
-        mock_progress_bar = MagicMock()
-        mock_progress.return_value = mock_progress_bar
-
-        mock_fetch_playlist.return_value = mock_segment_playlist
-
-        # PyAV mux fails, ffmpeg succeeds
-        mock_pyav_mux.return_value = False
-        mock_ffmpeg_mux.return_value = True
-
-        result = _try_segment_download(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8",
-            output_path=output_path,
-            cookies=cookies,
-        )
-
-        assert result == output_path
-        mock_pyav_mux.assert_called_once()
-        mock_ffmpeg_mux.assert_called_once()
-
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.unlink")
-    def test_segment_download_missing_segments(
-        self,
-        mock_unlink,
-        mock_exists,
-        mock_progress,
-        mock_thread_executor,
-        mock_fetch_playlist,
-        mock_ffmpeg_mux,
-        mock_pyav_mux,
-        mock_segment_playlist,
-        mock_config,
-        tmp_path,
-    ):
-        """Test segment download handles missing segments."""
-        config = mock_config
-        output_path = tmp_path / "video.mp4"
-        cookies = {"CloudFront-Policy": "abc"}
-
-        mock_exists.return_value = False
-
-        mock_executor = MagicMock()
-        mock_thread_executor.return_value.__enter__.return_value = mock_executor
-
-        mock_progress_bar = MagicMock()
-        mock_progress.return_value = mock_progress_bar
-
-        mock_fetch_playlist.return_value = mock_segment_playlist
-
-        with pytest.raises(M3U8Error) as excinfo:
-            _try_segment_download(
+        with pytest.raises(M3U8Error, match="Failed to download HLS video"):
+            download_m3u8(
                 config=config,
-                m3u8_url="https://example.com/video.m3u8",
-                output_path=output_path,
-                cookies=cookies,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                save_path=save_path,
             )
 
-        assert "Stream segments failed to download" in str(excinfo.value)
-        mock_fetch_playlist.assert_called_once()
-        mock_pyav_mux.assert_not_called()  # Should fail before muxing
+    def test_m3u8error_reraised_untouched(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
+    ):
+        """M3U8Error from a tier propagates without being re-wrapped."""
+        config = _make_real_config()
+        save_path = tmp_path / "video.mp4"
+        mock_pyav.side_effect = M3U8Error("specific segment failure")
+
+        with pytest.raises(M3U8Error, match="specific segment failure"):
+            download_m3u8(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                save_path=save_path,
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestDirectDownloadFFmpeg — leaf-level tests for _try_direct_download_ffmpeg
+# ---------------------------------------------------------------------------
+
+
+class TestDirectDownloadFFmpeg:
+    """Real-code tests for ``_try_direct_download_ffmpeg``.
+
+    Leaf-patches: ``ffmpeg.input`` (returns fake stream chain),
+    ``ffmpeg.probe`` (returns plausible probe dict), and
+    ``download.m3u8._get_highest_quality_variant_url`` (skips the HTTP
+    master-playlist fetch — tested separately in
+    ``TestFetchM3U8SegmentPlaylist``). Real ``tmp_path`` files mean the
+    production ``exists()``/``stat()`` checks run against the filesystem.
+    """
+
+    def test_success_with_valid_streams(self, tmp_path, monkeypatch):
+        """Full success path: probe OK → ffmpeg run → verify streams → return True."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc"}
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        probe_results = [
+            {"format": {"duration": "120.5"}},
+            {
+                "format": {"duration": "120.5"},
+                "streams": [{"codec_type": "video"}, {"codec_type": "audio"}],
+            },
+        ]
+        monkeypatch.setattr(ffmpeg, "probe", lambda *_a, **_k: probe_results.pop(0))
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies=cookies,
+        )
+
+        assert result is True
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_probe_ffmpeg_error_falls_through_with_zero_duration(
+        self, tmp_path, monkeypatch
+    ):
+        """Duration probe raises ffmpeg.Error → caught, total_duration stays 0.
+
+        Covers lines 334-342 (the ``except ffmpeg.Error`` around the
+        initial duration probe).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        probe_calls = {"n": 0}
+
+        def _probe(*_a, **_k):
+            probe_calls["n"] += 1
+            if probe_calls["n"] == 1:
+                # Duration probe — raise ffmpeg.Error with a stderr buffer
+                # so the lines that decode it execute.
+                raise ffmpeg.Error("ffmpeg", b"", b"probe failure")
+            # Stream verification probe — return valid streams.
+            return {"streams": [{"codec_type": "video"}, {"codec_type": "audio"}]}
+
+        monkeypatch.setattr(ffmpeg, "probe", _probe)
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True  # still succeeds — probe failure is non-fatal
+
+    def test_probe_generic_exception_falls_through(self, tmp_path, monkeypatch):
+        """Duration probe raises generic Exception → caught, continues to run."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        probe_calls = {"n": 0}
+
+        def _probe(*_a, **_k):
+            probe_calls["n"] += 1
+            if probe_calls["n"] == 1:
+                raise RuntimeError("probe blew up")
+            return {"streams": [{"codec_type": "video"}, {"codec_type": "audio"}]}
+
+        monkeypatch.setattr(ffmpeg, "probe", _probe)
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True
+
+    def test_ffmpeg_run_raises_ffmpeg_error_returns_false(self, tmp_path, monkeypatch):
+        """ffmpeg.run raises ffmpeg.Error → outer except catches, returns False.
+
+        Covers lines 383-387 (ffmpeg.Error handler in main try block).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStreamRaising())
+        monkeypatch.setattr(
+            ffmpeg, "probe", lambda *_a, **_k: {"format": {"duration": "60"}}
+        )
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_ffmpeg_run_generic_exception_returns_false(self, tmp_path, monkeypatch):
+        """Generic Exception in main try block → returns False (lines 388-391)."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+
+        class _RaisingInput:
+            def output(self, *_a, **_k):
+                raise RuntimeError("unexpected ffmpeg setup failure")
+
+        monkeypatch.setattr(ffmpeg, "input", lambda *_a, **_k: _RaisingInput())
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_empty_output_returns_false(self, tmp_path, monkeypatch):
+        """ffmpeg succeeds but output file is empty/missing → returns False.
+
+        Covers lines 354-355 (the "FFmpeg download produced invalid file"
+        warning after run succeeds but file validation fails).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStreamNoFile())
+        monkeypatch.setattr(
+            ffmpeg, "probe", lambda *_a, **_k: {"format": {"duration": "60"}}
+        )
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+        assert not output_path.exists()
+
+    def test_missing_streams_cleanup_returns_false(self, tmp_path, monkeypatch):
+        """Output has neither video nor audio → unlink + return False.
+
+        Covers lines 364-371 (missing-streams branch with file cleanup).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        probe_results = [
+            {"format": {"duration": "60"}},  # duration probe
+            {"streams": []},  # stream verification — no streams
+        ]
+        monkeypatch.setattr(ffmpeg, "probe", lambda *_a, **_k: probe_results.pop(0))
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+        # Real cleanup happened — file was unlinked via production code.
+        assert not output_path.exists()
+
+    def test_stream_verification_probe_raises_cleanup_returns_false(
+        self, tmp_path, monkeypatch
+    ):
+        """Second probe raises → cleanup + return False (lines 373-379)."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/video_1080.m3u8",
+        )
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        probe_calls = {"n": 0}
+
+        def _probe(*_a, **_k):
+            probe_calls["n"] += 1
+            if probe_calls["n"] == 1:
+                return {"format": {"duration": "60"}}
+            raise RuntimeError("stream verification crashed")
+
+        monkeypatch.setattr(ffmpeg, "probe", _probe)
+
+        result = _try_direct_download_ffmpeg(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+        assert not output_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# PyAV fakes for _try_direct_download_pyav + _mux_segments_with_pyav
+# ---------------------------------------------------------------------------
+
+
+class _FakeAVStream:
+    """Stub for an av.Stream — ``codec_context`` is the check at line 217."""
+
+    def __init__(self, stream_type: str = "video", has_codec_context: bool = True):
+        self.type = stream_type
+        self.codec_context = object() if has_codec_context else None
+
+
+class _FakeAVPacket:
+    """Stub for an av.Packet with configurable stream + dts + corrupt flag."""
+
+    def __init__(
+        self, stream: _FakeAVStream, dts: int | None = 0, is_corrupt: bool = False
+    ):
+        self.stream = stream
+        self.dts = dts
+        self.is_corrupt = is_corrupt
+
+
+class _FakeInputContainer:
+    """Stub for ``av.open(...)`` on the HLS input side."""
+
+    def __init__(self, streams: list[_FakeAVStream], packets: list[_FakeAVPacket]):
+        self.streams = streams
+        self._packets = packets
+        self.close_count = 0
+
+    def demux(self, *_a, **_k):
+        return iter(self._packets)
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class _FakeOutputContainer:
+    """Stub for ``av.open(path, "w", ...)``.
+
+    On ``close()`` writes a plausible MP4-shaped stub to the recorded
+    output path, so production ``exists()``/``stat().st_size > 0`` checks
+    succeed against REAL files.
+    """
+
+    def __init__(self, output_path: Path, *, write_bytes: bytes = b"\x00" * 1024):
+        self._output_path = output_path
+        self._write_bytes = write_bytes
+        self.mux_calls = 0
+        self.close_count = 0
+        self.template_streams: list = []
+
+    def add_stream_from_template(self, src_stream):
+        self.template_streams.append(src_stream)
+        return _FakeAVStream(src_stream.type)
+
+    def add_stream(self, *_a, **_k):
+        return _FakeAVStream()
+
+    def mux(self, _packet):
+        self.mux_calls += 1
+
+    def close(self) -> None:
+        if self.close_count == 0:
+            self._output_path.write_bytes(self._write_bytes)
+        self.close_count += 1
+
+
+class TestDirectDownloadPyAV:
+    """Real-code tests for ``_try_direct_download_pyav``.
+
+    Leaf-patches: ``av.open`` (returns fake containers),
+    ``download.m3u8._get_highest_quality_variant_url`` (skips HTTP master
+    playlist fetch). Real ``tmp_path`` + fake's ``close()`` writes actual
+    bytes → production exists/stat checks run against real filesystem.
+    """
+
+    def test_success_remuxes_packets(self, tmp_path, monkeypatch):
+        """PyAV success: one video stream, three packets, remux succeeds."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        video_stream = _FakeAVStream("video", has_codec_context=True)
+        input_container = _FakeInputContainer(
+            streams=[video_stream],
+            packets=[
+                _FakeAVPacket(video_stream, dts=0),
+                _FakeAVPacket(video_stream, dts=1),
+                _FakeAVPacket(video_stream, dts=2),
+            ],
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True
+        assert output_container.mux_calls == 3
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_stream_without_codec_context_is_skipped(self, tmp_path, monkeypatch):
+        """Stream with codec_context=None → continue; remaining streams mapped.
+
+        Covers line 217-218 (``if not stream.codec_context: continue``).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        s_no_ctx = _FakeAVStream("data", has_codec_context=False)
+        s_video = _FakeAVStream("video", has_codec_context=True)
+
+        input_container = _FakeInputContainer(
+            streams=[s_no_ctx, s_video],
+            packets=[_FakeAVPacket(s_video, dts=0)],
+        )
+        output_container = _FakeOutputContainer(output_path)
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True
+        # Only one stream template added (video); data stream skipped.
+        assert len(output_container.template_streams) == 1
+
+    def test_no_valid_streams_returns_false(self, tmp_path, monkeypatch):
+        """All streams lack codec_context → stream_mapping empty → False.
+
+        Covers lines 222-224 (``if not stream_mapping: return False``).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        s1 = _FakeAVStream("data", has_codec_context=False)
+        s2 = _FakeAVStream("data", has_codec_context=False)
+        input_container = _FakeInputContainer(streams=[s1, s2], packets=[])
+        output_container = _FakeOutputContainer(output_path)
+
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_packet_without_dts_is_skipped(self, tmp_path, monkeypatch):
+        """Packets with dts=None skipped; others remuxed (line 229-230)."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        video = _FakeAVStream("video")
+        input_container = _FakeInputContainer(
+            streams=[video],
+            packets=[
+                _FakeAVPacket(video, dts=None),  # skipped
+                _FakeAVPacket(video, dts=0),  # muxed
+                _FakeAVPacket(video, dts=None),  # skipped
+                _FakeAVPacket(video, dts=1),  # muxed
+            ],
+        )
+        output_container = _FakeOutputContainer(output_path)
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True
+        assert output_container.mux_calls == 2
+
+    def test_empty_output_file_returns_false(self, tmp_path, monkeypatch):
+        """Demux succeeds but output is empty → "produced empty file" branch.
+
+        Covers line 249 (the missing-or-empty-file warning).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        video = _FakeAVStream("video")
+        input_container = _FakeInputContainer(streams=[video], packets=[])
+        output_container = _FakeOutputContainer(output_path, write_bytes=b"")
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_ffmpeg_error_from_av_returns_false(self, tmp_path, monkeypatch):
+        """av.open raises av.error.FFmpegError → specific branch fires.
+
+        Covers lines 251-253 (the dedicated ``except av.error.FFmpegError``
+        handler separate from the generic Exception handler).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        def _raise_ffmpeg_error(*_a, **_k):
+            # av.error.FFmpegError requires (code, message, [filename, [log]]).
+            raise av.error.FFmpegError(-1, "pyav decode failure")
+
+        monkeypatch.setattr(av, "open", _raise_ffmpeg_error)
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_generic_exception_returns_false(self, tmp_path, monkeypatch):
+        """Generic Exception → ``except Exception`` handler fires (lines 254-256)."""
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+        monkeypatch.setattr(
+            av,
+            "open",
+            lambda *_a, **_k: (_ for _ in ()).throw(
+                RuntimeError("unexpected av failure")
+            ),
+        )
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is False
+
+    def test_packet_from_unknown_stream_is_skipped(self, tmp_path, monkeypatch):
+        """Packet whose stream is NOT in stream_mapping → skipped silently.
+
+        Covers partial branch 231->228: ``if packet.stream in stream_mapping``
+        False → skip the packet, iterate next. Real production behavior
+        when demux returns packets belonging to non-mapped streams
+        (e.g., subtitle streams filtered out by codec_context=None check).
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url",
+            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
+        )
+
+        mapped_video = _FakeAVStream("video", has_codec_context=True)
+        orphan_stream = _FakeAVStream("subtitle", has_codec_context=True)
+
+        # Note: only mapped_video will be put in stream_mapping because we
+        # construct input_container with both, but orphan_stream packets
+        # have a stream ref that won't appear in the mapping dict if the
+        # mapping logic uses `is`/`==` identity comparison. Actually,
+        # _try_direct_download_pyav iterates input.streams and adds EACH
+        # one that has codec_context — so orphan_stream WOULD be added.
+        # To force an orphan packet, inject a packet whose .stream points
+        # to a DIFFERENT object than either container stream.
+        rogue_stream = _FakeAVStream("data", has_codec_context=True)
+
+        input_container = _FakeInputContainer(
+            streams=[mapped_video],  # only ONE stream added to mapping
+            packets=[
+                _FakeAVPacket(mapped_video, dts=0),  # muxed
+                _FakeAVPacket(rogue_stream, dts=1),  # NOT in mapping → skipped
+                _FakeAVPacket(mapped_video, dts=2),  # muxed
+            ],
+        )
+        output_container = _FakeOutputContainer(output_path)
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        result = _try_direct_download_pyav(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result is True
+        # Rogue packet skipped — only mapped_video packets muxed (2 of 3).
+        assert output_container.mux_calls == 2
+
+
+# ---------------------------------------------------------------------------
+# TestMuxSegmentsWithPyAV — NEW dedicated tests (lines 418-516)
+# ---------------------------------------------------------------------------
+
+
+class _MuxInputContainer:
+    """Input-container stub used by ``_mux_segments_with_pyav`` tests.
+
+    Parameterized via ``streams`` and ``packets`` so individual tests
+    choose which branches of the per-segment loop fire (corrupt packets,
+    valid packets per stream type, demux exceptions).
+    """
+
+    def __init__(
+        self,
+        streams: list[_FakeAVStream],
+        packets: list[_FakeAVPacket],
+        *,
+        demux_raises: Exception | None = None,
+    ):
+        self.streams = streams
+        self._packets = packets
+        self._demux_raises = demux_raises
+        self.close_count = 0
+
+    def demux(self, *_a, **_k):
+        if self._demux_raises is not None:
+            raise self._demux_raises
+        return iter(self._packets)
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class TestMuxSegmentsWithPyAV:
+    """Real-code tests for ``_mux_segments_with_pyav`` (NEW — was uncovered).
+
+    Covers lines 418-516 including: output container open, per-segment
+    template-stream creation, corrupt-packet skipping, per-stream
+    muxing branches, per-segment exception handling, >25% skip abort,
+    and the finally-block cleanup.
+    """
+
+    def test_success_muxes_packets_from_segments(self, tmp_path, monkeypatch):
+        """All segments valid → output streams created, all packets muxed."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / f"seg{i}.ts" for i in range(3)]
+        for f in segment_files:
+            f.write_bytes(b"\x00" * 10)
+
+        video = _FakeAVStream("video")
+        audio = _FakeAVStream("audio")
+
+        # Produce 2 packets per segment (1 video + 1 audio).
+        inputs_iter = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video, audio],
+                    packets=[
+                        _FakeAVPacket(video, dts=0),
+                        _FakeAVPacket(audio, dts=0),
+                    ],
+                ),
+                _MuxInputContainer(
+                    streams=[video, audio],
+                    packets=[
+                        _FakeAVPacket(video, dts=1),
+                        _FakeAVPacket(audio, dts=1),
+                    ],
+                ),
+                _MuxInputContainer(
+                    streams=[video, audio],
+                    packets=[
+                        _FakeAVPacket(video, dts=2),
+                        _FakeAVPacket(audio, dts=2),
+                    ],
+                ),
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs_iter)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is True
+        assert output_container.mux_calls == 6
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+
+    def test_corrupt_packets_are_skipped(self, tmp_path, monkeypatch):
+        """Packets with is_corrupt=True are counted + skipped (line 457-459)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        inputs_iter = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video],
+                    packets=[
+                        _FakeAVPacket(video, dts=0),
+                        _FakeAVPacket(video, dts=1, is_corrupt=True),
+                        _FakeAVPacket(video, dts=2),
+                        _FakeAVPacket(video, dts=None),  # also skipped
+                    ],
+                ),
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs_iter)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is True
+        assert output_container.mux_calls == 2
+
+    def test_segment_open_failure_is_skipped(self, tmp_path, monkeypatch):
+        """av.open on a segment raises → skipped_segments++ and loop continues.
+
+        Covers lines 434-439 (the per-segment open ``except`` + continue).
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / f"seg{i}.ts" for i in range(4)]
+        for f in segment_files:
+            f.write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        segments_remaining = [
+            "raise",
+            _MuxInputContainer(streams=[video], packets=[_FakeAVPacket(video, dts=0)]),
+            _MuxInputContainer(streams=[video], packets=[_FakeAVPacket(video, dts=1)]),
+            _MuxInputContainer(streams=[video], packets=[_FakeAVPacket(video, dts=2)]),
+        ]
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            next_item = segments_remaining.pop(0)
+            if next_item == "raise":
+                raise RuntimeError("segment open failed")
+            return next_item
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        # 1 out of 4 skipped = 25% — right at the threshold, NOT above, so
+        # the "> 25%" abort does NOT fire. Success returned.
+        assert result is True
+
+    def test_abort_when_over_25_percent_skipped(self, tmp_path, monkeypatch):
+        """>25% skip rate aborts PyAV mux (lines 494-500)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / f"seg{i}.ts" for i in range(10)]
+        for f in segment_files:
+            f.write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        open_count = {"n": 0}
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return _FakeOutputContainer(output_path)
+            open_count["n"] += 1
+            # Fail on segments 1, 3, 5, 7 → 4 of 10 = 40% > 25% → abort.
+            if open_count["n"] in (1, 3, 5, 7):
+                raise RuntimeError(f"segment {open_count['n']} failed")
+            return _MuxInputContainer(
+                streams=[video],
+                packets=[_FakeAVPacket(video, dts=open_count["n"])],
+            )
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is False
+
+    def test_demux_error_skips_segment_entirely(self, tmp_path, monkeypatch):
+        """Demux raises inside per-segment try → segment counted as skipped.
+
+        Covers the outer ``except Exception`` at line 479 (after the
+        output-streams-creation block).
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / f"seg{i}.ts" for i in range(4)]
+        for f in segment_files:
+            f.write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        inputs = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video],
+                    packets=[],
+                    demux_raises=RuntimeError("demux blew up"),
+                ),
+                _MuxInputContainer(
+                    streams=[video], packets=[_FakeAVPacket(video, dts=0)]
+                ),
+                _MuxInputContainer(
+                    streams=[video], packets=[_FakeAVPacket(video, dts=1)]
+                ),
+                _MuxInputContainer(
+                    streams=[video], packets=[_FakeAVPacket(video, dts=2)]
+                ),
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        # 1 skipped of 4 = 25% — right at threshold, not above, success.
+        assert result is True
+
+    def test_mux_call_exception_increments_skipped_packets(self, tmp_path, monkeypatch):
+        """Per-packet mux raises OSError → skipped_packets++ (lines 469-470)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        inputs = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video],
+                    packets=[
+                        _FakeAVPacket(video, dts=0),
+                        _FakeAVPacket(video, dts=1),
+                        _FakeAVPacket(video, dts=2),
+                    ],
+                )
+            ]
+        )
+
+        class _MuxRaisingOutput(_FakeOutputContainer):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.mux_attempts = 0
+
+            def mux(self, packet):
+                self.mux_attempts += 1
+                if self.mux_attempts == 2:
+                    raise OSError("mid-segment mux failure")
+                super().mux(packet)
+
+        output_container = _MuxRaisingOutput(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        # Even with one packet skipped mid-segment, overall mux succeeds.
+        assert result is True
+
+    def test_outer_exception_returns_false(self, tmp_path, monkeypatch):
+        """Outer ``except Exception`` fires → returns False (lines 510-511)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        # Make av.open raise on the FIRST call (output-container open) so
+        # the outer try-block's except fires immediately.
+        def _raise_on_output_open(*_a, **_k):
+            raise RuntimeError("output container open failed")
+
+        monkeypatch.setattr(av, "open", _raise_on_output_open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is False
+
+    def test_empty_output_returns_false(self, tmp_path, monkeypatch):
+        """Mux completes but output file is empty → returns False (line 508)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        inputs = iter(
+            [_MuxInputContainer(streams=[video], packets=[_FakeAVPacket(video, dts=0)])]
+        )
+        # Empty write_bytes → output file will be 0 bytes → exists True but
+        # st_size == 0 → fails the condition at line 505.
+        output_container = _FakeOutputContainer(output_path, write_bytes=b"")
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is False
+
+    def test_duplicate_video_stream_is_skipped(self, tmp_path, monkeypatch):
+        """Second video stream is skipped (already in output_streams).
+
+        Covers partial branch 449->444: the elif branch in the template-
+        creation loop evaluates False for a video stream when "video" is
+        already in output_streams. The previous iteration added the first
+        video stream; this iteration's elif check fails (not an audio).
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video1 = _FakeAVStream("video")
+        video2 = _FakeAVStream("video")  # duplicate type
+
+        inputs = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video1, video2],
+                    packets=[_FakeAVPacket(video1, dts=0)],
+                )
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is True
+        # Only one template stream added — the second video stream hit the
+        # elif (False because it's not audio) and was skipped.
+        assert len(output_container.template_streams) == 1
+
+    def test_packet_with_unmapped_stream_type_is_skipped(self, tmp_path, monkeypatch):
+        """Packet of type "subtitle" (not video/audio) → both branches False.
+
+        Covers partial branch 464->456: the audio elif inside the packet
+        demux loop evaluates False when the packet is a subtitle (neither
+        condition matches). Loop continues to next packet.
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        subtitle = _FakeAVStream("subtitle")
+
+        inputs = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video],  # only video → only "video" in output_streams
+                    packets=[
+                        _FakeAVPacket(video, dts=0),
+                        _FakeAVPacket(subtitle, dts=1),  # doesn't match either branch
+                        _FakeAVPacket(video, dts=2),
+                    ],
+                )
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is True
+        # Only video packets muxed — subtitle skipped via branch 464->456.
+        assert output_container.mux_calls == 2
+
+    def test_input_close_raises_propagates_to_outer_finally(
+        self, tmp_path, monkeypatch
+    ):
+        """input_container.close() raises → outer finally's output.close() fires.
+
+        Covers line 514: when an exception escapes the outer try (because
+        ``input_container.close()`` at line 485 raised), the finally block
+        at 512-514 still needs to close the output container. Production
+        code's output teardown is critical even on error paths.
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+
+        class _InputCloseRaises(_MuxInputContainer):
+            def close(self):
+                raise RuntimeError("input close failed in finally")
+
+        inputs = iter(
+            [
+                _InputCloseRaises(
+                    streams=[video],
+                    packets=[_FakeAVPacket(video, dts=0)],
+                )
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is False
+        # Outer finally still ran output.close() — proof via close_count > 0.
+        assert output_container.close_count >= 1
+
+    def test_audio_stream_also_muxed(self, tmp_path, monkeypatch):
+        """Audio + video segments both have template streams added + packets muxed.
+
+        Covers partial branches 449->444 and 464->456: the elif audio branches
+        in both the template-creation loop AND the packet-demux loop. The
+        previous test_success covered video-only; this one adds the audio
+        path separately to exercise the audio-specific elif.
+        """
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        video = _FakeAVStream("video")
+        audio = _FakeAVStream("audio")
+        inputs = iter(
+            [
+                _MuxInputContainer(
+                    streams=[video, audio],
+                    packets=[
+                        _FakeAVPacket(video, dts=0),
+                        _FakeAVPacket(audio, dts=0),
+                    ],
+                )
+            ]
+        )
+        output_container = _FakeOutputContainer(output_path)
+
+        def _open(_path, mode="r", *_a, **_k):
+            if mode == "w":
+                return output_container
+            return next(inputs)
+
+        monkeypatch.setattr(av, "open", _open)
+
+        result = _mux_segments_with_pyav(segment_files, output_path)
+
+        assert result is True
+        # Both video + audio template streams created.
+        assert len(output_container.template_streams) == 2
+        # Both video + audio packets muxed.
+        assert output_container.mux_calls == 2
+
+
+# ---------------------------------------------------------------------------
+# TestMuxSegmentsWithFFmpeg — NEW dedicated tests (lines 532-555)
+# ---------------------------------------------------------------------------
+
+
+class TestMuxSegmentsWithFFmpeg:
+    """Real-code tests for ``_mux_segments_with_ffmpeg`` (NEW — was uncovered).
+
+    Uses real ``tmp_path`` for both segment files + concat list file.
+    Production code writes the ``_ffmpeg_concat_.ffc`` list file and
+    cleans it up in the finally block — tests assert on REAL filesystem
+    state to verify creation + cleanup. ``ffmpeg.input`` patched at leaf.
+    """
+
+    def test_success_creates_output_and_cleans_list_file(self, tmp_path, monkeypatch):
+        """Success: output file exists + non-empty, concat list removed."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / f"seg{i}.ts" for i in range(2)]
+        for f in segment_files:
+            f.write_bytes(b"\x00" * 10)
+
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStream(output_path))
+
+        result = _mux_segments_with_ffmpeg(segment_files, output_path)
+
+        assert result is True
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
+        # Concat list file was created + cleaned up.
+        assert not (tmp_path / "_ffmpeg_concat_.ffc").exists()
+
+    def test_ffmpeg_error_returns_false(self, tmp_path, monkeypatch):
+        """ffmpeg.run raises ffmpeg.Error → returns False (lines 549-552)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStreamRaising())
+
+        result = _mux_segments_with_ffmpeg(segment_files, output_path)
+
+        assert result is False
+        # Concat list file still cleaned up despite the error.
+        assert not (tmp_path / "_ffmpeg_concat_.ffc").exists()
+
+    def test_generic_exception_returns_false(self, tmp_path, monkeypatch):
+        """Generic Exception → returns False (lines 553-555)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        class _RaisingInput:
+            def output(self, *_a, **_k):
+                raise RuntimeError("ffmpeg setup failed")
+
+        monkeypatch.setattr(ffmpeg, "input", lambda *_a, **_k: _RaisingInput())
+
+        result = _mux_segments_with_ffmpeg(segment_files, output_path)
+
+        assert result is False
+        assert not (tmp_path / "_ffmpeg_concat_.ffc").exists()
+
+    def test_empty_output_returns_false(self, tmp_path, monkeypatch):
+        """ffmpeg run succeeds but produces no output → returns False (line 547)."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_files = [tmp_path / "seg.ts"]
+        segment_files[0].write_bytes(b"\x00")
+
+        _install_fake_ffmpeg_input(monkeypatch, _FakeFFmpegStreamNoFile())
+
+        result = _mux_segments_with_ffmpeg(segment_files, output_path)
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# TestSegmentDownload — real orchestration + fake API + fake mux leaves
+# ---------------------------------------------------------------------------
+
+
+class TestSegmentDownload:
+    """Real-code tests for ``_try_segment_download``.
+
+    Exercises the real inner ``download_ts`` function (lines 593-618)
+    against a fake ``get_with_ngsw`` that streams bytes. A
+    ``SyncExecutor`` (from ``tests.fixtures.utils``) replaces
+    ThreadPoolExecutor so coverage instrumentation sees the download_ts
+    body — otherwise threaded code is invisible to coverage.py.
+    ``_mux_segments_with_pyav`` / ``_mux_segments_with_ffmpeg`` patched
+    at module level — their own tests (above) cover their real behavior.
+    """
+
+    def _make_config_with_segments(
+        self,
+        *,
+        master_playlist_text: str | None = None,
+        segment_bytes: bytes = b"\x00" * 256,
+        segment_status: int = 200,
+    ) -> FanslyConfig:
+        """Build a config whose ``_api.get_with_ngsw`` serves:
+        1. The segment playlist (endlist VOD)
+        2. Each segment's bytes as a fake streaming response
+        """
+        config = _make_real_config()
+
+        if master_playlist_text is None:
+            master_playlist_text = (
+                "#EXTM3U\n"
+                "#EXT-X-VERSION:3\n"
+                "#EXT-X-PLAYLIST-TYPE:VOD\n"
+                "#EXT-X-TARGETDURATION:10\n"
+                "#EXTINF:10.0,\n"
+                "segment1.ts\n"
+                "#EXTINF:8.0,\n"
+                "segment2.ts\n"
+                "#EXT-X-ENDLIST\n"
+            )
+
+        class _StreamingSegmentResponse:
+            def __init__(self, status_code, body_bytes):
+                self.status_code = status_code
+                self._body = body_bytes
+                self.closed = False
+
+            def iter_bytes(self, chunk_size):
+                if self._body:
+                    yield self._body
+
+            def close(self):
+                self.closed = True
+
+        class _SegmentApi:
+            def __init__(self):
+                self.calls = []
+                self._playlist_served = False
+
+            def get_with_ngsw(
+                self,
+                *,
+                url,
+                cookies=None,
+                stream=False,
+                add_fansly_headers=True,
+                bypass_rate_limit=False,
+            ):
+                self.calls.append({"url": url, "stream": stream})
+                if not self._playlist_served:
+                    self._playlist_served = True
+                    return _FakeHttpxResponse(200, master_playlist_text)
+                # Segment request
+                return _StreamingSegmentResponse(segment_status, segment_bytes)
+
+        config._api = _SegmentApi()
+        return config
+
+    def test_success_invokes_pyav_mux(self, tmp_path, monkeypatch):
+        """All segments downloaded + PyAV mux succeeds → returns output_path."""
+        config = self._make_config_with_segments()
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc"}
+
+        # Synchronous executor — see SyncExecutor docstring for why.
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav",
+            lambda _segs, out: out.write_bytes(b"\x00" * 1024) or True,
+        )
+        ffmpeg_called = {"n": 0}
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_ffmpeg",
+            lambda *_a, **_k: ffmpeg_called.update(n=ffmpeg_called["n"] + 1) or True,
+        )
+
+        result = _try_segment_download(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            output_path=output_path,
+            cookies=cookies,
+        )
+
+        assert result == output_path
+        # ffmpeg mux not called — PyAV succeeded first.
+        assert ffmpeg_called["n"] == 0
+
+    def test_ffmpeg_mux_fallback(self, tmp_path, monkeypatch):
+        """PyAV mux fails → FFmpeg concat fallback tried."""
+        config = self._make_config_with_segments()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav",
+            lambda _segs, _out: False,
+        )
+        ffmpeg_called = {"n": 0}
+
+        def _ffmpeg_mux(_segs, out):
+            ffmpeg_called["n"] += 1
+            out.write_bytes(b"\x00" * 1024)
+            return True
+
+        monkeypatch.setattr("download.m3u8._mux_segments_with_ffmpeg", _ffmpeg_mux)
+
+        result = _try_segment_download(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result == output_path
+        assert ffmpeg_called["n"] == 1
+
+    def test_both_mux_paths_fail_raises(self, tmp_path, monkeypatch):
+        """Both PyAV + FFmpeg mux fail → raises M3U8Error."""
+        config = self._make_config_with_segments()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav", lambda *_a, **_k: False
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_ffmpeg", lambda *_a, **_k: False
+        )
+
+        with pytest.raises(M3U8Error, match="Both PyAV and FFmpeg muxing failed"):
+            _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+
+    def test_missing_segments_raises(self, tmp_path, monkeypatch):
+        """Segment returns 404 → not-written on disk → raises with list."""
+        config = self._make_config_with_segments(segment_status=404)
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav", lambda *_a, **_k: True
+        )
+
+        with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+            _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+
+    def test_created_at_sets_file_mtime(self, tmp_path, monkeypatch):
+        """created_at passes through to os.utime on the final file."""
+        config = self._make_config_with_segments()
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav",
+            lambda _segs, out: out.write_bytes(b"\x00" * 1024) or True,
+        )
+
+        utime_calls: list = []
+        monkeypatch.setattr(
+            "download.m3u8.os.utime",
+            lambda p, t: utime_calls.append((p, t)),
+        )
+
+        _try_segment_download(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+            created_at=1700000000,
+        )
+
+        assert utime_calls == [(output_path, (1700000000, 1700000000))]
+
+    def test_download_ts_skips_empty_chunks(self, tmp_path, monkeypatch):
+        """iter_bytes yields empty chunks mixed with real ones → empties skipped.
+
+        Covers partial branch 612->611: the ``if chunk:`` falsy branch
+        (empty bytes) continues the loop without writing. Real httpx
+        streaming responses can yield empty chunks when the network
+        pauses; the production guard protects against writing empty data.
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        playlist_text = (
+            "#EXTM3U\n"
+            "#EXT-X-VERSION:3\n"
+            "#EXT-X-PLAYLIST-TYPE:VOD\n"
+            "#EXT-X-TARGETDURATION:10\n"
+            "#EXTINF:10.0,\n"
+            "segment1.ts\n"
+            "#EXT-X-ENDLIST\n"
+        )
+
+        class _MixedChunkApi:
+            def __init__(self):
+                self._served = False
+
+            def get_with_ngsw(
+                self,
+                *,
+                url,
+                cookies=None,
+                stream=False,
+                add_fansly_headers=True,
+                bypass_rate_limit=False,
+            ):
+                if not self._served:
+                    self._served = True
+                    return _FakeHttpxResponse(200, playlist_text)
+
+                class _Streaming:
+                    status_code = 200
+
+                    def iter_bytes(self, _chunk_size):
+                        yield b""  # empty chunk — hits line 612 False
+                        yield b"\x00" * 128  # real chunk — hits line 612 True
+                        yield b""  # another empty
+
+                    def close(self):
+                        pass
+
+                return _Streaming()
+
+        config._api = _MixedChunkApi()
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        monkeypatch.setattr(
+            "download.m3u8._mux_segments_with_pyav",
+            lambda _segs, out: out.write_bytes(b"\x00" * 1024) or True,
+        )
+
+        result = _try_segment_download(
+            config=config,
+            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            output_path=output_path,
+            cookies={"CloudFront-Policy": "a"},
+        )
+
+        assert result == output_path
+
+    def test_download_ts_handles_non_200_status(self, tmp_path, monkeypatch):
+        """Segment returns non-200 → debug log + returns without writing.
+
+        Covers lines 604-609: the inner download_ts's status-check early
+        return. Unlike the 404 test above, this lets the function return
+        from ``download_ts`` without raising — the file is simply not
+        created, which is then caught by the missing-segments check.
+        """
+        config = self._make_config_with_segments(segment_status=500)
+        output_path = tmp_path / "video.mp4"
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+
+        with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+            _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+
+    def test_download_ts_handles_http_exception(self, tmp_path, monkeypatch):
+        """Segment get_with_ngsw raises → inner download_ts except fires.
+
+        Covers lines 614-615: ``except Exception`` in the inner download_ts
+        function. When ALL segments fail via exceptions, missing_segments
+        detection raises M3U8Error.
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        playlist_text = (
+            "#EXTM3U\n"
+            "#EXT-X-VERSION:3\n"
+            "#EXT-X-PLAYLIST-TYPE:VOD\n"
+            "#EXT-X-TARGETDURATION:10\n"
+            "#EXTINF:10.0,\n"
+            "segment1.ts\n"
+            "#EXT-X-ENDLIST\n"
+        )
+
+        class _ExceptionApi:
+            def __init__(self):
+                self._served = False
+
+            def get_with_ngsw(
+                self,
+                *,
+                url,
+                cookies=None,
+                stream=False,
+                add_fansly_headers=True,
+                bypass_rate_limit=False,
+            ):
+                if not self._served:
+                    self._served = True
+                    return _FakeHttpxResponse(200, playlist_text)
+                raise RuntimeError("segment download exception")
+
+        config._api = _ExceptionApi()
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+
+        with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+            _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )

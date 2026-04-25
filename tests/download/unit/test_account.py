@@ -96,15 +96,17 @@ class TestGetAccountResponse:
 
         # Mock CORS preflight OPTIONS request
         respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
-            return_value=httpx.Response(200)
+            side_effect=[httpx.Response(200)]
         )
 
         # Mock HTTP response at the edge (Fansly API endpoint)
         respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
-            return_value=httpx.Response(
-                200,
-                json={"response": {"account": {"id": "client123"}}},
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"response": {"account": {"id": "client123"}}},
+                )
+            ]
         )
 
         # Call real code path - will hit mocked HTTP endpoint
@@ -124,16 +126,18 @@ class TestGetAccountResponse:
         # Mock CORS preflight OPTIONS request
         respx.options(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(return_value=httpx.Response(200))
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Mock HTTP response at the edge (Fansly API endpoint) - includes ngsw-bypass param
         respx.get(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
-            return_value=httpx.Response(
-                200,
-                json={"response": [{"id": "creator123"}]},
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"response": [{"id": "creator123"}]},
+                )
+            ]
         )
 
         # Call real code path - will hit mocked HTTP endpoint
@@ -153,12 +157,12 @@ class TestGetAccountResponse:
         # Mock CORS preflight OPTIONS request
         respx.options(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(return_value=httpx.Response(200))
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Mock HTTP response at the edge with error status - includes ngsw-bypass param
         respx.get(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
-        ).mock(return_value=httpx.Response(400, text="Bad Request"))
+        ).mock(side_effect=[httpx.Response(400, text="Bad Request")])
 
         # Should raise ApiError when HTTP returns 400 (wrapped HTTPStatusError)
         with pytest.raises(ApiError) as excinfo:
@@ -543,30 +547,32 @@ class TestGetCreatorAccountInfo:
         # Mock HTTP at the edge (OPTIONS preflight + GET)
         respx.options(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(return_value=httpx.Response(200))
+        ).mock(side_effect=[httpx.Response(200)])
 
         respx.get(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "success": "true",
-                    "response": [
-                        {
-                            "id": str(creator_id),
-                            "username": "testcreator",
-                            "following": True,
-                            "subscribed": True,
-                            "timelineStats": {
-                                "accountId": str(creator_id),
-                                "imageCount": 100,
-                                "videoCount": 50,
-                            },
-                        }
-                    ],
-                },
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {
+                                "id": str(creator_id),
+                                "username": "testcreator",
+                                "following": True,
+                                "subscribed": True,
+                                "timelineStats": {
+                                    "accountId": str(creator_id),
+                                    "imageCount": 100,
+                                    "videoCount": 50,
+                                },
+                            }
+                        ],
+                    },
+                )
+            ]
         )
 
         await get_creator_account_info(mock_config_with_api, state)
@@ -607,31 +613,33 @@ class TestGetCreatorAccountInfo:
         # Mock HTTP — API returns same fetchedAt as pre-seeded DB value
         respx.options(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(return_value=httpx.Response(200))
+        ).mock(side_effect=[httpx.Response(200)])
 
         respx.get(
             "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "success": "true",
-                    "response": [
-                        {
-                            "id": str(creator_id),
-                            "username": "testcreator",
-                            "following": True,
-                            "subscribed": True,
-                            "timelineStats": {
-                                "accountId": str(creator_id),
-                                "imageCount": 100,
-                                "videoCount": 50,
-                                "fetchedAt": 1633046400000,
-                            },
-                        }
-                    ],
-                },
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {
+                                "id": str(creator_id),
+                                "username": "testcreator",
+                                "following": True,
+                                "subscribed": True,
+                                "timelineStats": {
+                                    "accountId": str(creator_id),
+                                    "imageCount": 100,
+                                    "videoCount": 50,
+                                    "fetchedAt": 1633046400000,
+                                },
+                            }
+                        ],
+                    },
+                )
+            ]
         )
 
         await get_creator_account_info(mock_config_with_api, state)

@@ -189,10 +189,12 @@ class TestStudioProcessingMixin:
 
         # Mock GraphQL response (respx_stash_processor already has respx enabled)
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response("findStudios", empty_result),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                )
+            ]
         )
 
         # Call process_creator_studio and expect error (respx will intercept HTTP calls)

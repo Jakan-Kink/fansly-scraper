@@ -15,6 +15,7 @@ from itertools import groupby as original_groupby
 from unittest.mock import patch
 from urllib.parse import quote_plus
 
+import pytest
 from alembic.config import Config
 from sqlalchemy import (
     Column,
@@ -33,6 +34,12 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 
 from alembic import command
+
+
+# Opt out of the templated-DB fast path: these tests construct specific
+# pre-migration schema states and walk Alembic against them, so they need
+# an empty database (not the pre-populated clone from pg_template_db).
+pytestmark = pytest.mark.empty_db
 
 
 class Test6dcbEdgeCases:

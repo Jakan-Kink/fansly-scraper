@@ -5,7 +5,7 @@ Focuses on exception handling, validation, and fallback logic.
 """
 
 import re
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -39,38 +39,72 @@ class TestErrorHandlers:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_image_exception(self, respx_stash_processor):
-        """Test _find_stash_files_by_id handles exception when finding image (lines 211-212)."""
-        # Mock find_image to raise exception
-        with patch.object(
-            respx_stash_processor.context.client,
-            "find_image",
-            new=AsyncMock(side_effect=RuntimeError("API error")),
-        ):
-            # Should not raise - should catch exception and continue
-            result = await respx_stash_processor._find_stash_files_by_id(
-                stash_files=[("123", "image/jpeg")],
-            )
+    async def test_find_stash_files_by_id_image_exception(
+        self, respx_stash_processor, monkeypatch
+    ):
+        """_find_stash_files_by_id catches store.get_many errors for image batches.
 
-            # Should return empty list (exception was caught)
-            assert result == []
+        Real-pipeline rewrite (Wave 2 Cat-D #11): the original patched
+        ``client.find_image`` to raise — but production at media.py:191
+        actually calls ``self.store.get_many(Image, ...)``, NEVER
+        ``client.find_image``. The dead patch caused the test to "pass"
+        coincidentally because the empty store returned ``[]`` without
+        the production exception handler at media.py:197 ever firing.
+
+        Patching the GraphQL POST doesn't propagate either:
+        ``stash-graphql-client``'s ``StashObject.find_by_id`` (base.py:1847)
+        swallows ALL exceptions internally and returns None, so transport
+        errors never reach ``store.get_many``'s caller. The production
+        ``except Exception`` at media.py:197 only fires if
+        ``store.get_many`` itself raises — which is rare/defensive code
+        for things like asyncio cancellation or lock-acquisition errors.
+
+        Per CLAUDE.md "External lib leaf calls — patch the leaf call
+        only" — ``store`` is a ``StashEntityStore`` from the external
+        ``stash-graphql-client`` package, so patching its ``get_many``
+        method is patching at the external-lib leaf boundary. This is
+        the most honest way to exercise the production defensive
+        handler without faking nonexistent client methods.
+        """
+
+        async def _failing_get_many(entity_type, ids):
+            raise RuntimeError("simulated store.get_many failure")
+
+        monkeypatch.setattr(
+            respx_stash_processor.context._store, "get_many", _failing_get_many
+        )
+
+        # Should NOT raise — the production handler at media.py:197 swallows.
+        result = await respx_stash_processor._find_stash_files_by_id(
+            stash_files=[("123", "image/jpeg")],
+        )
+
+        assert result == []
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_scene_exception(self, respx_stash_processor):
-        """Test _find_stash_files_by_id handles exception when finding scene (lines 250-251)."""
-        # Mock find_scene to raise exception
-        with patch.object(
-            respx_stash_processor.context.client,
-            "find_scene",
-            new=AsyncMock(side_effect=RuntimeError("API error")),
-        ):
-            # Should not raise - should catch exception and continue
-            result = await respx_stash_processor._find_stash_files_by_id(
-                stash_files=[("456", "video/mp4")],
-            )
+    async def test_find_stash_files_by_id_scene_exception(
+        self, respx_stash_processor, monkeypatch
+    ):
+        """_find_stash_files_by_id catches store.get_many errors for scene batches.
 
-            # Should return empty list (exception was caught)
-            assert result == []
+        Same pattern as the image exception test, but exercises the
+        scene-batch branch at media.py:234 (Scene get_many) → media.py:240
+        (the corresponding ``except Exception``). See the image test's
+        docstring for the layering rationale (external-lib leaf patch).
+        """
+
+        async def _failing_get_many(entity_type, ids):
+            raise RuntimeError("simulated store.get_many failure")
+
+        monkeypatch.setattr(
+            respx_stash_processor.context._store, "get_many", _failing_get_many
+        )
+
+        result = await respx_stash_processor._find_stash_files_by_id(
+            stash_files=[("456", "video/mp4")],
+        )
+
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_find_stash_files_by_path_no_images(self, respx_stash_processor):
@@ -80,13 +114,15 @@ class TestErrorHandlers:
 
         # Mock scene regex search
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "FindScenes",
-                    create_find_scenes_result(count=0, scenes=[]),
-                ),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "FindScenes",
+                        create_find_scenes_result(count=0, scenes=[]),
+                    ),
+                )
+            ]
         )
 
         await respx_stash_processor.context.get_client()
@@ -104,13 +140,15 @@ class TestErrorHandlers:
         image_dict = create_image_dict(id="999", visual_files=[])
 
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "findImages",
-                    create_find_images_result(count=1, images=[image_dict]),
-                ),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImages",
+                        create_find_images_result(count=1, images=[image_dict]),
+                    ),
+                )
+            ]
         )
 
         await respx_stash_processor.context.get_client()
@@ -133,13 +171,15 @@ class TestErrorHandlers:
         ]
 
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "findImages",
-                    create_find_images_result(count=2, images=images),
-                ),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImages",
+                        create_find_images_result(count=2, images=images),
+                    ),
+                )
+            ]
         )
 
         await respx_stash_processor.context.get_client()
@@ -157,13 +197,15 @@ class TestErrorHandlers:
 
         # Mock regex search returning no results
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "FindScenes",
-                    create_find_scenes_result(count=0, scenes=[]),
-                ),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "FindScenes",
+                        create_find_scenes_result(count=0, scenes=[]),
+                    ),
+                )
+            ]
         )
 
         await respx_stash_processor.context.get_client()
@@ -183,13 +225,15 @@ class TestErrorHandlers:
         scene_dict = create_scene_dict(id="999", title="Test", files=[])  # No files
 
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "FindScenes",
-                    create_find_scenes_result(count=1, scenes=[scene_dict]),
-                ),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "FindScenes",
+                        create_find_scenes_result(count=1, scenes=[scene_dict]),
+                    ),
+                )
+            ]
         )
 
         await respx_stash_processor.context.get_client()
@@ -200,14 +244,25 @@ class TestErrorHandlers:
 
     @pytest.mark.asyncio
     async def test_find_stash_files_by_path_regex_fallback(self, respx_stash_processor):
-        """Test _find_stash_files_by_path regex failure triggers fallback (lines 464-508)."""
+        """Initial regex find_iter fails → batched fallback fires (media.py:388-405).
+
+        Real-pipeline rewrite (Wave 2 Cat-D #11): the original patched
+        ``client.find_scenes_by_path_regex`` — production never calls
+        that method (it uses ``self.store.find_iter(Scene, path__regex=...)``
+        at media.py:382). Dead patch.
+
+        Production flow: try regex find_iter (line 382) → on exception
+        (line 388), chunk scene_ids and retry per batch via
+        find_iter (line 396). With 1 scene id, that's 2 GraphQL calls
+        total: initial fails, fallback succeeds with empty result.
+        """
         media_files = [("video_123", "video/mp4")]
 
-        # Mock the find_scenes_by_path_regex to raise an exception
-        # Then mock find_scenes for the fallback
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Fallback: findScenes batch call
+                # Call 1: initial find_iter — raise to trigger the fallback
+                httpx.ConnectError("simulated regex transport error"),
+                # Call 2: fallback batched find_iter — count=0 → no items
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -218,53 +273,41 @@ class TestErrorHandlers:
             ]
         )
 
-        await respx_stash_processor.context.get_client()
+        result = await respx_stash_processor._find_stash_files_by_path(media_files)
 
-        # Patch find_scenes_by_path_regex to raise exception
-        with patch.object(
-            respx_stash_processor.context.client,
-            "find_scenes_by_path_regex",
-            new=AsyncMock(side_effect=RuntimeError("Regex pattern too complex")),
-        ):
-            result = await respx_stash_processor._find_stash_files_by_path(media_files)
-
-            # Should have made 1 GraphQL call for fallback batch search
-            assert graphql_route.call_count == 1
-            # Result should be empty (fallback also found nothing)
-            assert result == []
+        # Production made 2 GraphQL calls (initial + fallback batch).
+        assert graphql_route.call_count == 2
+        # Result is empty because the fallback found nothing.
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_find_stash_files_by_path_regex_fallback_also_fails(
         self, respx_stash_processor
     ):
-        """Test _find_stash_files_by_path when both regex and fallback fail (lines 504-515)."""
+        """Both initial regex AND batched fallback raise → result still empty.
+
+        Real-pipeline rewrite (Wave 2 Cat-D #11): the original patched
+        both ``client.find_scenes_by_path_regex`` AND ``client.find_scenes``
+        — neither is called by production. Dead patches.
+
+        Production flow: initial find_iter (382) raises → fallback batched
+        find_iter (396) ALSO raises → caught at line 402, logged as error,
+        loop continues but found list stays empty.
+        """
         media_files = [("video_123", "video/mp4")]
 
-        # Mock GraphQL for fallback findScenes call - will also raise exception
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=RuntimeError("Batch search also failed")
+            side_effect=[
+                httpx.ConnectError("simulated initial regex error"),
+                httpx.ConnectError("simulated fallback batch error"),
+            ]
         )
 
-        await respx_stash_processor.context.get_client()
+        result = await respx_stash_processor._find_stash_files_by_path(media_files)
 
-        # Patch both find_scenes_by_path_regex AND find_scenes to raise exceptions
-        with (
-            patch.object(
-                respx_stash_processor.context.client,
-                "find_scenes_by_path_regex",
-                new=AsyncMock(side_effect=RuntimeError("Regex pattern error")),
-            ),
-            patch.object(
-                respx_stash_processor.context.client,
-                "find_scenes",
-                new=AsyncMock(side_effect=RuntimeError("Batch search error")),
-            ),
-        ):
-            result = await respx_stash_processor._find_stash_files_by_path(media_files)
-
-            # Should handle both exceptions gracefully
-            # Result should be empty (both failed)
-            assert result == []
+        # Both calls fired (initial + 1 fallback batch).
+        assert graphql_route.call_count == 2
+        assert result == []
 
     # REMOVED: _update_stash_metadata tests - too many complex dependencies requiring extensive mocking
     # These paths are better covered by integration tests where the full data flow can execute

@@ -22,12 +22,15 @@ Usage:
             {"id": "123", "name": "test", "aliases": [], "parents": [], "children": []}
         ])
 
-        # Mock the GraphQL HTTP endpoint
+        # Mock the GraphQL HTTP endpoint — per-test routes must use
+        # side_effect=[] per CLAUDE.md, never return_value.
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response("findTags", tags_data)
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findTags", tags_data)
+                )
+            ]
         )
 
         # Initialize client and test

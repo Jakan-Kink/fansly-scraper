@@ -3,17 +3,21 @@
 Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
+import json
+
 import httpx
 import pytest
 import respx
 
 from tests.fixtures import (
     HashtagFactory,
+    create_find_images_result,
     create_find_tags_result,
     create_graphql_response,
     create_tag_create_result,
     create_tag_dict,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 
 
 class TestTagMethods:
@@ -177,27 +181,54 @@ class TestTagMethods:
     async def test_add_preview_tag(self, respx_stash_processor, mock_image):
         """Test _add_preview_tag method."""
         # Note: respx_stash_processor already has respx.mock wrapper
-        # Create response
+        # Create responses. _add_preview_tag makes exactly 2 GraphQL calls for
+        # an Image target: findTags (look up Trailer by name), then findImages
+        # (dedup check — are there images already tagged with it?).
         trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
+        empty_images = create_find_images_result(count=0, images=[])
 
-        # Mock GraphQL response
-        respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response("findTags", tag_results),
-            )
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findTags", tag_results)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findImages", empty_images)
+                ),
+            ]
         )
 
         # Test on image with no existing tags
         mock_image.tags = []
 
-        # Call the method
-        await respx_stash_processor._add_preview_tag(mock_image)
+        try:
+            await respx_stash_processor._add_preview_tag(mock_image)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_add_preview_tag")
 
         # Verify the tag was added
         assert len(mock_image.tags) == 1
         assert mock_image.tags[0].id == "400"
+        assert mock_image.tags[0].name == "Trailer"
+
+        # Exact count + per-call request + response verification.
+        assert len(graphql_route.calls) == 2, (
+            f"Expected exactly 2 calls (findTags + findImages), "
+            f"got {len(graphql_route.calls)}"
+        )
+        # Call 0: findTags lookup for "Trailer"
+        req0 = json.loads(graphql_route.calls[0].request.content)
+        assert "findTags" in req0["query"]
+        assert req0["variables"]["tag_filter"]["name"]["value"] == "Trailer"
+        resp0 = graphql_route.calls[0].response.json()
+        assert resp0["data"]["findTags"]["count"] == 1
+        assert resp0["data"]["findTags"]["tags"][0]["id"] == "400"
+        # Call 1: findImages dedup check
+        req1 = json.loads(graphql_route.calls[1].request.content)
+        assert "findImages" in req1["query"]
+        resp1 = graphql_route.calls[1].response.json()
+        assert resp1["data"]["findImages"]["count"] == 0
 
     @pytest.mark.asyncio
     async def test_add_preview_tag_existing(self, respx_stash_processor):
@@ -219,10 +250,12 @@ class TestTagMethods:
 
         # Mock GraphQL response
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response("findTags", tag_results),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findTags", tag_results),
+                )
+            ]
         )
 
         # Call the method
@@ -240,10 +273,12 @@ class TestTagMethods:
 
         # Mock GraphQL response
         respx.post("http://localhost:9999/graphql").mock(
-            return_value=httpx.Response(
-                200,
-                json=create_graphql_response("findTags", empty_result),
-            )
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findTags", empty_result),
+                )
+            ]
         )
 
         # Test on image with no existing tags

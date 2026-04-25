@@ -35,7 +35,7 @@ def log_dir(tmp_path):
 
 
 @pytest.fixture
-def logging_config(log_dir, uuid_test_db_factory):
+def logging_config(log_dir, uuid_test_db_factory, monkeypatch):
     """Create a test config with UUID database and log directory set.
 
     Renamed from 'config' to avoid shadowing the database config fixture.
@@ -43,8 +43,9 @@ def logging_config(log_dir, uuid_test_db_factory):
     """
     # Use the UUID-based config from uuid_test_db_factory
     config = uuid_test_db_factory
-    # Set testing environment flag
-    os.environ["TESTING"] = "1"
+    # Set testing environment flag via monkeypatch so it's automatically
+    # reverted at teardown — avoids cross-test pollution under pytest-xdist.
+    monkeypatch.setenv("TESTING", "1")
     # Initialize logging with this config
     init_logging_config(config)
     return config

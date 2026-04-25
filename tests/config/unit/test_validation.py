@@ -1,10 +1,41 @@
-"""Unit tests for configuration validation"""
+"""Unit tests for configuration validation.
+
+Post-Wave-2.3 rewrite: this suite exercises ``config/validation.py`` with
+a real ``FanslyConfig`` instead of ``MagicMock(spec=FanslyConfig)``. The
+prior file used a ``mock_config`` fixture with ``return_value`` attribute
+stubs for ``token_is_valid()``/``useragent_is_valid()``, then further
+``@patch``-ed every internal helper (``save_config_or_raise``,
+``validate_adjust_creator_name``, ``textio_logger``). Those tests
+exercised mocks rather than production code.
+
+Replacement strategy — only mock at true edges:
+- HTTP: ``respx.mock`` for ``httpx.get`` (user-agent fetcher)
+- Browser leaves: ``config.browser.find_leveldb_folders`` etc. touch on-
+  disk leveldb/firefox profiles
+- stdlib leaves: ``importlib.util.find_spec``, ``builtins.input``,
+  ``config.validation.sleep``
+- Side-effectful leaves: ``config.validation.open_get_started_url``
+  (browser), ``config.validation.ask_correct_dir`` (tkinter dialog)
+
+Everything else runs real code:
+- ``FanslyConfig`` is real — set ``token = "a" * 60`` for a valid-length
+  token; set ``user_agent = "Mozilla/5.0 " + "A" * 60`` for a valid UA.
+- ``save_config_or_raise`` runs against a real ``tmp_path / config.yaml``.
+- ``validate_adjust_creator_name`` runs its real char/length/space checks.
+- ``textio_logger`` output is captured via ``caplog``.
+
+The ``validation_config`` fixture is the replacement for ``mock_config``:
+it returns a fresh real ``FanslyConfig`` with a writable config_path, so
+save-triggering branches exercise the real YAML write without mocks.
+"""
 
 import types
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
 
 from config.fanslyconfig import FanslyConfig
 from config.modes import DownloadMode
@@ -23,644 +54,261 @@ from errors import ConfigError
 
 
 @pytest.fixture
-def mock_config():
-    config = MagicMock(spec=FanslyConfig)
+def validation_config(tmp_path):
+    """Return a real ``FanslyConfig`` configured for validation tests.
+
+    Replaces the old ``mock_config`` (``MagicMock(spec=FanslyConfig)``)
+    fixture. Every field starts at a known real value so the production
+    ``token_is_valid()`` / ``useragent_is_valid()`` methods return True
+    by default — tests that want the "invalid" branch of those checks
+    override the field explicitly (e.g., ``config.token = "short"``).
+
+    The ``config_path`` points at ``tmp_path / "config.yaml"`` so any
+    ``save_config_or_raise`` path runs real YAML I/O into a throwaway
+    directory — no mocks. Because asserted-on values like ``token`` and
+    ``user_agent`` round-trip through YAML and get re-loaded in some
+    validators, the size of the strings matches Fansly's real shape
+    (60-char token, Mozilla/5.0 UA).
+    """
+    config = FanslyConfig(program_version="0.13.0-test")
+    config.config_path = tmp_path / "config.yaml"
     config.interactive = False
     config.user_names = {"validuser1", "validuser2"}
-    config.token = "test_token"
-    config.user_agent = "test_user_agent"
-    config.check_key = "test_check_key"
+    # token_is_valid() requires len >= 50 and no "ReplaceMe".
+    config.token = "a" * 60
+    # useragent_is_valid() requires len >= 40 and no "ReplaceMe".
+    config.user_agent = "Mozilla/5.0 " + "A" * 60
+    config.check_key = "check-key-placeholder-123"
     config.download_directory = Path.cwd()
     config.download_mode = DownloadMode.TIMELINE
-    # Ensure username/password are None (not MagicMock) to prevent early return
     config.username = None
     config.password = None
-    # Make validation functions return True
-    config.token_is_valid.return_value = True
-    config.useragent_is_valid.return_value = True
     return config
 
 
-def test_validate_creator_names_valid(mock_config):
-    """Test validation of creator names with valid names"""
-    with patch("config.validation.validate_adjust_creator_name") as mock_validate:
-        mock_validate.return_value = "validuser1"
-        assert validate_creator_names(mock_config) is True
+# -- validate_creator_names -------------------------------------------------
 
 
-def test_validate_creator_names_invalid(mock_config):
-    """Test validation of creator names with invalid names"""
-    mock_config.user_names = {"invaliduser"}
-    with patch("config.validation.validate_adjust_creator_name") as mock_validate:
-        mock_validate.return_value = None
-        result = validate_creator_names(mock_config)
-    assert result is True  # Returns True for empty set as it will use following list
+def test_validate_creator_names_valid_names_pass_through(validation_config):
+    """Validation accepts a set of real valid names unchanged.
+
+    Runs the real ``validate_adjust_creator_name`` for each name — every
+    name passes the length/space/chars checks so the set is returned
+    unchanged. No internal patches.
+    """
+    validation_config.user_names = {"alice", "bobuser"}
+    assert validate_creator_names(validation_config) is True
+    assert validation_config.user_names == {"alice", "bobuser"}
 
 
-def test_validate_creator_names_empty(mock_config):
-    """Test validation with empty user names list"""
-    mock_config.user_names = None
-    assert validate_creator_names(mock_config) is False
+def test_validate_creator_names_returns_false_when_user_names_is_none(
+    validation_config,
+):
+    """Validation returns False immediately when user_names is None (line 36)."""
+    validation_config.user_names = None
+    assert validate_creator_names(validation_config) is False
 
 
-def test_validate_creator_names_adjusted(mock_config):
-    """Test validation where a name gets adjusted"""
-    mock_config.user_names = {"user1", "user2"}
-    with patch("config.validation.validate_adjust_creator_name") as mock_validate:
-        # Return adjusted name for first user, same name for second
-        mock_validate.side_effect = ["adjusted_user1", "user2"]
-        with patch("config.validation.save_config_or_raise") as mock_save:
-            assert validate_creator_names(mock_config) is True
-            # Verify save was called since a name was adjusted
-            mock_save.assert_called_once_with(mock_config)
-            # Verify set was updated correctly
-            assert mock_config.user_names == {"adjusted_user1", "user2"}
+def test_validate_creator_names_removes_invalid_and_saves(validation_config, caplog):
+    """Names failing the real validator are removed and config is saved.
+
+    Mixes valid + invalid names (too short, spaces, bad chars) and asserts
+    only the valid one survives. The real ``save_config_or_raise`` runs
+    and writes a YAML file to the ``tmp_path`` config_path — proof that
+    the side-effectful "list changed → save" branch fires end-to-end.
+    """
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    validation_config.user_names = {"a", "valid", "bad chars!"}
+
+    assert validate_creator_names(validation_config) is True
+    # Invalid names filtered out; only "valid" (5 chars, OK) remains.
+    assert validation_config.user_names == {"valid"}
+    # Real YAML save happened.
+    assert validation_config.config_path.exists(), (
+        "list_changed path must call save_config_or_raise, which writes YAML"
+    )
+    # Real logger captured the removal warnings.
+    warning_messages = [
+        r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+    ]
+    assert any("Invalid creator name" in m for m in warning_messages), (
+        f"Expected removal warning, got: {warning_messages}"
+    )
 
 
-def test_validate_creator_names_removed(mock_config):
-    """Test validation where invalid names are removed"""
-    mock_config.user_names = {"invalid1", "valid", "invalid2"}
-    with patch("config.validation.validate_adjust_creator_name") as mock_validate:
-        # First mock returns None (invalid), second returns the valid name, third returns None
-        mock_validate.side_effect = lambda name, _interactive: (
-            None if name in ["invalid1", "invalid2"] else name
-        )
-        with patch("config.validation.save_config_or_raise") as mock_save:
-            assert validate_creator_names(mock_config) is True
-            # Verify save was called since names were removed
-            mock_save.assert_called_once_with(mock_config)
-            # Verify only valid name remains
-            assert mock_config.user_names == {"valid"}
+def test_validate_creator_names_all_removed_returns_true_and_falls_back(
+    validation_config, caplog
+):
+    """All-names-removed path returns True ("will process following list").
+
+    Covers the len==0 branch on line 66-68: after every name is removed,
+    validator still returns True and logs the "will process following
+    list" info message.
+    """
+    import logging
+
+    caplog.set_level(logging.INFO)
+    validation_config.user_names = {"a", "b"}  # all too short
+
+    assert validate_creator_names(validation_config) is True
+    assert len(validation_config.user_names) == 0
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any("will process following list" in m for m in info_messages), (
+        f"Expected following-list log, got INFO: {info_messages}"
+    )
 
 
-def test_validate_creator_names_interactive_adjustment(mock_config):
-    """Test validation with interactive name adjustment"""
-    mock_config.interactive = True
-    mock_config.user_names = {"invalid_user"}
-    with patch("config.validation.validate_adjust_creator_name") as mock_validate:
-        mock_validate.return_value = "corrected_user"
-        with patch("config.validation.save_config_or_raise") as mock_save:
-            assert validate_creator_names(mock_config) is True
-            mock_validate.assert_called_once_with("invalid_user", True)
-            mock_save.assert_called_once_with(mock_config)
-            assert mock_config.user_names == {"corrected_user"}
+def test_validate_creator_names_interactive_adjustment(validation_config, monkeypatch):
+    """Interactive mode: user fixes an invalid name → config updates and saves.
+
+    The real ``validate_adjust_creator_name`` loops on invalid input until
+    the user types a valid name. We inject ``correctuser`` via
+    ``builtins.input``; the real validator accepts it and the set mutation
+    + save fires.
+    """
+    validation_config.interactive = True
+    validation_config.user_names = {"bad user"}  # space → invalid
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "correctuser")
+
+    assert validate_creator_names(validation_config) is True
+    assert validation_config.user_names == {"correctuser"}
+    assert validation_config.config_path.exists()
+
+
+# -- validate_adjust_creator_name (pure function, no fixture) ---------------
 
 
 def test_validate_adjust_creator_name_valid():
-    """Test validation of a valid creator name"""
-    name = "validuser"
-    assert validate_adjust_creator_name(name) == "validuser"
+    """Real validator accepts a well-formed name."""
+    assert validate_adjust_creator_name("validuser") == "validuser"
 
 
-def test_validate_adjust_creator_name_invalid_replaceme():
-    """Test validation with 'ReplaceMe' placeholder"""
+def test_validate_adjust_creator_name_replaceme_placeholder():
+    """ReplaceMe placeholder is rejected (non-interactive → None)."""
     assert validate_adjust_creator_name("ReplaceMe") is None
 
 
-def test_validate_adjust_creator_name_invalid_spaces():
-    """Test validation with spaces in name"""
+def test_validate_adjust_creator_name_rejects_spaces():
     assert validate_adjust_creator_name("invalid user") is None
 
 
-def test_validate_adjust_creator_name_invalid_length():
-    """Test validation with invalid length"""
-    assert validate_adjust_creator_name("a") is None  # Too short
-    assert validate_adjust_creator_name("a" * 31) is None  # Too long
+@pytest.mark.parametrize(
+    "name", ["a", "abc", "a" * 31], ids=["one_char", "three_chars", "thirty_one"]
+)
+def test_validate_adjust_creator_name_rejects_bad_length(name):
+    assert validate_adjust_creator_name(name) is None
 
 
-def test_validate_adjust_creator_name_invalid_chars():
-    """Test validation with invalid characters"""
+def test_validate_adjust_creator_name_rejects_bad_chars():
     assert validate_adjust_creator_name("user!@#") is None
 
 
-def test_validate_adjust_creator_name_interactive(monkeypatch):
-    """Test interactive validation with user input"""
+def test_validate_adjust_creator_name_interactive_retries_until_valid(monkeypatch):
+    """Interactive mode loops on invalid input until a valid one is entered."""
     monkeypatch.setattr("builtins.input", lambda _: "validuser")
     assert validate_adjust_creator_name("invalid user", interactive=True) == "validuser"
 
 
-@patch("importlib.util.find_spec")
-def test_validate_adjust_token_valid(mock_find_spec, mock_config):
-    """Test token validation with valid token"""
-    mock_find_spec.return_value = None  # Mock plyvel not being installed
-    mock_config.token_is_valid.return_value = True
-
-    # Add mock to prevent actual validation code from running
-    with patch("config.validation.textio_logger"):
-        validate_adjust_token(mock_config)
-        assert (
-            mock_config.token_is_valid.call_count == 2
-        )  # Called during initial check and final validation
+# -- validate_adjust_token --------------------------------------------------
 
 
-@patch("importlib.util.find_spec")
-def test_validate_adjust_token_invalid_raises(mock_find_spec, mock_config):
-    """Test token validation with invalid token raises error"""
-    mock_find_spec.return_value = None  # Mock plyvel not being installed
-    mock_config.token_is_valid.return_value = False
-    mock_config.interactive = True
+def test_validate_adjust_token_skips_when_username_password_set(
+    validation_config, caplog
+):
+    """When credentials are configured, token validation is skipped (lines 139-143).
 
-    # Skip the browser automation and web calls by mocking
-    with (
-        patch("config.validation.open_get_started_url"),
-        patch("config.browser.find_leveldb_folders", return_value=[]),
-        pytest.raises(
-            ConfigError, match=r"Reached.*authorization token.*still invalid"
-        ),
-    ):
-        validate_adjust_token(mock_config)
+    Uses real ``FanslyConfig.token_is_valid()`` — we're proving it's
+    never called by setting token to a known-invalid value and asserting
+    no ConfigError escapes. (Previously this test asserted on a mock
+    call-count, which was proxy-evidence.)
+    """
+    import logging
 
+    caplog.set_level(logging.INFO)
+    validation_config.username = "someone"
+    validation_config.password = "secret"
+    validation_config.token = "short"  # would be invalid, but should be ignored
 
-def test_validate_adjust_user_agent_valid(mock_config):
-    """Test user agent validation with valid agent"""
-    mock_config.useragent_is_valid.return_value = True
-    validate_adjust_user_agent(mock_config)
-    mock_config.useragent_is_valid.assert_called_once()
+    validate_adjust_token(validation_config)  # Must not raise.
 
-
-@patch("httpx.get")
-def test_validate_adjust_user_agent_invalid(mock_get, mock_config):
-    """Test user agent validation with invalid agent"""
-    # Set up the mock to return invalid user agent and then get a new one
-    mock_config.useragent_is_valid.return_value = False
-    mock_get.return_value.status_code = 200
-    mock_get.return_value.json.return_value = ["test-agent"]
-
-    # Mock save_config_or_raise to avoid file access
-    with patch("config.validation.save_config_or_raise") as mock_save:
-        validate_adjust_user_agent(mock_config)
-
-        # Verify the user agent is updated and config is saved
-        assert mock_config.user_agent is not None
-        mock_save.assert_called_once_with(mock_config)
-
-
-def test_validate_adjust_check_key_guessed(mock_config):
-    """Test check key validation with successful guess"""
-    mock_config.user_agent = "test-agent"
-    mock_config.main_js_pattern = "pattern"
-    mock_config.check_key_pattern = "pattern"
-
-    with (
-        patch("helpers.checkkey.guess_check_key", return_value="guessed_key"),
-        patch("config.validation.save_config_or_raise"),
-        patch("config.validation.textio_logger"),
-    ):
-        validate_adjust_check_key(mock_config)
-        assert mock_config.check_key == "guessed_key"
-
-
-def test_validate_adjust_check_key_interactive_change(mock_config, monkeypatch):
-    """Test check key validation with interactive user input to change the key"""
-    mock_config.interactive = True
-    mock_config.user_agent = None
-
-    # Mock user inputs
-    inputs = iter(
-        ["n", "new_key", "y"]
-    )  # First no to confirm current, then new key, then yes to confirm
-    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
-
-    # Mock dependent functions to speed up test
-    with (
-        patch("helpers.checkkey.guess_check_key", return_value=None),
-        patch("config.validation.save_config_or_raise"),
-        patch("config.validation.textio_logger"),
-    ):
-        validate_adjust_check_key(mock_config)
-        assert mock_config.check_key == "new_key"
-
-
-def test_validate_adjust_download_directory_local(mock_config):
-    """Test download directory validation with local directory"""
-    mock_config.download_directory = Path("local_dir")
-
-    # Add mocks to prevent actual file system operations
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-        assert mock_config.download_directory == Path.cwd()
-
-
-def test_validate_adjust_download_directory_custom_valid(mock_config):
-    """Test download directory validation with valid custom directory"""
-    mock_dir = MagicMock(spec=Path)
-    mock_dir.is_dir.return_value = True
-    mock_config.download_directory = mock_dir
-
-    # Add mocks to prevent actual file system operations
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-        assert mock_config.download_directory == mock_dir
-
-
-def test_validate_adjust_download_directory_create_temp(mock_config):
-    """Test download directory validation with temp folder creation"""
-    mock_path = MagicMock(spec=Path)
-    mock_path.exists.return_value = False
-    mock_config.temp_folder = mock_path
-
-    # Add mocks to prevent actual file system operations
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-        mock_path.mkdir.assert_called_once_with(parents=True, exist_ok=True)
-
-
-def test_validate_adjust_download_directory_temp_error(mock_config):
-    """Test download directory validation with temp folder creation error"""
-    mock_path = MagicMock(spec=Path)
-    mock_path.exists.return_value = False
-    mock_path.mkdir.side_effect = PermissionError("Access denied")
-    mock_config.temp_folder = mock_path
-
-    # Add mocks to prevent actual file system operations
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-        assert mock_config.temp_folder is None  # Should fall back to system default
-
-
-def test_validate_adjust_download_directory_invalid(mock_config):
-    """Test download directory validation with invalid directory"""
-    mock_path = MagicMock(spec=Path)
-    mock_path.is_dir.return_value = False
-    mock_config.download_directory = mock_path
-    mock_ask_dir = MagicMock(spec=Path)
-
-    # Add mocks to prevent actual file system operations and UI dialogs
-    with (
-        patch("config.validation.ask_correct_dir", return_value=mock_ask_dir),
-        patch("config.validation.textio_logger"),
-        patch(
-            "config.validation.sleep"
-        ),  # Prevent the sleep() call that slows down the test
-        patch("config.validation.save_config_or_raise"),
-    ):
-        validate_adjust_download_directory(mock_config)
-        assert mock_config.download_directory == mock_ask_dir
-
-
-def test_validate_adjust_download_mode(mock_config):
-    """Test download mode validation"""
-    validate_adjust_download_mode(mock_config, download_mode_set=False)
-    assert mock_config.download_mode == DownloadMode.TIMELINE
-
-
-def test_validate_adjust_download_mode_interactive(mock_config, monkeypatch):
-    """Test interactive download mode validation"""
-    mock_config.interactive = True
-    # Simulate user not wanting to change the mode
-    monkeypatch.setattr("builtins.input", lambda _: "n")
-    validate_adjust_download_mode(mock_config, download_mode_set=False)
-    assert mock_config.download_mode == DownloadMode.TIMELINE
-
-
-def test_validate_adjust_download_mode_interactive_change(mock_config, monkeypatch):
-    """Test interactive download mode validation with mode change"""
-    mock_config.interactive = True
-    inputs = iter(["y", "SINGLE"])  # Yes to change, then new mode
-    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
-    validate_adjust_download_mode(mock_config, download_mode_set=False)
-    assert mock_config.download_mode == DownloadMode.SINGLE
-
-
-def test_validate_adjust_download_mode_invalid_input(mock_config, monkeypatch):
-    """Test interactive download mode validation with invalid mode input"""
-    mock_config.interactive = True
-    # Provide enough inputs: 'y' to change, 'INVALID' as invalid input, then 'n' to exit loop
-    inputs = iter(["y", "INVALID", "n"])
-    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
-
-    # Should raise ValueError for invalid mode and keep original mode
-    def mock_enum(value):
-        if value == "INVALID":
-            raise ValueError("Invalid mode")
-        return DownloadMode.SINGLE
-
-    with patch("config.modes.DownloadMode") as mock_mode:
-        mock_mode.side_effect = mock_enum
-        validate_adjust_download_mode(mock_config, download_mode_set=False)
-        # Should keep TIMELINE mode after invalid input
-        assert mock_config.download_mode == DownloadMode.TIMELINE
-
-
-def test_validate_adjust_config_valid(mock_config):
-    """Test full config validation with valid config"""
-    # Mock all validation functions to avoid slow processing
-    with (
-        patch("config.validation.validate_creator_names", return_value=True),
-        patch("config.validation.validate_adjust_token"),
-        patch("config.validation.validate_adjust_user_agent"),
-        patch("config.validation.validate_adjust_check_key"),
-        patch("config.validation.validate_adjust_download_directory"),
-        patch("config.validation.validate_adjust_download_mode"),
-    ):
-        # This should run quickly now with all validation steps mocked
-        validate_adjust_config(mock_config, download_mode_set=False)
-
-
-def test_validate_adjust_config_invalid_creator(mock_config):
-    """Test full config validation with invalid creator names"""
-    with patch("config.validation.validate_creator_names") as mock_validate:
-        mock_validate.return_value = False
-        with pytest.raises(ConfigError, match="no valid creator name specified"):
-            validate_adjust_config(mock_config, download_mode_set=False)
-
-
-def test_validate_log_levels_invalid(mock_config):
-    """Test log level validation with invalid levels"""
-    mock_config.log_levels = {"root": "INVALID", "api": "debug"}
-    mock_config.debug = False
-    validate_log_levels(mock_config)
-    assert mock_config.log_levels["root"] == "INFO"
-    assert mock_config.log_levels["api"] == "debug"  # Keeps original case
-
-
-def test_validate_log_levels_debug_mode(mock_config):
-    """Test log level validation in debug mode"""
-    mock_config.log_levels = {"root": "INFO", "api": "warning"}
-    mock_config.debug = True
-    validate_log_levels(mock_config)
-    assert all(level == "DEBUG" for level in mock_config.log_levels.values())
-
-
-# -- validate_adjust_token: username/password configured → skip (lines 141-145) --
-
-
-def test_validate_adjust_token_skips_with_credentials(mock_config):
-    """When username and password are set, skip token validation entirely."""
-    mock_config.username = "user"
-    mock_config.password = "pass"
-
-    # Should return without touching token_is_valid or raising
-    validate_adjust_token(mock_config)
-    mock_config.token_is_valid.assert_not_called()
-
-
-# -- validate_adjust_token: plyvel import error branch (lines 155-157) --
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any("Username and password configured" in m for m in info_messages), (
+        f"Expected credentials-skip log, got: {info_messages}"
+    )
 
 
 @patch("importlib.util.find_spec", side_effect=ImportError("no plyvel"))
-def test_validate_adjust_token_plyvel_import_error(mock_find_spec, mock_config):
-    """ImportError during plyvel check → logs info about browser-auth."""
-    mock_config.token_is_valid.return_value = False
-    mock_config.interactive = False
+def test_validate_adjust_token_plyvel_import_error_raises_config_error(
+    _find_spec,  # noqa: PT019 — @patch decorator, not a fixture
+    validation_config,
+):
+    """ImportError during plyvel check + invalid token → logs info + raises."""
+    validation_config.token = "short"  # invalid (<50 chars)
 
     with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
-        validate_adjust_token(mock_config)
+        validate_adjust_token(validation_config)
 
 
-# -- validate_adjust_token: plyvel installed, no account found (line 266-274) --
-
-
-@patch("importlib.util.find_spec")
-def test_validate_adjust_token_plyvel_installed_no_account_interactive(
-    mock_find_spec, mock_config
+@patch("importlib.util.find_spec", return_value=None)
+def test_validate_adjust_token_no_plyvel_invalid_token_raises(
+    _find_spec,  # noqa: PT019 — @patch decorator, not a fixture
+    validation_config,
 ):
-    """Plyvel installed, browsers searched, no account found → raises ConfigError."""
-    mock_find_spec.return_value = MagicMock()  # plyvel is "installed"
-    mock_config.token_is_valid.return_value = False
-    mock_config.interactive = True
+    """Plyvel not installed + invalid token → ConfigError (lines 275-282)."""
+    validation_config.token = "short"
+    validation_config.interactive = False
 
-    with (
-        patch("config.browser.get_browser_config_paths", return_value=[]),
-        patch("config.validation.open_get_started_url"),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
-        validate_adjust_token(mock_config)
+    with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
+        validate_adjust_token(validation_config)
 
 
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_plyvel_installed_no_account_non_interactive(
-    mock_find_spec, mock_config
+def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
+    mock_find_spec, validation_config
 ):
-    """Non-interactive mode, no account found → raises ConfigError without opening URL."""
-    mock_find_spec.return_value = MagicMock()
-    mock_config.token_is_valid.return_value = False
-    mock_config.interactive = False
+    """Interactive + invalid token + no browsers → open_get_started_url fires."""
+    mock_find_spec.return_value = None
+    validation_config.token = "short"
+    validation_config.interactive = True
 
     with (
-        patch("config.browser.get_browser_config_paths", return_value=[]),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
+        patch("config.validation.open_get_started_url") as mock_open_url,
+        pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
     ):
-        validate_adjust_token(mock_config)
+        validate_adjust_token(validation_config)
 
-
-# -- validate_adjust_token: browser found, non-interactive auto-link (lines 242-258) --
+    mock_open_url.assert_called_once()
 
 
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_auto_link_non_interactive(mock_find_spec, mock_config):
-    """Non-interactive mode: found token in browser → auto-links."""
-    mock_find_spec.return_value = MagicMock()
-    # First call: invalid (triggers browser search), second call: valid (final check)
-    mock_config.token_is_valid.side_effect = [False, False, True]
-    mock_config.interactive = False
-
-    mock_api = MagicMock()
-    mock_api.get_client_user_name.return_value = "found_user"
-    mock_config.get_api.return_value = mock_api
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/home/user/.config/chromium/Default/Local Storage/leveldb"],
-        ),
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value="valid_browser_token",
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch("config.validation.save_config_or_raise"),
-    ):
-        validate_adjust_token(mock_config)
-
-    assert mock_config.token == "valid_browser_token"
-    assert mock_config.token_from_browser_name == "Chromium"
-
-
-# -- validate_adjust_token: firefox path (lines 210-216) --
-
-
-@patch("importlib.util.find_spec")
-def test_validate_adjust_token_firefox_path(mock_find_spec, mock_config):
-    """Firefox browser path uses get_token_from_firefox_profile instead of leveldb."""
-    mock_find_spec.return_value = MagicMock()
-    mock_config.token_is_valid.side_effect = [False, False, True]
-    mock_config.interactive = False
-
-    mock_api = MagicMock()
-    mock_api.get_client_user_name.return_value = "firefox_user"
-    mock_config.get_api.return_value = mock_api
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.mozilla/firefox"],
-        ),
-        patch(
-            "config.browser.get_token_from_firefox_profile",
-            return_value="firefox_token",
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Firefox"),
-        patch("config.validation.save_config_or_raise"),
-    ):
-        validate_adjust_token(mock_config)
-
-    assert mock_config.token == "firefox_token"
-
-
-# -- validate_adjust_user_agent: httpx error fallback (line 338-339) --
-
-
-@patch("httpx.get", side_effect=MagicMock(side_effect=Exception("network error")))
-def test_validate_adjust_user_agent_http_error(mock_get, mock_config):
-    """HTTP error during user-agent fetch → falls back to hardcoded UA."""
-    import httpx
-
-    mock_config.useragent_is_valid.return_value = False
-    mock_get.side_effect = httpx.HTTPError("timeout")
-
-    with patch("config.validation.save_config_or_raise"):
-        validate_adjust_user_agent(mock_config)
-
-    # Should use fallback UA
-    assert mock_config.user_agent is not None
-
-
-# -- validate_adjust_user_agent: non-200 response (line 336) --
-
-
-@patch("httpx.get")
-def test_validate_adjust_user_agent_non_200(mock_get, mock_config):
-    """Non-200 response during user-agent fetch → falls back to hardcoded UA."""
-    mock_config.useragent_is_valid.return_value = False
-    mock_config.token_from_browser_name = None
-    mock_get.return_value.status_code = 500
-
-    with patch("config.validation.save_config_or_raise"):
-        validate_adjust_user_agent(mock_config)
-
-    assert mock_config.user_agent is not None
-
-
-# -- validate_adjust_user_agent: browser name info message (line 304-308) --
-
-
-@patch("httpx.get")
-def test_validate_adjust_user_agent_with_browser_name(mock_get, mock_config):
-    """When token_from_browser_name is set, logs browser-specific message."""
-    mock_config.useragent_is_valid.return_value = False
-    mock_config.token_from_browser_name = "Chrome"
-    mock_get.return_value.status_code = 200
-    mock_get.return_value.json.return_value = ["some-agent"]
-
-    with patch("config.validation.save_config_or_raise"):
-        validate_adjust_user_agent(mock_config)
-
-    assert mock_config.user_agent is not None
-
-
-# -- validate_adjust_check_key: no user_agent (lines 382-383) --
-
-
-def test_validate_adjust_check_key_no_user_agent_non_interactive(mock_config):
-    """No user_agent → warning about web retrieval failure, non-interactive fallback."""
-    mock_config.user_agent = None
-    mock_config.interactive = False
-
-    with patch("config.validation.input_enter_continue") as mock_continue:
-        validate_adjust_check_key(mock_config)
-        mock_continue.assert_called_once_with(False)
-
-
-# -- validate_adjust_check_key: guess fails, interactive confirms (line 396) --
-
-
-def test_validate_adjust_check_key_guess_fails_interactive_confirm(
-    mock_config, monkeypatch
+def test_validate_adjust_token_plyvel_installed_no_account_raises(
+    mock_find_spec, validation_config
 ):
-    """Web guess fails, interactive user confirms existing key is correct (line 396)."""
-    mock_config.interactive = True
-    mock_config.user_agent = "test-agent"
-
-    # Confirm with 'y'
-    monkeypatch.setattr("builtins.input", lambda _: "y")
-
-    with (
-        patch("helpers.checkkey.guess_check_key", return_value=None),
-        patch("config.validation.textio_logger"),
-    ):
-        validate_adjust_check_key(mock_config)
-    # Key unchanged
-    assert mock_config.check_key == "test_check_key"
-
-
-# -- validate_adjust_download_directory: temp_folder exists but is not a dir (506-510) --
-
-
-def test_validate_adjust_download_directory_temp_not_a_dir(mock_config):
-    """Temp folder exists but is not a directory → falls back to None."""
-    mock_path = MagicMock(spec=Path)
-    mock_path.exists.return_value = True
-    mock_path.is_dir.return_value = False
-    mock_config.temp_folder = mock_path
-
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-    assert mock_config.temp_folder is None
-
-
-# -- validate_adjust_download_directory: temp_folder exists and is valid dir (512) --
-
-
-def test_validate_adjust_download_directory_temp_valid_dir(mock_config):
-    """Temp folder exists and is a valid directory → keeps it."""
-    mock_path = MagicMock(spec=Path)
-    mock_path.exists.return_value = True
-    mock_path.is_dir.return_value = True
-    mock_config.temp_folder = mock_path
-
-    with patch("config.validation.textio_logger"):
-        validate_adjust_download_directory(mock_config)
-    assert mock_config.temp_folder is mock_path
-
-
-# -- validate_creator_names: list_changed triggers save (line 63->68) --
-
-
-def test_validate_creator_names_empty_after_removal(mock_config):
-    """All names removed → returns True with 'will process following list' info."""
-    mock_config.user_names = {"bad1"}
-    with (
-        patch("config.validation.validate_adjust_creator_name", return_value=None),
-        patch("config.validation.save_config_or_raise"),
-    ):
-        result = validate_creator_names(mock_config)
-    assert result is True
-    assert len(mock_config.user_names) == 0
-
-
-# -- validate_adjust_token: interactive mode with token found (lines 222-258) --
-
-
-@patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypatch):
-    """Interactive mode: found token → user confirms → token saved (lines 224-258)."""
-    config = FanslyConfig(program_version="0.13.0")
-    config.interactive = True
-    config.token = "short"  # invalid
-    config.user_agent = "a" * 50
-    config.check_key = "test-key"
-    config.username = None
-    config.password = None
-
+    """Plyvel installed + empty browser list → raises with "not found" message."""
     mock_find_spec.return_value = types.SimpleNamespace()  # plyvel "installed"
+    validation_config.token = "short"
+    validation_config.interactive = False
 
-    # User types "yes" to link the account
-    monkeypatch.setattr("builtins.input", lambda _: "yes")
+    with (
+        patch("config.browser.get_browser_config_paths", return_value=[]),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(validation_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_auto_links_in_non_interactive_mode(
+    mock_find_spec, validation_config
+):
+    """Non-interactive + token found in browser → auto-linked (lines 242-258)."""
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"  # invalid → triggers browser search
+    validation_config.interactive = False
+
+    valid_token = "a" * 60
 
     with (
         patch(
@@ -673,11 +321,9 @@ def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypa
         ),
         patch(
             "config.browser.get_auth_token_from_leveldb_folder",
-            return_value="a" * 60,  # valid-length token
+            return_value=valid_token,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch("config.validation.save_config_or_raise"),
-        # Patch get_api on config to avoid creating a real FanslyApi
         patch.object(
             FanslyConfig,
             "get_api",
@@ -686,24 +332,95 @@ def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypa
             ),
         ),
     ):
-        validate_adjust_token(config)
+        validate_adjust_token(validation_config)
 
-    assert config.token == "a" * 60
-    assert config.token_from_browser_name == "Chromium"
+    assert validation_config.token == valid_token
+    assert validation_config.token_from_browser_name == "Chromium"
 
 
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_user_rejects(mock_find_spec, monkeypatch):
-    """Interactive mode: found token → user says no → raises ConfigError."""
-    config = FanslyConfig(program_version="0.13.0")
-    config.interactive = True
-    config.token = "short"
-    config.user_agent = "a" * 50
-    config.check_key = "test-key"
-    config.username = None
-    config.password = None
-
+def test_validate_adjust_token_firefox_profile_branch(
+    mock_find_spec, validation_config
+):
+    """Firefox path uses ``get_token_from_firefox_profile`` (lines 208-214)."""
     mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"
+    validation_config.interactive = False
+
+    firefox_token = "b" * 60
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.mozilla/firefox"],
+        ),
+        patch(
+            "config.browser.get_token_from_firefox_profile",
+            return_value=firefox_token,
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Firefox"),
+        patch.object(
+            FanslyConfig,
+            "get_api",
+            return_value=types.SimpleNamespace(
+                get_client_user_name=lambda _token: "firefox_user"
+            ),
+        ),
+    ):
+        validate_adjust_token(validation_config)
+
+    assert validation_config.token == firefox_token
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_interactive_user_accepts_link(
+    mock_find_spec, validation_config, monkeypatch
+):
+    """Interactive: token found → user types "yes" → token saved (lines 222-258)."""
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.interactive = True
+    validation_config.token = "short"
+
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+
+    valid_token = "c" * 60
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/home/user/.config/chromium/leveldb"],
+        ),
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value=valid_token,
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
+        patch.object(
+            FanslyConfig,
+            "get_api",
+            return_value=types.SimpleNamespace(
+                get_client_user_name=lambda _token: "found_user"
+            ),
+        ),
+    ):
+        validate_adjust_token(validation_config)
+
+    assert validation_config.token == valid_token
+    assert validation_config.token_from_browser_name == "Chromium"
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_interactive_user_rejects_link(
+    mock_find_spec, validation_config, monkeypatch
+):
+    """Interactive: token found but user says "no" → raises ConfigError."""
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.interactive = True
+    validation_config.token = "short"
 
     monkeypatch.setattr("builtins.input", lambda _: "no")
 
@@ -718,7 +435,7 @@ def test_validate_adjust_token_interactive_user_rejects(mock_find_spec, monkeypa
         ),
         patch(
             "config.browser.get_auth_token_from_leveldb_folder",
-            return_value="a" * 60,
+            return_value="d" * 60,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
         patch("config.validation.open_get_started_url"),
@@ -731,4 +448,614 @@ def test_validate_adjust_token_interactive_user_rejects(mock_find_spec, monkeypa
         ),
         pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
     ):
-        validate_adjust_token(config)
+        validate_adjust_token(validation_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_leveldb_folder_no_token_continues_loop(
+    mock_find_spec, validation_config
+):
+    """Leveldb folder yields no token → inner ``if`` False; outer ``if all`` False.
+
+    Covers partial branches 201->196 (no token → loop next folder) and
+    216->189 (no account → loop next browser_path).
+    """
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"
+    validation_config.interactive = False
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/leveldb/folder1", "/leveldb/folder2"],
+        ),
+        # Every folder returns None → no valid token found → loop continues,
+        # fansly_account stays None, outer ``if all`` skips, final ConfigError fires.
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value=None,
+        ),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(validation_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_empty_leveldb_folders_continues(
+    mock_find_spec, validation_config
+):
+    """``find_leveldb_folders`` returns empty → inner for-loop body skipped.
+
+    Covers partial branch 196->216 (for-folder loop doesn't execute) and
+    216->189 (continues to next browser_path).
+    """
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"
+    validation_config.interactive = False
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        # Empty folder list — inner for-loop body never executes.
+        patch("config.browser.find_leveldb_folders", return_value=[]),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(validation_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_firefox_no_token_continues(
+    mock_find_spec, validation_config
+):
+    """Firefox profile yields no token → ``if browser_fansly_token`` False.
+
+    Covers partial branch 211->216 (firefox path with no token, falls
+    through to the ``if all`` check which also evaluates False).
+    """
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"
+    validation_config.interactive = False
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.mozilla/firefox"],
+        ),
+        patch(
+            "config.browser.get_token_from_firefox_profile",
+            return_value=None,
+        ),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(validation_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
+    mock_find_spec, validation_config
+):
+    """Plyvel + interactive + no account found → ``open_get_started_url`` fires.
+
+    Covers line 266: the inner ``if config.interactive: open_get_started_url()``
+    branch inside the "no account found" path. Distinct from the
+    outer-invalid-token branch which also calls open_get_started_url
+    but from a different location.
+    """
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.token = "short"
+    validation_config.interactive = True
+
+    with (
+        patch("config.browser.get_browser_config_paths", return_value=[]),
+        patch("config.validation.open_get_started_url") as mock_open_url,
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(validation_config)
+
+    mock_open_url.assert_called_once()
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
+    mock_find_spec, validation_config, monkeypatch
+):
+    """Interactive: user types garbage → prompt re-asks → accepts next valid input.
+
+    Covers line 236: the "Please enter either 'Yes' or 'No'" error log
+    when the user provides input that doesn't start with y or n. This is
+    the ONE line previously uncovered in config/validation.py — fixed by
+    simulating a garbage-then-valid input sequence.
+    """
+    mock_find_spec.return_value = types.SimpleNamespace()
+    validation_config.interactive = True
+    validation_config.token = "short"
+
+    inputs = iter(["maybe", "dunno", "yes"])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/home/user/.config/chromium/leveldb"],
+        ),
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value="e" * 60,
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
+        patch.object(
+            FanslyConfig,
+            "get_api",
+            return_value=types.SimpleNamespace(
+                get_client_user_name=lambda _token: "found_user"
+            ),
+        ),
+    ):
+        validate_adjust_token(validation_config)
+
+    # User eventually accepted, so token is saved.
+    assert validation_config.token == "e" * 60
+
+
+# -- validate_adjust_user_agent ---------------------------------------------
+
+
+def test_validate_adjust_user_agent_valid_skips_fetch(validation_config):
+    """Valid user-agent → function returns without fetching new one.
+
+    Uses real ``useragent_is_valid()`` which checks len >= 40 and no
+    "ReplaceMe". Our default "Mozilla/5.0 " + "A" * 60 is 72 chars,
+    trivially valid.
+    """
+    # No respx.mock context — if the function tried to fetch, httpx would
+    # raise a real ConnectError, which would fail the test. Absence of
+    # error is proof the fetch path didn't run.
+    validate_adjust_user_agent(validation_config)
+    # user_agent is unchanged.
+    assert validation_config.user_agent.startswith("Mozilla/5.0 ")
+
+
+def test_validate_adjust_user_agent_invalid_fetches_and_saves(validation_config):
+    """Invalid user-agent → fetches from jnrbsn, picks one, saves to config.
+
+    Uses ``respx.mock`` for the httpx call — the real edge. Returns a
+    plausible user-agent list spanning multiple OS variants; the real
+    ``guess_user_agent`` helper platform-matches (Windows/Darwin/Linux)
+    AND version-matches against the host OS. Test asserts only that the
+    user_agent *changed* and that the save happened — avoiding brittle
+    coupling to CI host OS version strings.
+    """
+    validation_config.user_agent = "short"  # invalid
+    original_ua = validation_config.user_agent
+
+    import platform as _platform
+
+    # Include a UA for the host OS so the platform match inside
+    # guess_user_agent can succeed on the CI runner without fragile
+    # assertions on OS/version values.
+    if _platform.system() == "Darwin":
+        # guess_user_agent extracts the "Mac OS X X_Y_Z" tuple from the
+        # candidate UA and checks the same string appears in the UA; a
+        # plausible modern mac UA looks like "Mac OS X 14_0_0".
+        version_str = _platform.mac_ver()[0].replace(".", "_")
+        if not version_str:
+            version_str = "14_0_0"
+        fake_agents = [
+            f"Mozilla/5.0 (Macintosh; Intel Mac OS X {version_str}) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ]
+    else:
+        # Linux/Windows runners can match against a plausible host string.
+        fake_agents = [
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ]
+
+    with respx.mock:
+        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
+            side_effect=[httpx.Response(200, json=fake_agents)]
+        )
+        validate_adjust_user_agent(validation_config)
+
+    # Either the fetched UA was used, or the fallback (Chrome/116) was —
+    # both are valid outcomes for this test; what we care about is that
+    # the validator ran and set a valid UA + saved the config.
+    assert validation_config.user_agent != original_ua
+    assert "Chrome" in validation_config.user_agent
+    assert validation_config.config_path.exists()
+
+
+def test_validate_adjust_user_agent_http_error_falls_back(validation_config):
+    """httpx.HTTPError during fetch → real hardcoded fallback UA applied."""
+    validation_config.user_agent = "short"
+
+    with respx.mock:
+        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
+            side_effect=httpx.ConnectError("network down")
+        )
+        validate_adjust_user_agent(validation_config)
+
+    # Fallback UA is the hardcoded Chrome 116 string.
+    assert "Chrome/116" in validation_config.user_agent
+
+
+def test_validate_adjust_user_agent_non_200_falls_back(validation_config):
+    """Non-200 HTTP response → hardcoded fallback UA applied."""
+    validation_config.user_agent = "short"
+    validation_config.token_from_browser_name = None
+
+    with respx.mock:
+        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
+            side_effect=[httpx.Response(500, text="internal error")]
+        )
+        validate_adjust_user_agent(validation_config)
+
+    assert "Chrome/116" in validation_config.user_agent
+
+
+def test_validate_adjust_user_agent_logs_browser_specific_when_token_from_browser(
+    validation_config, caplog
+):
+    """token_from_browser_name set → logs browser-specific message (lines 302-306)."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    validation_config.user_agent = "short"
+    validation_config.token_from_browser_name = "Chrome"
+
+    with respx.mock:
+        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=["Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0"],
+                )
+            ]
+        )
+        validate_adjust_user_agent(validation_config)
+
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any("operating system" in m and "browser" in m for m in info_messages), (
+        f"Expected browser-specific info log, got INFO: {info_messages}"
+    )
+
+
+# -- validate_adjust_check_key ----------------------------------------------
+
+
+def test_validate_adjust_check_key_guess_succeeds_sets_key(validation_config):
+    """guess_check_key returns a value → config.check_key is updated + saved."""
+    # config.user_agent is set via fixture — guess_check_key gets called.
+    with patch("helpers.checkkey.guess_check_key", return_value="guessed_key_xyz"):
+        validate_adjust_check_key(validation_config)
+
+    assert validation_config.check_key == "guessed_key_xyz"
+    assert validation_config.config_path.exists()
+
+
+def test_validate_adjust_check_key_guess_fails_interactive_confirm_keeps_key(
+    validation_config, monkeypatch
+):
+    """guess_check_key returns None → interactive 'y' confirms existing key."""
+    validation_config.interactive = True
+    original_key = validation_config.check_key
+
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+
+    with patch("helpers.checkkey.guess_check_key", return_value=None):
+        validate_adjust_check_key(validation_config)
+
+    assert validation_config.check_key == original_key
+
+
+def test_validate_adjust_check_key_guess_fails_interactive_user_enters_new_key(
+    validation_config, monkeypatch
+):
+    """guess fails → user types 'n' → types new key → confirms with 'y'."""
+    validation_config.interactive = True
+
+    # 'n' (reject current), 'new_key_value', 'y' (confirm new key)
+    inputs = iter(["n", "new_key_value", "y"])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    with patch("helpers.checkkey.guess_check_key", return_value=None):
+        validate_adjust_check_key(validation_config)
+
+    assert validation_config.check_key == "new_key_value"
+
+
+def test_validate_adjust_check_key_user_rejects_new_key_then_accepts(
+    validation_config, monkeypatch
+):
+    """Interactive: user rejects a new-key confirmation, re-enters, accepts next.
+
+    Covers partial branch 402->391: the while-loop continues when the
+    confirmation of the typed key is 'n' (not-'y'), prompting again.
+    """
+    validation_config.interactive = True
+
+    # Inputs: 'n' (reject current), 'first_try', 'n' (reject first try),
+    #         'second_try', 'y' (accept second try).
+    inputs = iter(["n", "first_try", "n", "second_try", "y"])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    with patch("helpers.checkkey.guess_check_key", return_value=None):
+        validate_adjust_check_key(validation_config)
+
+    assert validation_config.check_key == "second_try"
+
+
+def test_validate_adjust_check_key_no_user_agent_non_interactive(validation_config):
+    """user_agent is None → skips guess; non-interactive falls through to continue.
+
+    Covers the ``if config.user_agent:`` False branch at line 358.
+    """
+    validation_config.user_agent = None
+    validation_config.interactive = False
+
+    with patch("config.validation.input_enter_continue") as mock_continue:
+        validate_adjust_check_key(validation_config)
+
+    mock_continue.assert_called_once_with(False)
+
+
+# -- validate_adjust_download_directory -------------------------------------
+
+
+def test_validate_adjust_download_directory_local_dir_sets_cwd(validation_config):
+    """``local_dir`` sentinel in path → resolved to Path.cwd()."""
+    validation_config.download_directory = Path("local_dir")
+
+    validate_adjust_download_directory(validation_config)
+
+    assert validation_config.download_directory == Path.cwd()
+
+
+def test_validate_adjust_download_directory_valid_custom_dir_kept(
+    validation_config, tmp_path
+):
+    """Valid existing directory is kept as-is (no save, no dialog)."""
+    custom = tmp_path / "downloads"
+    custom.mkdir()
+    validation_config.download_directory = custom
+
+    validate_adjust_download_directory(validation_config)
+
+    assert validation_config.download_directory == custom
+
+
+def test_validate_adjust_download_directory_invalid_prompts_for_replacement(
+    validation_config, tmp_path, monkeypatch
+):
+    """Invalid directory → sleep + ask_correct_dir → save.
+
+    Uses a non-existent Path as the bad directory; a real tmp_path
+    directory as the replacement. Patches ``sleep`` (so tests don't
+    pause 10s) and ``ask_correct_dir`` (would open a tkinter dialog).
+    """
+    validation_config.download_directory = tmp_path / "nonexistent"
+    replacement = tmp_path / "picked"
+    replacement.mkdir()
+
+    monkeypatch.setattr("config.validation.sleep", lambda _seconds: None)
+
+    with patch("config.validation.ask_correct_dir", return_value=replacement):
+        validate_adjust_download_directory(validation_config)
+
+    assert validation_config.download_directory == replacement
+    assert validation_config.config_path.exists()
+
+
+def test_validate_adjust_download_directory_creates_missing_temp_folder(
+    validation_config, tmp_path
+):
+    """Non-existent temp_folder → created on disk, kept in config."""
+    new_temp = tmp_path / "temp_created"
+    validation_config.temp_folder = new_temp
+    # Valid download_directory so we don't enter the prompt branch.
+    validation_config.download_directory = tmp_path
+
+    validate_adjust_download_directory(validation_config)
+
+    assert new_temp.exists()
+    assert new_temp.is_dir()
+    assert validation_config.temp_folder == new_temp
+
+
+def test_validate_adjust_download_directory_temp_folder_creation_error_falls_back(
+    validation_config, tmp_path, monkeypatch
+):
+    """PermissionError when creating temp_folder → falls back to None.
+
+    Patches ``Path.mkdir`` via an on-the-fly subclass — real code would
+    need a truly unwriteable path to reproduce, which is environment-
+    dependent. The leaf failure we're exercising is mkdir raising; that
+    maps to any OSError subclass.
+    """
+    bad_temp = tmp_path / "cannot_create"
+
+    original_mkdir = Path.mkdir
+
+    def _raise_on_target(self, *args, **kwargs):
+        if self == bad_temp:
+            raise PermissionError("simulated access denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", _raise_on_target)
+    validation_config.temp_folder = bad_temp
+    validation_config.download_directory = tmp_path
+
+    validate_adjust_download_directory(validation_config)
+
+    assert validation_config.temp_folder is None
+
+
+def test_validate_adjust_download_directory_temp_folder_not_a_directory(
+    validation_config, tmp_path
+):
+    """temp_folder path exists but is a file, not a directory → falls back."""
+    not_a_dir = tmp_path / "i_am_a_file.txt"
+    not_a_dir.write_text("hello")
+    validation_config.temp_folder = not_a_dir
+    validation_config.download_directory = tmp_path
+
+    validate_adjust_download_directory(validation_config)
+
+    assert validation_config.temp_folder is None
+
+
+def test_validate_adjust_download_directory_temp_folder_valid_existing_dir(
+    validation_config, tmp_path
+):
+    """temp_folder already exists as a directory → kept unchanged."""
+    existing = tmp_path / "existing_temp"
+    existing.mkdir()
+    validation_config.temp_folder = existing
+    validation_config.download_directory = tmp_path
+
+    validate_adjust_download_directory(validation_config)
+
+    assert validation_config.temp_folder == existing
+
+
+# -- validate_adjust_download_mode ------------------------------------------
+
+
+def test_validate_adjust_download_mode_non_interactive_no_change(validation_config):
+    """Non-interactive mode: no prompt, mode unchanged."""
+    validate_adjust_download_mode(validation_config, download_mode_set=False)
+    assert validation_config.download_mode == DownloadMode.TIMELINE
+
+
+def test_validate_adjust_download_mode_interactive_user_declines(
+    validation_config, monkeypatch
+):
+    """Interactive mode: user types 'n' → mode unchanged."""
+    validation_config.interactive = True
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+
+    validate_adjust_download_mode(validation_config, download_mode_set=False)
+
+    assert validation_config.download_mode == DownloadMode.TIMELINE
+
+
+def test_validate_adjust_download_mode_interactive_user_changes_mode(
+    validation_config, monkeypatch
+):
+    """Interactive mode: user types 'y' then 'SINGLE' → mode updated."""
+    validation_config.interactive = True
+    inputs = iter(["y", "SINGLE"])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    validate_adjust_download_mode(validation_config, download_mode_set=False)
+
+    assert validation_config.download_mode == DownloadMode.SINGLE
+
+
+def test_validate_adjust_download_mode_interactive_invalid_mode_preserves_original(
+    validation_config, monkeypatch
+):
+    """Interactive: user types 'y' → invalid mode → 'n' exits → original kept.
+
+    Runs real ``DownloadMode(...)`` constructor — an invalid string raises
+    the real ``ValueError`` which the production code catches and logs.
+    """
+    validation_config.interactive = True
+    inputs = iter(["y", "INVALIDMODE", "n"])
+    monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+    validate_adjust_download_mode(validation_config, download_mode_set=False)
+
+    assert validation_config.download_mode == DownloadMode.TIMELINE
+
+
+def test_validate_adjust_download_mode_skips_prompt_when_mode_preset(
+    validation_config, monkeypatch
+):
+    """download_mode_set=True → no interactive prompt even if interactive=True."""
+    validation_config.interactive = True
+    # If input() is called, it'd raise StopIteration — test proves it's NOT called.
+    inputs = iter([])
+
+    def _fail_input(_prompt):
+        return next(inputs)
+
+    monkeypatch.setattr("builtins.input", _fail_input)
+
+    validate_adjust_download_mode(validation_config, download_mode_set=True)
+    assert validation_config.download_mode == DownloadMode.TIMELINE
+
+
+# -- validate_log_levels ----------------------------------------------------
+
+
+def test_validate_log_levels_invalid_level_is_corrected(validation_config):
+    """Invalid log level is replaced with INFO (the default-non-debug level)."""
+    validation_config.log_levels = {"root": "INVALID", "api": "debug"}
+    validation_config.debug = False
+
+    validate_log_levels(validation_config)
+
+    assert validation_config.log_levels["root"] == "INFO"
+    # "debug" is valid (case-insensitive); the validator only corrects
+    # to the default when the uppercased level isn't in VALID_LEVELS.
+    assert validation_config.log_levels["api"] == "debug"
+
+
+def test_validate_log_levels_debug_mode_forces_debug_everywhere(validation_config):
+    """debug=True → all log levels forced to DEBUG."""
+    validation_config.log_levels = {"root": "INFO", "api": "warning"}
+    validation_config.debug = True
+
+    validate_log_levels(validation_config)
+
+    assert all(level == "DEBUG" for level in validation_config.log_levels.values())
+
+
+# -- validate_adjust_config (orchestrator) ----------------------------------
+
+
+def test_validate_adjust_config_raises_when_creator_names_invalid(validation_config):
+    """Orchestrator raises ConfigError when validate_creator_names returns False.
+
+    Sets user_names to None so the real ``validate_creator_names`` returns
+    False — the real orchestrator then raises ConfigError.
+    """
+    validation_config.user_names = None
+
+    with pytest.raises(ConfigError, match="no valid creator name specified"):
+        validate_adjust_config(validation_config, download_mode_set=False)
+
+
+def test_validate_adjust_config_runs_all_validators_end_to_end(
+    validation_config, caplog
+):
+    """Orchestrator invokes every sub-validator end-to-end with no internal mocks.
+
+    All config fields are pre-set to valid values via the fixture. The
+    real orchestrator walks through creator names → token → user agent →
+    check key → download directory → download mode. No sub-validator
+    should raise; the run completes cleanly.
+    """
+    import logging
+
+    caplog.set_level(logging.INFO)
+
+    # Everything's valid → no sub-validator should raise or do meaningful work.
+    validate_adjust_config(validation_config, download_mode_set=True)
+
+    # Smoke: we hit at least one informational log from any sub-validator.
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert info_messages, (
+        "Expected at least one info log from orchestrator sub-validators"
+    )

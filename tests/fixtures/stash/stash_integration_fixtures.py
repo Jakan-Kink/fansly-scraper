@@ -303,6 +303,9 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
 
         # Reset all routes and global call history so tests start clean
         respx.reset()
+        # Intentional `return_value` — fixture-level blanket default responder
+        # for any GraphQL call a test does not explicitly route. Per-test
+        # routes added on top of this MUST use `side_effect=[...]`.
         respx.post("http://localhost:9999/graphql").mock(
             return_value=httpx.Response(200, json={"data": {}})
         )
