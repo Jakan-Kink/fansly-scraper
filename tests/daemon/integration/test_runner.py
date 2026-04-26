@@ -5,8 +5,9 @@ Architecture:
   - FakeWS stub injected via ``ws_factory`` kwarg to bypass real WebSocket
   - run_daemon terminated via asyncio.wait_for with short timeouts
 
-Shared stubs (FakeWS, _fake_ws_factory, fake_ws, config_wired) are
-provided by tests/daemon/conftest.py.
+The ``fake_ws`` and ``config_wired`` pytest fixtures are provided by
+``tests/daemon/conftest.py``; ``FakeWS`` and ``make_fake_ws_factory``
+are imported directly from ``tests.fixtures.api``.
 
 These tests exercise the FULL daemon loop lifecycle -- startup through
 clean shutdown -- rather than individual component wiring.
@@ -21,7 +22,7 @@ import pytest
 
 from daemon.runner import run_daemon
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
-from tests.daemon.conftest import _fake_ws_factory
+from tests.fixtures.api import make_fake_ws_factory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -51,7 +52,7 @@ class TestCleanShutdown:
         daemon_task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=_fake_ws_factory(fake_ws),
+                ws_factory=make_fake_ws_factory(fake_ws),
                 stop_event=stop_event,
             )
         )
@@ -84,7 +85,7 @@ class TestCleanShutdown:
         daemon_task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=_fake_ws_factory(fake_ws),
+                ws_factory=make_fake_ws_factory(fake_ws),
                 stop_event=stop_event,
             )
         )
@@ -140,7 +141,7 @@ class TestWorkerDrainsOnShutdown:
             daemon_task = asyncio.create_task(
                 run_daemon(
                     config_wired,
-                    ws_factory=_fake_ws_factory(fake_ws),
+                    ws_factory=make_fake_ws_factory(fake_ws),
                     stop_event=stop_event,
                 )
             )
@@ -204,7 +205,7 @@ class TestUnrecoverableExitCode:
             "daemon.runner._timeline_poll_loop", side_effect=_raise_unrecoverable
         ):
             daemon_task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+                run_daemon(config_wired, ws_factory=make_fake_ws_factory(fake_ws))
             )
 
             try:

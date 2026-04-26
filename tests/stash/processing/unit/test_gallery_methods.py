@@ -715,7 +715,7 @@ class TestHashtagProcessing:
         assert hasattr(result[0], "id")
 
         # Verify tag operations occurred (library may search first or create directly)
-        assert len(graphql_route.calls) >= 1
+        assert len(graphql_route.calls) == 3
         # Don't assert on specific call sequence - library behavior varies
 
 

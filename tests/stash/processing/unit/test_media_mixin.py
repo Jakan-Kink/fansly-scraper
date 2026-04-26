@@ -202,7 +202,7 @@ class TestMediaProcessingWithRealData:
         find_images_calls = [
             body for body in request_bodies if "findImages" in body["query"]
         ]
-        assert len(find_images_calls) >= 1
+        assert len(find_images_calls) == 1
         path_pattern = find_images_calls[0]["variables"]["image_filter"]["path"][
             "value"
         ]
@@ -212,13 +212,13 @@ class TestMediaProcessingWithRealData:
         find_performers_calls = [
             body for body in request_bodies if "findPerformers" in body["query"]
         ]
-        assert len(find_performers_calls) >= 1
+        assert len(find_performers_calls) == 1
 
         # Verify studioCreate was called
         studio_create_calls = [
             body for body in request_bodies if "studioCreate" in body["query"]
         ]
-        assert len(studio_create_calls) >= 1
+        assert len(studio_create_calls) == 1
         assert (
             studio_create_calls[0]["variables"]["input"]["name"] == "test_user (Fansly)"
         )
@@ -227,7 +227,7 @@ class TestMediaProcessingWithRealData:
         image_update_calls = [
             body for body in request_bodies if "imageUpdate" in body["query"]
         ]
-        assert len(image_update_calls) >= 1
+        assert len(image_update_calls) == 1
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_real_data(
@@ -403,7 +403,7 @@ class TestMediaProcessingWithRealData:
         find_images_calls = [
             body for body in request_bodies if "findImages" in body["query"]
         ]
-        assert len(find_images_calls) >= 1
+        assert len(find_images_calls) == 1
         path_pattern = find_images_calls[0]["variables"]["image_filter"]["path"][
             "value"
         ]
@@ -413,13 +413,13 @@ class TestMediaProcessingWithRealData:
         find_performers_calls = [
             body for body in request_bodies if "findPerformers" in body["query"]
         ]
-        assert len(find_performers_calls) >= 1
+        assert len(find_performers_calls) == 1
 
         # Verify studioCreate was called
         studio_create_calls = [
             body for body in request_bodies if "studioCreate" in body["query"]
         ]
-        assert len(studio_create_calls) >= 1
+        assert len(studio_create_calls) == 1
         assert (
             studio_create_calls[0]["variables"]["input"]["name"]
             == "test_user_2 (Fansly)"
@@ -429,7 +429,7 @@ class TestMediaProcessingWithRealData:
         image_update_calls = [
             body for body in request_bodies if "imageUpdate" in body["query"]
         ]
-        assert len(image_update_calls) >= 1
+        assert len(image_update_calls) == 1
 
 
 # No need to import classes directly as they're discovered by pytest

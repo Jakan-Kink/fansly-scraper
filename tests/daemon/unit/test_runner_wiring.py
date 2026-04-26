@@ -8,7 +8,7 @@ Architecture:
     "queue contains the expected WorkItem"
   - Fast (<100 ms each)
 
-Shared stubs (FakeWS, _fake_ws_factory, fake_ws, saved_account,
+Shared stubs (FakeWS, make_fake_ws_factory, fake_ws, saved_account,
 config_wired) are provided by tests/daemon/conftest.py.
 """
 
@@ -47,9 +47,9 @@ from daemon.runner import (
 )
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
-from tests.daemon.conftest import _fake_ws_factory
 from tests.fixtures.api import (
     dump_fansly_calls,
+    make_fake_ws_factory,
     mount_client_account_me_route,
     mount_empty_creator_pipeline,
     mount_empty_following_route,
@@ -136,7 +136,7 @@ class TestDaemonTaskScheduling:
                 task = asyncio.create_task(
                     run_daemon(
                         config_wired,
-                        ws_factory=_fake_ws_factory(fake_ws),
+                        ws_factory=make_fake_ws_factory(fake_ws),
                         stop_event=stop_event,
                     )
                 )
@@ -216,7 +216,7 @@ class TestRunDaemonBootstrapFallback:
         task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=_fake_ws_factory(fake_ws),
+                ws_factory=make_fake_ws_factory(fake_ws),
                 stop_event=stop_event,
                 bootstrap=bootstrap,
             )
@@ -798,7 +798,7 @@ class TestFollowingRefreshOnUnhide:
             "_simulator_tick_loop must call refresh_event.set() on unhide"
         )
         # Also confirm WebSocket reconnect is in the same branch
-        assert "ws.stop()" in source or "ws.start_background()" in source, (
+        assert "ws.stop_thread()" in source or "ws.start_in_thread()" in source, (
             "_simulator_tick_loop must attempt WS reconnect on unhide"
         )
 

@@ -154,12 +154,14 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": {}})]
         )
 
-        # Create a mock FanslyWebSocket instance
+        # Create a mock FanslyWebSocket instance.
+        # start_in_thread is sync (spawns the thread); stop_thread is async
+        # (awaits to_thread(thread.join)) — match the production shapes.
         mock_ws_client = AsyncMock()
         mock_ws_client.connected = True
         mock_ws_client.session_id = "test_session_id"
-        mock_ws_client.start = AsyncMock()
-        mock_ws_client.stop = AsyncMock()
+        mock_ws_client.start_in_thread = MagicMock()
+        mock_ws_client.stop_thread = AsyncMock()
 
         # Mock the FanslyWebSocket class (websockets are external boundary)
         with patch("api.fansly.FanslyWebSocket", return_value=mock_ws_client):

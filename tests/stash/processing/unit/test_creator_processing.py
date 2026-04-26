@@ -99,7 +99,7 @@ class TestCreatorProcessing:
 
         # Verify respx was hit - check the HTTP call was made
         assert graphql_route.called
-        assert graphql_route.call_count >= 1
+        assert graphql_route.call_count == 1
 
         # Inspect the GraphQL request to verify correct query and variables
         request = graphql_route.calls[0].request
@@ -305,8 +305,8 @@ class TestCreatorProcessing:
         assert studio is not None
         assert studio.name == "test_user (Fansly)"
 
-        # Verify respx was hit multiple times (cache checks + Fansly network + studioCreate)
-        assert graphql_route.call_count >= 2
+        # Verify respx was hit exactly 3 times (Fansly network find + creator find + studioCreate)
+        assert graphql_route.call_count == 3
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_no_stash_context(

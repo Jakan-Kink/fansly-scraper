@@ -78,6 +78,19 @@ def complete_args():
     )
 
 
+@pytest.fixture
+def config_wired(config, entity_store, fansly_api):
+    """Config wired with a real FanslyApi backed by the test entity_store.
+
+    ``entity_store`` is requested before ``fansly_api`` so the store
+    singleton is set before any polling/filter functions call
+    ``get_store()`` during test setup.
+    """
+    config._api = fansly_api
+    return config
+
+
 __all__ = [
     "complete_args",
+    "config_wired",
 ]

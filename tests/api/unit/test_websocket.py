@@ -618,13 +618,19 @@ class TestMaintainConnection:
 
     @pytest.mark.asyncio
     async def test_maintenance_cancelled(self):
-        """CancelledError in maintenance loop is handled (lines 562-564)."""
+        """CancelledError in maintenance loop is handled (lines 562-564).
+
+        ``_stop_event`` is now a ``threading.Event`` (post WS-thread refactor),
+        whose ``.wait()`` is sync-blocking and would deadlock the event loop
+        if awaited inside an async coroutine.  Use a plain async sleep that
+        the test can cancel without depending on the threading primitive.
+        """
         ws = _make_ws()
         ws._reconnect_delay = 0.01
 
         async def hang_connect(**_kw):
-            # Wait for stop event instead of sleeping forever
-            await ws._stop_event.wait()
+            # Sleep long enough that the test's cancel arrives first
+            await asyncio.sleep(60)
 
         with patch("api.websocket.ws_client.connect", side_effect=hang_connect):
             task = asyncio.create_task(ws._maintain_connection())
@@ -653,57 +659,68 @@ class TestDisconnectEdgeCases:
         assert ws.websocket is None
 
 
-class TestStartStopBackground:
-    """Lines 569-619: start_background, stop."""
+class TestStartStopThread:
+    """start_in_thread / stop_thread lifecycle (replaces the old
+    background-task tests after the WS moved onto its own thread)."""
 
     @pytest.mark.asyncio
-    async def test_start_background_already_running(self):
-        """start_background when already running → warning (lines 581-583)."""
+    async def test_stop_thread_when_not_started(self):
+        """stop_thread() with no live thread → warning, returns cleanly."""
         ws = _make_ws()
-        done = asyncio.Event()
-        ws._background_task = asyncio.create_task(done.wait())
-
-        await ws.start_background()  # Should warn and return
-
-        done.set()
-        await ws._background_task
+        assert ws._ws_thread is None
+        await ws.stop_thread()  # Should warn and return without raising
+        assert ws._ws_thread is None
 
     @pytest.mark.asyncio
-    async def test_stop_no_background_task(self):
-        """stop() when no background task → warning (lines 595-597)."""
+    async def test_start_in_thread_already_running(self):
+        """Calling start_in_thread twice → second call warns and returns."""
         ws = _make_ws()
-        ws._background_task = None
-        await ws.stop()  # Should warn and return
+
+        async def long_running_maintain():
+            # threading.Event.wait() is blocking; to_thread makes it awaitable
+            await asyncio.to_thread(ws._stop_event.wait)
+
+        with patch.object(
+            ws, "_maintain_connection", side_effect=long_running_maintain
+        ):
+            ws.start_in_thread()
+            try:
+                first_thread = ws._ws_thread
+                assert first_thread is not None
+                ws.start_in_thread()  # Should warn, no-op — same thread retained
+                assert ws._ws_thread is first_thread
+            finally:
+                await ws.stop_thread()
 
     @pytest.mark.asyncio
-    async def test_stop_timeout_cancels(self):
-        """Background task doesn't stop in time → cancel (lines 607-611)."""
+    async def test_start_then_stop_clean_lifecycle(self):
+        """start_in_thread spins up, stop_thread joins cleanly."""
         ws = _make_ws()
-        never_done = asyncio.Event()
 
-        async def hang():
-            await never_done.wait()
+        async def short_maintain():
+            await asyncio.to_thread(ws._stop_event.wait)
 
-        ws._background_task = asyncio.create_task(hang())
-        ws._stop_event = asyncio.Event()
-
-        await ws.stop()
-        assert ws._background_task is None
+        with patch.object(ws, "_maintain_connection", side_effect=short_maintain):
+            ws.start_in_thread()
+            assert ws._ws_thread is not None
+            assert ws._ws_thread.is_alive()
+            await ws.stop_thread()
+            assert ws._ws_thread is None
 
 
 class TestContextManager:
-    """Lines 644-656: async context manager."""
+    """Async context manager — async with FanslyWebSocket() as client."""
 
     @pytest.mark.asyncio
-    async def test_async_context_manager(self):
+    async def test_async_context_manager_starts_and_stops_thread(self):
         ws = _make_ws()
-        fake = FakeSocket(recv_messages=[_auth_response()])
 
-        async def fake_connect(**kwargs):
-            return fake
+        async def short_maintain():
+            await asyncio.to_thread(ws._stop_event.wait)
 
-        with patch("api.websocket.ws_client.connect", side_effect=fake_connect):
+        with patch.object(ws, "_maintain_connection", side_effect=short_maintain):
             async with ws:
-                assert ws._background_task is not None
+                assert ws._ws_thread is not None
+                assert ws._ws_thread.is_alive()
 
-        assert ws._background_task is None
+        assert ws._ws_thread is None

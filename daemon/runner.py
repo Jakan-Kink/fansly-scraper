@@ -151,7 +151,7 @@ def _make_ws(config: FanslyConfig) -> FanslyWebSocket:
         config: FanslyConfig instance with token and user_agent set.
 
     Returns:
-        A new FanslyWebSocket ready for ``start_background()``.
+        A new FanslyWebSocket ready for ``start_in_thread()``.
     """
     return FanslyWebSocket(
         token=config.token or "",
@@ -926,8 +926,8 @@ async def _simulator_tick_loop(
         if transition == "unhide":
             refresh_event.set()
             try:
-                await ws.stop()
-                await ws.start_background()
+                await ws.stop_thread()
+                ws.start_in_thread()
                 dashboard.set_ws_state(True)
                 ws_logger.info("daemon.runner: WebSocket reconnected after unhide")
             except Exception as exc:
@@ -1172,7 +1172,7 @@ async def _run_daemon_body(
             _make_ws_handler(simulator, queue, budget),
         )
         try:
-            await ws.start_background()
+            ws.start_in_thread()
             dashboard.set_ws_state(True)
             ws_logger.info("daemon.runner: WebSocket started")
         except Exception as exc:
@@ -1287,7 +1287,7 @@ async def _run_daemon_body(
             await asyncio.gather(worker_task, return_exceptions=True)
 
         try:
-            await ws.stop()
+            await ws.stop_thread()
         except Exception as exc:
             ws_logger.warning("daemon.runner: error stopping WebSocket - {}", exc)
 

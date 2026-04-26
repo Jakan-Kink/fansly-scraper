@@ -1,6 +1,8 @@
 """Stash fixtures for testing Stash integration."""
 
 from .stash_api_fixtures import (  # Removed: mock_account, mock_performer, mock_studio, mock_scene; (MagicMock duplicates - use real factories from stash_type_factories); Removed: mock_client, mock_session, mock_transport; (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    assert_op,
+    assert_op_with_vars,
     dump_graphql_calls,
     enable_scene_creation,
     respx_stash_client,
@@ -85,6 +87,8 @@ __all__ = [
     "TagFactory",
     "VideoFileFactory",
     "account_mixin",
+    "assert_op",
+    "assert_op_with_vars",
     "batch_mixin",
     "content_mixin",
     "create_find_galleries_result",

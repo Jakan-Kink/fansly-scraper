@@ -580,14 +580,14 @@ class TestWebSocketHandlers:
 
     @pytest.mark.asyncio
     async def test_close_websocket_with_client(self, fansly_api):
-        """Closing with websocket client calls stop and clears ref (lines 1022-1029)."""
+        """Closing with websocket client calls stop_thread and clears ref."""
         stop_called = []
 
-        async def fake_stop():
+        async def fake_stop_thread():
             stop_called.append(True)
 
         fansly_api._websocket_client = types.SimpleNamespace(
-            stop=fake_stop,
+            stop_thread=fake_stop_thread,
             connected=True,
             session_id="test",
         )
@@ -597,13 +597,13 @@ class TestWebSocketHandlers:
 
     @pytest.mark.asyncio
     async def test_close_websocket_stop_raises(self, fansly_api):
-        """Stop raising exception is handled gracefully (lines 1026-1027)."""
+        """stop_thread raising exception is handled gracefully."""
 
-        async def failing_stop():
+        async def failing_stop_thread():
             raise RuntimeError("stop failed")
 
         fansly_api._websocket_client = types.SimpleNamespace(
-            stop=failing_stop,
+            stop_thread=failing_stop_thread,
             connected=False,
         )
         await fansly_api.close_websocket()

@@ -33,7 +33,7 @@ async def example_background_task() -> None:
     )
 
     # Start WebSocket in background
-    await ws_client.start_background()
+    ws_client.start_in_thread()
 
     print(f"WebSocket connected! Session ID: {ws_client.session_id}")
     print(f"Account ID: {ws_client.account_id}")
@@ -47,7 +47,7 @@ async def example_background_task() -> None:
     await asyncio.sleep(60)
 
     # Stop WebSocket when done
-    await ws_client.stop()
+    await ws_client.stop_thread()
     print("WebSocket disconnected")
 
 
@@ -84,9 +84,9 @@ async def example_with_custom_handler() -> None:
     ws_client.register_handler(3, handle_notification)
 
     # Start and run
-    await ws_client.start_background()
+    ws_client.start_in_thread()
     await asyncio.sleep(60)
-    await ws_client.stop()
+    await ws_client.stop_thread()
 
 
 async def example_integration_with_api() -> None:
@@ -107,8 +107,8 @@ async def example_integration_with_api() -> None:
 
     ws = FanslyWebSocket(token, user_agent)
 
-    # Start WebSocket in background
-    await ws.start_background()
+    # Start WebSocket on its own thread (insulated from main-loop work)
+    ws.start_in_thread()
 
     print("WebSocket connected for anti-detection")
     print(f"Session: {ws.session_id}")
@@ -124,7 +124,7 @@ async def example_integration_with_api() -> None:
     # api.download_media(...)
 
     # When done, stop WebSocket
-    await ws.stop()
+    await ws.stop_thread()
 
 
 if __name__ == "__main__":

@@ -325,6 +325,35 @@ def _handle_wallet_event(_event: dict[str, Any]) -> WorkItem | None:
     return None
 
 
+def _handle_wallet_transaction(event: dict[str, Any]) -> WorkItem | None:
+    """Handle svc=6 type=3 — wallet transaction (subscription/PPV payment).
+
+    Observation-only. Transaction events lack the creator/accountId we'd
+    need for a targeted WorkItem; the actionable signal arrives via the
+    paired svc=15 type=5 (subscription) event when status=3, which already
+    triggers FullCreatorDownload via ``_handle_subscription_event``.
+
+    Logged at INFO so file-availability changes (renewals, PPV unlocks,
+    expirations, tier downgrades) leave a structured trail. The
+    ``correlationId`` matches the ``renewCorrelationId`` on the paired
+    subscription event — future work could correlate these to detect
+    expirations/downgrades that don't surface a follow-up svc=15 event.
+    """
+    transaction = event.get("transaction")
+    if not isinstance(transaction, dict):
+        return None
+
+    logger.info(
+        "daemon.handlers: svc=6 type=3 wallet transaction observed "
+        "(type={}, status={}, amount={}, correlationId={})",
+        transaction.get("type"),
+        transaction.get("status"),
+        transaction.get("amount"),
+        transaction.get("correlationId"),
+    )
+    return None
+
+
 def _handle_noop_events(
     event: dict[str, Any],
     service_id: int,
@@ -379,6 +408,7 @@ _DISPATCH: dict[tuple[int, int], Any] = {
     (2, 8): _handle_ppv_purchase,
     (3, 2): _handle_new_follow,
     (6, 2): _handle_wallet_event,
+    (6, 3): _handle_wallet_transaction,
     (12, 2): _handle_account_profile_updated,
     (32, 7): _handle_ppv_purchase,
 }

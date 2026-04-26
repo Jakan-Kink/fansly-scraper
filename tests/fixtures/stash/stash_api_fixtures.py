@@ -84,6 +84,95 @@ def _mock_capability_response() -> httpx.Response:
     )
 
 
+def _extract_query(call) -> str:
+    """Pull the GraphQL query string out of either call shape (respx or dict)."""
+    if isinstance(call, dict):
+        return call.get("query", "") or ""
+    body = json.loads(call.request.content) if call.request.content else {}
+    return body.get("query", "") or ""
+
+
+def _extract_variables(call) -> dict:
+    """Pull the GraphQL variables out of either call shape (respx or dict)."""
+    if isinstance(call, dict):
+        return call.get("variables") or {}
+    body = json.loads(call.request.content) if call.request.content else {}
+    return body.get("variables") or {}
+
+
+def _get_nested(data: dict, path: list[str]):
+    """Walk nested dict by key list. Returns sentinel _MISSING on miss."""
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return _MISSING
+        cur = cur[key]
+    return cur
+
+
+_MISSING = object()
+
+
+def assert_op(call, op_name: str) -> None:
+    """Assert that a GraphQL call invokes a named operation.
+
+    Works with both respx route.calls[i] (unit tests) and capture_graphql_calls
+    list entries (integration tests). The assertion is a substring check on the
+    query string, matching how operations appear in GraphQL queries (e.g.
+    ``query FindGalleries`` or ``mutation { studioCreate(...) }``).
+
+    Args:
+        call: A single call from ``respx_route.calls[i]`` or
+            ``capture_graphql_calls(...)`` list.
+        op_name: Operation name to find in the query (case-sensitive).
+
+    Example:
+        assert_op(calls[0], "findGalleries")
+        assert_op(graphql_route.calls[3], "studioCreate")
+    """
+    query = _extract_query(call)
+    assert op_name in query, (
+        f"Expected operation {op_name!r} in query, got: {query[:120]!r}"
+    )
+
+
+def assert_op_with_vars(call, op_name: str, **expected_vars) -> None:
+    """Assert op_name AND that every expected variable matches.
+
+    Variables are matched as a partial subset — only the fields you specify
+    are checked. Use Django-style ``__`` separators for nested paths.
+
+    Works with both respx route.calls (unit tests) and capture_graphql_calls
+    list entries (integration tests).
+
+    Args:
+        call: A single call entry (see ``assert_op``).
+        op_name: GraphQL operation name (substring match against query).
+        **expected_vars: Path-to-value pairs. Use ``__`` to descend into
+            nested dicts, e.g. ``gallery_filter__code__value="12345"`` matches
+            ``variables["gallery_filter"]["code"]["value"] == "12345"``.
+
+    Example:
+        assert_op_with_vars(
+            calls[0], "findGalleries",
+            gallery_filter__code__value=str(message.id),
+            gallery_filter__code__modifier="EQUALS",
+        )
+    """
+    assert_op(call, op_name)
+    actual_vars = _extract_variables(call)
+    for path_str, expected in expected_vars.items():
+        path = path_str.split("__")
+        actual = _get_nested(actual_vars, path)
+        assert actual is not _MISSING, (
+            f"variables path {'.'.join(path)!r} not found in call. "
+            f"Got variables: {actual_vars}"
+        )
+        assert actual == expected, (
+            f"variables.{'.'.join(path)}: expected {expected!r}, got {actual!r}"
+        )
+
+
 def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
     """Print request/response details for each GraphQL call.
 
@@ -138,6 +227,8 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
 
 # Export all fixtures for wildcard import
 __all__ = [
+    "assert_op",
+    "assert_op_with_vars",
     "dump_graphql_calls",
     "enable_scene_creation",
     "respx_stash_client",

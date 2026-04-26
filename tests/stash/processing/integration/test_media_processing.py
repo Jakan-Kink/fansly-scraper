@@ -181,8 +181,8 @@ class TestMediaProcessingIntegration:
                 cleanup["performers"].append(pid)
 
             # Verify expected GraphQL calls
-            assert len(calls) >= 1, (
-                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            assert len(calls) == 6, (
+                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
             )
 
             update_calls = [
@@ -191,16 +191,16 @@ class TestMediaProcessingIntegration:
                 if "imageUpdate" in c.get("query", "")
                 or "UpdateImage" in c.get("query", "")
             ]
-            assert len(update_calls) >= 1, (
-                f"Expected imageUpdate call, got: "
+            assert len(update_calls) == 1, (
+                f"Expected exactly 1 imageUpdate call, got: "
                 f"{[c.get('query', '')[:40] for c in calls]}"
             )
 
-            # Verify results structure
+            # Verify results structure (single attachment → single image)
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
-            assert len(result["images"]) >= 1
+            assert len(result["images"]) == 1
 
     @pytest.mark.asyncio
     async def test_process_bundle_media_integration(
@@ -460,8 +460,12 @@ class TestMediaProcessingIntegration:
                 1 for m in bundle_media_list if m["type"] == "scene"
             )
 
-            assert len(calls) >= 1, (
-                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            # Bundle randomizes 0-3 images + 0-3 scenes; total call count varies
+            # with composition. Empirically: 6 (1 media) to 11+ (multi-media).
+            min_expected_calls = 5 + max(num_bundle_images + num_bundle_scenes, 1)
+            assert len(calls) >= min_expected_calls, (
+                f"Expected at least {min_expected_calls} GraphQL calls "
+                f"({num_bundle_images} images + {num_bundle_scenes} scenes), got {len(calls)}"
             )
 
             image_update_calls = [
@@ -643,8 +647,8 @@ class TestMediaProcessingIntegration:
                 cleanup["performers"].append(pid)
 
             # Cache-first: findImages may be served from store cache
-            assert len(calls) >= 1, (
-                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            assert len(calls) == 6, (
+                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
             )
 
             update_calls = [
@@ -653,12 +657,12 @@ class TestMediaProcessingIntegration:
                 if "imageUpdate" in c.get("query", "")
                 or "UpdateImage" in c.get("query", "")
             ]
-            assert len(update_calls) >= 1, "Expected imageUpdate call"
+            assert len(update_calls) == 1, "Expected exactly 1 imageUpdate call"
 
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
-            assert len(result["images"]) >= 1
+            assert len(result["images"]) == 1
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_bundle(
@@ -806,8 +810,8 @@ class TestMediaProcessingIntegration:
             for pid in created_performers:
                 cleanup["performers"].append(pid)
 
-            assert len(calls) >= 1, (
-                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            assert len(calls) == 6, (
+                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
             )
 
             update_calls = [
@@ -816,12 +820,12 @@ class TestMediaProcessingIntegration:
                 if "imageUpdate" in c.get("query", "")
                 or "UpdateImage" in c.get("query", "")
             ]
-            assert len(update_calls) >= 1, "Expected imageUpdate call"
+            assert len(update_calls) == 1, "Expected exactly 1 imageUpdate call"
 
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
-            assert len(result["images"]) >= 1
+            assert len(result["images"]) == 1
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_aggregated_post(
@@ -974,8 +978,8 @@ class TestMediaProcessingIntegration:
             for pid in created_performers:
                 cleanup["performers"].append(pid)
 
-            assert len(calls) >= 1, (
-                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            assert len(calls) == 6, (
+                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
             )
 
             update_calls = [
@@ -984,9 +988,9 @@ class TestMediaProcessingIntegration:
                 if "imageUpdate" in c.get("query", "")
                 or "UpdateImage" in c.get("query", "")
             ]
-            assert len(update_calls) >= 1, "Expected imageUpdate call"
+            assert len(update_calls) == 1, "Expected exactly 1 imageUpdate call"
 
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
-            assert len(result["images"]) >= 1
+            assert len(result["images"]) == 1

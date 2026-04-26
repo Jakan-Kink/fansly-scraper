@@ -1,10 +1,21 @@
-"""FakeSocket — shared test double for ``websockets.client.connect``.
+"""WebSocket test doubles — two layers of fakes for different test surfaces.
 
-Used by any test that drives code calling into ``api.websocket.FanslyWebSocket``
-without a real Fansly WebSocket server. The pattern originated in
-``tests/api/unit/test_websocket.py``; moving it into a shared fixture module
-makes it reusable for the Wave 2.2 main() integration tests and any other
-test that needs to bypass real WebSocket connections.
+Two distinct stubs live here, one per test surface:
+
+* ``FakeSocket`` is the **transport-level** fake — it stands in for the
+  ``websockets.client`` connection object that ``FanslyWebSocket.connect``
+  receives. Use it when the test wants real ``FanslyWebSocket`` behavior
+  (auth flow, ping/pong, message decoding) but no actual network.
+
+* ``FakeWS`` is the **client-level** fake — it stands in for the entire
+  ``FanslyWebSocket`` instance. Use it when the test wants to inject a
+  pre-made WS into something like ``daemon/runner.py`` via ``ws_factory``
+  and drive service events synchronously via ``fire(svc, type, payload)``
+  without exercising the real client at all.
+
+Both belong here per the project-wide rule (CLAUDE.md): "All pytest
+fixtures, fakes, factories, and reusable test helpers MUST live in
+``tests/fixtures/``" — never in ``conftest.py`` or ``test_*.py`` files.
 
 Usage::
 
@@ -31,8 +42,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 
 class FakeSocket:
@@ -167,4 +182,108 @@ def fake_websocket_session(
         yield fake
 
 
-__all__ = ["FakeSocket", "auth_response", "fake_websocket_session", "ws_message"]
+class FakeWS:
+    """Client-level WebSocket stub — stands in for an entire FanslyWebSocket.
+
+    No real network connection. Suitable for tests that inject a fake into
+    components expecting a ``FanslyWebSocket``-shaped object (e.g.,
+    ``daemon/runner.py`` via its ``ws_factory`` injection seam).
+
+    Mirrors the post-thread-refactor surface:
+      * ``register_handler(msg_type, handler)`` — record a handler
+      * ``start_in_thread(*_, **_)`` — sync, sets ``started`` flag
+      * ``stop_thread(*_, **_)`` — async, sets ``stopped`` flag
+      * ``fire(service_id, event_type, inner_dict)`` — synchronously invoke
+        the registered ``MSG_SERVICE_EVENT`` handler with the envelope
+        shape the real ``_handle_message`` produces after type-10000
+        dispatch: ``{"serviceId": svc, "event": json.dumps({type, **inner})}``
+
+    The ``*_args, **_kwargs`` on the lifecycle methods absorb the real
+    signatures' optional arguments (``main_loop``, ``ready_timeout``,
+    ``join_timeout``) so callers don't need a special-case path.
+    """
+
+    MSG_SERVICE_EVENT = 10000
+
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+        self._handlers: dict[int, Callable] = {}
+
+    def register_handler(self, message_type: int, handler: Callable) -> None:
+        """Record the handler for the given message type."""
+        self._handlers[message_type] = handler
+
+    def start_in_thread(self, *_args: Any, **_kwargs: Any) -> None:
+        """Simulate thread start without network. Sync to match production."""
+        self.started = True
+
+    async def stop_thread(self, *_args: Any, **_kwargs: Any) -> None:
+        """Simulate thread stop. Async to match production."""
+        self.stopped = True
+
+    async def fire(
+        self, service_id: int, event_type: int, inner: dict[str, Any]
+    ) -> None:
+        """Fire a MSG_SERVICE_EVENT with the given service/event/payload.
+
+        Constructs the envelope dict that ``_handle_message`` passes to the
+        registered handler after type-10000 dispatch.
+
+        Args:
+            service_id: Fansly ``serviceId`` field.
+            event_type: The ``type`` field inside the inner event dict.
+            inner: The inner event dict (will have ``type`` merged in).
+        """
+        envelope = {
+            "serviceId": service_id,
+            "event": json.dumps({"type": event_type, **inner}),
+        }
+        handler = self._handlers.get(self.MSG_SERVICE_EVENT)
+        if handler is None:
+            return
+        if asyncio.iscoroutinefunction(handler):
+            await handler(envelope)
+        else:
+            handler(envelope)
+
+
+@pytest.fixture
+def fake_ws() -> FakeWS:
+    """Provide a fresh ``FakeWS`` stub for each test.
+
+    Auto-discovered via the master conftest's wildcard import from
+    ``tests.fixtures``, so any test in the suite can simply request the
+    ``fake_ws`` argument and receive an isolated stub instance.
+    """
+    return FakeWS()
+
+
+def make_fake_ws_factory(fake_ws: FakeWS) -> Callable[[Any], FakeWS]:
+    """Return a ``ws_factory`` callable that always yields *fake_ws*.
+
+    The signature ``(config) -> FakeWS`` matches the ``ws_factory`` seam in
+    ``daemon/runner.py`` and equivalents.
+
+    Args:
+        fake_ws: The FakeWS instance to return on every call.
+
+    Returns:
+        A factory callable suitable for the ``ws_factory`` parameter.
+    """
+
+    def _factory(_config: Any) -> FakeWS:
+        return fake_ws
+
+    return _factory
+
+
+__all__ = [
+    "FakeSocket",
+    "FakeWS",
+    "auth_response",
+    "fake_websocket_session",
+    "fake_ws",
+    "make_fake_ws_factory",
+    "ws_message",
+]

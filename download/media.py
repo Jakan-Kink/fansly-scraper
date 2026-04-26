@@ -132,11 +132,10 @@ async def _verify_existing_file(
 
     mimetype = media.preview_mimetype if is_preview else media.mimetype
 
-    existing_hash = (
-        get_hash_for_image(check_path)
-        if "image" in mimetype
-        else get_hash_for_other_content(check_path)
+    hash_func = (
+        get_hash_for_image if "image" in mimetype else get_hash_for_other_content
     )
+    existing_hash = await asyncio.to_thread(hash_func, check_path)
     print_debug(
         f"Existing {'preview ' if is_preview else ''}file hash: {existing_hash}"
     )
@@ -180,11 +179,10 @@ async def _verify_temp_download(
 
             _download_file(config, url, temp_file)
 
-        temp_hash = (
-            get_hash_for_image(temp_path)
-            if "image" in mimetype
-            else get_hash_for_other_content(temp_path)
+        hash_func = (
+            get_hash_for_image if "image" in mimetype else get_hash_for_other_content
         )
+        temp_hash = await asyncio.to_thread(hash_func, temp_path)
 
         if temp_hash == media.content_hash:
             media.content_hash = temp_hash

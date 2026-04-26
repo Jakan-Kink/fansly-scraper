@@ -200,6 +200,35 @@ def test_wallet_credited_returns_none() -> None:
     assert result is None
 
 
+def test_wallet_transaction_is_observation_only() -> None:
+    """svc=6 type=3 (wallet transaction) → None (observation-only).
+
+    Transaction events lack the accountId needed for a targeted WorkItem;
+    the actionable signal arrives via the paired svc=15 type=5 subscription
+    event. The handler logs at INFO so file-availability changes leave a
+    trail.
+    """
+    event = {
+        "transaction": {
+            "id": "904475239180673024",
+            "type": 58000,
+            "originWalletId": "720168220631244800",
+            "destinationWalletId": None,
+            "status": 2,
+            "amount": 6990,
+            "correlationId": "904475238538952704",
+        }
+    }
+    result = dispatch_ws_event(6, 3, event)
+    assert result is None
+
+
+def test_wallet_transaction_missing_payload_returns_none() -> None:
+    """svc=6 type=3 with no transaction key → None, no exception."""
+    result = dispatch_ws_event(6, 3, {})
+    assert result is None
+
+
 # ---------------------------------------------------------------------------
 # svc=32 type=7 — Story PPV purchase (StoryService)
 # ---------------------------------------------------------------------------
@@ -454,6 +483,7 @@ _ALL_DISPATCH_PAIRS: list[tuple[int, int, dict]] = [
     (2, 8, {"order": {"correlationAccountId": "500000000002"}}),
     (3, 2, {"follow": {"accountId": "500000000003"}}),
     (6, 2, {"wallet": {"balance": 5000}}),
+    (6, 3, {"transaction": {"type": 58000, "status": 2, "amount": 6990}}),
 ]
 
 

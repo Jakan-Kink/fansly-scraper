@@ -537,7 +537,7 @@ class FanslyApi:
                 )
                 return self._websocket_client.session_id
             logger.warning("WebSocket connected but no session_id, reconnecting...")
-            await self._websocket_client.stop()
+            await self._websocket_client.stop_thread()
             self._websocket_client = None
 
         # Create new WebSocket client with shared cookie jar. Passing
@@ -557,8 +557,9 @@ class FanslyApi:
         )
 
         try:
-            # Start WebSocket in background (connects and authenticates)
-            await self._websocket_client.start_background()
+            # Start WebSocket on its own thread (connects and authenticates).
+            # Insulates ping/pong heartbeat from main-loop pressure.
+            self._websocket_client.start_in_thread()
 
             # Wait a moment for authentication to complete
             for _ in range(10):  # Wait up to 1 second
@@ -574,7 +575,7 @@ class FanslyApi:
             logger.error("Failed to establish WebSocket session: {}", e)
             # Clean up on failure
             if self._websocket_client:
-                await self._websocket_client.stop()
+                await self._websocket_client.stop_thread()
                 self._websocket_client = None
             raise RuntimeError(f"WebSocket session setup failed: {e}")
         else:
@@ -1063,7 +1064,7 @@ class FanslyApi:
         if self._websocket_client is not None:
             logger.info("Closing persistent WebSocket connection")
             try:
-                await self._websocket_client.stop()
+                await self._websocket_client.stop_thread()
             except Exception as e:
                 logger.warning("Error stopping WebSocket: {}", e)
             finally:

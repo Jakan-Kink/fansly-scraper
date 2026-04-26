@@ -12,8 +12,11 @@ from .api_fixtures import (
 )
 from .fake_websocket import (
     FakeSocket,
+    FakeWS,
     auth_response,
     fake_websocket_session,
+    fake_ws,
+    make_fake_ws_factory,
     ws_message,
 )
 from .main_api_mocks import (
@@ -29,16 +32,19 @@ from .main_api_mocks import (
 
 __all__ = [
     "FakeSocket",
+    "FakeWS",
     "MainIntegrationEnv",
     "auth_response",
     "create_mock_json_response",
     "dump_fansly_calls",
     "fake_websocket_session",
+    "fake_ws",
     "fansly_api",
     "fansly_api_factory",
     "fansly_api_with_respx",
     "fansly_json",
     "main_integration_env",
+    "make_fake_ws_factory",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "mount_client_account_me_route",

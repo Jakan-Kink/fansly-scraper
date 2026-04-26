@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
+import threading
 from collections.abc import Callable
-from contextlib import suppress
 from http.cookies import SimpleCookie
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -43,8 +43,10 @@ class FanslyWebSocket:
         websocket: Active WebSocket connection instance
         connected: Connection status flag
         session_id: Active session ID (obtained from initial handshake)
-        _background_task: Background task for maintaining connection
-        _stop_event: Event to signal shutdown
+        _ws_thread: Dedicated thread running the WS event loop
+        _ws_loop: The asyncio loop owned by the WS thread
+        _main_loop: Caller-provided loop where event handlers run
+        _stop_event: threading.Event signalling shutdown across threads
         _event_handlers: Dictionary of event type handlers
     """
 
@@ -150,9 +152,11 @@ class FanslyWebSocket:
         self.websocket_session_id: str | None = None
         self.account_id: str | None = None
         self.websocket = None
-        self._background_task: asyncio.Task | None = None
         self._ping_task: asyncio.Task | None = None
-        self._stop_event = asyncio.Event()
+        # threading.Event (not asyncio.Event) so it can be set from the main
+        # thread and observed from the WS thread without cross-loop plumbing.
+        # All current uses are .is_set()/.set()/.clear() — no .wait().
+        self._stop_event = threading.Event()
         self._event_handlers: dict[int, Callable[[dict[str, Any]], Any]] = {}
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 5
@@ -160,6 +164,16 @@ class FanslyWebSocket:
         self._max_reconnect_delay = 15.0  # JS: caps at 15000ms
         self._last_ping_response = 0.0  # JS: lastPingResponse_
         self._last_connection_reset = 0.0  # JS: lastConnectionReset_
+
+        # Thread infrastructure: WS owns its own event loop so the spec-
+        # mandated 1.2*pingInterval timeout (api/websocket.py ping_worker)
+        # is insulated from main-loop drift. Inbound service events are
+        # marshaled back to ``_main_loop`` for handler execution.
+        self._ws_thread: threading.Thread | None = None
+        self._ws_loop: asyncio.AbstractEventLoop | None = None
+        self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._thread_ready = threading.Event()
+        self._thread_exc: BaseException | None = None
 
     def _create_ssl_context(self) -> ssl.SSLContext:
         """Create SSL context for WebSocket connection.
@@ -345,10 +359,9 @@ class FanslyWebSocket:
                 )
                 if self.MSG_SERVICE_EVENT in self._event_handlers:
                     handler = self._event_handlers[self.MSG_SERVICE_EVENT]
-                    if asyncio.iscoroutinefunction(handler):
-                        await handler(event_data)
-                    else:
-                        handler(event_data)
+                    # Marshal to main loop so handler-side state (EntityStore,
+                    # StashClient, asyncpg pool) stays single-threaded.
+                    await self._dispatch_event(handler, event_data)
 
             # JS: 10001 === r → iterate t.d array, recursively handleText each
             elif message_type == self.MSG_BATCH:
@@ -363,10 +376,8 @@ class FanslyWebSocket:
             # Handle other registered message types
             elif message_type in self._event_handlers:
                 handler = self._event_handlers[message_type]
-                if asyncio.iscoroutinefunction(handler):
-                    await handler(message_data)
-                else:
-                    handler(message_data)
+                # Marshal to main loop — same rationale as MSG_SERVICE_EVENT.
+                await self._dispatch_event(handler, message_data)
 
             # Unknown message types silently discarded (anti-detection).
             # Logged at DEBUG so enabling the websocket level surfaces them
@@ -1080,57 +1091,177 @@ class FanslyWebSocket:
                 logger.error("Error in connection maintenance: {}", e)
                 await asyncio.sleep(self._reconnect_delay)
 
-    async def start_background(self) -> None:
-        """Start WebSocket connection in background task.
+    def start_in_thread(
+        self,
+        main_loop: asyncio.AbstractEventLoop | None = None,
+        ready_timeout: float = 5.0,
+    ) -> None:
+        """Start the WebSocket on a dedicated thread with its own event loop.
 
-        Connects to WebSocket and maintains connection until stop() is called.
-        Automatically handles reconnection on disconnects.
+        Insulates the spec-mandated ``1.2 * pingInterval`` timeout (see
+        ``ping_worker``) from any work on the caller's event loop.  Service
+        events received on the WS thread are marshaled back to ``main_loop``
+        for handler execution, so ``EntityStore``, ``StashClient``, etc.
+        (which expect to live on the main loop) are not touched cross-thread.
+
+        Args:
+            main_loop: The asyncio loop where registered event handlers
+                should run.  Defaults to the running loop at call time.
+            ready_timeout: Seconds to wait for the WS thread to spin up
+                its event loop.  Raises ``RuntimeError`` on timeout.
+
+        Raises:
+            RuntimeError: If the WS thread fails to start within
+                ``ready_timeout`` or if the thread's setup raised.
 
         Example:
             client = FanslyWebSocket(token, user_agent)
-            await client.start_background()
+            client.start_in_thread()
             # ... do other work ...
-            await client.stop()
+            await client.stop_thread()
         """
-        if self._background_task is not None:
-            logger.warning("Background task already running")
+        if self._ws_thread is not None and self._ws_thread.is_alive():
+            logger.warning("WebSocket thread already running")
             return
 
-        logger.info("Starting WebSocket background task")
+        self._main_loop = main_loop or asyncio.get_running_loop()
+        self._thread_ready.clear()
+        self._thread_exc = None
+        self._stop_event.clear()
 
-        self._background_task = asyncio.create_task(self._maintain_connection())
-        logger.info("WebSocket background task started")
+        logger.info("Starting WebSocket thread")
+        self._ws_thread = threading.Thread(
+            target=self._thread_main,
+            daemon=True,
+            name="fansly-ws",
+        )
+        self._ws_thread.start()
 
-    async def stop(self) -> None:
-        """Stop background WebSocket connection.
+        if not self._thread_ready.wait(timeout=ready_timeout):
+            raise RuntimeError(
+                f"WebSocket thread failed to initialize within {ready_timeout}s"
+            )
 
-        Signals the background task to disconnect and waits for cleanup.
+        # Brief grace window: the ready event fires once the loop is alive,
+        # but ``_maintain_connection`` may crash on its first iteration
+        # (programming error, missing dep, etc.). Wait a short moment for
+        # such crashes to surface in ``_thread_exc`` before declaring success.
+        self._ws_thread.join(timeout=0.1)
+        if self._thread_exc is not None:
+            raise RuntimeError(
+                f"WebSocket thread failed during startup: {self._thread_exc}"
+            ) from self._thread_exc
+
+        logger.info("WebSocket thread started")
+
+    def _thread_main(self) -> None:
+        """Entry point for the WS thread — owns its own event loop.
+
+        Sets ``_thread_ready`` once the loop is up so ``start_in_thread``
+        can return.  Captures any exception into ``_thread_exc`` for the
+        starter to re-raise.
         """
-        if self._background_task is None:
-            logger.warning("No background task running")
+        try:
+            self._ws_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._ws_loop)
+            self._thread_ready.set()
+            self._ws_loop.run_until_complete(self._maintain_connection())
+        except BaseException as exc:
+            self._thread_exc = exc
+            logger.error("WebSocket thread crashed: {}", exc)
+            # Ensure the starter unblocks even on early crash
+            self._thread_ready.set()
+        finally:
+            try:
+                if self._ws_loop is not None and not self._ws_loop.is_closed():
+                    self._ws_loop.close()
+            except Exception as exc:
+                logger.warning("Error closing WS loop: {}", exc)
+            self._ws_loop = None
+
+    async def stop_thread(self, join_timeout: float = 10.0) -> None:
+        """Signal the WS thread to stop, then join it.
+
+        Must be called from the main loop (the one passed to
+        ``start_in_thread``).  Sets the cross-thread stop event, then
+        awaits the thread join via ``asyncio.to_thread`` so the main
+        loop is not blocked while waiting.
+
+        Args:
+            join_timeout: Seconds to wait for the thread to exit.  An
+                exceeded timeout logs an error but does not raise; the
+                ``daemon=True`` thread will be cleaned up at process exit.
+        """
+        if self._ws_thread is None or not self._ws_thread.is_alive():
+            logger.warning("No WebSocket thread running")
+            self._ws_thread = None
             return
 
-        logger.info("Stopping WebSocket background task")
+        logger.info("Stopping WebSocket thread")
         self._stop_event.set()
 
-        # Stop ping loop
-        self._stop_ping_loop()
+        await asyncio.to_thread(self._ws_thread.join, join_timeout)
+        if self._ws_thread.is_alive():
+            logger.error(
+                "WebSocket thread did not exit within {}s — orphan thread",
+                join_timeout,
+            )
 
-        try:
-            await asyncio.wait_for(self._background_task, timeout=5.0)
-        except TimeoutError:
-            logger.warning("Background task did not stop gracefully, cancelling")
-            self._background_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._background_task
-
-        if self.connected:
-            await self.disconnect()
-
-        self._background_task = None
+        self._ws_thread = None
         self._stop_event.clear()
         self._reconnect_attempts = 0
-        logger.info("WebSocket background task stopped")
+        logger.info("WebSocket thread stopped")
+
+    async def _dispatch_event(
+        self,
+        handler: Callable[[Any], Any],
+        event: Any,
+    ) -> None:
+        """Dispatch a WS event to a handler.
+
+        When the WS runs on its own thread (production: ``start_in_thread``),
+        handlers are marshaled to ``_main_loop`` so EntityStore/StashClient
+        state stays single-threaded:
+          * Async handlers → ``run_coroutine_threadsafe`` (fire-and-forget;
+            WS thread never awaits, so a slow handler can't starve ping/pong)
+          * Sync handlers → ``call_soon_threadsafe``
+
+        When ``_handle_message`` is called from the same loop already running
+        (no separate WS thread, or test harness driving the message dispatch
+        directly), fall back to inline invocation — there's no thread
+        boundary to cross, and run_coroutine_threadsafe across the same loop
+        deadlocks.
+
+        ``event`` is typed as ``Any`` because the message handler dispatch
+        covers both ``MSG_SERVICE_EVENT`` (decoded dicts) and arbitrary
+        registered message types whose payload shape varies by type.
+        """
+        # Same-loop fast path: no thread boundary → just invoke directly.
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        no_thread_boundary = (
+            self._main_loop is None
+            or self._main_loop.is_closed()
+            or self._main_loop is current_loop
+        )
+        if no_thread_boundary:
+            if asyncio.iscoroutinefunction(handler):
+                await handler(event)
+            else:
+                handler(event)
+            return
+
+        # Cross-thread path: marshal to the main loop, fire-and-forget.
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                asyncio.run_coroutine_threadsafe(handler(event), self._main_loop)
+            else:
+                self._main_loop.call_soon_threadsafe(handler, event)
+        except RuntimeError as exc:
+            logger.error("Failed to dispatch WS event to main loop: {}", exc)
 
     async def send_message(self, message_type: int, data: Any) -> None:
         """Send a message through the WebSocket connection.
@@ -1155,8 +1286,8 @@ class FanslyWebSocket:
         logger.debug("Sent WebSocket message - type: {}", message_type)
 
     async def __aenter__(self) -> FanslyWebSocket:
-        """Async context manager entry."""
-        await self.start_background()
+        """Async context manager entry — starts the WS thread."""
+        self.start_in_thread()
         return self
 
     async def __aexit__(
@@ -1165,5 +1296,5 @@ class FanslyWebSocket:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        """Async context manager exit."""
-        await self.stop()
+        """Async context manager exit — joins the WS thread."""
+        await self.stop_thread()

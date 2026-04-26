@@ -11,6 +11,7 @@ Philosophy:
 """
 
 import pytest
+import pytest_asyncio
 
 from metadata import ContentType
 
@@ -34,6 +35,7 @@ from .metadata_factories import (
 
 
 __all__ = [
+    "saved_account",
     "test_account",
     "test_account_media",
     "test_attachment",
@@ -45,6 +47,25 @@ __all__ = [
     "test_post",
     "test_posts",
 ]
+
+
+# ============================================================================
+# Async (entity_store) Account Fixture
+# ============================================================================
+
+
+@pytest_asyncio.fixture
+async def saved_account(entity_store):
+    """Create and persist a test Account via the async entity_store.
+
+    Most other Account fixtures here use the sync ``session_sync`` path;
+    this one is for tests driving async code paths (daemon orchestration,
+    Pydantic-based metadata pipelines) where ``entity_store`` is the
+    natural persistence boundary.
+    """
+    account = AccountFactory.build()
+    await entity_store.save(account)
+    return account
 
 
 # ============================================================================

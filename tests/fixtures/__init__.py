@@ -21,16 +21,19 @@ from typing import Any
 # Import from nested modules
 from .api import (
     FakeSocket,
+    FakeWS,
     MainIntegrationEnv,
     auth_response,
     create_mock_json_response,
     dump_fansly_calls,
     fake_websocket_session,
+    fake_ws,
     fansly_api,
     fansly_api_factory,
     fansly_api_with_respx,
     fansly_json,
     main_integration_env,
+    make_fake_ws_factory,
     mock_fansly_account_response,
     mock_fansly_timeline_response,
     respx_fansly_api,
@@ -41,6 +44,7 @@ from .core import (
     FanslyConfigFactory,
     bypass_load_config,
     complete_args,
+    config_wired,
     fast_timing,
     minimal_argv,
 )
@@ -97,6 +101,7 @@ from .metadata import (
     TimelineStatsFactory,
     WallFactory,
     create_groups_from_messages,
+    saved_account,
     setup_accounts_and_groups,
     test_attachment,
     test_group,
@@ -196,6 +201,7 @@ mod_core_factories = [
 mod_core_fixtures = [
     "bypass_load_config",
     "complete_args",
+    "config_wired",
     "fast_timing",
     "minimal_argv",
 ]
@@ -207,16 +213,19 @@ mod_download_factories = [
 
 mod_api_fixtures = [
     "FakeSocket",
+    "FakeWS",
     "MainIntegrationEnv",
     "auth_response",
     "create_mock_json_response",
     "dump_fansly_calls",
     "fake_websocket_session",
+    "fake_ws",
     "fansly_api",
     "fansly_api_factory",
     "fansly_api_with_respx",
     "fansly_json",
     "main_integration_env",
+    "make_fake_ws_factory",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "respx_fansly_api",
@@ -247,6 +256,7 @@ mod_metadata_factories = [
 ]
 
 mod_metadata_fixtures = [
+    "saved_account",
     "test_account",
     "test_media",
     "test_group",

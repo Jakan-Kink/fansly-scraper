@@ -239,8 +239,8 @@ class TestGalleryCreation:
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
-        # Verify findPerformers was called
-        assert len(graphql_route.calls) >= 1
+        # Verify findPerformers was called twice (name + alias search)
+        assert len(graphql_route.calls) == 2
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findPerformers" in req["query"]
 
@@ -440,7 +440,8 @@ class TestGalleryOrchestration:
         assert gallery is not None
         assert gallery.id == "1001"
 
-        assert len(graphql_route.calls) >= 1
+        # Single call: findGalleries by code → found, short-circuits the rest
+        assert len(graphql_route.calls) == 1
         req0 = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req0["query"]
         assert req0["variables"]["gallery_filter"]["code"]["value"] == post_id
@@ -701,9 +702,9 @@ class TestGalleryOrchestration:
         assert gallery is not None
         assert gallery.title == "Test post content"
 
-        # At least 4 calls (3 lookups + 1 create)
-        assert len(graphql_route.calls) >= 4, (
-            f"Expected at least 4 GraphQL calls, got {len(graphql_route.calls)}"
+        # 5 calls: code/title/url finds + populate filter-query + galleryCreate
+        assert len(graphql_route.calls) == 5, (
+            f"Expected exactly 5 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
         # Call 0: code lookup

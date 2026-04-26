@@ -421,8 +421,9 @@ class TestStashProcessingPerformer:
             test_account, test_performer
         )
 
-        # Verify GraphQL calls were made
-        assert len(graphql_route.calls) >= 1
+        # _update_performer_avatar issues 2 findImages calls: once for path lookup,
+        # then performerUpdate (success path attempts findImages again for verification)
+        assert len(graphql_route.calls) == 2
 
         # Verify at least one call was findImages
         request_bodies = [
@@ -430,11 +431,11 @@ class TestStashProcessingPerformer:
         ]
         assert any("findImages" in body["query"] for body in request_bodies)
 
-        # Find the findImages call and verify it has the correct path
+        # Find the findImages calls and verify both target the avatar path
         find_images_calls = [
             body for body in request_bodies if "findImages" in body["query"]
         ]
-        assert len(find_images_calls) >= 1
+        assert len(find_images_calls) == 2
         assert str(test_image) in str(find_images_calls[0]["variables"])
 
         # If performerUpdate was called, verify it (may or may not be called depending on code path)
@@ -538,8 +539,8 @@ class TestStashProcessingPerformer:
         exception_records = [
             r for r in caplog.records if r.levelname == "ERROR" and r.exc_info
         ]
-        assert len(exception_records) >= 1, (
-            f"Expected at least one logger.exception record, got {exception_records}"
+        assert len(exception_records) == 1, (
+            f"Expected exactly one logger.exception record, got {exception_records}"
         )
         # debug_print emits at DEBUG level; look for "avatar_update_failed" tag
         debug_messages = [

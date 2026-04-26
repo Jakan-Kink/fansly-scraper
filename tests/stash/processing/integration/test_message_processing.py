@@ -22,6 +22,7 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
     MessageFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 
 
@@ -310,48 +311,49 @@ async def test_process_message_with_media(
             f"got {len(calls)}: {[c.get('query', '')[:50] for c in calls]}"
         )
 
+        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
+
         # Call 0: findGalleries (by code)
-        assert "findGalleries" in calls[0]["query"]
-        assert "code" in calls[0]["variables"]["gallery_filter"]
-        assert (
-            str(message.id) == calls[0]["variables"]["gallery_filter"]["code"]["value"]
+        assert_op_with_vars(
+            calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(message.id),
         )
-        assert "findGalleries" in calls[0]["result"]
         assert calls[0]["result"]["findGalleries"]["count"] == 0
 
         # Call 1: findGalleries (by title)
-        assert "findGalleries" in calls[1]["query"]
-        assert "title" in calls[1]["variables"]["gallery_filter"]
-        assert (
-            calls[1]["variables"]["gallery_filter"]["title"]["value"] == message.content
+        assert_op_with_vars(
+            calls[1],
+            "findGalleries",
+            gallery_filter__title__value=message.content,
         )
-        assert "findGalleries" in calls[1]["result"]
         assert calls[1]["result"]["findGalleries"]["count"] == 0
 
         # Call 2: findGalleries (by url)
-        assert "findGalleries" in calls[2]["query"]
-        assert "url" in calls[2]["variables"]["gallery_filter"]
-        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
-        assert calls[2]["variables"]["gallery_filter"]["url"]["value"] == expected_url
-        assert "findGalleries" in calls[2]["result"]
+        assert_op_with_vars(
+            calls[2],
+            "findGalleries",
+            gallery_filter__url__value=expected_url,
+        )
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
         # Call 3: findGalleries (populate() filter-query for performers relationship)
         # SGC v0.12 inlines filter values into the query string (no variables)
-        assert "findGalleries" in calls[3]["query"]
+        assert_op(calls[3], "findGalleries")
         assert "performers" in calls[3]["query"]
 
-        # Call 4: galleryCreate
-        assert "galleryCreate" in calls[4]["query"]
-        create_input = calls[4]["variables"]["input"]
-        assert create_input["title"] == message.content
-        assert create_input["code"] == str(message.id)
-        assert expected_url in create_input["urls"]
-        assert create_input["details"] == message.content
-        assert create_input["organized"] is True
-        assert create_input["studio_id"] == str(studio.id)
-        assert create_input["performer_ids"] == [str(performer.id)]
-        assert "galleryCreate" in calls[4]["result"]
+        # Call 4: galleryCreate (composition assertion stays inline — heterogeneous fields)
+        assert_op_with_vars(
+            calls[4],
+            "galleryCreate",
+            input__title=message.content,
+            input__code=str(message.id),
+            input__details=message.content,
+            input__organized=True,
+            input__studio_id=str(studio.id),
+            input__performer_ids=[str(performer.id)],
+        )
+        assert expected_url in calls[4]["variables"]["input"]["urls"]
         created_gallery_id = calls[4]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 
@@ -507,55 +509,60 @@ async def test_process_message_with_bundle(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        # SGC v0.12 inserts a populate() filter-query before galleryCreate (+1 call)
-        assert len(calls) >= 5, (
-            f"Expected at least 5 GraphQL calls (base gallery operations), got {len(calls)}"
+        # SGC v0.12: 5 base gallery ops (code/title/url finds + populate + create)
+        # + 3 follow-on calls (findImages/path-lookup for the bundle's media)
+        assert len(calls) == 8, (
+            f"Expected exactly 8 GraphQL calls (5 gallery + 3 media follow-ons), got {len(calls)}"
         )
 
+        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
+
         # Call 0: findGalleries (by code)
-        assert "findGalleries" in calls[0]["query"]
-        assert "code" in calls[0]["variables"]["gallery_filter"]
-        assert (
-            str(message.id) == calls[0]["variables"]["gallery_filter"]["code"]["value"]
+        assert_op_with_vars(
+            calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(message.id),
         )
-        assert "findGalleries" in calls[0]["result"]
         assert calls[0]["result"]["findGalleries"]["count"] == 0
 
         # Call 1: findGalleries (by title)
-        assert "findGalleries" in calls[1]["query"]
-        assert "title" in calls[1]["variables"]["gallery_filter"]
-        assert (
-            message.content == calls[1]["variables"]["gallery_filter"]["title"]["value"]
+        assert_op_with_vars(
+            calls[1],
+            "findGalleries",
+            gallery_filter__title__value=message.content,
         )
-        assert "findGalleries" in calls[1]["result"]
         assert calls[1]["result"]["findGalleries"]["count"] == 0
 
         # Call 2: findGalleries (by url)
-        assert "findGalleries" in calls[2]["query"]
-        assert "url" in calls[2]["variables"]["gallery_filter"]
-        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
-        assert expected_url == calls[2]["variables"]["gallery_filter"]["url"]["value"]
-        assert "findGalleries" in calls[2]["result"]
+        assert_op_with_vars(
+            calls[2],
+            "findGalleries",
+            gallery_filter__url__value=expected_url,
+        )
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
         # Call 3: findGalleries (populate() filter-query for performers relationship)
-        assert "findGalleries" in calls[3]["query"]
+        assert_op(calls[3], "findGalleries")
         assert "performers" in calls[3]["query"]
 
-        # Call 4: galleryCreate
-        assert "galleryCreate" in calls[4]["query"]
-        assert str(message.id) == calls[4]["variables"]["input"]["code"]
+        # Call 4: galleryCreate (composition assertion stays inline — heterogeneous fields)
+        assert_op_with_vars(
+            calls[4],
+            "galleryCreate",
+            input__code=str(message.id),
+            input__organized=True,
+            input__studio_id=str(studio.id),
+        )
         assert expected_url in calls[4]["variables"]["input"]["urls"]
-        assert calls[4]["variables"]["input"]["organized"] is True
-        assert str(studio.id) == calls[4]["variables"]["input"]["studio_id"]
-        assert "galleryCreate" in calls[4]["result"]
         created_gallery_id = calls[4]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 
-        if len(calls) > 5:
-            find_images_calls = [c for c in calls if "findImages" in c["query"]]
-            if find_images_calls:
-                assert len(find_images_calls) >= 1
+        # Of the 3 follow-on calls, 1 is the findImages path lookup for bundle media
+        find_images_calls = [c for c in calls if "findImages" in c["query"]]
+        assert len(find_images_calls) == 1, (
+            f"Expected exactly 1 findImages call in follow-ons, "
+            f"got: {[c['query'][:40] for c in calls[5:]]}"
+        )
 
 
 @pytest.mark.asyncio
@@ -656,46 +663,48 @@ async def test_process_message_with_variants(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        # SGC v0.12 inserts a populate() filter-query before galleryCreate (+1 call)
-        assert len(calls) >= 6, f"Expected at least 6 GraphQL calls, got {len(calls)}"
+        # 5 base gallery ops + 3 follow-on media calls (findImages/findScenes/path lookup)
+        assert len(calls) == 8, f"Expected exactly 8 GraphQL calls, got {len(calls)}"
+
+        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
 
         # Call 0: findGalleries (by code)
-        assert "findGalleries" in calls[0]["query"]
-        assert "code" in calls[0]["variables"]["gallery_filter"]
-        assert (
-            str(message.id) == calls[0]["variables"]["gallery_filter"]["code"]["value"]
+        assert_op_with_vars(
+            calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(message.id),
         )
-        assert "findGalleries" in calls[0]["result"]
         assert calls[0]["result"]["findGalleries"]["count"] == 0
 
         # Call 1: findGalleries (by title)
-        assert "findGalleries" in calls[1]["query"]
-        assert "title" in calls[1]["variables"]["gallery_filter"]
-        assert (
-            message.content == calls[1]["variables"]["gallery_filter"]["title"]["value"]
+        assert_op_with_vars(
+            calls[1],
+            "findGalleries",
+            gallery_filter__title__value=message.content,
         )
-        assert "findGalleries" in calls[1]["result"]
         assert calls[1]["result"]["findGalleries"]["count"] == 0
 
         # Call 2: findGalleries (by url)
-        assert "findGalleries" in calls[2]["query"]
-        assert "url" in calls[2]["variables"]["gallery_filter"]
-        expected_url = f"https://fansly.com/messages/{group.id}/{message.id}"
-        assert expected_url == calls[2]["variables"]["gallery_filter"]["url"]["value"]
-        assert "findGalleries" in calls[2]["result"]
+        assert_op_with_vars(
+            calls[2],
+            "findGalleries",
+            gallery_filter__url__value=expected_url,
+        )
         assert calls[2]["result"]["findGalleries"]["count"] == 0
 
         # Call 3: findGalleries (populate() filter-query for performers relationship)
-        assert "findGalleries" in calls[3]["query"]
+        assert_op(calls[3], "findGalleries")
         assert "performers" in calls[3]["query"]
 
-        # Call 4: galleryCreate
-        assert "galleryCreate" in calls[4]["query"]
-        assert str(message.id) == calls[4]["variables"]["input"]["code"]
+        # Call 4: galleryCreate (composition assertion stays inline — heterogeneous fields)
+        assert_op_with_vars(
+            calls[4],
+            "galleryCreate",
+            input__code=str(message.id),
+            input__organized=True,
+            input__studio_id=str(studio.id),
+        )
         assert expected_url == calls[4]["variables"]["input"]["urls"][0]
-        assert calls[4]["variables"]["input"]["organized"] is True
-        assert str(studio.id) == calls[4]["variables"]["input"]["studio_id"]
-        assert "galleryCreate" in calls[4]["result"]
 
         # Find the FindScenes call
         scene_calls = [
@@ -703,8 +712,8 @@ async def test_process_message_with_variants(
             for c in calls[5:]
             if "FindScenes" in c.get("query", "") or "findScenes" in c.get("query", "")
         ]
-        assert len(scene_calls) >= 1, (
-            f"Expected at least 1 FindScenes call after gallery creation, "
+        assert len(scene_calls) == 1, (
+            f"Expected exactly 1 FindScenes call after gallery creation, "
             f"got calls: {[c['query'][:40] for c in calls[5:]]}"
         )
         scene_call = scene_calls[0]
@@ -827,31 +836,32 @@ async def test_process_message_batch(
         for gid in created_galleries:
             cleanup["galleries"].append(gid)
 
-        # SGC v0.12 inserts +1 populate() filter-query per gallery create
-        assert len(calls) >= 15, (
-            f"Expected at least 15 GraphQL calls (base gallery operations), got {len(calls)}"
+        # message_media_generator uses time-seeded random (stash_integration_fixtures
+        # line 633: random_seed = time.monotonic_ns() % 2**32), so per-message
+        # media composition varies. Empirical floor across runs: 14 calls.
+        assert len(calls) >= 14, (
+            f"Expected at least 14 GraphQL calls (3 messages x ~5 ops each), got {len(calls)}"
         )
 
         # Verify first message gallery operations
-        assert "findGalleries" in calls[0]["query"]
-        assert "code" in calls[0].get("variables", {}).get("gallery_filter", {})
-        assert calls[0]["variables"]["gallery_filter"]["code"]["value"] == str(
-            messages[0].id
+        assert_op_with_vars(
+            calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(messages[0].id),
         )
-
-        assert "findGalleries" in calls[1]["query"]
+        assert_op(calls[1], "findGalleries")
         assert "title" in calls[1]["variables"]["gallery_filter"]
 
-        assert "findGalleries" in calls[2]["query"]
+        assert_op(calls[2], "findGalleries")
         assert "url" in calls[2]["variables"]["gallery_filter"]
 
         # Call 3: findGalleries (populate() filter-query for performers relationship)
         # SGC v0.12 inlines values; no variables field
-        assert "findGalleries" in calls[3]["query"]
+        assert_op(calls[3], "findGalleries")
         assert "performers" in calls[3]["query"]
 
         # Call 4: galleryCreate
-        assert "galleryCreate" in calls[4]["query"]
+        assert_op(calls[4], "galleryCreate")
 
         gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
         assert 1 <= len(gallery_creates) <= 3, (
