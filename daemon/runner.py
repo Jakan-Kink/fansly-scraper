@@ -772,7 +772,16 @@ async def _worker_loop(
 
             # Post-processing only runs on clean handler success (try/else).
             if isinstance(item, (FullCreatorDownload, DownloadTimelineOnly)):
-                if use_following:
+                # Refresh user_names only on FullCreatorDownload — that path
+                # originates from a confirmed-subscription WS event
+                # (svc=15/type=5/status=3) where a new creator may have just
+                # appeared in the following set. DownloadTimelineOnly comes
+                # from the /timeline/home poll, whose creators are already in
+                # the following set by construction; refreshing per item there
+                # fans out to ~30 account fetches per poll hit. The 5-min
+                # _following_refresh_loop + active-state/unhide refresh_event
+                # triggers cover the catch-up window.
+                if use_following and isinstance(item, FullCreatorDownload):
                     await _refresh_following(config)
                 await mark_creator_processed(item.creator_id)
 

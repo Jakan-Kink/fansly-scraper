@@ -27,7 +27,11 @@ from tests.fixtures import (
     PostFactory,
     create_graphql_response,
 )
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -154,38 +158,42 @@ async def test_process_creator_posts_with_batch_processing(
     assert len(calls) == 5, f"Expected 5 GraphQL calls, got {len(calls)}"
 
     # Call 0: findGalleries (by code)
-    req0 = json.loads(calls[0].request.content)
-    assert "findGalleries" in req0["query"]
-    assert req0["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
+    assert_op_with_vars(
+        calls[0],
+        "findGalleries",
+        gallery_filter__code__value=str(post_id),
+    )
     assert calls[0].response.json()["data"]["findGalleries"]["count"] == 0
 
     # Call 1: findGalleries (by title)
-    req1 = json.loads(calls[1].request.content)
-    assert "findGalleries" in req1["query"]
-    assert "test_user" in req1["variables"]["gallery_filter"]["title"]["value"]
+    assert_op(calls[1], "findGalleries")
+    title_value = json.loads(calls[1].request.content)["variables"]["gallery_filter"][
+        "title"
+    ]["value"]
+    assert "test_user" in title_value
     assert calls[1].response.json()["data"]["findGalleries"]["count"] == 0
 
     # Call 2: findGalleries (by URL)
-    req2 = json.loads(calls[2].request.content)
-    assert "findGalleries" in req2["query"]
-    assert (
-        req2["variables"]["gallery_filter"]["url"]["value"]
-        == f"https://fansly.com/post/{post_id}"
+    assert_op_with_vars(
+        calls[2],
+        "findGalleries",
+        gallery_filter__url__value=f"https://fansly.com/post/{post_id}",
     )
     assert calls[2].response.json()["data"]["findGalleries"]["count"] == 0
 
     # Call 3: findGalleries (populate() filter-query for performers relationship)
     # This is the new call inserted by SGC v0.12; it inlines variables into the query
-    req3 = json.loads(calls[3].request.content)
-    assert "findGalleries" in req3["query"]
-    assert "performers" in req3["query"]
+    assert_op(calls[3], "findGalleries")
+    assert "performers" in json.loads(calls[3].request.content)["query"]
 
     # Call 4: galleryCreate (create new gallery)
-    req4 = json.loads(calls[4].request.content)
-    assert "galleryCreate" in req4["query"]
-    assert req4["variables"]["input"]["code"] == str(post_id)
-    assert req4["variables"]["input"]["studio_id"] == "999"
-    assert req4["variables"]["input"]["performer_ids"] == ["500"]
+    assert_op_with_vars(
+        calls[4],
+        "galleryCreate",
+        input__code=str(post_id),
+        input__studio_id="999",
+        input__performer_ids=["500"],
+    )
     assert calls[4].response.json()["data"]["galleryCreate"]["id"] == "700"
 
 

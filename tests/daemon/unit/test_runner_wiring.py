@@ -1141,7 +1141,7 @@ class TestFollowingRefresh:
         )
 
     @pytest.mark.asyncio
-    async def test_timeline_only_with_uf_refreshes_following(
+    async def test_timeline_only_with_uf_does_not_refresh_following(
         self,
         respx_fansly_api,
         config_wired,
@@ -1150,14 +1150,23 @@ class TestFollowingRefresh:
         tmp_path,
         monkeypatch,
     ):
-        """DownloadTimelineOnly + use_following=True also triggers /following.
+        """DownloadTimelineOnly + use_following=True must NOT hit /following.
 
-        Real-pipeline rewrite (Wave 2.6 carry-over). Confirms the
-        worker loop's post-success refresh branch fires for BOTH
-        FullCreatorDownload and DownloadTimelineOnly items (the
-        production code's `isinstance(item, (FullCreatorDownload,
-        DownloadTimelineOnly))` check). Asserts via the real
-        `/following` boundary.
+        DownloadTimelineOnly originates from the /timeline/home poll,
+        whose creators are already in the following set by construction.
+        Refreshing the following list per home-poll hit fans out to ~30
+        account fetches per new post — the regression that produced the
+        observed 11:27-11:31 burst before being narrowed.
+
+        The narrowed worker only refreshes on FullCreatorDownload (which
+        comes from confirmed-subscription WS events where a creator may
+        have just joined user_names). The 5-min _following_refresh_loop
+        + active-state/unhide refresh_event triggers cover the catch-up
+        window for any other case.
+
+        Companion: ``test_full_creator_download_with_uf_refreshes_following``
+        pins the FullCreatorDownload-DOES-refresh side; this test pins the
+        DownloadTimelineOnly-DOES-NOT-refresh side.
         """
         config_wired.download_directory = tmp_path
         config_wired.interactive = False
@@ -1192,8 +1201,10 @@ class TestFollowingRefresh:
         finally:
             dump_fansly_calls(respx.calls, label="timeline_only_with_uf")
 
-        assert following_route.call_count >= 1, (
-            "DownloadTimelineOnly with use_following=True should hit /following"
+        assert following_route.call_count == 0, (
+            "DownloadTimelineOnly with use_following=True must NOT hit /following — "
+            "the home-timeline poll only surfaces already-followed creators, so a "
+            "per-item refresh fans out to ~30 wasted account fetches per new post"
         )
 
 

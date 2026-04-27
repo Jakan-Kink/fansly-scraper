@@ -13,10 +13,12 @@ Organization:
 """
 
 import asyncio
+import faulthandler
 import gc
 import logging
 import os
 import shutil
+import sys
 import tempfile
 from configparser import ConfigParser
 from contextlib import contextmanager, suppress
@@ -24,21 +26,53 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
 
-# Removed: from unittest.mock import MagicMock
-# Now using real factories from tests.fixtures instead of MagicMock
-import psutil
-import pytest
-import pytest_asyncio
-from loguru import logger
 
-from config import FanslyConfig
-from config.fanslyconfig import FanslyConfig as FanslyConfigClass
-from config.modes import DownloadMode
-from download.core import DownloadState
+# ---------------------------------------------------------------------------
+# Pre-import side effects (must run before project imports — see comments)
+# ---------------------------------------------------------------------------
+
+# Run BEFORE any project import that might transitively evaluate loguru
+# sink configuration. ``config/logging.py::init_logging_config`` reads
+# ``TESTING`` to decide ``enqueue=False`` (synchronous, safe) vs the
+# default ``enqueue=True`` (spawns a background worker thread per sink).
+#
+# In production ``enqueue=True`` lets log emission happen off the main
+# thread, but during pytest-xdist worker teardown the main thread enters
+# ``_Py_Finalize → flush_std_files`` while a loguru worker thread can
+# still be mid-``_bufferedwriter_flush_unlocked`` — that race trips
+# ``_enter_buffered_busy`` and the worker dies with SIGABRT (sometimes
+# SIGSEGV/SIGBUS depending on which buffer is corrupted at finalization).
+#
+# ``setdefault`` preserves an explicit ``TESTING=0 pytest ...`` override
+# for anyone deliberately exercising the production path.
+os.environ.setdefault("TESTING", "1")
+
+# Dump Python tracebacks of every thread on SIGSEGV/SIGFPE/SIGABRT/SIGBUS/
+# SIGILL before the process dies. Without this, xdist subprocess crashes
+# from C extensions (asyncpg, Pillow, leveldb, etc.) leave only the C
+# stack in the ``.ips`` report — no signal back to the Python code that
+# triggered them. Writes to the original stderr fd so it survives even
+# when pytest's capture is teardown-broken.
+faulthandler.enable(file=sys.stderr, all_threads=True)
+
+# Project + third-party imports follow. The E402 noqa is intentional:
+# the side-effect block above MUST run before these imports, because some
+# of them (config.*, anything that touches loguru) evaluate the
+# ``TESTING`` env at runtime via paths that can be triggered at
+# fixture-collection time.
+import psutil  # noqa: E402
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from loguru import logger  # noqa: E402
+
+from config import FanslyConfig  # noqa: E402
+from config.fanslyconfig import FanslyConfig as FanslyConfigClass  # noqa: E402
+from config.modes import DownloadMode  # noqa: E402
+from download.core import DownloadState  # noqa: E402
 
 # Import all factories and fixtures using wildcard
-from tests.fixtures import *  # noqa: F403
-from tests.fixtures.utils.test_isolation import snowflake_id
+from tests.fixtures import *  # noqa: F403,E402
+from tests.fixtures.utils.test_isolation import snowflake_id  # noqa: E402
 
 
 # ============================================================================
@@ -56,8 +90,6 @@ def pytest_unconfigure(config):
     Flushing here — after all plugins have cleaned up but before the
     interpreter shuts down — gives pending writes a window to complete.
     """
-    import sys
-
     with suppress(Exception):
         sys.stdout.flush()
     with suppress(Exception):

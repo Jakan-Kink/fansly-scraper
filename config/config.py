@@ -259,9 +259,23 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
             config.log_levels[logger_name] = "INFO"
 
     # --- Monitoring ---
-    # session_baseline: only populate if not already set via CLI
+    # session_baseline is a one-shot directive: any value present in YAML
+    # (either hand-authored, or left over from the prior bug where CLI
+    # --full-pass / --monitor-since wrote into the schema) is consumed into
+    # the runtime field once and then cleared from the schema. The
+    # ``save_config_or_raise`` call at the end of ``load_config`` then
+    # writes ``session_baseline: null`` back to disk.
+    #
+    # Rationale: the daemon consumes ``monitoring_session_baseline`` once
+    # per creator (``baseline_consumed`` set in daemon/runner.py) and
+    # advances ``MonitorState.lastCheckedAt`` in the DB on success. So the
+    # baseline is meaningful exactly once per run. Persisting it across
+    # runs silently re-triggers a full pass on every invocation — the
+    # regression this consume-and-reset heals.
     if config.monitoring_session_baseline is None:
         config.monitoring_session_baseline = schema.monitoring.session_baseline
+    if schema.monitoring.session_baseline is not None:
+        schema.monitoring.session_baseline = None
     # daemon_mode: only populate from schema if not already enabled via CLI
     if not config.daemon_mode:
         config.daemon_mode = schema.monitoring.daemon_mode

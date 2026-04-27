@@ -11,6 +11,7 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
     PostFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_performers_result,
@@ -184,49 +185,39 @@ class TestMediaProcessing:
 
         calls = graphql_route.calls
         # Call 0: findImage (by stash_id)
-        req0 = json.loads(calls[0].request.content)
-        assert "findImage" in req0["query"]
-        assert req0["variables"]["id"] == "456"
-        resp0 = calls[0].response.json()
-        assert "findImage" in resp0["data"]
+        assert_op_with_vars(calls[0], "findImage", id="456")
+        assert "findImage" in calls[0].response.json()["data"]
 
         # Call 1: findPerformers (by name - from _find_existing_performer)
-        req1 = json.loads(calls[1].request.content)
-        assert "findPerformers" in req1["query"]
-        assert (
-            req1["variables"]["performer_filter"]["name"]["value"] == account.username
+        assert_op_with_vars(
+            calls[1],
+            "findPerformers",
+            performer_filter__name__value=account.username,
+            performer_filter__name__modifier="EQUALS",
         )
-        assert req1["variables"]["performer_filter"]["name"]["modifier"] == "EQUALS"
-        resp1 = calls[1].response.json()
-        assert resp1["data"]["findPerformers"]["count"] == 0
+        assert calls[1].response.json()["data"]["findPerformers"]["count"] == 0
 
         # Call 2: findStudios (Fansly network)
-        req2 = json.loads(calls[2].request.content)
-        assert "findStudios" in req2["query"]
-        assert "studio_filter" in req2["variables"]
-        resp2 = calls[2].response.json()
-        assert resp2["data"]["findStudios"]["count"] == 1
+        assert_op(calls[2], "findStudios")
+        assert "studio_filter" in json.loads(calls[2].request.content)["variables"]
+        assert calls[2].response.json()["data"]["findStudios"]["count"] == 1
 
         # Call 3: findStudios (creator studio lookup - not found)
-        req3 = json.loads(calls[3].request.content)
-        assert "findStudios" in req3["query"]
-        assert "studio_filter" in req3["variables"]
-        resp3 = calls[3].response.json()
-        assert resp3["data"]["findStudios"]["count"] == 0
+        assert_op(calls[3], "findStudios")
+        assert "studio_filter" in json.loads(calls[3].request.content)["variables"]
+        assert calls[3].response.json()["data"]["findStudios"]["count"] == 0
 
         # Call 4: studioCreate
-        req4 = json.loads(calls[4].request.content)
-        assert "studioCreate" in req4["query"]
-        assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
-        resp4 = calls[4].response.json()
-        assert resp4["data"]["studioCreate"]["id"] == "1123"
+        assert_op_with_vars(
+            calls[4],
+            "studioCreate",
+            input__name=f"{account.username} (Fansly)",
+        )
+        assert calls[4].response.json()["data"]["studioCreate"]["id"] == "1123"
 
         # Call 5: imageUpdate
-        req5 = json.loads(calls[5].request.content)
-        assert "imageUpdate" in req5["query"]
-        assert req5["variables"]["input"]["id"] == "456"
-        resp5 = calls[5].response.json()
-        assert resp5["data"]["imageUpdate"]["id"] == "456"
+        assert_op_with_vars(calls[5], "imageUpdate", input__id="456")
+        assert calls[5].response.json()["data"]["imageUpdate"]["id"] == "456"
 
     @pytest.mark.asyncio
     async def test_process_media_with_stash_id(self, respx_stash_processor):
@@ -355,54 +346,44 @@ class TestMediaProcessing:
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
         assert len(graphql_route.calls) == 6, (
-            "Expected exactly 5 GraphQL calls after ORM migration + store.save() fix"
+            "Expected exactly 6 GraphQL calls after ORM migration + store.save() fix"
         )
 
         calls = graphql_route.calls
         # Call 0: findScene (by stash_id)
-        req0 = json.loads(calls[0].request.content)
-        assert "findScene" in req0["query"]
-        assert req0["variables"]["id"] == "123"
-        resp0 = calls[0].response.json()
-        assert "findScene" in resp0["data"]
+        assert_op_with_vars(calls[0], "findScene", id="123")
+        assert "findScene" in calls[0].response.json()["data"]
 
         # Call 1: findPerformers (by name only - ORM migration optimizes to single search)
-        req1 = json.loads(calls[1].request.content)
-        assert "findPerformers" in req1["query"]
-        assert (
-            req1["variables"]["performer_filter"]["name"]["value"] == account.username
+        assert_op_with_vars(
+            calls[1],
+            "findPerformers",
+            performer_filter__name__value=account.username,
+            performer_filter__name__modifier="EQUALS",
         )
-        assert req1["variables"]["performer_filter"]["name"]["modifier"] == "EQUALS"
-        resp1 = calls[1].response.json()
-        assert resp1["data"]["findPerformers"]["count"] == 0
+        assert calls[1].response.json()["data"]["findPerformers"]["count"] == 0
 
         # Call 2: findStudios (Fansly network)
-        req2 = json.loads(calls[2].request.content)
-        assert "findStudios" in req2["query"]
-        assert "studio_filter" in req2["variables"]
-        resp2 = calls[2].response.json()
-        assert resp2["data"]["findStudios"]["count"] == 1
+        assert_op(calls[2], "findStudios")
+        assert "studio_filter" in json.loads(calls[2].request.content)["variables"]
+        assert calls[2].response.json()["data"]["findStudios"]["count"] == 1
 
         # Call 3: findStudios (creator studio lookup - not found)
-        req3 = json.loads(calls[3].request.content)
-        assert "findStudios" in req3["query"]
-        assert "studio_filter" in req3["variables"]
-        resp3 = calls[3].response.json()
-        assert resp3["data"]["findStudios"]["count"] == 0
+        assert_op(calls[3], "findStudios")
+        assert "studio_filter" in json.loads(calls[3].request.content)["variables"]
+        assert calls[3].response.json()["data"]["findStudios"]["count"] == 0
 
         # Call 4: studioCreate (no verification search needed after store.save() fix)
-        req4 = json.loads(calls[4].request.content)
-        assert "studioCreate" in req4["query"]
-        assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
-        resp4 = calls[4].response.json()
-        assert resp4["data"]["studioCreate"]["id"] == "1123"
+        assert_op_with_vars(
+            calls[4],
+            "studioCreate",
+            input__name=f"{account.username} (Fansly)",
+        )
+        assert calls[4].response.json()["data"]["studioCreate"]["id"] == "1123"
 
         # Call 5: sceneUpdate (not imageUpdate - this is a video)
-        req5 = json.loads(calls[5].request.content)
-        assert "sceneUpdate" in req5["query"]
-        assert req5["variables"]["input"]["id"] == "123"
-        resp5 = calls[5].response.json()
-        assert resp5["data"]["sceneUpdate"]["id"] == "123"
+        assert_op_with_vars(calls[5], "sceneUpdate", input__id="123")
+        assert calls[5].response.json()["data"]["sceneUpdate"]["id"] == "123"
 
     @pytest.mark.asyncio
     async def test_process_media_with_variants(self, respx_stash_processor):
@@ -682,65 +663,45 @@ class TestMediaProcessing:
 
         calls = graphql_route.calls
         # Call 0: findImages (path-based lookup)
-        req0 = json.loads(calls[0].request.content)
-        assert "findImages" in req0["query"]
-        assert "image_filter" in req0["variables"]
-        resp0 = calls[0].response.json()
-        assert resp0["data"]["findImages"]["count"] == 1
+        assert_op(calls[0], "findImages")
+        assert "image_filter" in json.loads(calls[0].request.content)["variables"]
+        assert calls[0].response.json()["data"]["findImages"]["count"] == 1
 
         # Call 1: findScenes (path-based lookup with regex - returns parent + variant scene)
-        req1 = json.loads(calls[1].request.content)
-        assert "findScenes" in req1["query"]
-        assert "scene_filter" in req1["variables"]
-        resp1 = calls[1].response.json()
-        assert resp1["data"]["findScenes"]["count"] == 2
+        assert_op(calls[1], "findScenes")
+        assert "scene_filter" in json.loads(calls[1].request.content)["variables"]
+        assert calls[1].response.json()["data"]["findScenes"]["count"] == 2
 
         # FILE 1 (image variant) - Calls 2-6
         # Call 2: findPerformers
-        req2 = json.loads(calls[2].request.content)
-        assert "findPerformers" in req2["query"]
-        resp2 = calls[2].response.json()
-        assert resp2["data"]["findPerformers"]["count"] == 0
+        assert_op(calls[2], "findPerformers")
+        assert calls[2].response.json()["data"]["findPerformers"]["count"] == 0
 
         # Call 3: findStudios (Fansly network)
-        req3 = json.loads(calls[3].request.content)
-        assert "findStudios" in req3["query"]
-        resp3 = calls[3].response.json()
-        assert resp3["data"]["findStudios"]["count"] == 1
+        assert_op(calls[3], "findStudios")
+        assert calls[3].response.json()["data"]["findStudios"]["count"] == 1
 
         # Call 4: findStudios (creator studio - not found)
-        req4 = json.loads(calls[4].request.content)
-        assert "findStudios" in req4["query"]
-        resp4 = calls[4].response.json()
-        assert resp4["data"]["findStudios"]["count"] == 0
+        assert_op(calls[4], "findStudios")
+        assert calls[4].response.json()["data"]["findStudios"]["count"] == 0
 
         # Call 5: studioCreate
-        req5 = json.loads(calls[5].request.content)
-        assert "studioCreate" in req5["query"]
-        resp5 = calls[5].response.json()
-        assert resp5["data"]["studioCreate"]["id"] == "1123"
+        assert_op(calls[5], "studioCreate")
+        assert calls[5].response.json()["data"]["studioCreate"]["id"] == "1123"
 
         # Call 6: imageUpdate
-        req6 = json.loads(calls[6].request.content)
-        assert "imageUpdate" in req6["query"]
-        assert req6["variables"]["input"]["id"] == "10002"
+        assert_op_with_vars(calls[6], "imageUpdate", input__id="10002")
 
         # FILE 2 (parent scene) - Calls 7-8 (studios cached from file 1)
         # Call 7: findPerformers
-        req7 = json.loads(calls[7].request.content)
-        assert "findPerformers" in req7["query"]
+        assert_op(calls[7], "findPerformers")
 
         # Call 8: sceneUpdate (parent scene — studios served from cache)
-        req8 = json.loads(calls[8].request.content)
-        assert "sceneUpdate" in req8["query"]
-        assert req8["variables"]["input"]["id"] == "5789"
+        assert_op_with_vars(calls[8], "sceneUpdate", input__id="5789")
 
         # FILE 3 (scene variant) - Calls 9-10 (studios cached from file 1)
         # Call 9: findPerformers
-        req9 = json.loads(calls[9].request.content)
-        assert "findPerformers" in req9["query"]
+        assert_op(calls[9], "findPerformers")
 
         # Call 10: sceneUpdate (scene variant — studios served from cache)
-        req10 = json.loads(calls[10].request.content)
-        assert "sceneUpdate" in req10["query"]
-        assert req10["variables"]["input"]["id"] == "10004"
+        assert_op_with_vars(calls[10], "sceneUpdate", input__id="10004")

@@ -7,51 +7,45 @@ from metadata.models import Hashtag
 
 
 class TestExtractHashtags:
-    """Pure function tests — no DB needed."""
+    """Pure function tests — no DB needed.
 
-    def test_empty_content(self):
-        assert extract_hashtags("") == []
+    Parametrized to keep failure granularity per-case while collapsing 14
+    near-identical test bodies into one definition.
+    """
 
-    def test_none_content(self):
-        assert extract_hashtags(None) == []
-
-    def test_no_hashtags(self):
-        assert extract_hashtags("Just a regular post with no tags") == []
-
-    def test_single_hashtag(self):
-        assert extract_hashtags("Hello #world") == ["world"]
-
-    def test_multiple_hashtags(self):
-        result = extract_hashtags("Check out #foo and #bar today")
-        assert result == ["foo", "bar"]
-
-    def test_lowercases(self):
-        assert extract_hashtags("#FOO #Bar #baz") == ["foo", "bar", "baz"]
-
-    def test_deduplicates(self):
-        assert extract_hashtags("#foo #FOO #Foo") == ["foo"]
-
-    def test_preserves_order(self):
-        assert extract_hashtags("#beta #alpha #gamma") == ["beta", "alpha", "gamma"]
-
-    def test_double_hash(self):
-        """Double ## should still extract the tag."""
-        assert extract_hashtags("##doublehash") == ["doublehash"]
-
-    def test_hashtag_with_numbers(self):
-        assert extract_hashtags("#test123") == ["test123"]
-
-    def test_hashtag_with_underscores(self):
-        assert extract_hashtags("#my_tag") == ["my_tag"]
-
-    def test_hashtag_at_start(self):
-        assert extract_hashtags("#first word") == ["first"]
-
-    def test_hashtag_at_end(self):
-        assert extract_hashtags("word #last") == ["last"]
-
-    def test_adjacent_hashtags(self):
-        assert extract_hashtags("#one#two") == ["one", "two"]
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            # Empty / null inputs
+            pytest.param("", [], id="empty_content"),
+            pytest.param(None, [], id="none_content"),
+            pytest.param("Just a regular post with no tags", [], id="no_hashtags"),
+            # Basic extraction
+            pytest.param("Hello #world", ["world"], id="single_hashtag"),
+            pytest.param(
+                "Check out #foo and #bar today",
+                ["foo", "bar"],
+                id="multiple_hashtags",
+            ),
+            # Normalization behaviors
+            pytest.param("#FOO #Bar #baz", ["foo", "bar", "baz"], id="lowercases"),
+            pytest.param("#foo #FOO #Foo", ["foo"], id="deduplicates"),
+            pytest.param(
+                "#beta #alpha #gamma",
+                ["beta", "alpha", "gamma"],
+                id="preserves_order",
+            ),
+            # Edge syntactic shapes
+            pytest.param("##doublehash", ["doublehash"], id="double_hash"),
+            pytest.param("#test123", ["test123"], id="hashtag_with_numbers"),
+            pytest.param("#my_tag", ["my_tag"], id="hashtag_with_underscores"),
+            pytest.param("#first word", ["first"], id="hashtag_at_start"),
+            pytest.param("word #last", ["last"], id="hashtag_at_end"),
+            pytest.param("#one#two", ["one", "two"], id="adjacent_hashtags"),
+        ],
+    )
+    def test_extract(self, content, expected):
+        assert extract_hashtags(content) == expected
 
 
 class TestProcessPostHashtags:

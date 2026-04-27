@@ -13,6 +13,7 @@ from stash_graphql_client.types import Performer, Studio
 
 from metadata import Account
 from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_api_fixtures import assert_op_with_vars
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -305,10 +306,10 @@ class TestStashProcessingIntegration:
             )
 
             # Call 0: findStudios for Fansly (network)
-            assert "findStudios" in calls[0]["query"]
-            assert (
-                calls[0]["variables"]["studio_filter"]["name"]["value"]
-                == "Fansly (network)"
+            assert_op_with_vars(
+                calls[0],
+                "findStudios",
+                studio_filter__name__value="Fansly (network)",
             )
             assert calls[0]["result"] is not None, (
                 f"Call 0 raised exception: {calls[0]['exception']}"
@@ -316,10 +317,10 @@ class TestStashProcessingIntegration:
             assert "findStudios" in calls[0]["result"]
 
             # Call 1: findStudios for creator studio
-            assert "findStudios" in calls[1]["query"]
-            assert (
-                calls[1]["variables"]["studio_filter"]["name"]["value"]
-                == f"{account.username} (Fansly)"
+            assert_op_with_vars(
+                calls[1],
+                "findStudios",
+                studio_filter__name__value=f"{account.username} (Fansly)",
             )
             assert calls[1]["result"] is not None, (
                 f"Call 1 raised exception: {calls[1]['exception']}"
@@ -330,9 +331,10 @@ class TestStashProcessingIntegration:
             )  # Should not exist yet
 
             # Call 2: studioCreate
-            assert "studioCreate" in calls[2]["query"]
-            assert (
-                calls[2]["variables"]["input"]["name"] == f"{account.username} (Fansly)"
+            assert_op_with_vars(
+                calls[2],
+                "studioCreate",
+                input__name=f"{account.username} (Fansly)",
             )
             # Note: StudioCreateInput uses 'urls' (plural), not 'url' (singular)
             assert calls[2]["variables"]["input"]["urls"] == [

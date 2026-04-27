@@ -74,7 +74,6 @@ def complete_args():
         stash_apikey=None,
         # Developer/troubleshooting
         debug=False,
-        updated_to=None,
     )
 
 

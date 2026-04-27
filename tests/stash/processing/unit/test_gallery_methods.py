@@ -4,7 +4,6 @@ These tests mock at the HTTP boundary using respx, allowing real code execution
 through the entire processing pipeline.
 """
 
-import json
 from datetime import UTC, datetime
 
 import httpx
@@ -19,6 +18,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op_with_vars
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -121,9 +121,7 @@ class TestGalleryLookupMethods:
 
         # Verify API call
         assert len(graphql_route.calls) == 1
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGallery" in req["query"]
-        assert req["variables"]["id"] == "123"
+        assert_op_with_vars(graphql_route.calls[0], "findGallery", id="123")
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_not_found(
@@ -156,9 +154,7 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 1
 
         # Verify request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGallery" in req["query"]
-        assert req["variables"]["id"] == "999"
+        assert_op_with_vars(graphql_route.calls[0], "findGallery", id="999")
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_not_found(
@@ -200,10 +196,12 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 1
 
         # Verify request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
-        assert req["variables"]["gallery_filter"]["title"]["modifier"] == "EQUALS"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__title__value="Test Title",
+            gallery_filter__title__modifier="EQUALS",
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_found(
@@ -293,9 +291,11 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 2
 
         # Verify first request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__title__value="Test Title",
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_not_found(
@@ -332,10 +332,12 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 1
 
         # Verify request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
-        assert req["variables"]["gallery_filter"]["code"]["modifier"] == "EQUALS"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(post_id),
+            gallery_filter__code__modifier="EQUALS",
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_found(
@@ -389,9 +391,11 @@ class TestGalleryLookupMethods:
         assert post.stash_id == 456
 
         # Verify request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(post_id),
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_found(
@@ -469,9 +473,11 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 2
 
         # Verify first request
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["url"]["value"] == url
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__url__value=url,
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_with_item_update(
@@ -566,15 +572,19 @@ class TestGalleryLookupMethods:
         assert len(graphql_route.calls) == 3
 
         # Verify first call (findGalleries count check)
-        req0 = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req0["query"]
-        assert req0["variables"]["gallery_filter"]["url"]["value"] == url
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__url__value=url,
+        )
 
         # Verify third call (galleryUpdate)
-        req2 = json.loads(graphql_route.calls[2].request.content)
-        assert "galleryUpdate" in req2["query"]
-        assert req2["variables"]["input"]["id"] == "999"
-        assert req2["variables"]["input"]["code"] == str(post_id)
+        assert_op_with_vars(
+            graphql_route.calls[2],
+            "galleryUpdate",
+            input__id="999",
+            input__code=str(post_id),
+        )
 
 
 class TestGalleryCreation:
@@ -666,13 +676,16 @@ class TestHashtagProcessing:
         assert len(graphql_route.calls) == 2
 
         # Verify requests
-        req0 = json.loads(graphql_route.calls[0].request.content)
-        assert "findTags" in req0["query"]
-        assert req0["variables"]["tag_filter"]["name"]["value"] == "test1"
-
-        req1 = json.loads(graphql_route.calls[1].request.content)
-        assert "findTags" in req1["query"]
-        assert req1["variables"]["tag_filter"]["name"]["value"] == "test2"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findTags",
+            tag_filter__name__value="test1",
+        )
+        assert_op_with_vars(
+            graphql_route.calls[1],
+            "findTags",
+            tag_filter__name__value="test2",
+        )
 
     @pytest.mark.asyncio
     async def test_process_hashtags_to_tags_create_new(
@@ -714,9 +727,9 @@ class TestHashtagProcessing:
         # Note: Don't assert on ID - library generates UUIDs for new tags
         assert hasattr(result[0], "id")
 
-        # Verify tag operations occurred (library may search first or create directly)
+        # _get_or_create_tag executes a fixed 3-step sequence for a new (uncached) tag:
+        # findTags-by-name → findTags-by-alias → tagCreate.
         assert len(graphql_route.calls) == 3
-        # Don't assert on specific call sequence - library behavior varies
 
 
 class TestTitleGeneration:

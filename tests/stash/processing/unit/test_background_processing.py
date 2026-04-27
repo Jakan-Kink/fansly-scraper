@@ -4,7 +4,6 @@ Uses real database and factory objects, mocks only Stash API calls via respx.
 """
 
 import asyncio
-import json
 from unittest.mock import patch
 
 import httpx
@@ -24,6 +23,7 @@ from tests.fixtures.stash import (
     create_studio_dict,
     dump_graphql_calls,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -135,10 +135,10 @@ class TestBackgroundProcessing:
         assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order
-        assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[3].request.content)["query"]
+        assert_op(calls[0], "findStudios")
+        assert_op(calls[1], "findStudios")
+        assert_op(calls[2], "studioCreate")
+        assert_op(calls[3], "findGalleries")
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
@@ -303,17 +303,16 @@ class TestBackgroundProcessing:
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
-        # Verify GraphQL call sequence
-        assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-
-        # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[2].request.content)
-        assert "studioCreate" in studio_create_request.get("query", "")
-        studio_vars = studio_create_request.get("variables", {}).get("input", {})
-        assert studio_vars["name"] == "test_user (Fansly)"
-        assert studio_vars["urls"] == ["https://fansly.com/test_user"]
+        # Verify GraphQL call sequence — studioCreate variables are part of
+        # the same assertion since this test cares about the studio's identity.
+        assert_op(calls[0], "findStudios")
+        assert_op(calls[1], "findStudios")
+        assert_op_with_vars(
+            calls[2],
+            "studioCreate",
+            input__name="test_user (Fansly)",
+            input__urls=["https://fansly.com/test_user"],
+        )
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_stash_id_update(
@@ -404,17 +403,16 @@ class TestBackgroundProcessing:
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
-        # Verify query types in order
-        assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-
-        # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[2].request.content)
-        assert "studioCreate" in studio_create_request.get("query", "")
-        studio_vars = studio_create_request.get("variables", {}).get("input", {})
-        assert studio_vars["name"] == "test_user2 (Fansly)"
-        assert studio_vars["urls"] == ["https://fansly.com/test_user2"]
+        # Verify query types in order — studioCreate variables are part of
+        # the same assertion since this test cares about the studio's identity.
+        assert_op(calls[0], "findStudios")
+        assert_op(calls[1], "findStudios")
+        assert_op_with_vars(
+            calls[2],
+            "studioCreate",
+            input__name="test_user2 (Fansly)",
+            input__urls=["https://fansly.com/test_user2"],
+        )
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_missing_inputs(
@@ -511,17 +509,16 @@ class TestBackgroundProcessing:
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
-        # Verify query types in order
-        assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-
-        # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[2].request.content)
-        assert "studioCreate" in studio_create_request.get("query", "")
-        studio_vars = studio_create_request.get("variables", {}).get("input", {})
-        assert studio_vars["name"] == "test_user3 (Fansly)"
-        assert studio_vars["urls"] == ["https://fansly.com/test_user3"]
+        # Verify query types in order — studioCreate variables are part of
+        # the same assertion since this test cares about the studio's identity.
+        assert_op(calls[0], "findStudios")
+        assert_op(calls[1], "findStudios")
+        assert_op_with_vars(
+            calls[2],
+            "studioCreate",
+            input__name="test_user3 (Fansly)",
+            input__urls=["https://fansly.com/test_user3"],
+        )
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_performer_type(

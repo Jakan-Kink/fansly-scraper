@@ -4,6 +4,7 @@ import contextlib
 import json
 import logging
 import os
+import sys
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
 from unittest.mock import patch
@@ -100,6 +101,9 @@ def _extract_variables(call) -> dict:
     return body.get("variables") or {}
 
 
+_MISSING = object()
+
+
 def _get_nested(data: dict, path: list[str]):
     """Walk nested dict by key list. Returns sentinel _MISSING on miss."""
     cur = data
@@ -108,9 +112,6 @@ def _get_nested(data: dict, path: list[str]):
             return _MISSING
         cur = cur[key]
     return cur
-
-
-_MISSING = object()
 
 
 def assert_op(call, op_name: str) -> None:
@@ -136,11 +137,34 @@ def assert_op(call, op_name: str) -> None:
     )
 
 
-def assert_op_with_vars(call, op_name: str, **expected_vars) -> None:
+def assert_op_with_vars(
+    call,
+    op_name: str,
+    paths: dict[tuple[str, ...], object] | None = None,
+    **expected_vars,
+) -> None:
     """Assert op_name AND that every expected variable matches.
 
     Variables are matched as a partial subset — only the fields you specify
-    are checked. Use Django-style ``__`` separators for nested paths.
+    are checked. Two ways to specify paths:
+
+    1. **Kwargs with ``__`` separators (ergonomic, 95% case).** Use
+       Django-style ``__`` to descend into nested dicts:
+       ``gallery_filter__code__value="12345"`` matches
+       ``variables["gallery_filter"]["code"]["value"] == "12345"``.
+
+    2. **``paths=`` dict with tuple keys (escape hatch).** Use this when a
+       segment of the path contains ``__`` itself (GraphQL ``__typename``
+       being the canonical example) or any other character that can't
+       appear in a Python identifier:
+       ``paths={("input", "__typename"): "ImageFile"}``.
+
+    The helper walks ``request.variables`` (the JSON-RPC ``variables`` dict
+    on the wire). Stash input types do not currently include
+    ``__typename`` in variables — but SGC surfaces ``__typename`` heavily
+    in query field-selections and response shapes, so the escape hatch
+    exists to keep this helper compatible with any future schema that
+    *does* round-trip ``__typename`` through inputs.
 
     Works with both respx route.calls (unit tests) and capture_graphql_calls
     list entries (integration tests).
@@ -148,28 +172,45 @@ def assert_op_with_vars(call, op_name: str, **expected_vars) -> None:
     Args:
         call: A single call entry (see ``assert_op``).
         op_name: GraphQL operation name (substring match against query).
-        **expected_vars: Path-to-value pairs. Use ``__`` to descend into
-            nested dicts, e.g. ``gallery_filter__code__value="12345"`` matches
-            ``variables["gallery_filter"]["code"]["value"] == "12345"``.
+        paths: Optional dict mapping tuple-paths to expected values. Use
+            for any path segment that can't be expressed as a Python
+            identifier or contains ``__``.
+        **expected_vars: Path-to-value pairs. Path uses ``__`` separators.
 
-    Example:
+    Example (kwarg form):
         assert_op_with_vars(
             calls[0], "findGalleries",
             gallery_filter__code__value=str(message.id),
             gallery_filter__code__modifier="EQUALS",
         )
+
+    Example (escape hatch for ``__typename``):
+        assert_op_with_vars(
+            calls[0], "SomeMutation",
+            paths={("input", "__typename"): "ImageFile"},
+            input__id="123",
+        )
     """
     assert_op(call, op_name)
     actual_vars = _extract_variables(call)
+
+    pairs: list[tuple[list[str], object]] = []
     for path_str, expected in expected_vars.items():
-        path = path_str.split("__")
+        pairs.append((path_str.split("__"), expected))
+    if paths:
+        for path_tuple, expected in paths.items():
+            pairs.append((list(path_tuple), expected))
+
+    for path, expected in pairs:
         actual = _get_nested(actual_vars, path)
         assert actual is not _MISSING, (
             f"variables path {'.'.join(path)!r} not found in call. "
             f"Got variables: {actual_vars}"
         )
         assert actual == expected, (
-            f"variables.{'.'.join(path)}: expected {expected!r}, got {actual!r}"
+            f"variables.{'.'.join(path)}: "
+            f"expected {expected!r} ({type(expected).__name__}), "
+            f"got {actual!r} ({type(actual).__name__})"
         )
 
 
@@ -191,9 +232,9 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
         calls: respx route.calls, respx.calls list, or capture_graphql_calls list
         label: Header label for the output
     """
-    print(f"\n{'=' * 70}")
-    print(f"  {label} ({len(calls)} total)")
-    print(f"{'=' * 70}")
+    print(f"\n{'=' * 70}", file=sys.stderr)
+    print(f"  {label} ({len(calls)} total)", file=sys.stderr)
+    print(f"{'=' * 70}", file=sys.stderr)
     for i, call in enumerate(calls):
         if isinstance(call, dict):
             # capture_graphql_calls format: {"query", "variables", "result", "exception"}
@@ -202,11 +243,14 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
             variables = call.get("variables") or {}
             data_keys = list(call["result"].keys()) if call.get("result") else []
 
-            print(f"\n  [{i}] {first_line}")
-            print(f"      variables: {json.dumps(variables, default=str)[:200]}")
-            print(f"      response data keys: {data_keys}")
+            print(f"\n  [{i}] {first_line}", file=sys.stderr)
+            print(
+                f"      variables: {json.dumps(variables, default=str)[:200]}",
+                file=sys.stderr,
+            )
+            print(f"      response data keys: {data_keys}", file=sys.stderr)
             if call.get("exception"):
-                print(f"      EXCEPTION: {call['exception']}")
+                print(f"      EXCEPTION: {call['exception']}", file=sys.stderr)
         else:
             # respx call format: call.request / call.response
             req_body = json.loads(call.request.content) if call.request.content else {}
@@ -217,12 +261,15 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
             resp_body = call.response.json() if call.response else {}
             data_keys = list((resp_body.get("data") or {}).keys()) if resp_body else []
 
-            print(f"\n  [{i}] {first_line}")
-            print(f"      variables: {json.dumps(variables, default=str)[:200]}")
-            print(f"      response data keys: {data_keys}")
+            print(f"\n  [{i}] {first_line}", file=sys.stderr)
+            print(
+                f"      variables: {json.dumps(variables, default=str)[:200]}",
+                file=sys.stderr,
+            )
+            print(f"      response data keys: {data_keys}", file=sys.stderr)
             if resp_body.get("errors"):
-                print(f"      ERRORS: {resp_body['errors']}")
-    print(f"\n{'=' * 70}\n")
+                print(f"      ERRORS: {resp_body['errors']}", file=sys.stderr)
+    print(f"\n{'=' * 70}\n", file=sys.stderr)
 
 
 # Export all fixtures for wildcard import

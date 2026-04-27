@@ -58,7 +58,6 @@ def args():
         token=None,
         user_agent=None,
         check_key=None,
-        updated_to=None,
         temp_folder=None,
         separate_previews=False,
         use_duplicate_threshold=False,

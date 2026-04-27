@@ -16,7 +16,11 @@ import pytest
 import respx
 
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_performers_result,
@@ -181,9 +185,7 @@ class TestStashProcessingPerformer:
 
         # Inspect the first HTTP request
         assert len(graphql_route.calls) == 1
-        request_body = json.loads(graphql_route.calls[0].request.content)
-        assert "findPerformer" in request_body["query"]
-        assert request_body["variables"]["id"] == "123"
+        assert_op_with_vars(graphql_route.calls[0], "findPerformer", id="123")
 
         # Case 2: Account has no stash_id - search by username (uses findPerformers query)
         test_account_2 = AccountFactory.build(username="test_user_2")
@@ -339,8 +341,7 @@ class TestStashProcessingPerformer:
 
         # Verify findImages was called
         assert len(graphql_route.calls) == 1
-        request_body = json.loads(graphql_route.calls[0].request.content)
-        assert "findImages" in request_body["query"]
+        assert_op(graphql_route.calls[0], "findImages")
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_success(
@@ -555,13 +556,11 @@ class TestStashProcessingPerformer:
             f"Expected exactly 2 findImages calls, got {len(graphql_route.calls)}"
         )
         for i, call in enumerate(graphql_route.calls):
-            req = json.loads(call.request.content)
-            assert "findImages" in req["query"], (
-                f"Call {i}: expected findImages, got {req['query'][:60]}"
+            assert_op_with_vars(
+                call,
+                "findImages",
+                image_filter__path__value=str(nonexistent_file),
             )
-            assert req["variables"]["image_filter"]["path"]["value"] == str(
-                nonexistent_file
-            ), f"Call {i}: wrong path filter"
             resp = call.response.json()
             assert "findImages" in resp["data"], (
                 f"Call {i}: response missing findImages"

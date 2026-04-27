@@ -5,7 +5,6 @@ through the entire processing pipeline. We verify that data flows correctly from
 database queries to GraphQL API calls.
 """
 
-import json
 from datetime import UTC, datetime
 
 import httpx
@@ -20,6 +19,7 @@ from tests.fixtures import (
     create_gallery_dict,
     create_graphql_response,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -66,9 +66,7 @@ class TestGalleryLookup:
         assert len(graphql_route.calls) == 1
 
         # Verify request contains findGallery with correct id
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGallery" in req["query"]
-        assert req["variables"]["id"] == "123"
+        assert_op_with_vars(graphql_route.calls[0], "findGallery", id="123")
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_no_stash_id(
@@ -207,10 +205,12 @@ class TestGalleryLookup:
         assert len(graphql_route.calls) == 2
 
         # Verify first request contains findGalleries with title filter
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
-        assert req["variables"]["gallery_filter"]["title"]["modifier"] == "EQUALS"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__title__value="Test Title",
+            gallery_filter__title__modifier="EQUALS",
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_not_found(
@@ -522,10 +522,12 @@ class TestGalleryLookup:
         assert len(graphql_route.calls) == 1
 
         # Verify request contains findGalleries with code filter
-        req = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
-        assert req["variables"]["gallery_filter"]["code"]["modifier"] == "EQUALS"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__code__value=str(post_id),
+            gallery_filter__code__modifier="EQUALS",
+        )
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_not_found(
@@ -673,14 +675,15 @@ class TestGalleryLookup:
         assert len(graphql_route.calls) == 3
 
         # Verify first request is findGalleries count check with url filter
-        req0 = json.loads(graphql_route.calls[0].request.content)
-        assert "findGalleries" in req0["query"]
-        assert req0["variables"]["gallery_filter"]["url"]["value"] == test_url
-        assert req0["variables"]["gallery_filter"]["url"]["modifier"] == "INCLUDES"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__url__value=test_url,
+            gallery_filter__url__modifier="INCLUDES",
+        )
 
         # Verify third request is galleryUpdate (calls 1 is fetch results)
-        req2 = json.loads(graphql_route.calls[2].request.content)
-        assert "galleryUpdate" in req2["query"]
+        assert_op(graphql_route.calls[2], "galleryUpdate")
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_not_found(

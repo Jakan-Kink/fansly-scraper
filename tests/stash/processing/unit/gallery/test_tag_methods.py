@@ -3,8 +3,6 @@
 Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
-import json
-
 import httpx
 import pytest
 import respx
@@ -17,7 +15,11 @@ from tests.fixtures import (
     create_tag_create_result,
     create_tag_dict,
 )
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 
 
 class TestTagMethods:
@@ -218,15 +220,16 @@ class TestTagMethods:
             f"got {len(graphql_route.calls)}"
         )
         # Call 0: findTags lookup for "Trailer"
-        req0 = json.loads(graphql_route.calls[0].request.content)
-        assert "findTags" in req0["query"]
-        assert req0["variables"]["tag_filter"]["name"]["value"] == "Trailer"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findTags",
+            tag_filter__name__value="Trailer",
+        )
         resp0 = graphql_route.calls[0].response.json()
         assert resp0["data"]["findTags"]["count"] == 1
         assert resp0["data"]["findTags"]["tags"][0]["id"] == "400"
         # Call 1: findImages dedup check
-        req1 = json.loads(graphql_route.calls[1].request.content)
-        assert "findImages" in req1["query"]
+        assert_op(graphql_route.calls[1], "findImages")
         resp1 = graphql_route.calls[1].response.json()
         assert resp1["data"]["findImages"]["count"] == 0
 

@@ -4,8 +4,6 @@ These are UNIT tests that use respx to mock Stash HTTP responses.
 They test the _process_media logic for handling different media variants.
 """
 
-import json
-
 import httpx
 import pytest
 import respx
@@ -13,6 +11,7 @@ import respx
 from metadata import MediaLocation
 from metadata.models import get_store
 from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
+from tests.fixtures.stash.stash_api_fixtures import assert_op, dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_performers_result,
@@ -190,25 +189,14 @@ async def test_process_hls_variant(
     calls = graphql_route.calls
 
     # Verify query types in order
-    req0 = json.loads(calls[0].request.content)
-    assert "FindScenes" in req0["query"]  # Find scenes by path regex
-
-    req1 = json.loads(calls[1].request.content)
-    assert "findPerformers" in req1["query"]  # By name (not found)
-
-    req2 = json.loads(calls[2].request.content)
-    assert "findStudios" in req2["query"]  # Fansly network studio
-
-    req3 = json.loads(calls[3].request.content)
-    assert "findStudios" in req3["query"]  # Creator studio lookup (not found)
-
-    req4 = json.loads(calls[4].request.content)
-    assert (
-        "studioCreate" in req4["query"]
+    assert_op(calls[0], "FindScenes")  # Find scenes by path regex
+    assert_op(calls[1], "findPerformers")  # By name (not found)
+    assert_op(calls[2], "findStudios")  # Fansly network studio
+    assert_op(calls[3], "findStudios")  # Creator studio lookup (not found)
+    assert_op(
+        calls[4], "studioCreate"
     )  # v0.10.4: Creator studio (get_or_create creates)
-
-    req5 = json.loads(calls[5].request.content)
-    assert "sceneUpdate" in req5["query"]
+    assert_op(calls[5], "sceneUpdate")
 
 
 @pytest.mark.asyncio
@@ -363,18 +351,12 @@ async def test_process_dash_variant(
     calls = graphql_route.calls
 
     # Verify query types in order (same as HLS variant)
-    assert "findScenes" in json.loads(calls[0].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[1].request.content)["query"]
-    assert (
-        "findStudios" in json.loads(calls[2].request.content)["query"]
-    )  # Fansly network
-    assert (
-        "findStudios" in json.loads(calls[3].request.content)["query"]
-    )  # Creator studio lookup (not found)
-    assert (
-        "studioCreate" in json.loads(calls[4].request.content)["query"]
-    )  # v0.10.4: Creator studio
-    assert "sceneUpdate" in json.loads(calls[5].request.content)["query"]
+    assert_op(calls[0], "findScenes")
+    assert_op(calls[1], "findPerformers")
+    assert_op(calls[2], "findStudios")  # Fansly network
+    assert_op(calls[3], "findStudios")  # Creator studio lookup (not found)
+    assert_op(calls[4], "studioCreate")  # v0.10.4: Creator studio
+    assert_op(calls[5], "sceneUpdate")
 
 
 @pytest.mark.asyncio
@@ -547,20 +529,14 @@ async def test_process_preview_variant(
     calls = graphql_route.calls
 
     # Verify query types in order
-    assert "findImages" in json.loads(calls[0].request.content)["query"]
-    assert "findScenes" in json.loads(calls[1].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[2].request.content)["query"]
-    assert "findImages" in json.loads(calls[3].request.content)["query"]  # populate
-    assert (
-        "findStudios" in json.loads(calls[4].request.content)["query"]
-    )  # Fansly network
-    assert (
-        "findStudios" in json.loads(calls[5].request.content)["query"]
-    )  # Creator studio lookup (not found)
-    assert (
-        "studioCreate" in json.loads(calls[6].request.content)["query"]
-    )  # v0.10.4: Creator studio
-    assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
+    assert_op(calls[0], "findImages")
+    assert_op(calls[1], "findScenes")
+    assert_op(calls[2], "findPerformers")
+    assert_op(calls[3], "findImages")  # populate
+    assert_op(calls[4], "findStudios")  # Fansly network
+    assert_op(calls[5], "findStudios")  # Creator studio lookup (not found)
+    assert_op(calls[6], "studioCreate")  # v0.10.4: Creator studio
+    assert_op(calls[7], "imageUpdate")
 
 
 @pytest.mark.asyncio
@@ -761,22 +737,20 @@ async def test_process_bundle_ordering(
 
     # Verify query types in order
     # Studio lookup (hoisted to batch level)
-    assert "findStudios" in json.loads(calls[0].request.content)["query"]  # Fansly
-    assert (
-        "findStudios" in json.loads(calls[1].request.content)["query"]
-    )  # Creator (not found)
-    assert "studioCreate" in json.loads(calls[2].request.content)["query"]  # Creator
+    assert_op(calls[0], "findStudios")  # Fansly
+    assert_op(calls[1], "findStudios")  # Creator (not found)
+    assert_op(calls[2], "studioCreate")  # Creator
     # Find images
-    assert "findImages" in json.loads(calls[3].request.content)["query"]  # Find by path
+    assert_op(calls[3], "findImages")  # Find by path
     # Image 1: performer + update (studio already resolved)
-    assert "findPerformers" in json.loads(calls[4].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+    assert_op(calls[4], "findPerformers")
+    assert_op(calls[5], "imageUpdate")
     # Image 2: performer + update (studio already resolved)
-    assert "findPerformers" in json.loads(calls[6].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
+    assert_op(calls[6], "findPerformers")
+    assert_op(calls[7], "imageUpdate")
     # Image 3: performer + update (studio already resolved)
-    assert "findPerformers" in json.loads(calls[8].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[9].request.content)["query"]
+    assert_op(calls[8], "findPerformers")
+    assert_op(calls[9], "imageUpdate")
 
 
 @pytest.mark.asyncio
@@ -916,23 +890,9 @@ async def test_process_bundle_with_preview(
             test_media_bundle, test_post, test_account, result
         )
     finally:
-        # Debug: Print all GraphQL calls made
-        print("\n" + "=" * 80)
-        print("****RESPX Call Debugging****")
-        print("=" * 80)
-        for index, call in enumerate(graphql_route.calls):
-            req_body = json.loads(call.request.content)
-            resp_data = call.response.json() if call.response else {}
-            print(f"\nCall {index}:")
-            print(f"  Query: {req_body.get('query', '')[:100]}...")
-            print(f"  Variables: {req_body.get('variables', {})}")
-            print(f"  Response keys: {list(resp_data.get('data', {}).keys())}")
-            # Show actual response data for debugging
-            if resp_data.get("data"):
-                for key, value in resp_data["data"].items():
-                    if isinstance(value, dict) and "count" in value:
-                        print(f"    {key}.count = {value['count']}")
-        print("=" * 80 + "\n")
+        # dump_graphql_calls is the SIGABRT-safe replacement for bare print()
+        # loops in test teardown (per feedback_no_bare_print.md memory).
+        dump_graphql_calls(graphql_route.calls, "test_process_bundle_with_preview")
 
     # Assert
     # Verify preview was used (check that previewId is set)
@@ -948,22 +908,14 @@ async def test_process_bundle_with_preview(
 
     # Verify query types in order
     # Studio lookup (hoisted to batch level)
-    assert (
-        "findStudios" in json.loads(calls[0].request.content)["query"]
-    )  # Fansly network
-    assert (
-        "findStudios" in json.loads(calls[1].request.content)["query"]
-    )  # Creator studio lookup (not found)
-    assert (
-        "studioCreate" in json.loads(calls[2].request.content)["query"]
-    )  # Creator studio
+    assert_op(calls[0], "findStudios")  # Fansly network
+    assert_op(calls[1], "findStudios")  # Creator studio lookup (not found)
+    assert_op(calls[2], "studioCreate")  # Creator studio
     # Find images
-    assert "findImages" in json.loads(calls[3].request.content)["query"]  # Find by path
+    assert_op(calls[3], "findImages")  # Find by path
     # Per-image: performer + update (studio already resolved)
-    assert (
-        "findPerformers" in json.loads(calls[4].request.content)["query"]
-    )  # By name (not found)
-    assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+    assert_op(calls[4], "findPerformers")  # By name (not found)
+    assert_op(calls[5], "imageUpdate")
 
 
 @pytest.mark.asyncio
@@ -1154,15 +1106,15 @@ async def test_bundle_permission_inheritance(
     calls = graphql_route.calls
 
     # Studio lookup (hoisted to batch level)
-    assert "findStudios" in json.loads(calls[0].request.content)["query"]
-    assert "findStudios" in json.loads(calls[1].request.content)["query"]
-    assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+    assert_op(calls[0], "findStudios")
+    assert_op(calls[1], "findStudios")
+    assert_op(calls[2], "studioCreate")
     # Find images
-    assert "findImages" in json.loads(calls[3].request.content)["query"]
+    assert_op(calls[3], "findImages")
     # First image: findPerformers + populate findImages + imageUpdate
-    assert "findPerformers" in json.loads(calls[4].request.content)["query"]
-    assert "findImages" in json.loads(calls[5].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+    assert_op(calls[4], "findPerformers")
+    assert_op(calls[5], "findImages")
+    assert_op(calls[6], "imageUpdate")
     # Second image: findPerformers + imageUpdate (no populate — performer cached)
-    assert "findPerformers" in json.loads(calls[7].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[8].request.content)["query"]
+    assert_op(calls[7], "findPerformers")
+    assert_op(calls[8], "imageUpdate")

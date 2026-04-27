@@ -64,12 +64,20 @@ class FanslyConfig:
     trace: bool = False  # For very detailed logging
     # If specified on the command-line
     post_id: str | None = None
-    # Set on start after self-update
-    updated_to: str | None = None
 
     # Objects
     _schema: ConfigSchema | None = field(default=None)
     _background_tasks: list[asyncio.Task] = field(default_factory=list)
+
+    # Names of attributes whose runtime value originated from a CLI flag (or
+    # any other ephemeral source) and must NOT round-trip into config.yaml on
+    # save. ``_rebuild_schema_from_config`` falls back to the YAML-loaded
+    # value (held in ``_schema``) for any name in this set. Currently used
+    # for mode flags (``--stash-only``, ``--normal``, ``--single``, etc.) so
+    # invoking ``--stash-only`` once doesn't make stash-only the new YAML
+    # default. Naming chosen to reflect *persistence semantics* rather than
+    # source — a future programmatic override path can also opt in.
+    _ephemeral_overrides: set[str] = field(default_factory=set)
 
     # endregion File-Independent
 
@@ -404,10 +412,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     Called by ``_save_config()`` before writing to disk. This is the inverse of
     ``_populate_config_from_schema``: runtime mutable attributes → typed schema.
     """
-    usernames: list[str] = (
-        sorted(config.user_names) if config.user_names else ["ReplaceMe"]
-    )
-
     stash_section: StashContextSection | None = None
     if config.stash_context_conn is not None:
         conn = config.stash_context_conn
@@ -421,10 +425,30 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     # Re-use the existing schema if available so we don't lose monitoring/logic
     base = config._schema if config._schema is not None else ConfigSchema()
 
+    # For attributes that were ephemerally overridden (CLI flags), write the
+    # YAML-loaded value back instead of the runtime-overlayed one — so a
+    # per-run flag (--stash-only, --debug, --non-interactive, -u alice, ...)
+    # never silently pins a new YAML default. See FanslyConfig._ephemeral_overrides.
+    def _persist_option(name: str, runtime_value: Any) -> Any:
+        if name in config._ephemeral_overrides:
+            return getattr(base.options, name)
+        return runtime_value
+
+    def _persist_targeted(name: str, runtime_value: Any) -> Any:
+        if name in config._ephemeral_overrides:
+            return getattr(base.targeted_creator, name)
+        return runtime_value
+
+    # ``user_names`` (runtime attr) maps to ``usernames`` (schema attr).
+    if "user_names" in config._ephemeral_overrides:
+        usernames: list[str] = list(base.targeted_creator.usernames)
+    else:
+        usernames = sorted(config.user_names) if config.user_names else ["ReplaceMe"]
+
     # Rebuild each section from config attributes
     base.targeted_creator = TargetedCreatorSection(
         usernames=usernames,
-        use_following=config.use_following,
+        use_following=_persist_targeted("use_following", config.use_following),
         use_following_with_pagination=base.targeted_creator.use_following_with_pagination,
     )
     base.my_account = MyAccountSection(
@@ -436,20 +460,38 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     )
     base.options = OptionsSection(
         download_directory=str(config.download_directory or "Local_directory"),
-        download_mode=config.download_mode,
-        show_downloads=config.show_downloads,
-        show_skipped_downloads=config.show_skipped_downloads,
-        download_media_previews=config.download_media_previews,
-        open_folder_when_finished=config.open_folder_when_finished,
-        separate_messages=config.separate_messages,
-        separate_previews=config.separate_previews,
-        separate_timeline=config.separate_timeline,
-        use_duplicate_threshold=config.use_duplicate_threshold,
-        use_pagination_duplication=config.use_pagination_duplication,
-        use_folder_suffix=config.use_folder_suffix,
-        interactive=config.interactive,
-        prompt_on_exit=config.prompt_on_exit,
-        debug=config.debug,
+        download_mode=_persist_option("download_mode", config.download_mode),
+        show_downloads=_persist_option("show_downloads", config.show_downloads),
+        show_skipped_downloads=_persist_option(
+            "show_skipped_downloads", config.show_skipped_downloads
+        ),
+        download_media_previews=_persist_option(
+            "download_media_previews", config.download_media_previews
+        ),
+        open_folder_when_finished=_persist_option(
+            "open_folder_when_finished", config.open_folder_when_finished
+        ),
+        separate_messages=_persist_option(
+            "separate_messages", config.separate_messages
+        ),
+        separate_previews=_persist_option(
+            "separate_previews", config.separate_previews
+        ),
+        separate_timeline=_persist_option(
+            "separate_timeline", config.separate_timeline
+        ),
+        use_duplicate_threshold=_persist_option(
+            "use_duplicate_threshold", config.use_duplicate_threshold
+        ),
+        use_pagination_duplication=_persist_option(
+            "use_pagination_duplication", config.use_pagination_duplication
+        ),
+        use_folder_suffix=_persist_option(
+            "use_folder_suffix", config.use_folder_suffix
+        ),
+        interactive=_persist_option("interactive", config.interactive),
+        prompt_on_exit=_persist_option("prompt_on_exit", config.prompt_on_exit),
+        debug=_persist_option("debug", config.debug),
         trace=config.trace,
         timeline_retries=config.timeline_retries,
         timeline_delay_seconds=config.timeline_delay_seconds,

@@ -181,8 +181,12 @@ class TestMediaProcessingIntegration:
                 cleanup["performers"].append(pid)
 
             # Verify expected GraphQL calls
-            assert len(calls) == 6, (
-                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
+            # Single-image path: 5 calls if studio is cached from a prior run
+            # (findImages + findPerformers + findStudios(parent) + findStudios(creator-hit) + imageUpdate)
+            # vs 6 if creator studio must be created (extra studioCreate). Hardcoded
+            # usernames make the studio cache hit a real cross-run scenario.
+            assert 5 <= len(calls) <= 6, (
+                f"Expected 5-6 GraphQL calls (creator studio cache hit/miss), got {len(calls)}"
             )
 
             update_calls = [
@@ -647,8 +651,12 @@ class TestMediaProcessingIntegration:
                 cleanup["performers"].append(pid)
 
             # Cache-first: findImages may be served from store cache
-            assert len(calls) == 6, (
-                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
+            # Single-image path: 5 calls if studio is cached from a prior run
+            # (findImages + findPerformers + findStudios(parent) + findStudios(creator-hit) + imageUpdate)
+            # vs 6 if creator studio must be created (extra studioCreate). Hardcoded
+            # usernames make the studio cache hit a real cross-run scenario.
+            assert 5 <= len(calls) <= 6, (
+                f"Expected 5-6 GraphQL calls (creator studio cache hit/miss), got {len(calls)}"
             )
 
             update_calls = [
@@ -810,8 +818,12 @@ class TestMediaProcessingIntegration:
             for pid in created_performers:
                 cleanup["performers"].append(pid)
 
-            assert len(calls) == 6, (
-                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
+            # Single-image path: 5 calls if studio is cached from a prior run
+            # (findImages + findPerformers + findStudios(parent) + findStudios(creator-hit) + imageUpdate)
+            # vs 6 if creator studio must be created (extra studioCreate). Hardcoded
+            # usernames make the studio cache hit a real cross-run scenario.
+            assert 5 <= len(calls) <= 6, (
+                f"Expected 5-6 GraphQL calls (creator studio cache hit/miss), got {len(calls)}"
             )
 
             update_calls = [
@@ -978,8 +990,12 @@ class TestMediaProcessingIntegration:
             for pid in created_performers:
                 cleanup["performers"].append(pid)
 
-            assert len(calls) == 6, (
-                f"Expected exactly 6 GraphQL calls, got {len(calls)}"
+            # Single-image path: 5 calls if studio is cached from a prior run
+            # (findImages + findPerformers + findStudios(parent) + findStudios(creator-hit) + imageUpdate)
+            # vs 6 if creator studio must be created (extra studioCreate). Hardcoded
+            # usernames make the studio cache hit a real cross-run scenario.
+            assert 5 <= len(calls) <= 6, (
+                f"Expected 5-6 GraphQL calls (creator studio cache hit/miss), got {len(calls)}"
             )
 
             update_calls = [

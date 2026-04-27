@@ -8,7 +8,10 @@ import pytest
 import respx
 
 from tests.fixtures.metadata.metadata_factories import PostFactory
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_performers_result,
     create_find_studios_result,
@@ -138,12 +141,12 @@ class TestMetadataUpdate:
         calls = graphql_route.calls
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findImages" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findStudios" in json.loads(calls[3].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[4].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findImages")
+        assert_op(calls[2], "findStudios")
+        assert_op(calls[3], "findStudios")
+        assert_op(calls[4], "studioCreate")
+        assert_op(calls[5], "imageUpdate")
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_already_organized(
@@ -364,12 +367,12 @@ class TestMetadataUpdate:
         # SGC v0.12: 6 calls (was 5) — extra findImages from populate() filter-query
         assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
         calls = graphql_route.calls
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findImages" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findStudios" in json.loads(calls[3].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[4].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findImages")
+        assert_op(calls[2], "findStudios")
+        assert_op(calls[3], "findStudios")
+        assert_op(calls[4], "studioCreate")
+        assert_op(calls[5], "imageUpdate")
 
         # Test 2: Item is EARLIER than existing date - should UPDATE
         # Performer and studios are now cached from Test 1b, so only imageUpdate needed
@@ -613,19 +616,19 @@ class TestMetadataUpdate:
         calls = graphql_route.calls
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findImages" in json.loads(calls[1].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[2].request.content)["query"]
-        assert "findImages" in json.loads(calls[3].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[4].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[5].request.content)["query"]
-        assert "findPerformers" in json.loads(calls[6].request.content)["query"]
-        assert "performerCreate" in json.loads(calls[7].request.content)["query"]
-        assert "findImages" in json.loads(calls[8].request.content)["query"]
-        assert "findStudios" in json.loads(calls[9].request.content)["query"]
-        assert "findStudios" in json.loads(calls[10].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[11].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[12].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findImages")
+        assert_op(calls[2], "findPerformers")
+        assert_op(calls[3], "findImages")
+        assert_op(calls[4], "findPerformers")
+        assert_op(calls[5], "findPerformers")
+        assert_op(calls[6], "findPerformers")
+        assert_op(calls[7], "performerCreate")
+        assert_op(calls[8], "findImages")
+        assert_op(calls[9], "findStudios")
+        assert_op(calls[10], "findStudios")
+        assert_op(calls[11], "studioCreate")
+        assert_op(calls[12], "imageUpdate")
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_studio(
@@ -710,11 +713,11 @@ class TestMetadataUpdate:
         calls = graphql_route.calls
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findStudios")
+        assert_op(calls[2], "findStudios")
+        assert_op(calls[3], "studioCreate")
+        assert_op(calls[4], "imageUpdate")
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_tags(
@@ -845,15 +848,15 @@ class TestMetadataUpdate:
         calls = graphql_route.calls
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "findTags" in json.loads(calls[4].request.content)["query"]
-        assert "findTags" in json.loads(calls[5].request.content)["query"]
-        assert "findImages" in json.loads(calls[6].request.content)["query"]
-        assert "findImages" in json.loads(calls[7].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[8].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findStudios")
+        assert_op(calls[2], "findStudios")
+        assert_op(calls[3], "studioCreate")
+        assert_op(calls[4], "findTags")
+        assert_op(calls[5], "findTags")
+        assert_op(calls[6], "findImages")
+        assert_op(calls[7], "findImages")
+        assert_op(calls[8], "imageUpdate")
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_preview(
@@ -962,13 +965,13 @@ class TestMetadataUpdate:
         calls = graphql_route.calls
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "findTags" in json.loads(calls[4].request.content)["query"]
-        assert "findImages" in json.loads(calls[5].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+        assert_op(calls[0], "findPerformers")
+        assert_op(calls[1], "findStudios")
+        assert_op(calls[2], "findStudios")
+        assert_op(calls[3], "studioCreate")
+        assert_op(calls[4], "findTags")
+        assert_op(calls[5], "findImages")
+        assert_op(calls[6], "imageUpdate")
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_with_studio_create(
@@ -1109,12 +1112,8 @@ class TestMetadataUpdate:
 
         # SGC v0.12: 2 calls (was 1) — findImages populate + imageUpdate
         assert graphql_route.call_count == 2
-        assert (
-            "findImages" in json.loads(graphql_route.calls[0].request.content)["query"]
-        )
-        assert (
-            "imageUpdate" in json.loads(graphql_route.calls[1].request.content)["query"]
-        )
+        assert_op(graphql_route.calls[0], "findImages")
+        assert_op(graphql_route.calls[1], "imageUpdate")
 
         # Test 3: Save error — imageUpdate returns GraphQL error (lines 617-628)
         respx.reset()

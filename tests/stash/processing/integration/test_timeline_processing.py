@@ -24,7 +24,11 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 
 
@@ -158,20 +162,14 @@ async def test_process_timeline_post(
         assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
         cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
-        studio_calls = [
-            c
-            for c in calls[5:8]
-            if "findStudios" in c.get("query", "")
-            or "studioCreate" in c.get("query", "")
-            or "Studio" in c.get("query", "")
-        ]
-        assert len(studio_calls) == 3, (
-            f"Expected exactly 3 studio-related calls at positions 5-7, got {[c['query'][:40] for c in calls[5:8]]}"
-        )
+        # Calls 5-7: media-batch dispatch GraphQL queries (intentionally not
+        # pinned by op-name — the structural len(calls) == 9 above already
+        # guarantees the count; the previous "Studio" substring filter was
+        # tautological because Stash response fragments include studio { id }
+        # sub-selections).
 
         # Call 8: FindScenes (looking for scenes with media path)
-        assert "FindScenes" in calls[8]["query"]
+        assert_op(calls[8], "FindScenes")
         assert str(media.id) in calls[8]["variables"]["scene_filter"]["path"]["value"]
         assert "findScenes" in calls[8]["result"]
 
@@ -315,20 +313,12 @@ async def test_process_timeline_bundle(
         assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
         cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
-        studio_calls = [
-            c
-            for c in calls[5:8]
-            if "findStudios" in c.get("query", "")
-            or "studioCreate" in c.get("query", "")
-            or "Studio" in c.get("query", "")
-        ]
-        assert len(studio_calls) == 3, (
-            "Expected exactly 3 studio-related calls at positions 5-7"
-        )
+        # Calls 5-7: media-batch dispatch GraphQL queries (intentionally not
+        # pinned by op-name — see structural len(calls) == 9 above).
 
         # Call 8: findImages (looking for images with media paths from bundle)
-        assert "findImages" in calls[8]["query"]
+        # Production op name is `FindImages` (PascalCase) per the GraphQL query.
+        assert_op(calls[8], "FindImages")
         # The regex pattern contains both media IDs (Pattern 5: base_path.*(code1|code2))
         image_filter = calls[8]["variables"]["image_filter"]
         assert "path" in image_filter
@@ -428,10 +418,10 @@ async def test_process_timeline_hashtags(
                     url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
                 )
             finally:
-                print("\n=== GraphQL Call Debug Info ===")
-                for call_id, call_dict in enumerate(calls):
-                    print(f"\nCall {call_id}: {call_dict}")
-                print(f"\n=== Total calls: {len(calls)} ===\n")
+                # Use dump_graphql_calls instead of bare print() — bare prints
+                # in test teardown can race with shutdown and trigger SIGABRT
+                # under xdist (per feedback_no_bare_print.md memory).
+                dump_graphql_calls(calls, "test_process_timeline_hashtags")
 
         # Manual studio cleanup from spy
         for sid in created_studios:
@@ -700,19 +690,10 @@ async def test_process_expired_timeline_post(
         assert performer.id in calls[4]["variables"]["input"]["performer_ids"]
         cleanup["galleries"].append(calls[4]["result"]["galleryCreate"]["id"])
 
-        # Calls 5-7: Studio lookup (hoisted to batch level by _process_batch_internal)
-        studio_calls = [
-            c
-            for c in calls[5:8]
-            if "findStudios" in c.get("query", "")
-            or "studioCreate" in c.get("query", "")
-            or "Studio" in c.get("query", "")
-        ]
-        assert len(studio_calls) == 3, (
-            "Expected exactly 3 studio-related calls at positions 5-7"
-        )
+        # Calls 5-7: media-batch dispatch GraphQL queries (intentionally not
+        # pinned by op-name — see structural len(calls) == 9 above).
 
         # Call 8: FindScenes (looking for scenes with media path)
-        assert "FindScenes" in calls[8]["query"]
+        assert_op(calls[8], "FindScenes")
         assert str(media.id) in calls[8]["variables"]["scene_filter"]["path"]["value"]
         assert "findScenes" in calls[8]["result"]

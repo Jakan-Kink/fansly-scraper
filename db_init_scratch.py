@@ -609,20 +609,15 @@ async def resolve_creator_id(
         return mapped
 
     # Try existing DB accounts (case-insensitive username match).
+    # Post-Pydantic migration: use PostgresEntityStore (asyncpg) instead of
+    # the SQLAlchemy ORM session pattern that no longer exists on Database.
     try:
-        from sqlalchemy import func, select  # noqa: PLC0415  # Avoid circular import
-
         from metadata.account import Account  # noqa: PLC0415  # Avoid circular import
 
-        async with config._database.async_session_scope() as session:
-            result = await session.execute(
-                select(Account.id).where(
-                    func.lower(Account.username) == creator.lower()
-                )
-            )
-            account_id = result.scalar_one_or_none()
-            if account_id is not None:
-                return str(account_id)
+        store = config._database.entity_store
+        account = await store.find_one(Account, username__iexact=creator)
+        if account is not None:
+            return str(account.id)
     except Exception as exc:
         print(f"Account lookup failed for {creator}: {exc}")
 
@@ -699,27 +694,28 @@ async def run_dedupe_init(
                 entries = collect_hash2_entries(state.download_path)
                 if not entries:
                     continue
-                async with config._database.async_session_scope() as session:
-                    updated = 0
-                    created = 0
-                    for entry in entries:
-                        media_id = entry["id"]
-                        media = await session.get(Media, media_id)
-                        if media is None:
-                            media = Media(
-                                id=media_id,
-                                accountId=int(creator_id),
-                                mimetype=entry["mimetype"],
-                            )
-                            session.add(media)
-                            created += 1
-                        media.content_hash = entry["hash"]
-                        media.local_filename = entry["filename"]
-                        media.is_downloaded = True
-                        if not media.accountId:
-                            media.accountId = int(creator_id)
-                        updated += 1
-                    await session.commit()
+                # Post-Pydantic migration: use PostgresEntityStore instead of
+                # the SQLAlchemy ORM session pattern.
+                store = config._database.entity_store
+                updated = 0
+                created = 0
+                for entry in entries:
+                    media_id = entry["id"]
+                    media = await store.get(Media, media_id)
+                    if media is None:
+                        media = Media(
+                            id=media_id,
+                            accountId=int(creator_id),
+                            mimetype=entry["mimetype"],
+                        )
+                        created += 1
+                    media.content_hash = entry["hash"]
+                    media.local_filename = entry["filename"]
+                    media.is_downloaded = True
+                    if not media.accountId:
+                        media.accountId = int(creator_id)
+                    await store.save(media)
+                    updated += 1
                 print(
                     f"Hash2 DB fix: {creator} -> updated={updated}, created={created}"
                 )

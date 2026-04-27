@@ -3,8 +3,6 @@
 Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
-import json
-
 import httpx
 import pytest
 import respx
@@ -18,7 +16,11 @@ from tests.fixtures import (
     create_tag_create_result,
     create_tag_dict,
 )
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 
 
 @pytest.fixture
@@ -231,15 +233,16 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
         f"got {len(graphql_route.calls)}"
     )
     # Call 0: findTags filtering on "Trailer"
-    req0 = json.loads(graphql_route.calls[0].request.content)
-    assert "findTags" in req0["query"]
-    assert req0["variables"]["tag_filter"]["name"]["value"] == "Trailer"
+    assert_op_with_vars(
+        graphql_route.calls[0],
+        "findTags",
+        tag_filter__name__value="Trailer",
+    )
     resp0 = graphql_route.calls[0].response.json()
     assert resp0["data"]["findTags"]["count"] == 1
     assert resp0["data"]["findTags"]["tags"][0]["name"] == "Trailer"
     # Call 1: findScenes dedup check (tags.value includes the found tag id)
-    req1 = json.loads(graphql_route.calls[1].request.content)
-    assert "findScenes" in req1["query"]
+    assert_op(graphql_route.calls[1], "findScenes")
     resp1 = graphql_route.calls[1].response.json()
     assert resp1["data"]["findScenes"]["count"] == 0
 

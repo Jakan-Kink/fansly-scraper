@@ -30,7 +30,11 @@ from tests.fixtures import (
     create_studio_dict,
 )
 from tests.fixtures.metadata.metadata_factories import AccountFactory
-from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_type_factories import JobFactory
 
 
@@ -87,7 +91,10 @@ class TestCreatorProcessing:
         await processor.context.get_client()
 
         # Call process_creator (no session= parameter)
-        account, performer = await processor.process_creator()
+        try:
+            account, performer = await processor.process_creator()
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_creator")
 
         # Verify Account came from real database
         assert account.id == real_account.id
@@ -101,28 +108,20 @@ class TestCreatorProcessing:
         assert graphql_route.called
         assert graphql_route.call_count == 1
 
-        # Inspect the GraphQL request to verify correct query and variables
+        # Inspect the GraphQL request to verify method/URL stayed correct
         request = graphql_route.calls[0].request
         assert request.method == "POST"
         assert "graphql" in str(request.url)
 
-        # Parse the GraphQL request body
-        request_body = json.loads(request.content)
-
-        # Verify it's a FindPerformers query
-        assert "findPerformers" in request_body.get("query", "")
-
-        # Verify the variables match what we expect
-        variables = request_body.get("variables", {})
-
+        # Verify findPerformers with name search (EQUALS) on displayName
         # New library: find_performer uses performer_filter with name/alias searches
         # Note: Library uses per_page=1 for find_one (not -1), don't assert on implementation details
-
-        # First call should be name search with EQUALS modifier
-        performer_filter = variables.get("performer_filter", {})
-        name_filter = performer_filter.get("name", {})
-        assert name_filter.get("value") == "Test User"  # displayName from Account
-        assert name_filter.get("modifier") == "EQUALS"
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findPerformers",
+            performer_filter__name__value="Test User",  # displayName from Account
+            performer_filter__name__modifier="EQUALS",
+        )
 
     @pytest.mark.asyncio
     async def test_process_creator_no_account_raises_error(
@@ -223,12 +222,10 @@ class TestCreatorProcessing:
         assert graphql_route.call_count == 4
 
         # Verify first call was findPerformers
-        first_request = json.loads(graphql_route.calls[0].request.content)
-        assert "findPerformers" in first_request.get("query", "")
+        assert_op(graphql_route.calls[0], "findPerformers")
 
         # Verify fourth call was performerCreate
-        fourth_request = json.loads(graphql_route.calls[3].request.content)
-        assert "performerCreate" in fourth_request.get("query", "")
+        assert_op(graphql_route.calls[3], "performerCreate")
 
     @pytest.mark.asyncio
     async def test_find_existing_studio(self, entity_store, respx_stash_processor):
@@ -297,9 +294,12 @@ class TestCreatorProcessing:
 
         # Call process_creator_studio directly with performer
         # (_find_existing_studio just wraps this with performer=None)
-        studio = await processor.process_creator_studio(
-            account=real_account,
-        )
+        try:
+            studio = await processor.process_creator_studio(
+                account=real_account,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_find_existing_studio")
 
         # Verify studio came from GraphQL HTTP
         assert studio is not None
@@ -497,17 +497,14 @@ class TestCreatorProcessing:
         # Call 0: connect_async
         # Calls 1-3: _preload_stash_entities (findPerformers, findTags, findStudios)
         # Call 4: metadataScan (scan_creator_folder)
-        call4_body = json.loads(graphql_route.calls[4].request.content)
-        assert "metadataScan" in call4_body.get("query", "")
+        assert_op(graphql_route.calls[4], "metadataScan")
 
         # Call 5: findJob (scan_creator_folder)
-        call5_body = json.loads(graphql_route.calls[5].request.content)
-        assert "findJob" in call5_body.get("query", "")
+        assert_op(graphql_route.calls[5], "findJob")
 
         # Calls 6-7: _preload_creator_media (findScenes, findImages)
         # Call 8: findPerformers (process_creator)
-        call8_body = json.loads(graphql_route.calls[8].request.content)
-        assert "findPerformers" in call8_body.get("query", "")
+        assert_op(graphql_route.calls[8], "findPerformers")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None
@@ -575,22 +572,15 @@ class TestCreatorProcessing:
         # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
         assert graphql_route.call_count == 4
 
-        # Verify first call was metadataScan
+        # Verify first call was metadataScan with the correct paths
+        assert_op(graphql_route.calls[1], "metadataScan")
         first_request = json.loads(graphql_route.calls[1].request.content)
-        assert "metadataScan" in first_request.get("query", "")
-        # Verify paths were sent
-        variables = first_request.get("variables", {})
-        input_data = variables.get("input", {})
+        input_data = first_request.get("variables", {}).get("input", {})
         assert str(processor.state.base_path) in input_data.get("paths", [])
 
-        # Verify second and third calls were findJob
-        second_request = json.loads(graphql_route.calls[2].request.content)
-        assert "findJob" in second_request.get("query", "")
-        assert second_request["variables"]["input"]["id"] == "job_123"
-
-        third_request = json.loads(graphql_route.calls[3].request.content)
-        assert "findJob" in third_request.get("query", "")
-        assert third_request["variables"]["input"]["id"] == "job_123"
+        # Verify second and third calls were findJob with the same job_id
+        assert_op_with_vars(graphql_route.calls[2], "findJob", input__id="job_123")
+        assert_op_with_vars(graphql_route.calls[3], "findJob", input__id="job_123")
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_metadata_scan_error(
@@ -652,14 +642,15 @@ class TestCreatorProcessing:
             f"Expected exactly 2 GraphQL calls "
             f"(ConfigurationDefaults + MetadataScan), got {len(graphql_route.calls)}"
         )
-        req0 = json.loads(graphql_route.calls[0].request.content)
-        assert "ConfigurationDefaults" in req0["query"]
+        assert_op(graphql_route.calls[0], "ConfigurationDefaults")
         resp0 = graphql_route.calls[0].response.json()
         assert resp0["errors"][0]["message"] == "Test error"
 
-        req1 = json.loads(graphql_route.calls[1].request.content)
-        assert "MetadataScan" in req1["query"]
-        assert req1["variables"]["input"]["paths"] == [str(processor.state.base_path)]
+        assert_op_with_vars(
+            graphql_route.calls[1],
+            "MetadataScan",
+            input__paths=[str(processor.state.base_path)],
+        )
         resp1 = graphql_route.calls[1].response.json()
         assert resp1["errors"][0]["message"] == "Test error"
 
@@ -722,8 +713,8 @@ class TestCreatorProcessing:
             )
 
             # Call 2: metadataScan mutation with created path
+            assert_op(graphql_route.calls[1], "metadataScan")
             call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert "metadataScan" in call2_body.get("query", "")
             assert str(created_path) in call2_body["variables"]["input"]["paths"]
 
             # Verify path creation and state updates

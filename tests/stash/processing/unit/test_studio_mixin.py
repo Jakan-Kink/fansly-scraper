@@ -18,6 +18,7 @@ from tests.fixtures import (
     create_graphql_response,
     create_studio_dict,
 )
+from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
 
 
 class TestStudioProcessingMixin:
@@ -76,18 +77,18 @@ class TestStudioProcessingMixin:
         )
 
         # Call 1: Find Fansly studio
-        call1_body = json.loads(graphql_route.calls[0].request.content)
-        assert "findStudios" in call1_body.get("query", "")
         # Note: Don't assert on filter structure - that's library implementation
+        assert_op(graphql_route.calls[0], "findStudios")
 
         # Call 2: Find creator studio (not found)
-        call2_body = json.loads(graphql_route.calls[1].request.content)
-        assert "findStudios" in call2_body.get("query", "")
+        assert_op(graphql_route.calls[1], "findStudios")
 
         # Call 3: studioCreate (returns existing)
-        call3_body = json.loads(graphql_route.calls[2].request.content)
-        assert "studioCreate" in call3_body.get("query", "")
-        assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
+        assert_op_with_vars(
+            graphql_route.calls[2],
+            "studioCreate",
+            input__name="test_user (Fansly)",
+        )
 
         # Verify result
         assert result is not None
@@ -153,18 +154,19 @@ class TestStudioProcessingMixin:
             )
 
             # Call 1: Find Fansly studio
-            call1_body = json.loads(graphql_route.calls[0].request.content)
-            assert "findStudios" in call1_body.get("query", "")
             # Note: Don't assert on filter structure - that's library implementation
+            assert_op(graphql_route.calls[0], "findStudios")
 
             # Call 2: Find creator studio (not found)
-            call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert "findStudios" in call2_body.get("query", "")
+            assert_op(graphql_route.calls[1], "findStudios")
 
             # Call 3: Create studio
+            assert_op_with_vars(
+                graphql_route.calls[2],
+                "studioCreate",
+                input__name="test_user (Fansly)",
+            )
             call3_body = json.loads(graphql_route.calls[2].request.content)
-            assert "studioCreate" in call3_body.get("query", "")
-            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
             assert (
                 "https://fansly.com/test_user"
                 in call3_body["variables"]["input"]["urls"]
@@ -269,18 +271,18 @@ class TestStudioProcessingMixin:
             )
 
             # Call 1: Find Fansly studio
-            call1_body = json.loads(graphql_route.calls[0].request.content)
-            assert "findStudios" in call1_body.get("query", "")
             # Note: Don't assert on filter structure - that's library implementation
+            assert_op(graphql_route.calls[0], "findStudios")
 
             # Call 2: Find creator studio (not found)
-            call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert "findStudios" in call2_body.get("query", "")
+            assert_op(graphql_route.calls[1], "findStudios")
 
             # Call 3: Create studio (will fail)
-            call3_body = json.loads(graphql_route.calls[2].request.content)
-            assert "studioCreate" in call3_body.get("query", "")
-            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
+            assert_op_with_vars(
+                graphql_route.calls[2],
+                "studioCreate",
+                input__name="test_user (Fansly)",
+            )
 
             # Verify result is None (creation failed, no retry)
             assert result is None

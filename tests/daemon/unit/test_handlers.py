@@ -1,12 +1,22 @@
-"""Unit tests for daemon.handlers — WebSocket event → WorkItem dispatch.
+"""Tests for daemon.handlers.dispatch_ws_event and the WorkItem dataclasses.
 
-Tests are pure: no async, no fixtures, no RESPX.  Each test builds a
-realistic decoded event dict (matching the shapes in api/websocket.py's
-_monitor_* methods) and asserts on the returned WorkItem or None.
+The dispatch behaviors are consolidated into two parametrized matrices that
+collapse 31 near-identical single-assertion tests into 2 test definitions
+(31 cases each surfaced individually by pytest):
 
-Frozen dataclasses provide structural equality so ``==`` comparisons work
-without extra assertion helpers.
+* ``test_dispatch_returns_expected_workitem`` — happy paths where a known
+  ``(svc, type, event)`` triple should produce a specific ``WorkItem``.
+* ``test_dispatch_returns_none`` — filter/malformed/edge inputs that must
+  return ``None`` without raising. Includes documentation cases (intentional
+  observation-only handlers), service-event filters (e.g. subscription
+  status != 3), and defensive malformed-payload handling.
+
+The ``WorkItem`` dataclass tests (``TestWorkItemStructure``) stay separate
+because they exercise different concerns (frozen-ness, equality, base-class
+relationship) that don't reduce to a (input, expected) shape.
 """
+
+from __future__ import annotations
 
 import pytest
 
@@ -23,467 +33,390 @@ from daemon.handlers import (
 
 
 # ---------------------------------------------------------------------------
-# svc=5 type=1 — New message (MessageService)
+# Happy-path dispatch matrix: (svc, type, event) → expected WorkItem
 # ---------------------------------------------------------------------------
 
 
-def test_new_message_with_attachments_returns_download_messages() -> None:
-    """svc=5 type=1 with attachments → DownloadMessagesForGroup."""
-    event = {
-        "message": {
-            "id": "900000000001",
-            "senderId": "100000000001",
-            "groupId": "200000000001",
-            "content": "check this out",
-            "attachments": [{"contentId": "300000000001", "contentType": 1}],
-        }
-    }
-    result = dispatch_ws_event(5, 1, event)
-    assert result == DownloadMessagesForGroup(
-        group_id=200_000_000_001, sender_id=100_000_000_001
-    )
+_HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
+    # svc=5 type=1 — new message with attachments → DownloadMessagesForGroup
+    pytest.param(
+        5,
+        1,
+        {
+            "message": {
+                "id": "900000000001",
+                "senderId": "100000000001",
+                "groupId": "200000000001",
+                "content": "check this out",
+                "attachments": [{"contentId": "300000000001", "contentType": 1}],
+            }
+        },
+        DownloadMessagesForGroup(group_id=200_000_000_001, sender_id=100_000_000_001),
+        id="new_message_with_attachments",
+    ),
+    # svc=15 type=5 status=3 — confirmed subscription → FullCreatorDownload
+    pytest.param(
+        15,
+        5,
+        {
+            "subscription": {
+                "id": "400000000001",
+                "accountId": "500000000001",
+                "status": 3,
+                "price": 1000,
+                "subscriptionTierName": "Standard",
+            }
+        },
+        FullCreatorDownload(creator_id=500_000_000_001),
+        id="subscription_confirmed_status_3",
+    ),
+    # svc=2 type=7 — PPV media purchase → RedownloadCreatorMedia
+    pytest.param(
+        2,
+        7,
+        {
+            "order": {
+                "orderId": "700000000001",
+                "accountMediaId": "800000000001",
+                "correlationAccountId": "500000000002",
+            }
+        },
+        RedownloadCreatorMedia(creator_id=500_000_000_002),
+        id="ppv_media_purchase",
+    ),
+    # svc=2 type=8 — PPV bundle purchase → RedownloadCreatorMedia
+    pytest.param(
+        2,
+        8,
+        {
+            "order": {
+                "orderId": "700000000002",
+                "accountMediaBundleId": "800000000002",
+                "correlationAccountId": "500000000002",
+            }
+        },
+        RedownloadCreatorMedia(creator_id=500_000_000_002),
+        id="ppv_bundle_purchase",
+    ),
+    # svc=3 type=2 — new follow → CheckCreatorAccess
+    pytest.param(
+        3,
+        2,
+        {
+            "follow": {
+                "id": "600000000001",
+                "accountId": "500000000003",
+                "followerId": "999000000001",
+            }
+        },
+        CheckCreatorAccess(creator_id=500_000_000_003),
+        id="new_follow",
+    ),
+    # svc=32 type=7 — story PPV (shares payload shape with svc=2 type=7)
+    pytest.param(
+        32,
+        7,
+        {
+            "order": {
+                "orderId": "900000000001",
+                "accountMediaId": "800000000001",
+                "correlationAccountId": "658810502633238529",
+                "type": 1,
+            }
+        },
+        RedownloadCreatorMedia(creator_id=658810502633238529),
+        id="story_ppv_purchase",
+    ),
+    # svc=5 type=10 — message deleted via ids list
+    pytest.param(
+        5,
+        10,
+        {"message": {"ids": ["900000000001", "900000000002"]}},
+        MarkMessagesDeleted(message_ids=(900_000_000_001, 900_000_000_002)),
+        id="message_deleted_ids_list",
+    ),
+    # svc=5 type=10 — single id + deletedAt (the shape Fansly emits in practice)
+    pytest.param(
+        5,
+        10,
+        {"message": {"id": "903213063648329728", "deletedAt": 1_776_837_144}},
+        MarkMessagesDeleted(
+            message_ids=(903_213_063_648_329_728,),
+            deleted_at_epoch=1_776_837_144,
+        ),
+        id="message_deleted_single_id_with_deletedAt",
+    ),
+    # svc=5 type=10 — single id, no deletedAt → falls back to None
+    pytest.param(
+        5,
+        10,
+        {"message": {"id": "900000000042"}},
+        MarkMessagesDeleted(message_ids=(900_000_000_042,), deleted_at_epoch=None),
+        id="message_deleted_no_deletedAt_falls_back",
+    ),
+]
 
 
-def test_new_message_without_attachments_returns_none() -> None:
-    """svc=5 type=1 with empty attachments list → None (pure text message)."""
-    event = {
-        "message": {
-            "id": "900000000002",
-            "senderId": "100000000001",
-            "groupId": "200000000001",
-            "content": "just a text message",
-            "attachments": [],
-        }
-    }
-    result = dispatch_ws_event(5, 1, event)
-    assert result is None
+@pytest.mark.parametrize(("svc", "etype", "event", "expected"), _HAPPY_PATH_CASES)
+def test_dispatch_returns_expected_workitem(
+    svc: int, etype: int, event: dict, expected: WorkItem
+) -> None:
+    """Each well-formed (svc, type, event) triple produces the expected WorkItem.
 
-
-def test_new_message_missing_attachments_key_returns_none() -> None:
-    """svc=5 type=1 with no 'attachments' key → None (treat as text)."""
-    event = {
-        "message": {
-            "id": "900000000003",
-            "senderId": "100000000001",
-            "groupId": "200000000001",
-            "content": "another text",
-        }
-    }
-    result = dispatch_ws_event(5, 1, event)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# svc=15 type=5 — Subscription events (SubscriptionService)
-# ---------------------------------------------------------------------------
-
-
-def test_subscription_confirmed_status_3_returns_full_creator_download() -> None:
-    """svc=15 type=5 status=3 → FullCreatorDownload(creator_id=...)."""
-    event = {
-        "subscription": {
-            "id": "400000000001",
-            "accountId": "500000000001",
-            "status": 3,
-            "price": 1000,
-            "subscriptionTierName": "Standard",
-        }
-    }
-    result = dispatch_ws_event(15, 5, event)
-    assert result == FullCreatorDownload(creator_id=500_000_000_001)
-
-
-def test_subscription_pending_status_2_returns_none() -> None:
-    """svc=15 type=5 status=2 (pending) → None."""
-    event = {
-        "subscription": {
-            "id": "400000000002",
-            "accountId": "500000000001",
-            "status": 2,
-            "price": 1000,
-        }
-    }
-    result = dispatch_ws_event(15, 5, event)
-    assert result is None
-
-
-def test_subscription_other_status_returns_none() -> None:
-    """svc=15 type=5 status=1 (any non-3 status) → None."""
-    event = {
-        "subscription": {
-            "id": "400000000003",
-            "accountId": "500000000001",
-            "status": 1,
-        }
-    }
-    result = dispatch_ws_event(15, 5, event)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# svc=2 type=7 and type=8 — PPV media / bundle purchase (MediaService)
-# ---------------------------------------------------------------------------
-
-
-def test_ppv_media_purchase_returns_redownload_creator_media() -> None:
-    """svc=2 type=7 (PPV media purchased) → RedownloadCreatorMedia."""
-    event = {
-        "order": {
-            "orderId": "700000000001",
-            "accountMediaId": "800000000001",
-            "correlationAccountId": "500000000002",
-        }
-    }
-    result = dispatch_ws_event(2, 7, event)
-    assert result == RedownloadCreatorMedia(creator_id=500_000_000_002)
-
-
-def test_ppv_bundle_purchase_returns_redownload_creator_media() -> None:
-    """svc=2 type=8 (PPV bundle purchased) → RedownloadCreatorMedia."""
-    event = {
-        "order": {
-            "orderId": "700000000002",
-            "accountMediaBundleId": "800000000002",
-            "correlationAccountId": "500000000002",
-        }
-    }
-    result = dispatch_ws_event(2, 8, event)
-    assert result == RedownloadCreatorMedia(creator_id=500_000_000_002)
-
-
-def test_ppv_missing_correlation_account_id_returns_none() -> None:
-    """svc=2 type=7 with no correlationAccountId → None (defensive)."""
-    event = {
-        "order": {
-            "orderId": "700000000003",
-            "accountMediaId": "800000000003",
-            # correlationAccountId intentionally absent
-        }
-    }
-    result = dispatch_ws_event(2, 7, event)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# svc=3 type=2 — New follow (FollowerService)
-# ---------------------------------------------------------------------------
-
-
-def test_new_follow_returns_check_creator_access() -> None:
-    """svc=3 type=2 (new follow) → CheckCreatorAccess(creator_id=...)."""
-    event = {
-        "follow": {
-            "id": "600000000001",
-            "accountId": "500000000003",
-            "followerId": "999000000001",
-        }
-    }
-    result = dispatch_ws_event(3, 2, event)
-    assert result == CheckCreatorAccess(creator_id=500_000_000_003)
-
-
-# ---------------------------------------------------------------------------
-# svc=6 type=2 — Wallet credited (WalletService)
-# ---------------------------------------------------------------------------
-
-
-def test_wallet_credited_returns_none() -> None:
-    """svc=6 type=2 (wallet credited) → None (informational only)."""
-    event = {
-        "wallet": {
-            "id": "610000000001",
-            "balance": 5000,
-            "walletVersion": 7,
-        }
-    }
-    result = dispatch_ws_event(6, 2, event)
-    assert result is None
-
-
-def test_wallet_transaction_is_observation_only() -> None:
-    """svc=6 type=3 (wallet transaction) → None (observation-only).
-
-    Transaction events lack the accountId needed for a targeted WorkItem;
-    the actionable signal arrives via the paired svc=15 type=5 subscription
-    event. The handler logs at INFO so file-availability changes leave a
-    trail.
+    Covers the entire happy-path dispatch table — adding a new handler means
+    adding a single ``pytest.param(...)`` row, not a new test function.
     """
-    event = {
-        "transaction": {
-            "id": "904475239180673024",
-            "type": 58000,
-            "originWalletId": "720168220631244800",
-            "destinationWalletId": None,
-            "status": 2,
-            "amount": 6990,
-            "correlationId": "904475238538952704",
-        }
-    }
-    result = dispatch_ws_event(6, 3, event)
-    assert result is None
-
-
-def test_wallet_transaction_missing_payload_returns_none() -> None:
-    """svc=6 type=3 with no transaction key → None, no exception."""
-    result = dispatch_ws_event(6, 3, {})
-    assert result is None
+    assert dispatch_ws_event(svc, etype, event) == expected
 
 
 # ---------------------------------------------------------------------------
-# svc=32 type=7 — Story PPV purchase (StoryService)
+# Filter / malformed dispatch matrix: (svc, type, event) → None
 # ---------------------------------------------------------------------------
 
 
-def test_story_ppv_purchase_returns_redownload() -> None:
-    """svc=32 type=7 shares payload shape with svc=2 type=7 → RedownloadCreatorMedia."""
-    event = {
-        "order": {
-            "orderId": "900000000001",
-            "accountMediaId": "800000000001",
-            "correlationAccountId": "658810502633238529",
-            "type": 1,
-        }
-    }
-    result = dispatch_ws_event(32, 7, event)
-    assert result == RedownloadCreatorMedia(creator_id=658810502633238529)
+_RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
+    # ── Intentional filters: handler ran but had nothing actionable ──
+    pytest.param(
+        5,
+        1,
+        {
+            "message": {
+                "id": "900000000002",
+                "senderId": "100000000001",
+                "groupId": "200000000001",
+                "content": "just a text message",
+                "attachments": [],
+            }
+        },
+        id="new_message_empty_attachments",
+    ),
+    pytest.param(
+        5,
+        1,
+        {
+            "message": {
+                "id": "900000000003",
+                "senderId": "100000000001",
+                "groupId": "200000000001",
+                "content": "another text",
+            }
+        },
+        id="new_message_missing_attachments_key",
+    ),
+    pytest.param(
+        15,
+        5,
+        {
+            "subscription": {
+                "id": "400000000002",
+                "accountId": "500000000001",
+                "status": 2,
+                "price": 1000,
+            }
+        },
+        id="subscription_pending_status_2",
+    ),
+    pytest.param(
+        15,
+        5,
+        {
+            "subscription": {
+                "id": "400000000003",
+                "accountId": "500000000001",
+                "status": 1,
+            }
+        },
+        id="subscription_other_status",
+    ),
+    # ── Observation-only handlers: known events, no WorkItem produced ──
+    pytest.param(
+        6,
+        2,
+        {"wallet": {"id": "610000000001", "balance": 5000, "walletVersion": 7}},
+        id="wallet_credited_observation_only",
+    ),
+    pytest.param(
+        6,
+        3,
+        {
+            "transaction": {
+                "id": "904475239180673024",
+                "type": 58000,
+                "originWalletId": "720168220631244800",
+                "destinationWalletId": None,
+                "status": 2,
+                "amount": 6990,
+                "correlationId": "904475238538952704",
+            }
+        },
+        id="wallet_transaction_observation_only",
+    ),
+    pytest.param(6, 3, {}, id="wallet_transaction_no_payload"),
+    pytest.param(
+        12,
+        2,
+        {
+            "account": {
+                "id": "720167541418237953",
+                "displayName": "Test",
+                "flags": 0,
+            }
+        },
+        id="account_profile_updated_observation_only",
+    ),
+    # Defensive: account not a dict (the `if not isinstance(account, dict)` guard)
+    pytest.param(12, 2, {"account": None}, id="account_profile_not_a_dict"),
+    # ── _NOOP_DESCRIPTIONS path (svc=4 events; routed through _handle_noop_events) ──
+    pytest.param(4, 1, {"foo": "bar"}, id="noop_message_delivered_ack"),
+    pytest.param(4, 2, {"foo": "bar"}, id="noop_message_read_receipt_ack"),
+    # ── Empty / unknown events ──
+    pytest.param(5, 10, {"message": {}}, id="message_deleted_empty_payload"),
+    # Defensive: message.ids is not a list (the `if not isinstance(raw_ids, list)` guard)
+    pytest.param(
+        5, 10, {"message": {"ids": "not-a-list"}}, id="message_deleted_ids_not_a_list"
+    ),
+    pytest.param(99, 99, {"foo": "bar"}, id="unknown_svc_unknown_type"),
+    pytest.param(
+        5,
+        999,
+        {"message": {"groupId": "200000000001", "attachments": []}},
+        id="known_svc_unknown_type",
+    ),
+    # ── Defensive: malformed payloads must never raise ──
+    pytest.param(
+        2, 7, {"order": {"correlationAccountId": None}}, id="ppv_correlation_None"
+    ),
+    pytest.param(
+        2,
+        7,
+        {"order": {"orderId": "700000000003", "accountMediaId": "800000000003"}},
+        id="ppv_missing_correlation_account_id",
+    ),
+    pytest.param(5, 1, {}, id="malformed_completely_empty_dict"),
+    pytest.param(
+        5,
+        1,
+        {"message": {"groupId": True, "attachments": [{"id": "x"}]}},
+        id="malformed_boolean_group_id_rejected",  # bool not silently coerced to 1/0
+    ),
+    pytest.param(5, 1, {"unexpected_key": "data"}, id="malformed_no_message_key"),
+    pytest.param(
+        5,
+        1,
+        {"message": {"groupId": "not-an-int", "attachments": [{"contentType": 1}]}},
+        id="malformed_unparseable_group_id",
+    ),
+    pytest.param(
+        5,
+        1,
+        {"message": {"groupId": None, "attachments": [{"contentType": 1}]}},
+        id="malformed_null_group_id",
+    ),
+    pytest.param(
+        15,
+        5,
+        {"subscription": {"status": 3}},
+        id="malformed_subscription_missing_account_id",
+    ),
+    pytest.param(
+        3,
+        2,
+        {"follow": {"id": "600000000001", "followerId": "999000000001"}},
+        id="malformed_follow_missing_account_id",
+    ),
+    # ── Non-dict payload variants — handlers must isinstance-guard ──
+    pytest.param(2, 7, {"order": "unexpected-string"}, id="ppv_order_not_a_dict"),
+    pytest.param(15, 5, {"subscription": 42}, id="subscription_not_a_dict"),
+    pytest.param(3, 2, {"follow": [1, 2, 3]}, id="follow_not_a_dict"),
+]
 
 
-# ---------------------------------------------------------------------------
-# svc=5 type=10 — Message deleted (MessageService)
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(("svc", "etype", "event"), _RETURNS_NONE_CASES)
+def test_dispatch_returns_none(svc: int, etype: int, event: dict) -> None:
+    """Filter/malformed/edge events return None without raising.
 
-
-def test_message_deleted_with_ids_list_returns_mark_deleted() -> None:
-    """svc=5 type=10 with ``ids`` list → MarkMessagesDeleted."""
-    event = {"message": {"ids": ["900000000001", "900000000002"]}}
-    result = dispatch_ws_event(5, 10, event)
-    assert result == MarkMessagesDeleted(message_ids=(900000000001, 900000000002))
-
-
-def test_message_deleted_with_single_id_matches_observed_shape() -> None:
-    """svc=5 type=10 with single ``id`` + ``deletedAt`` (the shape Fansly emits)."""
-    event = {"message": {"id": "903213063648329728", "deletedAt": 1776837144}}
-    result = dispatch_ws_event(5, 10, event)
-    assert result == MarkMessagesDeleted(
-        message_ids=(903213063648329728,),
-        deleted_at_epoch=1776837144,
-    )
-
-
-def test_message_deleted_without_deleted_at_falls_back_to_none() -> None:
-    """Missing ``deletedAt`` → deleted_at_epoch=None so runner falls back to now()."""
-    event = {"message": {"id": "900000000042"}}
-    result = dispatch_ws_event(5, 10, event)
-    assert result == MarkMessagesDeleted(
-        message_ids=(900000000042,), deleted_at_epoch=None
-    )
-
-
-def test_message_deleted_empty_payload_returns_none() -> None:
-    """svc=5 type=10 without ids or id → None."""
-    result = dispatch_ws_event(5, 10, {"message": {}})
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# svc=12 type=2 — Account profile updated (AccountService)
-# ---------------------------------------------------------------------------
-
-
-def test_account_profile_updated_is_observation_only() -> None:
-    """svc=12 type=2 logs the accountId and returns None (observation-only)."""
-    event = {"account": {"id": "720167541418237953", "displayName": "Test", "flags": 0}}
-    result = dispatch_ws_event(12, 2, event)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Unknown (svc, type) pairs
-# ---------------------------------------------------------------------------
-
-
-def test_unknown_svc_type_returns_none() -> None:
-    """Completely unknown (svc, type) → None, no exception."""
-    event = {"foo": "bar"}
-    result = dispatch_ws_event(99, 99, event)
-    assert result is None
-
-
-def test_known_svc_unknown_type_returns_none() -> None:
-    """Known service but unregistered event type → None, no exception."""
-    event = {"message": {"groupId": "200000000001", "attachments": []}}
-    result = dispatch_ws_event(5, 999, event)
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Malformed events — must never raise, must return None
-# ---------------------------------------------------------------------------
-
-
-def test_malformed_event_completely_empty_dict_returns_none() -> None:
-    """svc=5 type=1 with empty dict payload → None, no exception."""
-    result = dispatch_ws_event(5, 1, {})
-    assert result is None
-
-
-def test_malformed_event_wrong_types_in_fields_returns_none() -> None:
-    """svc=2 type=7 with None correlationAccountId → None, no exception."""
-    event = {"order": {"correlationAccountId": None}}
-    result = dispatch_ws_event(2, 7, event)
-    assert result is None
-
-
-def test_malformed_event_boolean_id_rejected() -> None:
-    """svc=5 type=1 with a boolean groupId must NOT silently coerce to 1/0.
-
-    Regression guard: Python ``bool`` is a subclass of ``int``, so a
-    naive ``int(value)`` would turn ``True`` into ``1`` and produce a
-    WorkItem pointing at a nonsensical target. ``_safe_int`` rejects
-    ``bool`` explicitly so we return None on this shape.
+    Covers (1) intentional filters where the handler had no actionable
+    output, (2) observation-only handlers (wallet/profile updates),
+    (3) unknown svc/type pairs, and (4) defensive malformed-payload
+    handling. All must complete without exception.
     """
-    event = {"message": {"groupId": True, "attachments": [{"id": "x"}]}}
-    result = dispatch_ws_event(5, 1, event)
-    assert result is None
-
-
-def test_malformed_event_no_message_key_returns_none() -> None:
-    """svc=5 type=1 missing 'message' key entirely → None, no exception."""
-    result = dispatch_ws_event(5, 1, {"unexpected_key": "data"})
-    assert result is None
-
-
-def test_malformed_subscription_missing_account_id_returns_none() -> None:
-    """svc=15 type=5 status=3 but accountId missing → None, no exception."""
-    event = {"subscription": {"status": 3}}
-    result = dispatch_ws_event(15, 5, event)
-    assert result is None
-
-
-def test_malformed_follow_missing_account_id_returns_none() -> None:
-    """svc=3 type=2 missing 'accountId' in follow dict → None, no exception."""
-    event = {"follow": {"id": "600000000001", "followerId": "999000000001"}}
-    result = dispatch_ws_event(3, 2, event)
-    assert result is None
+    assert dispatch_ws_event(svc, etype, event) is None
 
 
 # ---------------------------------------------------------------------------
-# WorkItem structural checks
+# WorkItem dataclass structural checks
 # ---------------------------------------------------------------------------
 
 
-def test_work_item_subclasses_are_frozen() -> None:
-    """Frozen dataclasses reject attribute mutation."""
-    item = DownloadMessagesForGroup(group_id=12345)
-    with pytest.raises((AttributeError, TypeError)):
-        item.group_id = 99999  # type: ignore[misc]
+class TestWorkItemStructure:
+    """Concerns specific to the dataclass shape, not the dispatch table.
 
+    These don't reduce to (input, expected) parametrization because each
+    test exercises a distinct invariant: frozen-ness (mutation rejected),
+    structural equality (two instances compare equal), base-class
+    inheritance, and per-class instantiation contracts.
+    """
 
-def test_work_item_equality_is_structural() -> None:
-    """Two WorkItem subclass instances with same fields compare equal."""
-    a = RedownloadCreatorMedia(creator_id=777)
-    b = RedownloadCreatorMedia(creator_id=777)
-    assert a == b
-    assert a is not b
+    def test_work_item_subclasses_are_frozen(self) -> None:
+        """Frozen dataclasses reject attribute mutation."""
+        item = DownloadMessagesForGroup(group_id=12345)
+        with pytest.raises((AttributeError, TypeError)):
+            item.group_id = 99999  # type: ignore[misc]
 
+    def test_work_item_equality_is_structural(self) -> None:
+        """Two WorkItem subclass instances with same fields compare equal."""
+        a = RedownloadCreatorMedia(creator_id=777)
+        b = RedownloadCreatorMedia(creator_id=777)
+        assert a == b
+        assert a is not b
 
-def test_work_item_base_class_relationship() -> None:
-    """All concrete WorkItem subclasses are instances of WorkItem base."""
-    items: list[WorkItem] = [
-        DownloadMessagesForGroup(group_id=1),
-        FullCreatorDownload(creator_id=2),
-        RedownloadCreatorMedia(creator_id=3),
-        CheckCreatorAccess(creator_id=4),
-    ]
-    for item in items:
+    def test_work_item_base_class_relationship(self) -> None:
+        """All concrete WorkItem subclasses are instances of WorkItem base."""
+        items: list[WorkItem] = [
+            DownloadMessagesForGroup(group_id=1),
+            FullCreatorDownload(creator_id=2),
+            RedownloadCreatorMedia(creator_id=3),
+            CheckCreatorAccess(creator_id=4),
+        ]
+        for item in items:
+            assert isinstance(item, WorkItem)
+
+    def test_download_timeline_only_instantiates_with_creator_id(self) -> None:
+        """DownloadTimelineOnly can be constructed with a creator_id int."""
+        item = DownloadTimelineOnly(creator_id=12345)
+        assert isinstance(item, DownloadTimelineOnly)
         assert isinstance(item, WorkItem)
 
+    def test_download_timeline_only_stores_creator_id(self) -> None:
+        """DownloadTimelineOnly.creator_id matches the value supplied at construction."""
+        item = DownloadTimelineOnly(creator_id=12345)
+        assert item.creator_id == 12345
 
-# ---------------------------------------------------------------------------
-# Warning-path coverage — malformed fields that trigger logger.warning
-# ---------------------------------------------------------------------------
-
-
-def test_new_message_with_attachments_invalid_group_id_returns_none() -> None:
-    """svc=5 type=1 with attachments but unparseable groupId → None (warning logged)."""
-    event = {
-        "message": {
-            "groupId": "not-an-int",
-            "attachments": [{"contentType": 1}],
-        }
-    }
-    result = dispatch_ws_event(5, 1, event)
-    assert result is None
-
-
-def test_new_message_with_attachments_none_group_id_returns_none() -> None:
-    """svc=5 type=1 with attachments but null groupId → None (warning logged)."""
-    event = {
-        "message": {
-            "groupId": None,
-            "attachments": [{"contentType": 1}],
-        }
-    }
-    result = dispatch_ws_event(5, 1, event)
-    assert result is None
-
-
-def test_ppv_order_not_a_dict_returns_none() -> None:
-    """svc=2 type=7 with 'order' as a non-dict value → None."""
-    event = {"order": "unexpected-string"}
-    result = dispatch_ws_event(2, 7, event)
-    assert result is None
-
-
-def test_subscription_not_a_dict_returns_none() -> None:
-    """svc=15 type=5 with 'subscription' as a non-dict → None."""
-    event = {"subscription": 42}
-    result = dispatch_ws_event(15, 5, event)
-    assert result is None
-
-
-def test_follow_not_a_dict_returns_none() -> None:
-    """svc=3 type=2 with 'follow' as a non-dict → None."""
-    event = {"follow": [1, 2, 3]}
-    result = dispatch_ws_event(3, 2, event)
-    assert result is None
+    def test_download_timeline_only_is_frozen(self) -> None:
+        """DownloadTimelineOnly is a frozen dataclass — mutation raises FrozenInstanceError."""
+        item = DownloadTimelineOnly(creator_id=12345)
+        with pytest.raises((AttributeError, TypeError)):
+            item.creator_id = 99999  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
-# DownloadTimelineOnly — structural and dispatch-exclusion tests
+# Dispatch invariant: never emits DownloadTimelineOnly (only poll path does)
 # ---------------------------------------------------------------------------
-
-
-def test_download_timeline_only_instantiates_with_creator_id() -> None:
-    """DownloadTimelineOnly can be constructed with a creator_id int."""
-    item = DownloadTimelineOnly(creator_id=12345)
-    assert isinstance(item, DownloadTimelineOnly)
-    assert isinstance(item, WorkItem)
-
-
-def test_download_timeline_only_stores_creator_id() -> None:
-    """DownloadTimelineOnly.creator_id matches the value supplied at construction."""
-    item = DownloadTimelineOnly(creator_id=12345)
-    assert item.creator_id == 12345
-
-
-def test_download_timeline_only_is_frozen() -> None:
-    """DownloadTimelineOnly is a frozen dataclass — mutation raises FrozenInstanceError."""
-    item = DownloadTimelineOnly(creator_id=12345)
-    with pytest.raises((AttributeError, TypeError)):
-        item.creator_id = 99999  # type: ignore[misc]
 
 
 # All registered (svc, type) pairs — dispatch_ws_event must never emit
 # DownloadTimelineOnly for any of them.
 _ALL_DISPATCH_PAIRS: list[tuple[int, int, dict]] = [
     (5, 1, {"message": {"groupId": "200000000001", "attachments": [{"id": "x"}]}}),
+    (5, 10, {"message": {"id": "900000000001"}}),
     (15, 5, {"subscription": {"accountId": "500000000001", "status": 3}}),
     (2, 7, {"order": {"correlationAccountId": "500000000002"}}),
     (2, 8, {"order": {"correlationAccountId": "500000000002"}}),
     (3, 2, {"follow": {"accountId": "500000000003"}}),
     (6, 2, {"wallet": {"balance": 5000}}),
     (6, 3, {"transaction": {"type": 58000, "status": 2, "amount": 6990}}),
+    (12, 2, {"account": {"id": "720167541418237953"}}),
+    (32, 7, {"order": {"correlationAccountId": "500000000004"}}),
 ]
 
 

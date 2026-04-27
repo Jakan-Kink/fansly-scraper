@@ -59,6 +59,11 @@ def _async_iter(items: list) -> AsyncIterator:
     return _gen()
 
 
+async def _empty_list():
+    """Async helper returning an empty list (for ``store.get_many`` stand-in)."""
+    return []
+
+
 @pytest.fixture
 def fake_studio():
     return Studio(id="9999", name="test_user (Fansly)")
@@ -329,8 +334,3 @@ class TestBatchProcessing:
 
         assert result["images"] == []
         assert result["scenes"] == []
-
-
-async def _empty_list():
-    """Async helper returning an empty list (for ``store.get_many`` stand-in)."""
-    return []

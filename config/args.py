@@ -493,13 +493,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print debugging output. Only for developers or troubleshooting.",
     )
-    parser.add_argument(
-        "--updated-to",
-        required=False,
-        default=None,
-        help="This is for internal use of the self-updating functionality only.",
-    )
-
     # endregion Dev/Tshoot
 
     return parser.parse_args()
@@ -545,11 +538,19 @@ def check_attributes(
 
 
 def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> None:
-    """Handle debug settings and logging."""
-    config.debug = args.debug
-    set_debug_enabled(args.debug)
+    """Handle debug settings and logging.
 
+    Only overlays ``config.debug`` when ``--debug`` is explicitly passed —
+    otherwise an unconditional ``config.debug = args.debug`` would clobber
+    a YAML-set ``debug: true`` on every invocation that omits the flag.
+    Marked ephemeral so the CLI value also doesn't persist back to YAML.
+    """
     if args.debug:
+        config.debug = True
+        config._ephemeral_overrides.add("debug")
+    set_debug_enabled(config.debug)
+
+    if config.debug:
         textio_logger.opt(depth=1).log("DEBUG", f"Args: {args}")
 
 
@@ -561,6 +562,16 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
     if args.use_following_with_pagination:
         config.use_following = True
         config.use_pagination_duplication = True
+        # CLI flags are per-run; keep YAML's persisted values untouched.
+        config._ephemeral_overrides.add("use_following")
+        config._ephemeral_overrides.add("use_pagination_duplication")
+        # ``-uf``/``-ufp`` causes the daemon's ``_refresh_following`` to fetch
+        # the live following list and overwrite ``config.user_names``. Without
+        # this preemptive ephemeral mark, the next ``_save_config`` would
+        # write the API-fetched list to YAML and silently clobber the user's
+        # curated ``usernames:`` list. Mark ``user_names`` ephemeral so any
+        # runtime mutation stays runtime-only.
+        config._ephemeral_overrides.add("user_names")
         config_overridden = True
         # If this combined option is used, we don't need to check the individual options
         return config_overridden
@@ -576,6 +587,10 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
     # Handle use_following
     if args.use_following:
         config.use_following = True
+        config._ephemeral_overrides.add("use_following")
+        # Same rationale as -ufp above: protect curated user_names from being
+        # overwritten by the auto-fetched following list during a daemon run.
+        config._ephemeral_overrides.add("user_names")
         config_overridden = True
 
     if args.users is None:
@@ -583,6 +598,9 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
 
     users_line = " ".join(args.users)
     config.user_names = sanitize_creator_names(parse_items_from_line(users_line))
+    # ``-u`` is a per-run targeting override; the persisted creator list in
+    # YAML stays as the user authored it.
+    config._ephemeral_overrides.add("user_names")
     config_overridden = True
 
     if config.debug:
@@ -619,6 +637,7 @@ def _handle_download_mode(
     for arg_name, mode in mode_map.items():
         if getattr(args, arg_name, False):
             config.download_mode = mode
+            config._ephemeral_overrides.add("download_mode")
             return True, True
 
     # Handle single mode separately due to additional validation
@@ -631,6 +650,7 @@ def _handle_download_mode(
             )
         config.download_mode = DownloadMode.SINGLE
         config.post_id = post_id
+        config._ephemeral_overrides.add("download_mode")
         return True, True
 
     return config_overridden, download_mode_set
@@ -667,7 +687,6 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         "token",
         "user_agent",
         "check_key",
-        "updated_to",
         "temp_folder",
         # PostgreSQL settings
         "pg_host",
@@ -698,11 +717,16 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
         "reverse_order",
     ]
 
+    # ``reverse_order`` is runtime-only (not in OptionsSection schema) so it
+    # cannot leak to YAML; the rest are persisted and need ephemeral marking
+    # when set via CLI so per-run flags don't pin a new YAML default.
     for attr_name in positive_bools:
         check_attr(attr_name, attr_name)
         arg_attribute = getattr(args, attr_name)
         if arg_attribute is True:
             setattr(config, attr_name, arg_attribute)
+            if attr_name != "reverse_order":
+                config._ephemeral_overrides.add(attr_name)
             config_overridden = True
 
     # Handle negative boolean flags
@@ -723,6 +747,8 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
         arg_attribute = getattr(args, arg_name)
         if arg_attribute is True:
             setattr(config, config_name, not arg_attribute)
+            # Per-run override; YAML's persisted default stays intact.
+            config._ephemeral_overrides.add(config_name)
             config_overridden = True
 
     return config_overridden
@@ -776,10 +802,17 @@ def _handle_monitoring_settings(args: argparse.Namespace, config: FanslyConfig) 
         baseline = args.monitor_since
 
     if baseline is not None:
+        # Runtime-only: the daemon consumes ``monitoring_session_baseline``
+        # once per creator (see daemon/runner.py:_process_timeline_candidate
+        # ``baseline_consumed`` set), and ``mark_creator_processed`` advances
+        # ``MonitorState.lastCheckedAt`` in the database after each successful
+        # download. The CLI baseline self-extinguishes within the run; writing
+        # it into the YAML schema would silently turn ``--full-pass`` into a
+        # permanent setting that re-fires on every subsequent invocation.
+        # YAML-authored ``session_baseline`` is supported as a one-shot
+        # directive by the load-time consume-and-reset logic in
+        # ``config/config.py::_populate_config_from_schema``.
         config.monitoring_session_baseline = baseline
-        # Also write into the schema so _save_config() persists the session override
-        if config._schema is not None:
-            config._schema.monitoring.session_baseline = baseline
         overridden = True
 
     if getattr(args, "daemon_mode", False):

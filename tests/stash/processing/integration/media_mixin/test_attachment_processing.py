@@ -2,9 +2,7 @@
 
 These tests verify which Media objects flatten into the batch list passed
 to ``_process_batch_internal`` from various attachment shapes (direct
-media, bundle, aggregated post recursion). They sit at the
-``unit/media_mixin/`` location historically, but since the rewrite to
-remove the AsyncMock that was hiding production they exercise the real
+media, bundle, aggregated post recursion). They exercise the real
 ``_process_batch_internal`` end-to-end against Docker Stash via
 ``real_stash_processor`` — the canonical TrueSpy pattern documented at
 ``tests/stash/processing/integration/test_message_processing.py:173-238``
@@ -13,8 +11,8 @@ integration tests in ``test_media_processing.py:505,664,827`` is the
 intermediate batch-composition assertion (which Media objects the spy
 captures), not the eventual created Image/Scene shape.
 
-Follow-up: relocating these to ``integration/`` is a separate cleanup
-decision; Wave 2's mission is mocks-out, not directory hygiene.
+Located under ``integration/media_mixin/`` (Wave 4 directory hygiene)
+because the test surface is real Docker Stash + EntityStore.
 """
 
 from datetime import UTC, datetime

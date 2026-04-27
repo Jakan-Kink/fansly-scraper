@@ -77,7 +77,6 @@ class FanslyConfigFactory(Factory):
     debug = False
     trace = False
     post_id = None
-    updated_to = None
 
     # Private fields (None by default)
     _api = None
