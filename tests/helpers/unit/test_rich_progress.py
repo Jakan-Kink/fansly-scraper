@@ -14,6 +14,7 @@ from helpers.rich_progress import (
     ContextualTimeColumn,
     ProgressManager,
     _do_watch_progress,
+    _shutdown_progress_live,
     _watch_progress,
     create_rich_handler,
     ffmpeg_progress,
@@ -257,3 +258,53 @@ class TestFfmpegProgress:
             time.sleep(0.2)
 
         assert "test_mux" not in pm.active_tasks
+
+
+class TestAtexitShutdown:
+    """Verify ``_shutdown_progress_live`` joins Rich's Live refresh thread.
+
+    Rich's ``Live.start()`` spawns a daemon thread that writes ANSI cursor
+    sequences to stdout. If a session is left open at process exit (test
+    interruption, xdist worker shutdown after a test left a session
+    open), ``_Py_Finalize.flush_std_files`` races the daemon thread on
+    the stdout buffer lock and triggers CPython's ``_enter_buffered_busy``
+    fatal error, aborting the process with SIGABRT. The atexit hook stops
+    Live before finalization so the refresh thread joins cleanly first.
+    """
+
+    def test_shutdown_stops_running_live(self):
+        """An open session at atexit time → Live is stopped, refresh thread joined."""
+        pm = get_progress_manager()
+        with pm.session():
+            assert pm.live is not None
+            assert pm.live.is_started, "session() must start Live"
+
+            # Simulate atexit firing while session is still open.
+            _shutdown_progress_live()
+
+            assert pm.live is None, (
+                "atexit hook must clear pm.live so the daemon refresh thread "
+                "exits before _Py_Finalize"
+            )
+            assert pm._session_count == 0
+
+    def test_shutdown_with_no_live_is_noop(self):
+        """Calling the hook with no active Live must not raise."""
+        pm = get_progress_manager()
+        # Ensure clean state — no session active.
+        assert pm.live is None
+        # Must be a no-op, no exception.
+        _shutdown_progress_live()
+        assert pm.live is None
+
+    def test_shutdown_swallows_internal_exceptions(self):
+        """If Live.stop() raises, the hook must not propagate (atexit is fragile)."""
+        pm = get_progress_manager()
+        with (
+            pm.session(),
+            patch.object(pm.live, "stop", side_effect=RuntimeError("boom")),
+        ):
+            # Patch Live.stop to raise — atexit must still complete cleanly.
+            _shutdown_progress_live()  # must not raise
+            # Live reference may still be set since stop() failed — but that's OK,
+            # the goal is "don't blow up at atexit time" not "guaranteed cleanup."

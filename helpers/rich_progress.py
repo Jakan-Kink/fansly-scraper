@@ -15,6 +15,7 @@ render multi-colored segments from a ``phase_styles`` field on the task.
 """
 
 import asyncio
+import atexit
 import contextlib
 import os
 import tempfile
@@ -590,6 +591,27 @@ class ProgressManager:
 
 # Global progress manager instance
 _progress_manager = ProgressManager()
+
+
+@atexit.register
+def _shutdown_progress_live() -> None:
+    """Stop Rich's Live refresh thread cleanly before interpreter teardown.
+
+    ``Live.start()`` spawns a daemon thread that periodically writes ANSI
+    cursor sequences to stdout. If the process exits while a session is
+    still open (KeyboardInterrupt mid-download, pytest-xdist worker
+    shutdown after a test left a session open, etc.),
+    ``_Py_Finalize.flush_std_files`` runs while the daemon thread is
+    mid-buffered-write — triggering CPython's ``_enter_buffered_busy``
+    fatal error and aborting the process with SIGABRT. ``atexit`` fires
+    before ``_Py_Finalize``, so calling ``Live.stop()`` here joins the
+    refresh thread cleanly first.
+    """
+    with contextlib.suppress(Exception), _progress_manager._lock:
+        if _progress_manager.live is not None:
+            _progress_manager.live.stop()
+            _progress_manager.live = None
+            _progress_manager._session_count = 0
 
 
 def get_progress_manager() -> ProgressManager:

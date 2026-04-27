@@ -890,8 +890,6 @@ async def test_process_bundle_with_preview(
             test_media_bundle, test_post, test_account, result
         )
     finally:
-        # dump_graphql_calls is the SIGABRT-safe replacement for bare print()
-        # loops in test teardown (per feedback_no_bare_print.md memory).
         dump_graphql_calls(graphql_route.calls, "test_process_bundle_with_preview")
 
     # Assert

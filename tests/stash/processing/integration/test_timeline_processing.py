@@ -418,9 +418,6 @@ async def test_process_timeline_hashtags(
                     url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
                 )
             finally:
-                # Use dump_graphql_calls instead of bare print() — bare prints
-                # in test teardown can race with shutdown and trigger SIGABRT
-                # under xdist (per feedback_no_bare_print.md memory).
                 dump_graphql_calls(calls, "test_process_timeline_hashtags")
 
         # Manual studio cleanup from spy

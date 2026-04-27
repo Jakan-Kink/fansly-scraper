@@ -214,6 +214,121 @@ async def cleanup_tasks():
 
 
 @pytest.fixture(autouse=True)
+def cleanup_global_progress_state():
+    """Stop Rich's Live refresh thread between every test.
+
+    The ``helpers.rich_progress`` module exposes a singleton
+    ``_progress_manager`` whose ``Live.start()`` spawns a daemon thread
+    that writes ANSI cursor sequences to stdout. If a test enters a
+    session and exits without unwinding it cleanly, the daemon thread
+    accumulates across tests and is still alive when xdist worker
+    shutdown calls ``_Py_Finalize.flush_std_files`` — racing the buffer
+    lock and triggering ``_enter_buffered_busy`` → SIGABRT.
+
+    Killing the thread *between* tests means it never accumulates to
+    shutdown, no matter how poorly an individual test cleaned up. The
+    atexit hook in ``helpers/rich_progress.py`` is the backstop for the
+    "no test ever ran" case (or test-process exit during teardown).
+    """
+    yield
+
+    with suppress(Exception):
+        from helpers.rich_progress import _progress_manager
+
+        with _progress_manager._lock:
+            if _progress_manager.live is not None:
+                with suppress(Exception):
+                    _progress_manager.live.stop()
+                _progress_manager.live = None
+            _progress_manager.active_tasks.clear()
+            _progress_manager._session_count = 0
+
+
+@pytest.fixture(autouse=True)
+def cleanup_global_config_state():
+    """Reset module-level globals in ``config/logging.py`` between tests.
+
+    ``init_logging_config`` writes ``_config`` (the FanslyConfig instance)
+    and ``_debug_enabled`` (bool) at module scope. Without per-test
+    reset, an earlier test's config object survives into a later test's
+    logging setup — bypassing whatever fresh config that test built.
+    Symptoms: log levels from the wrong test's config, debug filter
+    state leaking, ``set_debug_enabled`` no-oping because the global
+    already matches.
+    """
+    yield
+
+    with suppress(Exception):
+        import config.logging as _logging_mod
+
+        _logging_mod._config = None
+        _logging_mod._debug_enabled = False
+
+
+@pytest.fixture(autouse=True)
+def cleanup_http_sessions():
+    """Track and close ``httpx.Client`` instances created during the test.
+
+    Un-closed httpx clients hold connection pools (background asyncio
+    tasks per pool, plus per-connection sockets). At xdist worker
+    shutdown those pools are torn down in unspecified order — which can
+    contribute to the same shutdown-thread interleaving that produces
+    SIGABRTs from buffered-IO races.
+
+    Tracking via ``__init__`` monkeypatch catches every Client created
+    during the test, not just the ones explicitly handed to fixtures.
+    The ``original_init`` is restored on teardown so the patch doesn't
+    leak across tests in unexpected ways.
+    """
+    import httpx
+
+    created_sessions: list[httpx.Client] = []
+    original_init = httpx.Client.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        created_sessions.append(self)
+        return original_init(self, *args, **kwargs)
+
+    httpx.Client.__init__ = tracking_init
+
+    try:
+        yield
+    finally:
+        for session in created_sessions:
+            with suppress(Exception):
+                session.close()
+        httpx.Client.__init__ = original_init
+
+
+@pytest.fixture(autouse=True)
+def cleanup_loguru_handlers():
+    """Remove loguru handlers between tests so they don't accumulate.
+
+    ``init_logging_config`` adds 5-7 loguru sinks per call and tracks
+    them in ``_handler_ids``. Without per-test removal, every test that
+    triggers ``load_config`` adds another set of sinks; by end-of-suite
+    each test event fires through dozens of stale handlers, several of
+    which still hold open file descriptors. At xdist worker shutdown
+    those file handles are closed in unspecified order while loguru's
+    machinery may still be writing — contributing to the buffered-IO
+    race that produces ``_enter_buffered_busy`` SIGABRTs.
+
+    Removing handlers between tests bounds the accumulation to one
+    set per test instead of N. Loguru handles the file closure itself;
+    we only ``logger.remove(handler_id)`` and clear the registry.
+    """
+    yield
+
+    with suppress(Exception):
+        from config.logging import _handler_ids
+
+        for handler_id, (_handler, _file_handler) in list(_handler_ids.items()):
+            with suppress(ValueError):
+                logger.remove(handler_id)
+        _handler_ids.clear()
+
+
+@pytest.fixture(autouse=True)
 def setup_test_logging():
     """Set up logging for tests and clean up after.
 
