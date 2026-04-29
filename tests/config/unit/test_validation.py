@@ -29,6 +29,8 @@ it returns a fresh real ``FanslyConfig`` with a writable config_path, so
 save-triggering branches exercise the real YAML write without mocks.
 """
 
+import logging
+import platform as _platform
 import types
 from pathlib import Path
 from unittest.mock import patch
@@ -117,7 +119,6 @@ def test_validate_creator_names_removes_invalid_and_saves(validation_config, cap
     and writes a YAML file to the ``tmp_path`` config_path — proof that
     the side-effectful "list changed → save" branch fires end-to-end.
     """
-    import logging
 
     caplog.set_level(logging.WARNING)
     validation_config.user_names = {"a", "valid", "bad chars!"}
@@ -147,7 +148,6 @@ def test_validate_creator_names_all_removed_returns_true_and_falls_back(
     validator still returns True and logs the "will process following
     list" info message.
     """
-    import logging
 
     caplog.set_level(logging.INFO)
     validation_config.user_names = {"a", "b"}  # all too short
@@ -225,7 +225,6 @@ def test_validate_adjust_token_skips_when_username_password_set(
     no ConfigError escapes. (Previously this test asserted on a mock
     call-count, which was proxy-evidence.)
     """
-    import logging
 
     caplog.set_level(logging.INFO)
     validation_config.username = "someone"
@@ -638,8 +637,6 @@ def test_validate_adjust_user_agent_invalid_fetches_and_saves(validation_config)
     validation_config.user_agent = "short"  # invalid
     original_ua = validation_config.user_agent
 
-    import platform as _platform
-
     # Include a UA for the host OS so the platform match inside
     # guess_user_agent can succeed on the CI runner without fragile
     # assertions on OS/version values.
@@ -707,7 +704,6 @@ def test_validate_adjust_user_agent_logs_browser_specific_when_token_from_browse
     validation_config, caplog
 ):
     """token_from_browser_name set → logs browser-specific message (lines 302-306)."""
-    import logging
 
     caplog.set_level(logging.INFO)
     validation_config.user_agent = "short"
@@ -1047,7 +1043,6 @@ def test_validate_adjust_config_runs_all_validators_end_to_end(
     check key → download directory → download mode. No sub-validator
     should raise; the run completes cleanly.
     """
-    import logging
 
     caplog.set_level(logging.INFO)
 

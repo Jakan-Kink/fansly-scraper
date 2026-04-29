@@ -21,6 +21,7 @@ import httpx
 import pytest
 import respx
 
+import fansly_downloader_ng as fdng
 from config.logging import init_logging_config
 from config.modes import DownloadMode
 from errors import EXIT_SUCCESS, SOME_USERS_FAILED, ConfigError
@@ -1195,8 +1196,6 @@ async def test_main_outer_background_block_generic_exception(
 
     async def _seed_task(config, state):
         config._background_tasks.append(asyncio.create_task(_quick_task()))
-
-    import fansly_downloader_ng as fdng
 
     real_print_info = fdng.print_info
 

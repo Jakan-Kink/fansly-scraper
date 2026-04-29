@@ -24,7 +24,7 @@ from loguru import logger
 from errors import InvalidTraceLogError
 
 
-if sys.platform == "win32":
+if sys.platform == "win32":  # pragma: no cover
     # Set console mode to handle UTF-8
     try:
         import ctypes
@@ -75,12 +75,16 @@ class InterceptHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            level = logger.level(record.levelname).name
+            level: str | int = logger.level(record.levelname).name
         except ValueError:
-            level = str(record.levelno)
+            # Unknown levelname → pass the integer through; loguru's .log()
+            # accepts ints directly (a string fallback would re-raise here).
+            level = record.levelno
 
         frame, depth = sys._getframe(6), 6
-        while frame and frame.f_code.co_filename == logging.__file__:
+        while (
+            frame and frame.f_code.co_filename == logging.__file__
+        ):  # pragma: no cover
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
@@ -105,12 +109,15 @@ class SQLAlchemyInterceptHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            level = logger.level(record.levelname).name
+            level: str | int = logger.level(record.levelname).name
         except ValueError:
-            level = str(record.levelno)
+            # Same int-passthrough rationale as InterceptHandler.emit.
+            level = record.levelno
 
         frame, depth = sys._getframe(6), 6
-        while frame and frame.f_code.co_filename == logging.__file__:
+        while (
+            frame and frame.f_code.co_filename == logging.__file__
+        ):  # pragma: no cover
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
@@ -325,7 +332,7 @@ def setup_handlers() -> None:
     for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
         try:
             logger.remove(handler_id)
-            if file_handler:
+            if file_handler:  # pragma: no cover — _handler_ids' second tuple slot is always None today
                 with contextlib.suppress(Exception):
                     file_handler.close()
         except ValueError:
@@ -356,8 +363,10 @@ def setup_handlers() -> None:
             return False
 
         # Unbound logs: suppress SQLAlchemy/asyncpg/alembic noise.
+        # pragma: no cover — defensive net; _auto_bind_logger pre-binds these to "db",
+        # so by the time records reach this filter logger_type is set above.
         logger_name = record.get("name", "")
-        if (
+        if (  # pragma: no cover
             logger_name.startswith(("sqlalchemy.", "asyncpg"))
             or logger_name == "alembic.runtime.migration"
         ):

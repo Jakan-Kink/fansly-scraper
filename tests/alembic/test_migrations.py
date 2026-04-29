@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.util
 import logging
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,10 +13,12 @@ from urllib.parse import quote_plus
 
 import pytest
 import sqlalchemy
+import sqlalchemy as sa
 from alembic.config import Config
 from sqlalchemy import text
 
 from alembic import command, script
+from metadata.tables import metadata as target_metadata
 from tests.fixtures.database.database_fixtures import TestDatabase
 
 
@@ -742,8 +746,6 @@ def test_4416_skip_create_index(uuid_test_db_factory):
 
 def test_env_offline_mode():
     """Test env.py run_migrations_offline function (lines 50-62)."""
-    from pathlib import Path
-
     # Load env.py as a module but don't execute module-level code
     env_path = Path(__file__).parent.parent.parent / "alembic/env.py"
 
@@ -761,10 +763,6 @@ def test_env_offline_mode():
     mock_context.config = mock_config
     mock_context.begin_transaction.return_value.__enter__ = MagicMock()
     mock_context.begin_transaction.return_value.__exit__ = MagicMock()
-
-    # Import SA Core metadata for schema operations (Pydantic models
-    # replaced the ORM, but Alembic still needs SA Core metadata).
-    from metadata.tables import metadata as target_metadata
 
     # Create a local namespace to exec the function definition
     local_ns = {
@@ -826,8 +824,6 @@ def test_env_url_from_environment_variables(uuid_test_db_factory):
 
             # The env.py module reads from environment when URL is not set
             # We need to test that code path by importing fresh
-            import sys
-
             # Remove cached module to force reimport
             if "alembic.env" in sys.modules:
                 del sys.modules["alembic.env"]
@@ -907,8 +903,6 @@ def test_env_fallback_import(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
 
     try:
-        import sys
-
         # Temporarily make the direct import fail to trigger fallback
         original_modules = {}
         if "metadata.base" in sys.modules:
@@ -2298,8 +2292,6 @@ def test_b8dc_downgrade_no_matching_constraint(uuid_test_db_factory):
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
     rev = scripts.get_revision(target_rev)
 
-    import sqlalchemy as sa
-
     real_sa_inspect = sa.inspect
 
     def side_effect(bind):
@@ -2374,8 +2366,6 @@ def test_b8dc_downgrade_stories_fk_not_found(uuid_test_db_factory):
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
     rev = scripts.get_revision(target_rev)
-
-    import sqlalchemy as sa
 
     real_sa_inspect = sa.inspect
 
@@ -2460,8 +2450,6 @@ def test_b8dc_downgrade_fk_exists_skip_drop(uuid_test_db_factory):
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
     rev = scripts.get_revision(target_rev)
-
-    import sqlalchemy as sa
 
     real_sa_inspect = sa.inspect
 
@@ -2587,9 +2575,6 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
 
 def test_extract_hashtags_empty_content():
     """Test extract_hashtags with empty/None content (line 28)."""
-    import importlib.util
-    from pathlib import Path
-
     # Load the migration module dynamically since it starts with a number
     spec = importlib.util.spec_from_file_location(
         "clean_malformed_hashtags",
@@ -2611,9 +2596,6 @@ def test_extract_hashtags_empty_content():
 
 def test_extract_hashtags_special_chars():
     """Test extract_hashtags with special characters."""
-    import importlib.util
-    from pathlib import Path
-
     spec = importlib.util.spec_from_file_location(
         "clean_malformed_hashtags",
         Path(__file__).parent.parent.parent
@@ -2642,10 +2624,6 @@ def test_extract_hashtags_special_chars():
 
 def test_env_password_encoding_with_special_chars():
     """Test env.py password URL encoding with special characters (lines 13-24)."""
-    import sys
-    from pathlib import Path
-    from unittest.mock import MagicMock, patch
-
     env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
     env_code = env_path.read_text()
 
@@ -2680,10 +2658,6 @@ def test_env_password_encoding_with_special_chars():
 
 def test_env_online_mode_no_url_raises_error():
     """Test env.py online mode raises ValueError when no URL (line 76)."""
-    import sys
-    from pathlib import Path
-    from unittest.mock import MagicMock, patch
-
     env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
     env_code = env_path.read_text()
 
@@ -2712,10 +2686,6 @@ def test_env_online_mode_no_url_raises_error():
 
 def test_env_connection_commit_when_in_transaction():
     """Test env.py commits when connection.in_transaction() is True (lines 105, 109)."""
-    import sys
-    from pathlib import Path
-    from unittest.mock import MagicMock, patch
-
     env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
     env_code = env_path.read_text()
 
@@ -3175,8 +3145,6 @@ def test_b8dc_downgrade_messages_fk_exists_skip(uuid_test_db_factory):
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
     rev = scripts.get_revision(target_rev)
-
-    import sqlalchemy as sa
 
     real_sa_inspect = sa.inspect
 

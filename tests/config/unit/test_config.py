@@ -7,6 +7,7 @@ import pytest
 from loguru import logger
 
 from config.config import (
+    _handle_config_error,
     copy_old_config_values,
     load_config,
     parse_items_from_line,
@@ -686,3 +687,75 @@ Check_Key = {outdated_key}
 # Retired-field silent-drop coverage lives in tests/config/unit/test_schema.py
 # (test_retired_field_*_silently_dropped) — the ConfigParser-based "remove
 # from _parser" check disappeared with the Pydantic migration.
+
+
+# ---------------------------------------------------------------------------
+# _handle_config_error — config/config.py:297-324
+# ---------------------------------------------------------------------------
+
+
+class TestHandleConfigError:
+    """Lines 297-324: error → ConfigError translation matrix.
+
+    Each branch transforms a specific exception type into a ConfigError
+    with a tailored message. Tests pass each input shape and verify the
+    resulting ConfigError text contains the expected discriminating phrase.
+    """
+
+    def test_no_option_error_yields_config_yaml_invalid(self):
+        """Lines 308-311: configparser.NoOptionError → 'config.yaml is invalid'."""
+        from configparser import NoOptionError
+
+        exc = NoOptionError("missing_key", "Options")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        assert "config.yaml is invalid" in str(info.value)
+
+    def test_value_error_with_pydantic_problem_count_passes_through(self):
+        """Lines 312-316: ValueError with 'N problem(s) in ' prefix → 'Configuration file needs editing'."""
+        # Pydantic's _format_validation_error emits "3 problem(s) in download settings: ..."
+        exc = ValueError("3 problem(s) in download settings: bad value")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        assert "Configuration file needs editing" in str(info.value)
+        assert "3 problem(s)" in str(info.value)
+
+    def test_value_error_with_boolean_marker_extracts_field_name(self):
+        """Lines 317-320: ValueError containing 'a boolean' → '<field> is malformed... must be true or false'."""
+        exc = ValueError("could not parse field as a boolean: download_media_previews")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        msg = str(info.value)
+        assert "download_media_previews" in msg
+        assert "must be true or false" in msg
+
+    def test_generic_value_error_yields_invalid_value(self):
+        """Line 321: generic ValueError → 'Invalid value in config.yaml'."""
+        exc = ValueError("some random validation issue")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        assert "Invalid value in config.yaml" in str(info.value)
+
+    def test_key_error_yields_missing_or_malformed(self):
+        """Lines 322-323: KeyError → "'<key>' is missing or malformed"."""
+        exc = KeyError("download_directory")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        msg = str(info.value)
+        assert "missing or malformed" in msg
+        assert "download_directory" in msg
+
+    def test_name_error_treated_same_as_key_error(self):
+        """Lines 322-323: NameError is in the same isinstance check as KeyError."""
+        exc = NameError("undefined_name")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        assert "missing or malformed" in str(info.value)
+
+    def test_generic_exception_yields_fallback(self):
+        """Line 324: anything else → 'An error occurred while reading config.yaml'."""
+        exc = RuntimeError("filesystem went sideways")
+        with pytest.raises(ConfigError) as info:
+            _handle_config_error(exc)
+        assert "An error occurred while reading config.yaml" in str(info.value)
+        assert "filesystem went sideways" in str(info.value)

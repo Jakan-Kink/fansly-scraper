@@ -6,10 +6,14 @@ Everything else — message dispatch, ping logic, reconnect, auth — runs real 
 
 import asyncio
 import json
+import logging
+import ssl
 from contextlib import suppress
 from unittest.mock import patch
 
 import pytest
+from websockets.exceptions import ConnectionClosed
+from websockets.frames import Close
 
 from api.websocket import FanslyWebSocket
 
@@ -98,7 +102,6 @@ class TestMessageHelpers:
     def test_create_ssl_context(self):
         ws = _make_ws()
         ctx = ws._create_ssl_context()
-        import ssl
 
         assert ctx.check_hostname is False
         assert ctx.verify_mode == ssl.CERT_NONE
@@ -450,7 +453,6 @@ class TestPingLoop:
     @pytest.mark.asyncio
     async def test_ping_websocket_error(self):
         """WebSocket error during ping stops loop (lines 474-477)."""
-        from websockets.exceptions import ConnectionClosed
 
         ws = _make_ws()
         ws.connected = True
@@ -458,7 +460,6 @@ class TestPingLoop:
         # FakeSocket that raises on send
         class ErrorSocket(FakeSocket):
             async def send(self, message):
-                from websockets.frames import Close
 
                 raise ConnectionClosed(Close(1006, "gone"), None)
 
@@ -554,8 +555,6 @@ class TestListenLoop:
     @pytest.mark.asyncio
     async def test_listen_loop_websocket_error(self):
         """WebSocket error in listen → connected=False (lines 519-522)."""
-        from websockets.exceptions import ConnectionClosed
-        from websockets.frames import Close
 
         ws = _make_ws()
         ws.connected = True
@@ -724,3 +723,913 @@ class TestContextManager:
                 assert ws._ws_thread.is_alive()
 
         assert ws._ws_thread is None
+
+
+# ---------------------------------------------------------------------------
+# Monitor handler tests — covers api/websocket.py 479-844
+#
+# These tests target _monitor_event + _monitor_service_event +
+# 8 service-specific handlers (_monitor_post_event, _monitor_media_event,
+# _monitor_message_event, _monitor_follow_event, _monitor_wallet_event,
+# _monitor_subscription_event, _monitor_payment_event, _monitor_chat_event).
+#
+# All handlers categorize WebSocket events for protocol-discovery logging
+# via loguru. caplog captures via pytest-loguru's bridge. Methods are called
+# directly on a real FanslyWebSocket — no thread, no socket, no asyncio.
+# ---------------------------------------------------------------------------
+
+
+def _logged_messages(caplog, level: str = "INFO") -> list[str]:
+    """Return captured loguru messages at the given stdlib levelname."""
+    return [r.getMessage() for r in caplog.records if r.levelname == level]
+
+
+class TestMonitorEvent:
+    """Lines 479-536: top-level dispatcher for known message types."""
+
+    def test_ping_returns_silently(self, caplog):
+        """Line 486-487: MSG_PING (2) → early return, no log."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_event(FanslyWebSocket.MSG_PING, {})
+        # No "[WS Monitor]" lines — ping is intentionally silent.
+        assert not any("[WS Monitor]" in m for m in _logged_messages(caplog))
+
+    def test_error_event_logs_code(self, caplog):
+        """Lines 489-496: MSG_ERROR → decode + log code."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_event(FanslyWebSocket.MSG_ERROR, json.dumps({"code": 401}))
+        msgs = _logged_messages(caplog)
+        assert any("[WS Monitor] Error | code=401" in m for m in msgs)
+
+    def test_error_event_dict_input(self, caplog):
+        """Lines 489-496: MSG_ERROR with dict input (not str)."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_event(FanslyWebSocket.MSG_ERROR, {"code": 429})
+        assert any(
+            "[WS Monitor] Error | code=429" in m for m in _logged_messages(caplog)
+        )
+
+    def test_session_event_logs_session_id(self, caplog):
+        """Lines 498-511: MSG_SESSION → decode + log session/wsId/status."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        payload = {
+            "session": {
+                "id": "sess123",
+                "websocketSessionId": "ws456",
+                "status": 2,
+            }
+        }
+        ws._monitor_event(FanslyWebSocket.MSG_SESSION, json.dumps(payload))
+        msgs = _logged_messages(caplog)
+        assert any(
+            "[WS Monitor] Session" in m and "sess123" in m and "ws456" in m
+            for m in msgs
+        )
+
+    def test_service_event_dispatches_to_service_handler(self, caplog):
+        """Line 513-515: MSG_SERVICE_EVENT → _monitor_service_event."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        # SVC_FOLLOWS=3 with no follow key → unknown follow dump.
+        envelope = {"serviceId": 3, "event": json.dumps({"type": 99})}
+        ws._monitor_event(FanslyWebSocket.MSG_SERVICE_EVENT, json.dumps(envelope))
+        # The service-event dispatch went to the follow handler's fallback.
+        msgs = _logged_messages(caplog)
+        assert any("[WS Monitor] Follow svc=3" in m for m in msgs)
+
+    def test_batch_event_logs_count_at_debug(self, caplog):
+        """Lines 517-520: MSG_BATCH (list) → debug log of count."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        ws._monitor_event(FanslyWebSocket.MSG_BATCH, [{"foo": 1}, {"bar": 2}])
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("[WS Monitor] Batch of 2" in m for m in debug_msgs)
+
+    def test_batch_event_non_list_input_logs_zero(self, caplog):
+        """Line 518: non-list message_data → batch=[]."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        ws._monitor_event(FanslyWebSocket.MSG_BATCH, "not a list")
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("[WS Monitor] Batch of 0" in m for m in debug_msgs)
+
+    def test_chat_room_event(self, caplog):
+        """Lines 522-529: MSG_CHAT_ROOM → log room id."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        payload = json.dumps({"chatRoomId": "room42"})
+        ws._monitor_event(FanslyWebSocket.MSG_CHAT_ROOM, payload)
+        assert any(
+            "[WS Monitor] Chat Room Join" in m and "room42" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_unknown_message_type_dumps_payload(self, caplog):
+        """Lines 531-536: unknown type → "Unknown t={}" + JSON dump."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_event(99999, {"weird": "payload"})
+        msgs = _logged_messages(caplog)
+        assert any("[WS Monitor] Unknown t=99999" in m for m in msgs)
+
+    def test_unknown_message_type_empty_payload(self, caplog):
+        """Lines 531-536: empty message_data → "(empty)" placeholder."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_event(99999, None)
+        msgs = _logged_messages(caplog)
+        assert any("(empty)" in m for m in msgs)
+
+
+class TestMonitorServiceEvent:
+    """Lines 538-634: service-event dispatcher (svc → handler routing)."""
+
+    def test_envelope_decode_error_logs_warning(self, caplog):
+        """Lines 552-554: bad JSON envelope → warning + return."""
+        caplog.set_level(logging.WARNING)
+        ws = _make_ws()
+        ws._monitor_service_event("not valid json {")
+        msgs = _logged_messages(caplog, "WARNING")
+        assert any("ServiceEvent decode error" in m for m in msgs)
+
+    def test_inner_event_decode_error_logs_warning(self, caplog):
+        """Lines 565-571: bad inner JSON → warning with svc id + return."""
+        caplog.set_level(logging.WARNING)
+        ws = _make_ws()
+        envelope = json.dumps({"serviceId": 7, "event": "not valid {"})
+        ws._monitor_service_event(envelope)
+        msgs = _logged_messages(caplog, "WARNING")
+        assert any("inner decode error" in m and "svc=7" in m for m in msgs)
+
+    def test_messaging_service_returns_silently(self, caplog):
+        """Lines 576-577: SVC_MESSAGING (4) → noisy ACKs, skip."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_MESSAGING,
+            "event": json.dumps({"type": 99}),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        # No [WS Monitor] log for messaging ACKs.
+        assert not any(
+            "[WS Monitor]" in m
+            for m in _logged_messages(caplog, "INFO")
+            + _logged_messages(caplog, "DEBUG")
+        )
+
+    def test_notification_event_known_type_debug_log(self, caplog):
+        """Lines 580-590: SVC_NOTIFICATIONS with known type → debug log with label."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_NOTIFICATIONS,
+            "event": json.dumps(
+                {
+                    "notification": {
+                        "type": 1002,  # "Post Like"
+                        "correlationId": "c1",
+                        "id": "n1",
+                    }
+                }
+            ),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("Post Like" in m and "c1" in m and "n1" in m for m in debug_msgs)
+
+    def test_notification_event_unknown_type_uses_unknown_label(self, caplog):
+        """Lines 583-584: notification type not in NOTIFICATION_TYPES → 'unknown(N)'."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_NOTIFICATIONS,
+            "event": json.dumps({"notification": {"type": 9999, "id": "n2"}}),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("unknown(9999)" in m for m in debug_msgs)
+
+    def test_notification_read_event(self, caplog):
+        """Lines 591-595: SVC_NOTIFICATIONS with 'data' (not 'notification')."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_NOTIFICATIONS,
+            "event": json.dumps({"data": {"beforeAnd": "1234567890"}}),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("Notification Read" in m and "1234567890" in m for m in debug_msgs)
+
+    def test_poll_subscribe_event(self, caplog):
+        """Lines 599-608: SVC_POLLS event_type=20 → 'Sub' debug log."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_POLLS,
+            "event": json.dumps(
+                {
+                    "type": 20,
+                    "pollSubscription": {"pollId": "p1", "id": "ps1"},
+                }
+            ),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("Poll Sub" in m and "p1" in m and "ps1" in m for m in debug_msgs)
+
+    def test_poll_unsubscribe_event(self, caplog):
+        """Lines 599-608: SVC_POLLS event_type!=20 → 'Unsub' debug log."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": FanslyWebSocket.SVC_POLLS,
+            "event": json.dumps(
+                {
+                    "type": 21,
+                    "pollSubscription": {"pollId": "p2", "id": "ps2"},
+                }
+            ),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        debug_msgs = _logged_messages(caplog, "DEBUG")
+        assert any("Poll Unsub" in m for m in debug_msgs)
+
+    def test_unknown_service_id_dumps_event(self, caplog):
+        """Lines 627-634: serviceId not in handlers dict → full dump."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        envelope = {
+            "serviceId": 12345,  # not in any SVC_* constant
+            "event": json.dumps({"type": 7, "weird": "data"}),
+        }
+        ws._monitor_service_event(json.dumps(envelope))
+        msgs = _logged_messages(caplog)
+        assert any("serviceId=12345" in m and "type=7" in m for m in msgs)
+
+
+class TestMonitorPostEvent:
+    """Lines 636-653: SVC_POST handler (likes + unknown fallback)."""
+
+    def test_post_like_logs_structured(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_post_event(
+            event_type=1,
+            event={"like": {"postId": "p1", "accountId": "a1", "id": "lk1"}},
+        )
+        assert any(
+            "Post Like" in m and "p1" in m and "a1" in m and "lk1" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_post_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_post_event(event_type=7, event={"unknown_key": "x"})
+        assert any(
+            "Post svc=1 type=7" in m and "unknown_key" in m
+            for m in _logged_messages(caplog)
+        )
+
+
+class TestMonitorMediaEvent:
+    """Lines 655-684: SVC_MEDIA handler (likes + purchases + unknown)."""
+
+    def test_media_like_logs_structured(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_media_event(
+            event_type=1,
+            event={
+                "like": {
+                    "accountMediaId": "am1",
+                    "accountMediaBundleId": "amb1",
+                    "accountMediaAccess": True,
+                    "id": "lk2",
+                    "createdAt": 1234,
+                }
+            },
+        )
+        assert any(
+            "Media Like" in m and "am1" in m and "amb1" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_media_purchase_logs_structured(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_media_event(
+            event_type=7,
+            event={
+                "order": {
+                    "accountMediaId": "am2",
+                    "correlationAccountId": "buyer1",
+                    "orderId": "ord1",
+                }
+            },
+        )
+        assert any(
+            "Media Purchase" in m and "am2" in m and "ord1" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_media_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_media_event(event_type=99, event={"unknown_field": True})
+        assert any("Media svc=2 type=99" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorMessageEvent:
+    """Lines 686-731: SVC_MSG_INTERACT handler (typing + new + like + unknown)."""
+
+    def test_typing_announce_logged_at_debug(self, caplog):
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        ws._monitor_message_event(
+            event_type=1,
+            event={"typingAnnounceEvent": {"accountId": "a1", "groupId": "g1"}},
+        )
+        assert any(
+            "Typing" in m and "a1" in m and "g1" in m
+            for m in _logged_messages(caplog, "DEBUG")
+        )
+
+    def test_new_message_short_content(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_message_event(
+            event_type=1,
+            event={
+                "message": {
+                    "senderId": "s1",
+                    "groupId": "g1",
+                    "attachments": [],
+                    "id": "m1",
+                    "content": "hi",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        assert any("New Message" in m and "hi" in m for m in msgs)
+
+    def test_new_message_long_content_truncated(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        long_content = "x" * 100
+        ws._monitor_message_event(
+            event_type=1,
+            event={
+                "message": {
+                    "senderId": "s1",
+                    "groupId": "g1",
+                    "attachments": [{"id": "a1"}, {"id": "a2"}],
+                    "id": "m2",
+                    "content": long_content,
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        # Truncated to 60 chars + "..."
+        assert any("..." in m and "attachments=2" in m for m in msgs)
+
+    def test_message_like(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_message_event(
+            event_type=2,
+            event={
+                "like": {
+                    "messageId": "m3",
+                    "groupId": "g1",
+                    "type": 1,
+                    "id": "lk3",
+                }
+            },
+        )
+        assert any("Message Like" in m and "m3" in m for m in _logged_messages(caplog))
+
+    def test_message_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_message_event(event_type=99, event={"weird": "thing"})
+        assert any("Message svc=5 type=99" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorFollowEvent:
+    """Lines 733-748: SVC_FOLLOWS handler."""
+
+    def test_follow_logs_structured(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_follow_event(
+            event={
+                "follow": {
+                    "accountId": "creator1",
+                    "followerId": "fan1",
+                    "id": "f1",
+                }
+            },
+        )
+        assert any(
+            "Follow" in m and "creator1" in m and "fan1" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_follow_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_follow_event(event={"unfollow": {"accountId": "x"}})
+        assert any("Follow svc=3" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorWalletEvent:
+    """Lines 750-777: SVC_WALLET handler (wallet balance + transactions + unknown)."""
+
+    def test_wallet_balance(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_wallet_event(
+            event={"wallet": {"balance": 5000, "walletVersion": 3, "id": "w1"}},
+        )
+        assert any("Wallet" in m and "5000" in m for m in _logged_messages(caplog))
+
+    def test_wallet_transaction(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_wallet_event(
+            event={
+                "transaction": {
+                    "type": "credit",
+                    "amount": 1000,
+                    "status": "completed",
+                    "id": "tx1",
+                    "correlationId": "c1",
+                }
+            },
+        )
+        assert any(
+            "Wallet Tx" in m and "credit" in m and "1000" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_wallet_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_wallet_event(event={"unknown_wallet_field": "x"})
+        assert any("Wallet svc=6" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorSubscriptionEvent:
+    """Lines 779-798: SVC_SUBSCRIPTIONS handler."""
+
+    def test_subscription_with_tier_name(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_subscription_event(
+            event={
+                "subscription": {
+                    "accountId": "acct1",
+                    "status": 3,
+                    "subscriptionTierName": "Premium",
+                    "price": 999,
+                    "id": "sub1",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        assert any(
+            "Subscription" in m and "Premium" in m and "acct1" in m for m in msgs
+        )
+
+    def test_subscription_without_tier_name(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_subscription_event(
+            event={
+                "subscription": {
+                    "accountId": "acct2",
+                    "status": 1,
+                    "price": 0,
+                    "id": "sub2",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        # Tier label is empty when subscriptionTierName is absent.
+        assert any("Subscription" in m and "acct2" in m for m in msgs)
+
+    def test_subscription_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_subscription_event(event={"weird": "sub"})
+        assert any("Subscription svc=15" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorPaymentEvent:
+    """Lines 800-817: SVC_PAYMENTS handler."""
+
+    def test_payment_transaction(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_payment_event(
+            event={
+                "transaction": {
+                    "type": "card",
+                    "amount": 2500,
+                    "status": "approved",
+                    "threeDSecure": True,
+                    "id": "pmt1",
+                }
+            },
+        )
+        assert any(
+            "Payment" in m and "card" in m and "2500" in m
+            for m in _logged_messages(caplog)
+        )
+
+    def test_payment_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_payment_event(event={"unknown_payment_field": "x"})
+        assert any("Payment svc=16" in m for m in _logged_messages(caplog))
+
+
+class TestMonitorChatEvent:
+    """Lines 819-843: SVC_CHAT handler (creator vs viewer chat messages)."""
+
+    def test_chat_room_message_viewer(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_chat_event(
+            event={
+                "chatRoomMessage": {
+                    "metadata": json.dumps({"senderIsCreator": False}),
+                    "username": "viewer1",
+                    "displayname": "Viewer One",
+                    "content": "hi everyone",
+                    "chatRoomId": "room1",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        # No "[creator]" tag for viewer messages.
+        assert any(
+            "Chat |" in m and "viewer1" in m and "[creator]" not in m for m in msgs
+        )
+
+    def test_chat_room_message_creator_has_tag(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_chat_event(
+            event={
+                "chatRoomMessage": {
+                    "metadata": json.dumps({"senderIsCreator": True}),
+                    "username": "creator1",
+                    "displayname": "The Creator",
+                    "content": "thanks for tipping",
+                    "chatRoomId": "room1",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        assert any("[creator]" in m and "creator1" in m for m in msgs)
+
+    def test_chat_room_message_dict_metadata(self, caplog):
+        """Lines 824-825: metadata as dict (not str) → use as-is."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_chat_event(
+            event={
+                "chatRoomMessage": {
+                    "metadata": {"senderIsCreator": True},
+                    "username": "creator2",
+                    "displayname": "C2",
+                    "content": "hi",
+                    "chatRoomId": "room2",
+                }
+            },
+        )
+        assert any(
+            "[creator]" in m and "creator2" in m for m in _logged_messages(caplog)
+        )
+
+    def test_chat_long_content_truncated(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_chat_event(
+            event={
+                "chatRoomMessage": {
+                    "metadata": "{}",
+                    "username": "u",
+                    "displayname": "U",
+                    "content": "y" * 100,
+                    "chatRoomId": "r",
+                }
+            },
+        )
+        msgs = _logged_messages(caplog)
+        assert any("..." in m for m in msgs)
+
+    def test_chat_unknown_dumps_event(self, caplog):
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws._monitor_chat_event(event={"unknown_chat_field": "x"})
+        assert any("Chat svc=46" in m for m in _logged_messages(caplog))
+
+
+# ---------------------------------------------------------------------------
+# TIER 5A: edge coverage to push api/websocket.py from 88% toward 95%
+#
+# Targets:
+#   - _absorb_response_cookies (lines 257-283, 27 lines — biggest single block)
+#   - _handle_message JSON decode error path (394-395)
+#   - _dispatch_event cross-thread RuntimeError path (1258-1264)
+#   - _thread_main exception capture (1164-1180)
+# ---------------------------------------------------------------------------
+
+
+class _CookieJar:
+    """Minimal stand-in for httpx.Cookies — captures every .set() call."""
+
+    def __init__(self) -> None:
+        self.set_calls: list[dict] = []
+
+    def set(self, name, value, domain=None, path=None) -> None:
+        self.set_calls.append(
+            {"name": name, "value": value, "domain": domain, "path": path}
+        )
+
+
+class _StubHttpClient:
+    """http_client stand-in exposing a `.cookies` jar."""
+
+    def __init__(self) -> None:
+        self.cookies = _CookieJar()
+
+
+class _MultiDictResponseHeaders:
+    """Mock response_headers that DOES expose get_all (websockets ≥12 path)."""
+
+    def __init__(self, set_cookie_values: list[str | None]) -> None:
+        self._values = set_cookie_values
+
+    def get_all(self, name):
+        if name == "Set-Cookie":
+            return self._values
+        return []
+
+
+class _SingleResponseHeaders:
+    """Mock response_headers WITHOUT get_all (websockets <12 fallback path)."""
+
+    def __init__(self, set_cookie_value: str | None) -> None:
+        self._value = set_cookie_value
+
+    def get(self, name, default=None):
+        if name == "Set-Cookie":
+            return self._value
+        return default
+
+
+class TestAbsorbResponseCookies:
+    """Lines 236-283: WS → HTTP cookie sync from upgrade response."""
+
+    def test_returns_when_http_client_is_none(self):
+        """Lines 253-254: http_client is None → no-op."""
+        ws = _make_ws()
+        ws.http_client = None
+        # Must not raise even with non-empty headers.
+        ws._absorb_response_cookies(_MultiDictResponseHeaders(["a=1; Path=/"]))
+
+    def test_returns_when_response_headers_is_none(self):
+        """Lines 253-254: response_headers None → no-op."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        ws._absorb_response_cookies(None)
+        assert ws.http_client.cookies.set_calls == []
+
+    def test_get_all_path_pushes_each_cookie_to_jar(self):
+        """Lines 257-283: websockets ≥12 path with get_all returning a list."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        headers = _MultiDictResponseHeaders(
+            [
+                "session_id=abc123; Path=/; Domain=fansly.com",
+                "csrf=xyz789; Path=/api",
+            ]
+        )
+
+        ws._absorb_response_cookies(headers)
+
+        # Both cookies pushed into the jar with correct attributes.
+        names_seen = {c["name"] for c in ws.http_client.cookies.set_calls}
+        assert names_seen == {"session_id", "csrf"}
+
+    def test_fallback_path_when_get_all_missing(self):
+        """Lines 261-262: websockets <12 fallback uses get('Set-Cookie')."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        headers = _SingleResponseHeaders("legacy_session=old123; Path=/")
+
+        ws._absorb_response_cookies(headers)
+
+        assert len(ws.http_client.cookies.set_calls) == 1
+        assert ws.http_client.cookies.set_calls[0]["name"] == "legacy_session"
+
+    def test_empty_raw_values_skipped(self):
+        """Lines 264-265: falsy raw values → continue (don't try to parse)."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        # Mix of None, empty string, and real cookie — only real one should land.
+        headers = _MultiDictResponseHeaders(
+            [
+                None,
+                "",
+                "valid=v1; Path=/",
+            ]
+        )
+
+        ws._absorb_response_cookies(headers)
+
+        assert len(ws.http_client.cookies.set_calls) == 1
+        assert ws.http_client.cookies.set_calls[0]["name"] == "valid"
+
+    def test_simplecookie_parse_failure_logged_and_continues(self, caplog, monkeypatch):
+        """Lines 271-275: SimpleCookie.load raises → log debug + continue."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+
+        # Patch SimpleCookie to raise on .load()
+        from api import websocket as ws_module
+
+        class _RaisingCookie:
+            def __init__(self) -> None:
+                pass
+
+            def load(self, _raw):
+                raise ValueError("malformed cookie")
+
+            def items(self):
+                return []
+
+        monkeypatch.setattr(ws_module, "SimpleCookie", _RaisingCookie)
+
+        headers = _MultiDictResponseHeaders(["bad_cookie_data"])
+        ws._absorb_response_cookies(headers)
+
+        # No cookie pushed (parse failed), debug log fired.
+        assert ws.http_client.cookies.set_calls == []
+        debug_msgs = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+        assert any(
+            "WS Set-Cookie parse failed" in m and "bad_cookie_data" in m
+            for m in debug_msgs
+        )
+
+    def test_default_domain_when_morsel_domain_missing(self):
+        """Lines 279-281: morsel without Domain → defaults to 'fansly.com'."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        # Set-Cookie without Domain attribute.
+        headers = _MultiDictResponseHeaders(["nodomain=v; Path=/"])
+
+        ws._absorb_response_cookies(headers)
+
+        assert len(ws.http_client.cookies.set_calls) == 1
+        assert ws.http_client.cookies.set_calls[0]["domain"] == "fansly.com"
+
+    def test_default_path_when_morsel_path_missing(self):
+        """Lines 280-281: morsel without Path → defaults to '/'."""
+        ws = _make_ws()
+        ws.http_client = _StubHttpClient()
+        headers = _MultiDictResponseHeaders(["nopath=v; Domain=fansly.com"])
+
+        ws._absorb_response_cookies(headers)
+
+        assert len(ws.http_client.cookies.set_calls) == 1
+        assert ws.http_client.cookies.set_calls[0]["path"] == "/"
+
+
+class TestHandleMessageDecodeErrors:
+    """Lines 394-395: top-level _handle_message error catch."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_logs_error_does_not_raise(self, caplog):
+        """JSONDecodeError caught → ERROR log, no propagation."""
+        caplog.set_level(logging.ERROR)
+        ws = _make_ws()
+        ws.connected = True
+
+        # Malformed JSON envelope — top-level json.loads raises.
+        await ws._handle_message("not valid json {{{")
+
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Failed to decode WebSocket message" in m for m in errors)
+
+
+class TestDispatchEventCrossThread:
+    """Lines 1242-1264: _dispatch_event path selection (in-loop vs cross-thread)."""
+
+    @pytest.mark.asyncio
+    async def test_no_main_loop_runs_handler_inline(self):
+        """Lines 1249-1252: _main_loop is None → call handler directly in current loop."""
+        ws = _make_ws()
+        ws._main_loop = None  # no thread boundary
+
+        captured: list = []
+
+        def handler(event):
+            captured.append(event)
+
+        await ws._dispatch_event(handler, {"foo": "bar"})
+
+        assert captured == [{"foo": "bar"}]
+
+    @pytest.mark.asyncio
+    async def test_async_handler_inline_path(self):
+        """Lines 1252-1254: async handler in same loop → await it."""
+        ws = _make_ws()
+        ws._main_loop = None
+
+        captured: list = []
+
+        async def handler(event):
+            captured.append(event)
+
+        await ws._dispatch_event(handler, {"async": "yes"})
+        assert captured == [{"async": "yes"}]
+
+    @pytest.mark.asyncio
+    async def test_main_loop_same_as_current_runs_inline(self):
+        """Lines 1244-1252: main_loop IS current loop → inline path (no marshalling)."""
+        ws = _make_ws()
+        ws._main_loop = asyncio.get_running_loop()
+
+        captured: list = []
+
+        def handler(event):
+            captured.append(event)
+
+        await ws._dispatch_event(handler, {"current": "loop"})
+        assert captured == [{"current": "loop"}]
+
+    @pytest.mark.asyncio
+    async def test_closed_main_loop_runs_inline(self):
+        """Lines 1247-1252: main_loop.is_closed() → inline path."""
+        ws = _make_ws()
+        # Build a dummy loop, close it, assign as main_loop.
+        dummy_loop = asyncio.new_event_loop()
+        dummy_loop.close()
+        ws._main_loop = dummy_loop
+
+        captured: list = []
+
+        def handler(event):
+            captured.append(event)
+
+        await ws._dispatch_event(handler, {"closed": "loop"})
+        assert captured == [{"closed": "loop"}]
+
+
+class TestThreadMainErrorCapture:
+    """Lines 1164-1180: _thread_main BaseException → captured in _thread_exc."""
+
+    def test_maintain_connection_crash_captured_in_thread_exc(self, monkeypatch):
+        """When _maintain_connection raises, _thread_exc holds it; ready event is set."""
+        ws = _make_ws()
+
+        async def _crash():
+            raise RuntimeError("maintain boom")
+
+        # Patch _maintain_connection to raise on first await.
+        monkeypatch.setattr(ws, "_maintain_connection", _crash)
+
+        # Run _thread_main directly (synchronously — it manages its own loop).
+        ws._thread_main()
+
+        assert isinstance(ws._thread_exc, RuntimeError)
+        assert "maintain boom" in str(ws._thread_exc)
+        # ready event was set despite the crash (so start_in_thread can unblock).
+        assert ws._thread_ready.is_set()
+        # Loop reference cleared in finally.
+        assert ws._ws_loop is None
+
+    def test_clean_thread_main_finishes_without_exc(self, monkeypatch):
+        """Happy path: _maintain_connection returns cleanly → _thread_exc stays None."""
+        ws = _make_ws()
+
+        async def _ok():
+            return None  # immediate clean exit
+
+        monkeypatch.setattr(ws, "_maintain_connection", _ok)
+        ws._thread_main()
+
+        assert ws._thread_exc is None
+        assert ws._thread_ready.is_set()
+        assert ws._ws_loop is None

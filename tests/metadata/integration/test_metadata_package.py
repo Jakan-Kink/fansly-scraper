@@ -10,6 +10,7 @@ from metadata import (
     Account,
     AccountMedia,
     Media,
+    Message,
     Post,
     TimelineStats,
     Wall,
@@ -137,7 +138,6 @@ async def test_database_constraints(entity_store):
         Wall(id=snowflake_id(), name="Test")
 
     # Message requires senderId
-    from metadata import Message
 
     with pytest.raises(ValidationError, match="senderId"):
         Message(id=snowflake_id(), content="Test", createdAt=datetime.now(UTC))

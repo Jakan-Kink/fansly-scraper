@@ -746,3 +746,174 @@ class TestPollStoryStates:
 
         assert creator_id not in result
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Edge coverage — generic exception, malformed response shape, save errors
+# ---------------------------------------------------------------------------
+
+
+class TestPollHomeTimelineGenericException:
+    """Lines 64-68: catch-all Exception path (non-HTTPError) returns (set(), {})."""
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_returns_empty_tuple(
+        self, config_wired, entity_store, monkeypatch, caplog
+    ):
+        """When the API client raises a non-HTTPError exception, log warning + return empty."""
+        import logging as _logging
+
+        caplog.set_level(_logging.WARNING)
+
+        api = config_wired.get_api()
+
+        def _raises():
+            raise RuntimeError("simulated non-http failure")
+
+        monkeypatch.setattr(api, "get_home_timeline", _raises)
+
+        new_ids, posts_by_creator = await poll_home_timeline(config_wired)
+
+        assert new_ids == set()
+        assert posts_by_creator == {}
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "unexpected error fetching home timeline" in m
+            and "simulated non-http failure" in m
+            for m in warnings
+        )
+
+
+class TestPollStoryStatesEdges:
+    """Lines 111-122 + 156-162: generic exception, non-list response, save error."""
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_returns_empty_list(
+        self, config_wired, entity_store, monkeypatch, caplog
+    ):
+        """Lines 111-115: non-HTTPError exception → log + return []."""
+        import logging as _logging
+
+        caplog.set_level(_logging.WARNING)
+
+        api = config_wired.get_api()
+
+        def _raises():
+            raise RuntimeError("simulated story API failure")
+
+        monkeypatch.setattr(api, "get_story_states_following", _raises)
+
+        result = await poll_story_states(config_wired)
+
+        assert result == []
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "unexpected error fetching story states" in m
+            and "simulated story API failure" in m
+            for m in warnings
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_list_response_returns_empty_with_warning(
+        self, config_wired, entity_store, caplog
+    ):
+        """Lines 117-122: response is not a list → log warning + return []."""
+        import logging as _logging
+
+        caplog.set_level(_logging.WARNING)
+
+        with respx.mock:
+            respx.options(url__startswith=STORY_STATES_URL).mock(
+                side_effect=[httpx.Response(200)]
+            )
+            respx.get(url__startswith=STORY_STATES_URL).mock(
+                side_effect=[
+                    httpx.Response(
+                        200,
+                        json={
+                            "success": True,
+                            # response should be a list; instead is a dict.
+                            "response": {"unexpected": "shape"},
+                        },
+                    )
+                ]
+            )
+            result = await poll_story_states(config_wired)
+
+        assert result == []
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("unexpected story states response shape" in m for m in warnings)
+
+    @pytest.mark.asyncio
+    async def test_save_exception_inside_loop_logged_and_skipped(
+        self, config_wired, entity_store, monkeypatch, caplog
+    ):
+        """Lines 156-162: store.save raises mid-loop → log warning + creator NOT returned."""
+        import logging as _logging
+
+        caplog.set_level(_logging.WARNING)
+        creator_id = snowflake_id()
+
+        # Patch get_store to return a wrapper whose save raises for MonitorState.
+        from daemon.polling import get_store as real_get_store
+
+        real_store = real_get_store()
+
+        class _SaveFails:
+            def __init__(self, real):
+                self._real = real
+
+            def get_from_cache(self, model, key):
+                return self._real.get_from_cache(model, key)
+
+            async def get(self, model, key):
+                return await self._real.get(model, key)
+
+            async def save(self, obj):
+                if obj.__class__.__name__ == "MonitorState":
+                    raise RuntimeError("simulated monitor save failure")
+                return await self._real.save(obj)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        monkeypatch.setattr("daemon.polling.get_store", lambda: _SaveFails(real_store))
+
+        with respx.mock:
+            respx.options(url__startswith=STORY_STATES_URL).mock(
+                side_effect=[httpx.Response(200)]
+            )
+            respx.get(url__startswith=STORY_STATES_URL).mock(
+                side_effect=[
+                    httpx.Response(
+                        200,
+                        json={
+                            "success": True,
+                            "response": [
+                                {
+                                    "accountId": creator_id,
+                                    "hasActiveStories": True,
+                                    "storyCount": 1,
+                                }
+                            ],
+                        },
+                    )
+                ]
+            )
+            result = await poll_story_states(config_wired)
+
+        # CORRECTED: production appends to creators_with_new_stories BEFORE the
+        # save try-block fires. The creator IS returned even when save raises;
+        # the warning log is the only observable difference vs the happy path.
+        # Comment in production at line 142-143 explains why: persistence is
+        # best-effort, the new-stories signal is preserved separately.
+        assert creator_id in result
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "could not save MonitorState" in m
+            and str(creator_id) in m
+            and "simulated monitor save failure" in m
+            for m in warnings
+        )

@@ -718,7 +718,9 @@ def create_rich_handler(
 
 
 def _do_watch_progress(
-    progress_file: Path, handler: Callable[[str, str | None], None]
+    progress_file: Path,
+    handler: Callable[[str, str | None], None],
+    stop_event: threading.Event | None = None,
 ) -> None:
     """Function to run in a separate thread to read progress events from a file.
 
@@ -728,12 +730,17 @@ def _do_watch_progress(
     Args:
         progress_file: Path to the progress file written by FFmpeg
         handler: Callback function receiving (key, value) pairs
+        stop_event: Optional Event; when set, the read loop exits cleanly.
+            Without it, a killed FFmpeg leaves this daemon thread spinning
+            indefinitely on time.sleep(0.05), which can race _Py_Finalize.
     """
     try:
         # Wait for file to be created (FFmpeg creates it on start)
         timeout = 10
         start_time = time.time()
         while not progress_file.exists():
+            if stop_event is not None and stop_event.is_set():
+                return
             if time.time() - start_time > timeout:
                 return
             time.sleep(0.1)
@@ -741,6 +748,8 @@ def _do_watch_progress(
         # Read progress events from file
         with progress_file.open(encoding="utf-8") as f:
             while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
                 line = f.readline()
                 if not line:
                     # No more data, check if FFmpeg is still running
@@ -789,16 +798,21 @@ def _watch_progress(
     try:
         os.close(fd)  # Close the file descriptor, FFmpeg will open it
 
-        # Start monitoring thread
+        # Start monitoring thread with cooperative-cancellation event so a
+        # killed FFmpeg (no "progress=end" line) doesn't strand the daemon.
+        stop_event = threading.Event()
         monitor_thread = threading.Thread(
-            target=_do_watch_progress, args=(progress_file, handler), daemon=True
+            target=_do_watch_progress,
+            args=(progress_file, handler, stop_event),
+            daemon=True,
         )
         monitor_thread.start()
 
         try:
             yield progress_file
         finally:
-            # Wait for monitoring thread to finish (with timeout)
+            # Signal the watcher to exit, then wait briefly.
+            stop_event.set()
             monitor_thread.join(timeout=2.0)
     finally:
         # Clean up temp file

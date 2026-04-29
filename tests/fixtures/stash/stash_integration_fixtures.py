@@ -17,6 +17,7 @@ Philosophy:
 
 import os
 import time
+import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -239,21 +240,23 @@ async def real_stash_processor(config, test_database_sync, stash_context, test_s
     if stash_context._store is not None:
         stash_context._store.invalidate_all()
 
-    # Disable prints for testing
-    with (
-        patch("textio.textio.print_info"),
-        patch("textio.textio.print_warning"),
-        patch("textio.textio.print_error"),
-    ):
-        processor = StashProcessing.from_config(config, state)
-        yield processor
-        # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
-        # Only clear if client is still initialized (some tests call cleanup() which closes client)
-        if processor.context._client is not None:
-            _clear_stash_client_caches(processor.context.client)
-        # Also clear the store cache for the next test
-        if processor.context._store is not None:
-            processor.context._store.invalidate_all()
+    # Also clear the StashClient's @async_lru_cache on find_* methods. The
+    # post-yield cleanup below clears them too, but if a sibling test on
+    # the same xdist_group worker errored mid-cleanup, those caches can
+    # carry stale results into THIS test. Belt-and-suspenders: clear at
+    # both entry and exit so the start-of-test state is always clean.
+    if stash_context._client is not None:
+        _clear_stash_client_caches(stash_context.client)
+
+    processor = StashProcessing.from_config(config, state)
+    yield processor
+    # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
+    # Only clear if client is still initialized (some tests call cleanup() which closes client)
+    if processor.context._client is not None:
+        _clear_stash_client_caches(processor.context.client)
+    # Also clear the store cache for the next test
+    if processor.context._store is not None:
+        processor.context._store.invalidate_all()
 
 
 @pytest_asyncio.fixture
@@ -310,19 +313,13 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
             return_value=httpx.Response(200, json={"data": {}})
         )
 
-        # Disable prints for testing
-        with (
-            patch("textio.textio.print_info"),
-            patch("textio.textio.print_warning"),
-            patch("textio.textio.print_error"),
-        ):
-            processor = StashProcessing.from_config(config, test_state)
-            yield processor
-            # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
-            # All find_* methods use @async_lru_cache which persists between tests
-            _clear_stash_client_caches(processor.context.client)
-            # Reset respx to prevent route pollution
-            respx.reset()
+        processor = StashProcessing.from_config(config, test_state)
+        yield processor
+        # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
+        # All find_* methods use @async_lru_cache which persists between tests
+        _clear_stash_client_caches(processor.context.client)
+        # Reset respx to prevent route pollution
+        respx.reset()
 
 
 @pytest.fixture
@@ -491,8 +488,6 @@ def capture_graphql_calls(stash_client):
                 )
             except Exception as e:
                 print(f"ERROR in capture_graphql_calls finally block: {e}")
-                import traceback
-
                 traceback.print_exc()
                 # Append minimal info on error
                 calls.append(

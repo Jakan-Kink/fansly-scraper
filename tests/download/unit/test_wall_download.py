@@ -5,6 +5,7 @@ database operations, and real code paths for all internal functions.
 Per project testing guidelines: only mock at external boundaries.
 """
 
+import logging
 from pathlib import Path
 
 import httpx
@@ -477,3 +478,162 @@ class TestDownloadWall:
         state.fetched_timeline_duplication = True
 
         await download_wall(config, state, wall_id)
+
+
+# ---------------------------------------------------------------------------
+# Edge coverage — short-circuit + raise + outer exception paths
+# ---------------------------------------------------------------------------
+
+
+class TestDownloadWallEdges:
+    """Lines 127-130, 158, 213, 233-238, 255-260: small remaining branches."""
+
+    def _make_state(self, creator_id):
+        state = DownloadState()
+        state.creator_id = creator_id
+        state.creator_name = f"wall_{creator_id}"
+        return state
+
+    def _make_config(self, mock_config, tmp_path):
+        mock_config.use_duplicate_threshold = False
+        mock_config.use_pagination_duplication = False
+        mock_config.debug = False
+        mock_config.show_downloads = True
+        mock_config.show_skipped_downloads = False
+        mock_config.interactive = False
+        mock_config.timeline_retries = 0
+        mock_config.timeline_delay_seconds = 0
+        mock_config.download_directory = Path(tmp_path)
+        mock_config.download_media_previews = False
+        return mock_config
+
+    @pytest.mark.asyncio
+    async def test_creator_content_unchanged_short_circuits(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path, caplog
+    ):
+        """Lines 127-130: state.creator_content_unchanged=True → log + early return.
+
+        No HTTP requests should be made. The wall API route is set up but never hit.
+        """
+        caplog.set_level(logging.INFO)
+        config = self._make_config(mock_config, tmp_path)
+        creator_id = snowflake_id()
+        wall_id = snowflake_id()
+        state = self._make_state(creator_id)
+        state.creator_content_unchanged = True
+
+        await entity_store.save(Account(id=creator_id, username=f"wall_{creator_id}"))
+
+        # Set up route just to detect any unexpected call.
+        route = respx.get(url__startswith=FANSLY_API).mock(
+            side_effect=[httpx.Response(500, text="should not be called")]
+        )
+
+        await download_wall(config, state, wall_id)
+
+        # No HTTP call was issued — early return before the loop.
+        assert len(route.calls) == 0
+        info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+        assert any("Creator counts and wall structure unchanged" in m for m in info)
+
+    @pytest.mark.asyncio
+    async def test_outer_exception_caught_and_logged(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path, caplog, monkeypatch
+    ):
+        """Lines 255-260: generic Exception during loop → caught + print_error.
+
+        Test setup notes:
+        1. ``input_enter_continue(False)`` calls ``sleep(15)`` — NOT a no-op.
+           Patch it to no-op so the test doesn't burn 15s/iter waiting.
+        2. Production's outer ``except Exception`` doesn't increment ``attempts``,
+           so a permanently-raising function loops forever. Use a one-shot
+           raise (next call returns an empty wall_response → ``attempts += 1``
+           via the empty-media branch → loop exits).
+        """
+        caplog.set_level(logging.ERROR)
+        config = self._make_config(mock_config, tmp_path)
+        creator_id = snowflake_id()
+        state = self._make_state(creator_id)
+
+        await entity_store.save(Account(id=creator_id, username=f"wall_{creator_id}"))
+
+        # Patch input_enter_continue to no-op (production sleeps 15s in non-interactive).
+        monkeypatch.setattr(
+            "download.wall.input_enter_continue", lambda _interactive: None
+        )
+
+        # First call: raise. Second call: return empty wall (triggers attempts+=1 → loop exits).
+        # httpx.Response needs a request= kwarg to support raise_for_status.
+        call_count = 0
+        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/wall")
+
+        def _raises_once(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated unexpected wall failure")
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": _wall_response(creator_id, post_count=0, media_count=0),
+                },
+                request=request,
+            )
+
+        api = config.get_api()
+        original = api.get_wall_posts
+        api.get_wall_posts = _raises_once
+        try:
+            await download_wall(config, state, snowflake_id())
+        finally:
+            api.get_wall_posts = original
+
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Unexpected error during wall download" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_creator_id_none_raises_runtime_error_caught_by_outer(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path, caplog, monkeypatch
+    ):
+        """Line 158: state.creator_id is None → RuntimeError raised, caught by 255-260.
+
+        Same caveat as test_outer_exception_caught_and_logged: production's outer
+        except doesn't increment attempts, AND input_enter_continue sleeps 15s.
+        Set creator_id back to a valid value AFTER the first iteration via a
+        side-channel (the patched input_enter_continue) so the second iteration
+        succeeds with empty media → attempts += 1 → exit.
+        """
+        caplog.set_level(logging.ERROR)
+        config = self._make_config(mock_config, tmp_path)
+        creator_id = snowflake_id()
+        state = self._make_state(creator_id)
+        state.creator_id = None  # forces line 158 to raise on first iter
+
+        await entity_store.save(Account(id=creator_id, username=f"wall_{creator_id}"))
+
+        # When the outer except calls input_enter_continue, restore creator_id
+        # so the next loop iteration takes the empty-media path and exits.
+        def _restore_creator_id(_interactive):
+            state.creator_id = creator_id
+
+        monkeypatch.setattr("download.wall.input_enter_continue", _restore_creator_id)
+
+        # Pre-mount an empty wall response for the second iteration (which now
+        # has a valid creator_id). respx_fansly_api fixture provides the route.
+        respx.get(url__startswith=FANSLY_API).mock(
+            side_effect=[_ok(_wall_response(creator_id, post_count=0, media_count=0))]
+        )
+
+        # Should NOT raise — outer except catches RuntimeError.
+        await download_wall(config, state, snowflake_id())
+
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Unexpected error during wall download" in m for m in errors)
+
+    # NOTE: line 213 (print_info "Skipped N already downloaded media item(s)")
+    # is not covered here. Triggering it requires state.duplicate_count to
+    # rise by >1 between line 143 (starting_duplicates snapshot) and line
+    # 207 (delta check), which depends on process_wall_media's internal
+    # accounting. Reliably constructing that state would mean reverse-
+    # engineering the dedupe pipeline — out of scope for this branch.

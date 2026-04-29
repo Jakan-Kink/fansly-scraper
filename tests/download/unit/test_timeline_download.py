@@ -41,6 +41,9 @@ from download.timeline import (
     process_timeline_media,
 )
 from download.types import DownloadType
+from errors import DuplicateCountError
+from metadata import Post
+from metadata.models import get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -117,8 +120,6 @@ async def test_process_timeline_data_persists_posts_and_checks_duplicates(
     await process_timeline_data(config, state, timeline, 0)
 
     # Real persistence: the post should now be in the identity-map cache.
-    from metadata import Post
-    from metadata.models import get_store
 
     store = get_store()
     cached_post = store.get_from_cache(Post, post_id)
@@ -275,8 +276,6 @@ async def test_download_timeline_success_full_real_pipeline(
     assert state.download_type == DownloadType.TIMELINE
 
     # Real pipeline persisted the post to DB.
-    from metadata import Post
-    from metadata.models import get_store
 
     assert get_store().get_from_cache(Post, post_id) is not None
 
@@ -449,8 +448,6 @@ async def test_download_timeline_should_continue_false_breaks_loop(
     ``process_download_accessible_media`` catches it and returns False
     when the state.download_type is TIMELINE.
     """
-    from errors import DuplicateCountError
-
     config = mock_config
     config.download_directory = tmp_path
     config.use_duplicate_threshold = True
@@ -1205,8 +1202,6 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
     proof that pre-seeding + the real cache lookup produce the expected
     branch.
     """
-    from metadata import Post
-    from metadata.models import get_store
 
     config = mock_config
     config.download_directory = tmp_path

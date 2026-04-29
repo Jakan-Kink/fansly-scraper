@@ -25,6 +25,7 @@ from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Connection, ExecutionContext
 from sqlalchemy.ext.asyncio import (
@@ -35,6 +36,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command as alembic_command
 from config import FanslyConfig, db_logger
 from metadata import (
     Account,
@@ -46,6 +48,7 @@ from metadata import (
     Post,
     Wall,
 )
+from metadata.models import FanslyObject
 from metadata.tables import metadata as table_metadata
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
@@ -172,10 +175,6 @@ def pg_template_db() -> Generator[str, None, None]:
         # ``fansly_downloader_ng.py:313`` exercised by main()-integration
         # tests) get a no-op ``alembic upgrade head`` instead of attempting
         # to re-run all migrations against tables that already exist.
-        from alembic.config import Config as AlembicConfig
-
-        from alembic import command as alembic_command
-
         alembic_cfg = AlembicConfig("alembic.ini")
         alembic_cfg.set_main_option("sqlalchemy.url", template_url)
         alembic_command.stamp(alembic_cfg, "head")
@@ -642,8 +641,6 @@ async def entity_store(config):
     The store is registered as the global singleton (FanslyObject._store),
     so code calling get_store() will use this store.
     """
-    from metadata.models import FanslyObject
-
     db = Database(config, skip_migrations=True)
     store = await db.create_entity_store()
 
@@ -945,8 +942,6 @@ def factory_session(test_database_sync: Database):
     Yields:
         Direct session configured for use by factories
     """
-    from sqlalchemy.orm import sessionmaker
-
     # Create session directly from engine (like working project pattern)
     session_factory = sessionmaker(
         bind=test_database_sync._sync_engine, expire_on_commit=False

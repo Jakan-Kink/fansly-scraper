@@ -87,6 +87,7 @@ _setup_nvm_environment()
 
 # Import JSPyBridge (required)
 try:
+    from javascript import config as _jspy_config
     from javascript import connection, eval_js, globalThis, require
 except ImportError as e:  # pragma: no cover — JSPyBridge is a required dependency
     textio_logger.error(
@@ -610,28 +611,102 @@ def _extract_checkkey_ast_fallback(js_content: str) -> str | None:
 
 
 def _shutdown_js_bridge() -> None:
-    """Terminate the JSPyBridge node subprocess.
+    """Fully tear down JSPyBridge: subprocess + every Python daemon thread.
 
-    JSPyBridge spawns a Node.js subprocess (``bridge.js``) on first
-    import for AST parsing and expression evaluation. It registers an
-    atexit handler that calls ``connection.stop()``, but atexit only
-    fires on a *clean* Python interpreter exit — if the parent is killed
-    with SIGHUP/SIGKILL the node child is orphaned to init.
+    JSPyBridge spawns a Node.js subprocess plus several Python daemon
+    threads on first import:
+      - ``connection.com_thread`` — reads JSON frames from Node's stderr
+        via ``stream.readline()``
+      - ``connection.stdout_thread`` — bare-prints every Node stdout line
+        in a ``while proc.poll() is None`` loop
+      - ``EventLoop.callbackExecutor`` — pulls jobs from a queue with no
+        timeout, blocks on ``self.jobs.get()``
+      - Per-callback ``newTaskThread`` instances tracked in ``EventLoop.threads``
 
-    checkKey extraction happens exactly once at startup. After
-    ``guess_check_key`` returns, nothing else in the codebase uses the
-    bridge, so we tear it down eagerly to match the natural end of its
-    useful lifetime. This also prevents the 'bridge.js' process from
-    lingering for the entire daemon run (hours), where a separate
-    ``kill`` would otherwise be needed at shutdown.
+    The bundled ``connection.stop()`` only terminates the Node subprocess
+    — it does NOT join the daemon threads. They keep running until their
+    individual loops detect ``proc.poll() is not None``, which takes
+    dozens of milliseconds. During that window any of them can be
+    mid-buffered-write or mid-buffered-readline when the parent's
+    ``_Py_Finalize`` runs ``flush_std_files``, triggering CPython's
+    ``_enter_buffered_busy`` fatal error and SIGABRT.
 
-    Suppressing the broad Exception is defensive: if the bridge was
-    never started (e.g. tests that monkey-patched imports) or was
-    already stopped, ``proc.terminate()`` inside ``connection.stop``
-    raises; we don't want that to mask the checkKey result.
+    checkKey extraction is JSPyBridge's *only* use site — once
+    ``guess_check_key`` returns, nothing else in the codebase needs the
+    bridge. So we aggressively join everything it owns:
+
+      1. Signal ``callbackExecutor.running = False`` and unblock its
+         ``jobs.get()`` with a poison-pill no-op task; ``join(timeout)``.
+      2. Signal every managed task thread's ``state.stopping = True``
+         and ``join(timeout)``.
+      2.5. Set ``evloop.active = False`` and drop a wake-up onto
+         ``evloop.queue`` so the main ``EventLoop.loop()`` thread
+         (parked on ``queue.get(block=True)``) exits its outer
+         ``while self.active`` loop. JSPyBridge's bundled ``on_exit``
+         only signals the executor — not the main loop — so without
+         this step ``config.event_thread`` leaks per worker.
+      3. Call ``connection.stop()`` to terminate the Node subprocess.
+      4. Join ``connection.com_thread`` and ``connection.stdout_thread``
+         (they exit naturally once ``proc.poll()`` returns non-None).
+
+    All steps are wrapped in ``suppress(Exception)`` because JSPyBridge
+    internals are not formally public API and the bridge may already be
+    in a partial-teardown state from concurrent calls.
     """
+    # Step 1: stop the callback executor cleanly (so it doesn't grab
+    # new jobs while we're joining other threads).
+    with suppress(Exception):
+        evloop = getattr(_jspy_config, "event_loop", None)
+        if evloop is not None:
+            executor = getattr(evloop, "callbackExecutor", None)
+            if executor is not None:
+                executor.running = False
+                # Poison pill — unblocks self.jobs.get() so run() loop
+                # checks the now-False running flag and exits.
+                with suppress(Exception):
+                    executor.jobs.put((0, 0, lambda *_a: None, ()))
+                with suppress(Exception):
+                    executor.join(timeout=2.0)
+
+            # Step 2: signal + join every managed task thread.
+            with suppress(Exception):
+                for state, _handler, thread in list(evloop.threads):
+                    state.stopping = True
+                    if thread.is_alive():
+                        thread.join(timeout=1.0)
+
+            # Step 2.5: stop EventLoop.loop() — the main JSPyBridge thread
+            # parked on ``self.queue.get(block=True)`` (events.py:154). The
+            # bundled ``on_exit`` handler does NOT set ``active = False``,
+            # so without this the thread keeps looping silently. Set the
+            # flag, then drop a wake-up onto the queue so the blocking
+            # get() returns and the ``while self.active:`` predicate fails
+            # on the next iteration.
+            with suppress(Exception):
+                evloop.active = False
+                with suppress(Exception):
+                    evloop.queue.put("stop")
+                event_thread = getattr(_jspy_config, "event_thread", None)
+                if event_thread is not None and event_thread.is_alive():
+                    event_thread.join(timeout=2.0)
+
+    # Step 3: terminate the Node subprocess. After this returns,
+    # proc.poll() yields a non-None exit code on the next iteration of
+    # the I/O reader loops.
     with suppress(Exception):
         connection.stop()
+
+    # Step 4: join the I/O daemon threads now that the subprocess is
+    # gone. ``com_io`` exits its outer loop on ``proc.poll() is not None``;
+    # ``stdout_read``'s while-condition checks the same. They wake up on
+    # their next readline iteration when the OS reports the pipe closure.
+    with suppress(Exception):
+        for thread in (
+            getattr(connection, "com_thread", None),
+            getattr(connection, "stdout_thread", None),
+        ):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=2.0)
 
 
 def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911

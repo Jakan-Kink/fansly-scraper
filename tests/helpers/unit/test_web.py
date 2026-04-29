@@ -1,5 +1,6 @@
 """Unit tests for helpers/web.py"""
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -11,6 +12,7 @@ from helpers.web import (
     get_release_info_from_github,
     guess_user_agent,
     split_url,
+    strip_url_params,
 )
 
 
@@ -251,23 +253,27 @@ class TestGuessUserAgent:
             result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
             assert result == "default_ua_fallback"
 
-    def test_guess_user_agent_regex_exception(self):
+    def test_guess_user_agent_regex_exception(self, caplog):
         """Test guess_user_agent exception handler (lines 158-159)."""
+        caplog.set_level(logging.ERROR)
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
         ]
-        # Mock re.search to raise an exception to trigger exception handler
+        # Mock re.search to raise an exception to trigger exception handler.
         with (
             patch("platform.system", return_value="Windows"),
             patch("helpers.web.re.search", side_effect=Exception("Regex error")),
-            patch("helpers.web.print_error") as mock_print_error,
         ):
             result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            # Should return default when exception occurs
-            assert result == "default_ua_fallback"
-            # Should have called print_error with the exception message
-            mock_print_error.assert_called_once()
-            assert "Regexing user-agent" in mock_print_error.call_args[0][0]
+
+        # Returns the default fallback on exception.
+        assert result == "default_ua_fallback"
+        # The exception handler emits print_error → loguru ERROR record.
+        error_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "ERROR"
+        ]
+        regex_errors = [m for m in error_messages if "Regexing user-agent" in m]
+        assert len(regex_errors) == 1
 
     def test_guess_user_agent_empty_list(self):
         """Test guess_user_agent with empty user agent list."""
@@ -333,3 +339,29 @@ class TestGetReleaseInfoFromGithub:
         with patch("httpx.get", return_value=mock_response):
             result = get_release_info_from_github("1.0.0")
             assert result is None
+
+
+class TestStripUrlParams:
+    """Lines 15-25: strip_url_params removes query string + fragment."""
+
+    def test_url_with_query_string_stripped(self):
+        result = strip_url_params("https://fansly.com/post/123?foo=1&bar=2")
+        assert result == "https://fansly.com/post/123"
+
+    def test_url_with_fragment_stripped(self):
+        result = strip_url_params("https://fansly.com/post/123#section")
+        assert result == "https://fansly.com/post/123"
+
+    def test_url_with_both_query_and_fragment_stripped(self):
+        result = strip_url_params("https://example.com/path?a=1&b=2#frag")
+        assert result == "https://example.com/path"
+
+    def test_url_without_query_or_fragment_unchanged(self):
+        result = strip_url_params("https://fansly.com/post/123")
+        assert result == "https://fansly.com/post/123"
+
+    def test_url_preserves_scheme_and_netloc(self):
+        result = strip_url_params(
+            "https://cdn.fansly.com/media/abc.mp4?Key-Pair-Id=K123&Signature=xyz"
+        )
+        assert result == "https://cdn.fansly.com/media/abc.mp4"

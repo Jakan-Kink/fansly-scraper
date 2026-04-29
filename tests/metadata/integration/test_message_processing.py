@@ -9,7 +9,9 @@ import pytest
 
 from api.fansly import FanslyApi
 from metadata import (
+    Account,
     AccountMedia,
+    AccountMediaBundle,
     Group,
     Media,
     Message,
@@ -36,7 +38,6 @@ def group_data(test_data_dir: str):
 async def test_process_direct_messages(entity_store, mock_config):
     """Test processing direct messages with synthetic data."""
     # Create sender account first (FK constraint)
-    from metadata import Account
 
     sender_id = snowflake_id()
     await entity_store.save(Account(id=sender_id, username="msg_sender"))
@@ -172,7 +173,6 @@ async def test_process_message_media_bundles(
     await process_media_bundles_data(mock_config, response)
 
     # Verify bundles were created
-    from metadata import AccountMediaBundle
 
     for bundle_data in bundles:
         bundle = await entity_store.get(AccountMediaBundle, bundle_data["id"])

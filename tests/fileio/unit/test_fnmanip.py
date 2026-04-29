@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 
 from errors.mp4 import InvalidMP4Error
 from fileio.fnmanip import (
@@ -116,7 +117,6 @@ class TestImageHash:
     def test_get_hash_for_image(self, tmp_path):
         """Test get_hash_for_image with a real image file."""
         # Create a real 1x1 pixel PNG image
-        from PIL import Image
 
         image_path = tmp_path / "test_image.png"
         img = Image.new("RGB", (1, 1), color="red")
@@ -140,7 +140,6 @@ class TestImageHash:
     def test_get_hash_for_image_hash_returns_none(self, tmp_path):
         """Test get_hash_for_image when imagehash.phash returns None."""
         # Create a real image
-        from PIL import Image
 
         image_path = tmp_path / "test_image.png"
         img = Image.new("RGB", (1, 1), color="blue")
@@ -156,7 +155,6 @@ class TestImageHash:
     def test_get_hash_for_image_hash_fails(self, tmp_path):
         """Test get_hash_for_image when imagehash.phash raises exception."""
         # Create a real image
-        from PIL import Image
 
         image_path = tmp_path / "test_image.png"
         img = Image.new("RGB", (1, 1), color="green")

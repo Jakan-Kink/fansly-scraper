@@ -1,10 +1,12 @@
 """Test configuration and fixtures for Stash tests."""
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
 import sys
+import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
 from unittest.mock import patch
@@ -727,11 +729,95 @@ async def stash_cleanup_tracker():
                     stacklevel=3,
                 )
 
+            # Bounded read-back: wait until Stash confirms each deleted
+            # object is no longer queryable. The delete mutations above
+            # return immediately but Stash's docker write may not be
+            # visible to the next test's lookups for some time. Polling
+            # find{Type}(id=...) until null prevents the cross-worker race
+            # where consecutive tests on the same xdist_group worker hit
+            # stale rows from the previous test's cleanup.
+            with contextlib.suppress(Exception):
+                await _wait_for_deletions_visible(client, created_objects)
+
             print(f"\n{'=' * 60}")
             print("CLEANUP TRACKER: Finally block completed")
             print(f"{'=' * 60}\n")
 
     return cleanup_context
+
+
+# Map plural cleanup-bucket key → singular GraphQL query name.
+_DELETION_TYPE_MAP = {
+    "galleries": "Gallery",
+    "scenes": "Scene",
+    "performers": "Performer",
+    "studios": "Studio",
+    "tags": "Tag",
+}
+
+
+async def _wait_for_deletions_visible(
+    client: StashClient,
+    created_objects: dict[str, list],
+    *,
+    max_wait_seconds: float = 2.0,
+    poll_interval: float = 0.1,
+) -> None:
+    """Poll Stash until every deleted ID returns null from find{Type}(id=...).
+
+    This closes the cross-worker write-visibility race: stash_cleanup_tracker
+    issues delete mutations that Stash acknowledges synchronously, but the
+    docker SQLite write may not be flushed when the next test starts a
+    lookup. Without waiting, the next test's find queries can return stale
+    rows and cache hits that mask real assertions.
+
+    Args:
+        client: Real StashClient connected to docker Stash.
+        created_objects: The same {type → [ids]} dict the cleanup loop
+            iterated; keys must include "galleries", "scenes", etc.
+        max_wait_seconds: Total seconds to keep polling for visibility.
+            Named to avoid the ASYNC109 "timeout-parameter" rule — this is
+            a polling-bound, not an asyncio.timeout-cancellation deadline.
+        poll_interval: Seconds between poll iterations.
+    """
+    pending: dict[str, set[str]] = {
+        cap: set(created_objects.get(plural, []) or [])
+        for plural, cap in _DELETION_TYPE_MAP.items()
+        if created_objects.get(plural)
+    }
+    if not pending:
+        return
+
+    deadline = time.monotonic() + max_wait_seconds
+
+    async def _check_one(cap: str, obj_id: str) -> tuple[str, str, bool]:
+        """Return (cap, id, still_exists). Query failures count as 'gone'."""
+        try:
+            result = await client.execute(
+                f"query Find{cap}($id: ID!) {{ find{cap}(id: $id) {{ id }} }}",
+                {"id": obj_id},
+            )
+            return cap, obj_id, result.get(f"find{cap}") is not None
+        except Exception:
+            # Query itself failed — treat as gone, best-effort.
+            return cap, obj_id, False
+
+    while pending and time.monotonic() < deadline:
+        # One round trip per (type, id) pair; gather them in parallel.
+        checks = [
+            _check_one(cap, obj_id) for cap, ids in pending.items() for obj_id in ids
+        ]
+        results = await asyncio.gather(*checks)
+
+        # Rebuild pending with only IDs that still exist.
+        new_pending: dict[str, set[str]] = {}
+        for cap, obj_id, still_exists in results:
+            if still_exists:
+                new_pending.setdefault(cap, set()).add(obj_id)
+        pending = new_pending
+
+        if pending:
+            await asyncio.sleep(poll_interval)
 
 
 @pytest.fixture

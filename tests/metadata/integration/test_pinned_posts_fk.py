@@ -12,6 +12,7 @@ from metadata import (
     Post,
     process_account_data,
 )
+from metadata.models import PinnedPost
 from metadata.stub_tracker import get_stubs, is_stub
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -97,7 +98,6 @@ async def test_pinned_posts_junction_rows_created(entity_store, mock_config):
     await process_account_data(mock_config, data)
 
     # Verify junction rows exist in DB
-    from metadata.models import PinnedPost
 
     rows = await entity_store.find_records(PinnedPost, accountId=account_id)
     junction_post_ids = {r["postId"] for r in rows}
@@ -130,7 +130,6 @@ async def test_pinned_posts_idempotent_on_reprocess(entity_store, mock_config):
     await process_account_data(mock_config, data)
 
     # Should still have exactly the same junction rows
-    from metadata.models import PinnedPost
 
     rows = await entity_store.find_records(PinnedPost, accountId=account_id)
     junction_post_ids = {r["postId"] for r in rows}

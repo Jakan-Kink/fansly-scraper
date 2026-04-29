@@ -10,7 +10,13 @@ import respx
 
 from metadata import MediaLocation
 from metadata.models import get_store
-from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
+from tests.fixtures import PostFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    MediaFactory,
+)
+from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 from tests.fixtures.stash.stash_api_fixtures import assert_op, dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
@@ -509,8 +515,6 @@ async def test_process_preview_variant(
 
     # Act
     result = {"images": [], "scenes": []}
-    from tests.fixtures.stash import dump_graphql_calls
-
     try:
         await respx_stash_processor._process_media(
             test_media, test_post, test_account, result
@@ -554,9 +558,6 @@ async def test_process_bundle_ordering(
     store = get_store()
 
     # Arrange
-    from tests.fixtures import PostFactory
-    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
-    from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
     # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
@@ -714,8 +715,6 @@ async def test_process_bundle_ordering(
             test_media_bundle, test_post, test_account, result
         )
     finally:
-        from tests.fixtures.stash import dump_graphql_calls
-
         dump_graphql_calls(graphql_route.calls, "test_process_bundle_ordering")
 
     # Assert
@@ -767,9 +766,6 @@ async def test_process_bundle_with_preview(
     store = get_store()
 
     # Arrange
-    from tests.fixtures import PostFactory
-    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
-    from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
     # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
@@ -931,9 +927,6 @@ async def test_bundle_permission_inheritance(
     store = get_store()
 
     # Arrange
-    from tests.fixtures import PostFactory
-    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
-    from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
     # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
@@ -1083,8 +1076,6 @@ async def test_bundle_permission_inheritance(
             test_media_bundle, test_post, test_account, result
         )
     finally:
-        from tests.fixtures.stash import dump_graphql_calls
-
         dump_graphql_calls(graphql_route.calls, "test_bundle_permission_inheritance")
 
     # Assert

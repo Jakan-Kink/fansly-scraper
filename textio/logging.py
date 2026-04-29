@@ -192,7 +192,10 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                 if oldest_gz.exists():
                     oldest_gz.unlink()
 
-        # Rotate log files
+        # Rotate log files. Each rename is wrapped in suppress(FileNotFoundError)
+        # to handle the TOCTOU race when multiple processes (e.g. xdist workers)
+        # rotate the same log directory concurrently — exists() can return True,
+        # then a sibling process renames/unlinks the file before our rename runs.
         for i in range(self.backupCount - 1, 0, -1):
             sfn = f"{self.baseFilename}.{i}"
             dfn = f"{self.baseFilename}.{i + 1}"
@@ -202,13 +205,15 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             dfn_gz = Path(f"{dfn}.gz")
 
             if sfn_path.exists():
-                if dfn_path.exists():
-                    dfn_path.unlink()  # pragma: no cover - defensive check, destination cleared in cleanup
-                sfn_path.rename(dfn_path)
+                with contextlib.suppress(FileNotFoundError):
+                    if dfn_path.exists():
+                        dfn_path.unlink()  # pragma: no cover - defensive check, destination cleared in cleanup
+                    sfn_path.rename(dfn_path)
             elif sfn_gz.exists():
-                if dfn_gz.exists():
-                    dfn_gz.unlink()
-                sfn_gz.rename(dfn_gz)
+                with contextlib.suppress(FileNotFoundError):
+                    if dfn_gz.exists():
+                        dfn_gz.unlink()
+                    sfn_gz.rename(dfn_gz)
 
             # Check if the rotated file should be compressed
             if dfn_path.exists() and self.compression:
@@ -218,15 +223,16 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         dfn_path = Path(dfn)
         base_path = Path(self.baseFilename)
         if base_path.exists():
-            if dfn_path.exists():
-                dfn_path.unlink()  # pragma: no cover - defensive check, .1 cleared in cleanup or moved in rotation
-            shutil.copy2(self.baseFilename, dfn)
-            with base_path.open("w") as f:
-                f.truncate(0)
+            with contextlib.suppress(FileNotFoundError):
+                if dfn_path.exists():
+                    dfn_path.unlink()  # pragma: no cover - defensive check, .1 cleared in cleanup or moved in rotation
+                shutil.copy2(self.baseFilename, dfn)
+                with base_path.open("w") as f:
+                    f.truncate(0)
 
-            # Compress the new rotated file if needed
-            if self.compression:
-                self._compress_file(dfn)
+                # Compress the new rotated file if needed
+                if self.compression:
+                    self._compress_file(dfn)
 
         # Compute the next rollover time
         self.rolloverAt = self._compute_next_rollover()

@@ -13,7 +13,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from stash_graphql_client import ServerCapabilities, StashContext
-from stash_graphql_client.errors import StashUnmappedFieldWarning, StashVersionError
+from stash_graphql_client.errors import (
+    StashCapabilityError,
+    StashUnmappedFieldWarning,
+    StashVersionError,
+)
 from stash_graphql_client.store import StashEntityStore
 from stash_graphql_client.types import (
     Gallery,
@@ -371,6 +375,14 @@ class StashProcessingBase(StashProcessingProtocol):
         except StashVersionError as e:
             print_error(f"Stash server too old: {e}")
             print_warning("Minimum required: Stash v0.30.0 (appSchema 75)")
+            return
+        except StashCapabilityError as e:
+            # SGC 0.12.2+ raises this distinct from StashVersionError when a
+            # per-feature appSchema gate fails at use time. get_client() itself
+            # only does floor-version checking today, so this catch is defensive
+            # against future SGC versions that may surface capability checks
+            # earlier in the connect path.
+            print_error(f"Stash server missing required capability: {e}")
             return
         except RuntimeError as e:
             print_error(f"Failed to initialize Stash client: {e}")

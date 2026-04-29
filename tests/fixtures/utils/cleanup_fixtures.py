@@ -20,13 +20,21 @@ import pytest
 from loguru import logger
 
 
+# NOTE: imports of ``config.logging`` and ``helpers.rich_progress`` MUST stay
+# inside the fixture bodies below (lazy import). Hoisting them to module
+# scope triggers a circular import: cleanup_fixtures → tests.fixtures
+# package init → config.logging → config.config → config.fanslyconfig →
+# api.FanslyApi → ImportError. PEP 8 ("imports at top of file") explicitly
+# allows this exception when "imports cause circular dependencies".
+
+
 @pytest.fixture(autouse=True)
 def cleanup_rich_progress_state():
     """Clean up Rich progress manager and console state between tests."""
     yield  # Run the test
 
     try:
-        # Lazy import to avoid circular dependency
+        # Lazy import — see top-of-file note about the circular-dependency cycle
         from helpers.rich_progress import _console, _progress_manager
 
         # Reset progress manager state
@@ -79,7 +87,7 @@ def cleanup_loguru_handlers():
     yield  # Run the test
 
     try:
-        # Lazy import to avoid circular dependency
+        # Lazy import — see top-of-file note about the circular-dependency cycle
         from config.logging import _handler_ids
 
         # Remove loguru handlers but don't manually close file handlers
@@ -161,12 +169,12 @@ def cleanup_global_config_state():
     yield  # Run the test
 
     try:
-        # Lazy import to avoid circular dependency
-        import config.logging
+        # Lazy import — see top-of-file note about the circular-dependency cycle
+        import config.logging as _logging_mod
 
         # Reset global configuration variables
-        config.logging._config = None
-        config.logging._debug_enabled = False
+        _logging_mod._config = None
+        _logging_mod._debug_enabled = False
 
     except ImportError:
         pass
@@ -205,12 +213,146 @@ def cleanup_mock_patches():
         mock.patch.stopall()
 
 
+@pytest.fixture(autouse=True)
+def cleanup_rate_limiter_displays():
+    """Stop ``RateLimiterDisplay`` threads spawned during the test.
+
+    ``api/rate_limiter_display.RateLimiterDisplay.start()`` spawns a
+    daemon thread (``name="RateLimiterDisplay"``) that updates Rich
+    progress tasks in a polling loop. Tests that exercise ``FanslyConfig``
+    setup or rate-limiter wiring create instances; without explicit
+    ``.stop()`` the daemon thread accumulates across tests and is alive
+    at worker shutdown — racing ``_Py_Finalize.flush_std_files`` on the
+    buffered-IO lock.
+
+    Pattern: monkeypatch ``__init__`` to track instances, call ``.stop()``
+    on each at teardown, restore original. Same shape as
+    ``cleanup_http_sessions`` for ``httpx.Client``.
+    """
+    tracked: list = []
+    original_init = None
+
+    with contextlib.suppress(Exception):
+        # Lazy import — RateLimiterDisplay is in api/, which depends on
+        # config indirectly; top-level import here triggers the same
+        # circular cycle documented at the top of this file.
+        from api.rate_limiter_display import RateLimiterDisplay
+
+        original_init = RateLimiterDisplay.__init__
+
+        def tracking_init(self, *args, **kwargs):
+            tracked.append(self)
+            return original_init(self, *args, **kwargs)
+
+        RateLimiterDisplay.__init__ = tracking_init
+
+    yield  # Run the test
+
+    for instance in tracked:
+        with contextlib.suppress(Exception):
+            instance.stop()  # sets _stop_event + joins with timeout=1.0
+
+    if original_init is not None:
+        with contextlib.suppress(Exception):
+            from api.rate_limiter_display import RateLimiterDisplay
+
+            RateLimiterDisplay.__init__ = original_init
+
+
+@pytest.fixture(autouse=True)
+def cleanup_fansly_websockets():
+    """Stop ``FanslyWebSocket`` daemon threads spawned during the test.
+
+    ``api/websocket.FanslyWebSocket.start_in_thread()`` spawns a daemon
+    thread (``name="fansly-ws"``) running an asyncio event loop that
+    maintains the WebSocket connection. Tests that exercise the daemon
+    runner, monitoring loop, or WebSocket integration create instances.
+    Without explicit ``.stop_thread()`` the daemon thread accumulates
+    across tests, racing finalize the same way as RateLimiterDisplay.
+
+    Same instance-tracking pattern as ``cleanup_rate_limiter_displays``.
+    """
+    tracked: list = []
+    original_init = None
+
+    with contextlib.suppress(Exception):
+        # Lazy import — same circular-cycle rationale as above.
+        from api.websocket import FanslyWebSocket
+
+        original_init = FanslyWebSocket.__init__
+
+        def tracking_init(self, *args, **kwargs):
+            tracked.append(self)
+            return original_init(self, *args, **kwargs)
+
+        FanslyWebSocket.__init__ = tracking_init
+
+    yield  # Run the test
+
+    # Cross-thread asyncio shutdown: setting ``_stop_event`` alone is not
+    # enough because the WS thread's asyncio loop is parked inside
+    # ``selector.select(timeout)`` waiting for socket I/O — the ``is_set()``
+    # check in ``_maintain_connection`` only runs when select returns.
+    # ``call_soon_threadsafe(loop.stop)`` schedules ``loop.stop()`` on the
+    # loop's own thread AND wakes the selector via the loop's self-pipe,
+    # so ``run_until_complete`` returns and ``_thread_main`` exits.
+    for instance in tracked:
+        with contextlib.suppress(Exception):
+            stop_event = getattr(instance, "_stop_event", None)
+            if stop_event is not None:
+                stop_event.set()
+            ws_loop = getattr(instance, "_ws_loop", None)
+            if ws_loop is not None and not ws_loop.is_closed():
+                with contextlib.suppress(RuntimeError):
+                    ws_loop.call_soon_threadsafe(ws_loop.stop)
+            ws_thread = getattr(instance, "_ws_thread", None)
+            if ws_thread is not None and ws_thread.is_alive():
+                ws_thread.join(timeout=2.0)
+
+    if original_init is not None:
+        with contextlib.suppress(Exception):
+            from api.websocket import FanslyWebSocket
+
+            FanslyWebSocket.__init__ = original_init
+
+
+@pytest.fixture(autouse=True)
+def cleanup_jspybridge():
+    """Tear down JSPyBridge daemon threads + Node subprocess between tests.
+
+    JSPyBridge (the ``javascript`` package, used by ``helpers/checkkey.py``
+    for one-shot startup checkKey extraction) spawns daemon threads
+    that outlive the test that triggered them:
+      - ``connection.com_thread`` reading Node stderr via readline
+      - ``connection.stdout_thread`` bare-printing every Node stdout line
+      - ``EventLoop.callbackExecutor`` event executor
+
+    These threads accumulate across tests within an xdist worker and
+    are alive at worker shutdown, racing ``_Py_Finalize.flush_std_files``
+    on the buffered-IO lock and triggering ``_enter_buffered_busy``
+    SIGABRTs. Production-side ``helpers/checkkey._shutdown_js_bridge``
+    handles the in-flow case; this fixture is the belt-and-suspenders
+    for any test path that imports the bridge but doesn't reach the
+    production shutdown call.
+    """
+    yield  # Run the test
+
+    with contextlib.suppress(Exception):
+        # Lazy import — see top-of-file note about the circular-dependency cycle
+        from helpers.checkkey import _shutdown_js_bridge
+
+        _shutdown_js_bridge()
+
+
 # Export all cleanup fixtures
 __all__ = [
+    "cleanup_fansly_websockets",
     "cleanup_global_config_state",
     "cleanup_http_sessions",
+    "cleanup_jspybridge",
     "cleanup_loguru_handlers",
     "cleanup_mock_patches",
+    "cleanup_rate_limiter_displays",
     "cleanup_rich_progress_state",
     "cleanup_unawaited_coroutines",
 ]

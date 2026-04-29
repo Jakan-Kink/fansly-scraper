@@ -2,6 +2,7 @@
 
 import asyncio
 import atexit
+import contextlib
 import logging
 import time
 from unittest.mock import AsyncMock
@@ -10,6 +11,14 @@ import httpx
 import pytest
 import respx
 
+
+# ``resource`` is Unix-only; tests guard with ``if resource is None: pytest.skip(...)``.
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows only
+    resource = None  # type: ignore[assignment]
+
+import fansly_downloader_ng as fdng
 from config import FanslyConfig
 from download.downloadstate import DownloadState
 from errors import (
@@ -36,6 +45,7 @@ from fansly_downloader_ng import (
     load_client_account_into_db,
     print_logo,
 )
+from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -561,8 +571,6 @@ async def test_safe_cleanup_database_outer_exception_is_caught(
             _awaitable.close()
         raise RuntimeError("inner-close boom")
 
-    import fansly_downloader_ng as fdng
-
     real_print_error = fdng.print_error
     call_count = {"n": 0}
 
@@ -826,7 +834,6 @@ async def test_cleanup_with_global_timeout_stash_wait_exception(
         await cleanup_with_global_timeout(config)
     finally:
         hang_event.set()
-        import contextlib
 
         with contextlib.suppress(Exception):
             stash_task.cancel()
@@ -935,7 +942,6 @@ async def test_cleanup_with_global_timeout_background_task_wait_timeout(
         await cleanup_with_global_timeout(config)
     finally:
         hang_event.set()
-        import contextlib
 
         with contextlib.suppress(Exception):
             task.cancel()
@@ -975,7 +981,6 @@ async def test_cleanup_with_global_timeout_background_task_wait_exception(
         await cleanup_with_global_timeout(config)
     finally:
         hang_event.set()
-        import contextlib
 
         with contextlib.suppress(Exception):
             task.cancel()
@@ -1350,9 +1355,7 @@ def test_increase_file_descriptor_limit_success_on_unix(caplog):
     guard but since the worktree is on macOS, we can run the real path.
     """
     caplog.set_level(logging.INFO)
-    try:
-        import resource  # noqa: F401
-    except ImportError:
+    if resource is None:
         pytest.skip("resource module not available (Windows)")
 
     increase_file_descriptor_limit()
@@ -1374,9 +1377,7 @@ def test_increase_file_descriptor_limit_handles_exception(caplog, monkeypatch):
     Patches ``resource.setrlimit`` to raise so the except branch fires.
     """
     caplog.set_level(logging.WARNING)
-    try:
-        import resource
-    except ImportError:
+    if resource is None:
         pytest.skip("resource module not available (Windows)")
 
     def _raise_setrlimit(*_args, **_kwargs):
@@ -1424,7 +1425,6 @@ async def test_load_client_account_into_db_persists_real_account(
     full pipeline: HTTP fetch → JSON envelope unwrap → ID coercion
     → process_account_data → identity-map merge → real DB row.
     """
-    from metadata.models import Account, get_store
 
     config = config_with_database
     config._api = fansly_api
@@ -1526,8 +1526,6 @@ async def test_cleanup_with_global_timeout_websocket_outer_exception_from_print_
             return None
 
     config._api = _FakeApi()
-
-    import fansly_downloader_ng as fdng
 
     real_print_info = fdng.print_info
 
@@ -1651,7 +1649,6 @@ async def test_cleanup_with_global_timeout_stash_wait_skipped_when_no_time(
         await cleanup_with_global_timeout(config)
     finally:
         hang_event.set()
-        import contextlib
 
         with contextlib.suppress(Exception):
             stash_task.cancel()
@@ -1747,7 +1744,6 @@ async def test_cleanup_with_global_timeout_skips_bg_wait_when_no_time(
         await cleanup_with_global_timeout(config)
     finally:
         hang_event.set()
-        import contextlib
 
         with contextlib.suppress(Exception):
             task.cancel()

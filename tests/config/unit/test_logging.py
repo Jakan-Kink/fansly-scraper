@@ -1,10 +1,15 @@
 """Test logging configuration."""
 
 import logging
+import os
+import sys
+from pathlib import Path
 
 import pytest
 from loguru import logger
 
+import config.logging as cfg_logging
+import helpers.rich_progress
 from config.fanslyconfig import FanslyConfig
 from config.logging import (
     _LEVEL_VALUES,
@@ -12,6 +17,7 @@ from config.logging import (
     SQLAlchemyInterceptHandler,
     _auto_bind_logger,
     _configure_sqlalchemy_logging,
+    _early_sqlalchemy_suppression,
     _trace_level_only,
     get_log_level,
     init_logging_config,
@@ -259,8 +265,6 @@ class TestInterceptHandler:
         try:
             raise ValueError("test error")
         except ValueError:
-            import sys
-
             exc_info = sys.exc_info()
             record = logging.LogRecord(
                 "test", logging.ERROR, "", 0, "error msg", (), exc_info
@@ -268,6 +272,13 @@ class TestInterceptHandler:
             handler.emit(record)
             # exc_info should be cleared on the record
             assert record.exc_info is None
+
+    def test_emit_with_unregistered_level_falls_back_to_levelno(self):
+        """Unknown level name → ValueError → str(levelno) fallback."""
+        handler = InterceptHandler()
+        # levelname auto-resolves to "Level 9999" — not in loguru's registry
+        record = logging.LogRecord("test", 9999, "", 0, "weird", (), None)
+        handler.emit(record)  # should not raise
 
 
 # -- SQLAlchemyInterceptHandler.emit --
@@ -291,6 +302,25 @@ class TestSQLAlchemyInterceptHandler:
             "sqlalchemy.engine", logging.DEBUG, "", 0, "SELECT 1", (), None
         )
         handler.emit(record)
+
+    def test_emit_with_unregistered_level_falls_back_to_levelno(self):
+        """Unknown level name in SA path → ValueError → str(levelno) fallback."""
+        handler = SQLAlchemyInterceptHandler()
+        record = logging.LogRecord("sqlalchemy.engine", 9999, "", 0, "weird", (), None)
+        handler.emit(record)  # should not raise
+
+    def test_emit_with_exception_clears_exc_info(self):
+        """SA handler clears record.exc_info after emit (matches InterceptHandler)."""
+        handler = SQLAlchemyInterceptHandler()
+        try:
+            raise ValueError("sa error")
+        except ValueError:
+            exc_info = sys.exc_info()
+            record = logging.LogRecord(
+                "sqlalchemy.engine", logging.ERROR, "", 0, "boom", (), exc_info
+            )
+            handler.emit(record)
+            assert record.exc_info is None
 
 
 # -- _auto_bind_logger --
@@ -366,8 +396,6 @@ class TestSetupHandlers:
 
     def test_setup_handlers_creates_log_dir(self, tmp_path):
         """setup_handlers creates log directory (line 312-313)."""
-        import os
-        from pathlib import Path
 
         original_cwd = Path.cwd()
         os.chdir(tmp_path)
@@ -391,3 +419,92 @@ class TestSetupHandlers:
         # Should have at least NullHandler
         handler_types = [type(h).__name__ for h in sa_logger.handlers]
         assert "NullHandler" in handler_types
+
+    def test_setup_handlers_falls_back_when_rich_handler_fails(
+        self, tmp_path, monkeypatch
+    ):
+        """RichHandler init failure → loud fallback to plain stdout."""
+
+        def boom(**kwargs):
+            raise RuntimeError("rich init failed")
+
+        monkeypatch.setattr(helpers.rich_progress, "create_rich_handler", boom)
+
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            config = FanslyConfig(program_version="test")
+            init_logging_config(config)  # exercises the except branch
+            assert (tmp_path / "logs").is_dir()
+        finally:
+            logger.remove()
+            os.chdir(original_cwd)
+
+    def test_init_logging_config_with_none_config(self, tmp_path):
+        """init_logging_config(None) skips the debug-set branch."""
+        original_cwd = Path.cwd()
+        original_config = cfg_logging._config
+        os.chdir(tmp_path)
+        try:
+            init_logging_config(None)  # should not raise
+            assert (tmp_path / "logs").is_dir()
+        finally:
+            cfg_logging._config = original_config  # autouse teardown wants FanslyConfig
+            logger.remove()
+            os.chdir(original_cwd)
+
+    def test_get_log_level_returns_default_when_config_none(self):
+        """get_log_level uses default arg when _config is None."""
+        original = cfg_logging._config
+        cfg_logging._config = None
+        try:
+            level = get_log_level("textio", "INFO")
+            # max(INFO, DEBUG) = INFO
+            assert level == _LEVEL_VALUES["INFO"]
+        finally:
+            cfg_logging._config = original
+
+    def test_early_suppression_skips_when_last_resort_is_none(self):
+        """When logging.lastResort is None, suppression skips reassignment."""
+        original = logging.lastResort
+        logging.lastResort = None
+        try:
+            _early_sqlalchemy_suppression()  # should not raise; takes false branch
+        finally:
+            logging.lastResort = original
+
+    def test_configure_sqlalchemy_logging_skips_when_last_resort_none(self, tmp_path):
+        """_configure_sqlalchemy_logging takes false branch when lastResort is None."""
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        original_lr = logging.lastResort
+        logging.lastResort = None
+        try:
+            config = FanslyConfig(program_version="test")
+            init_logging_config(config)
+            _configure_sqlalchemy_logging()
+        finally:
+            logging.lastResort = original_lr
+            logger.remove()
+            os.chdir(original_cwd)
+
+    def test_configure_sqlalchemy_logging_with_error_level_skips_intercept(
+        self, tmp_path
+    ):
+        """When sqlalchemy log level >= ERROR, the InterceptHandler is not added."""
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            config = FanslyConfig(program_version="test")
+            config.log_levels = {"sqlalchemy": "ERROR"}
+            init_logging_config(config)
+            _configure_sqlalchemy_logging()
+
+            sa_logger = logging.getLogger("sqlalchemy.engine")
+            intercept_present = any(
+                isinstance(h, SQLAlchemyInterceptHandler) for h in sa_logger.handlers
+            )
+            assert not intercept_present
+        finally:
+            logger.remove()
+            os.chdir(original_cwd)

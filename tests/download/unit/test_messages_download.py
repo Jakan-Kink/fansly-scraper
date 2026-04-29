@@ -29,6 +29,8 @@ import respx
 from download.downloadstate import DownloadState
 from download.messages import download_messages, download_messages_for_group
 from download.types import DownloadType
+from metadata import Account, Message
+from metadata.models import get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -225,8 +227,6 @@ async def test_download_messages_success_full_real_pipeline(
     assert state.download_type == DownloadType.MESSAGES
 
     # Real pipeline persisted the message to DB.
-    from metadata import Message
-    from metadata.models import get_store
 
     assert get_store().get_from_cache(Message, msg_id) is not None
 
@@ -552,7 +552,6 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     # return``. creator_id IS set (inferred), so we continue to the message
     # loop which needs a real response. Pre-create a real Account row via
     # factory so the group FK doesn't violate.
-    from metadata import Account
 
     account = Account.model_validate(
         {"id": creator_id, "username": "", "createdAt": 1700000000}

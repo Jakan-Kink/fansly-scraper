@@ -1,8 +1,11 @@
 """True integration tests for StashProcessing - hits real Docker Stash."""
 
+import asyncio
+
 import pytest
 from stash_graphql_client.types import Studio
 
+from errors import StashGraphQLError
 from stash.processing import StashProcessing
 
 
@@ -31,7 +34,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
-            from errors import StashGraphQLError
 
             studio_result = await real_stash_processor.context.client.find_studios(
                 q="Fansly (network)"
@@ -55,8 +57,6 @@ class TestStashProcessingIntegration:
                 except StashGraphQLError as e:
                     # Studio was created by parallel test - find it again
                     if "already exists" in str(e):
-                        import asyncio
-
                         # Retry with small delay to handle DB propagation
                         for attempt in range(3):
                             if attempt > 0:
@@ -138,7 +138,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
-            from errors import StashGraphQLError
 
             studio_result = await real_stash_processor.context.client.find_studios(
                 q="Fansly (network)"
@@ -162,8 +161,6 @@ class TestStashProcessingIntegration:
                 except StashGraphQLError as e:
                     # Studio was created by parallel test - find it again
                     if "already exists" in str(e):
-                        import asyncio
-
                         # Retry with small delay to handle DB propagation
                         for attempt in range(3):
                             if attempt > 0:

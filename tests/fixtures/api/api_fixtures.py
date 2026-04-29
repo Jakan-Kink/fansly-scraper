@@ -40,6 +40,8 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
+
 
 @pytest.fixture
 def fansly_api_with_respx():
@@ -64,7 +66,6 @@ def fansly_api_with_respx():
             assert timeline == []
     """
     # Lazy import to avoid circular dependency
-    from api.fansly import FanslyApi
 
     api = FanslyApi(
         token="test_token",  # noqa: S106 # Test fixture token
@@ -88,7 +89,6 @@ def fansly_api():
         FanslyApi: Real API instance
     """
     # Lazy import to avoid circular dependency
-    from api.fansly import FanslyApi
 
     api = FanslyApi(
         token="test_token",  # noqa: S106 # Test fixture token
@@ -123,9 +123,6 @@ def fansly_api_factory():
         on_device_updated=None,
     ):
         """Create a FanslyApi instance with specified parameters."""
-        # Lazy import to avoid circular dependency
-        from api.fansly import FanslyApi
-
         if device_id_timestamp is None:
             device_id_timestamp = int(datetime.now(UTC).timestamp() * 1000)
 

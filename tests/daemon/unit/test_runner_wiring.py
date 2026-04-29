@@ -24,6 +24,7 @@ import httpx
 import pytest
 import respx
 
+from daemon.bootstrap import DaemonBootstrap
 from daemon.filters import should_process_creator
 from daemon.handlers import (
     DownloadMessagesForGroup,
@@ -184,12 +185,8 @@ class TestRunDaemonBootstrapFallback:
         self, config_wired, entity_store, fake_ws, monkeypatch
     ):
         """ws_started=False → ws_factory called, queue/simulator reused."""
-        from daemon.bootstrap import DaemonBootstrap
-        from daemon.handlers import WorkItem as _WorkItem
-        from daemon.simulator import ActivitySimulator as _Simulator
-
-        shared_queue: asyncio.Queue[_WorkItem] = asyncio.Queue()
-        shared_simulator = _Simulator()
+        shared_queue: asyncio.Queue[WorkItem] = asyncio.Queue()
+        shared_simulator = ActivitySimulator()
         shared_baseline: set[int] = {999_000_000_001}
 
         bootstrap = DaemonBootstrap(

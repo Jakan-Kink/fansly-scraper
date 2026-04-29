@@ -46,6 +46,7 @@ import respx
 from download.downloadstate import DownloadState
 from download.stories import _mark_stories_viewed, download_stories
 from download.types import DownloadType
+from metadata import Account, MediaStoryState
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -248,7 +249,6 @@ async def _seed_creator_account(entity_store, creator_id: int, username: str):
     download_stories's outer try/except and the test silently skips the
     rest of the pipeline including ``_mark_stories_viewed``.
     """
-    from metadata import Account
 
     account = Account.model_validate(
         {"id": creator_id, "username": username, "createdAt": 1700000000}
@@ -428,7 +428,6 @@ async def test_download_stories_early_exit_when_no_active_stories_cached(
     is False). Pre-seeds a real MediaStoryState into the EntityStore so
     the production ``store.get(MediaStoryState, creator_id)`` returns it.
     """
-    from metadata import MediaStoryState
 
     config = mock_config
     config.download_directory = tmp_path

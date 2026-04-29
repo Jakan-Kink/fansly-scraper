@@ -4,11 +4,13 @@ Uses real database and factory objects, mocks only Stash API calls via respx.
 """
 
 import asyncio
+import logging
 from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
+from stash_graphql_client.types import Performer
 
 from metadata import Account, ContentType
 from tests.fixtures import (
@@ -142,21 +144,22 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
-        self, respx_stash_processor, entity_store, mock_performer
+        self, respx_stash_processor, entity_store, mock_performer, caplog
     ):
         """Test _safe_background_processing handles CancelledError with real DB queries.
 
         Simulates task cancellation during GraphQL call by patching at continue_stash_processing level.
         """
+        caplog.set_level(logging.DEBUG)
         acct_id = snowflake_id()
 
         # Create real account
         account = AccountFactory.build(id=acct_id, username="test_cancel", stash_id=124)
         await entity_store.save(account)
 
-        # Patch continue_stash_processing to raise CancelledError (simulates task cancellation)
-        # This is acceptable because we're testing _safe_background_processing's error handling,
-        # not the continue_stash_processing flow itself
+        # Patch continue_stash_processing to raise CancelledError (simulates task cancellation).
+        # Acceptable: we're testing _safe_background_processing's error handling, not the
+        # continue_stash_processing flow itself.
         with (
             patch.object(
                 respx_stash_processor,
@@ -164,37 +167,44 @@ class TestBackgroundProcessing:
                 side_effect=asyncio.CancelledError(),
             ),
             pytest.raises(asyncio.CancelledError),
-            patch("stash.processing.base.logger.debug") as mock_logger_debug,
-            patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
             await respx_stash_processor._safe_background_processing(
                 account, mock_performer
             )
 
-        # Verify logging and cleanup
-        mock_logger_debug.assert_called_once()
-        assert "cancelled" in str(mock_logger_debug.call_args).lower()
-        mock_debug_print.assert_called_once()
-        assert "background_task_cancelled" in str(mock_debug_print.call_args)
+        # Production emits a DEBUG record from logger.debug() acknowledging cancellation.
+        debug_records = [r for r in caplog.records if r.levelname == "DEBUG"]
+        cancel_logs = [
+            r.getMessage()
+            for r in debug_records
+            if "cancelled" in r.getMessage().lower()
+        ]
+        assert len(cancel_logs) >= 1
+        # debug_print emits a separate DEBUG record (pformatted dict) tagged with the status.
+        cancel_status_logs = [
+            r.getMessage()
+            for r in debug_records
+            if "background_task_cancelled" in r.getMessage()
+        ]
+        assert len(cancel_status_logs) == 1
         assert respx_stash_processor._cleanup_event.is_set()
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_exception(
-        self, respx_stash_processor, entity_store, mock_performer
+        self, respx_stash_processor, entity_store, mock_performer, caplog
     ):
         """Test _safe_background_processing handles exceptions with real DB queries.
 
         Simulates processing error by patching at continue_stash_processing level.
         """
+        caplog.set_level(logging.DEBUG)
         acct_id = snowflake_id()
 
         # Create real account
         account = AccountFactory.build(id=acct_id, username="test_error", stash_id=125)
         await entity_store.save(account)
 
-        # Patch continue_stash_processing to raise error (simulates processing failure)
-        # This is acceptable because we're testing _safe_background_processing's error handling,
-        # not the continue_stash_processing flow itself
+        # Patch continue_stash_processing to raise error (simulates processing failure).
         with (
             patch.object(
                 respx_stash_processor,
@@ -202,18 +212,27 @@ class TestBackgroundProcessing:
                 side_effect=Exception("Test error"),
             ),
             pytest.raises(Exception, match="Test error"),
-            patch("stash.processing.base.logger.exception") as mock_logger_exception,
-            patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
             await respx_stash_processor._safe_background_processing(
                 account, mock_performer
             )
 
-        # Verify logging and cleanup
-        mock_logger_exception.assert_called_once()
-        assert "Background task failed" in str(mock_logger_exception.call_args)
-        mock_debug_print.assert_called_once()
-        assert "background_task_failed" in str(mock_debug_print.call_args)
+        # logger.exception → ERROR record with exc_info attached.
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        bg_failed_errors = [
+            r for r in error_records if "Background task failed" in r.getMessage()
+        ]
+        assert len(bg_failed_errors) == 1
+        assert bg_failed_errors[0].exc_info is not None, (
+            "logger.exception should attach exc_info"
+        )
+        # debug_print → DEBUG record tagged with the status.
+        debug_status_logs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG" and "background_task_failed" in r.getMessage()
+        ]
+        assert len(debug_status_logs) == 1
         assert respx_stash_processor._cleanup_event.is_set()
 
     @pytest.mark.asyncio
@@ -444,7 +463,6 @@ class TestBackgroundProcessing:
         await entity_store.save(account)
 
         # Create Performer object (Pydantic-based library, not dicts)
-        from stash_graphql_client.types import Performer
 
         performer = Performer(id="789", name="test_user3")
 

@@ -1,6 +1,7 @@
 """Tests for textio/logging.py — SizeAndTimeRotatingFileHandler and SizeTimeRotatingHandler."""
 
 import logging
+import os
 import time
 import types
 from pathlib import Path
@@ -57,7 +58,6 @@ class TestSizeAndTimeRotatingFileHandlerInit:
         log_file.write_text("old content")
 
         # Set mod time to the past
-        import os
 
         old_time = time.time() - 7200  # 2 hours ago
         os.utime(log_file, (old_time, old_time))

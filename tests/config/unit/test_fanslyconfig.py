@@ -35,6 +35,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
 from api.rate_limiter import RateLimiter
@@ -399,8 +400,6 @@ class TestStashContextWiring:
 
     def test_get_stash_context_builds_real_instance(self, config):
         """Real StashContext is constructed and cached on _stash."""
-        from stash_graphql_client import StashContext
-
         config._stash = None
         config.stash_context_conn = {
             "scheme": "http",
@@ -451,8 +450,6 @@ class TestStashContextWiring:
         initialization (which is StashContext's responsibility,
         covered by stash-graphql-client's own test suite).
         """
-        from stash_graphql_client import StashClient
-
         config._stash = None
         config.stash_context_conn = {
             "scheme": "http",

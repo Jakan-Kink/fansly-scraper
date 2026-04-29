@@ -606,3 +606,106 @@ class TestShouldProcessCreator:
     def test_max_filter_pages_constant_accessible_and_equals_3(self):
         """MAX_FILTER_PAGES is importable from daemon.filters and equals 3."""
         assert MAX_FILTER_PAGES == 3
+
+
+# ---------------------------------------------------------------------------
+# Edge coverage — _parse_created_at, _is_newer_than_baseline, MonitorState load error
+# ---------------------------------------------------------------------------
+
+
+class TestParseCreatedAtEdges:
+    """Lines 55-60: _parse_created_at branches — datetime passthrough + None fallback."""
+
+    def test_datetime_input_returned_as_is(self):
+        """Line 55-56: when raw is already a datetime, return it unchanged."""
+        from daemon.filters import _parse_created_at
+
+        ts = datetime(2026, 4, 15, 12, 0, 0, tzinfo=UTC)
+        result = _parse_created_at(ts)
+        assert result is ts
+
+    def test_string_input_returns_none(self):
+        """Line 60: string input → falls through both isinstance checks → None."""
+        from daemon.filters import _parse_created_at
+
+        assert _parse_created_at("2026-04-15") is None
+
+    def test_none_input_returns_none(self):
+        """Line 60: None input → falls through → None."""
+        from daemon.filters import _parse_created_at
+
+        assert _parse_created_at(None) is None
+
+
+class TestIsNewerThanBaselineUnparseable:
+    """Lines 76-80: _is_newer_than_baseline returns True conservatively on parse failure."""
+
+    def test_unparseable_timestamp_returns_true_with_warning(self, caplog):
+        """When createdAt cannot be parsed, log warning and return True (don't miss content)."""
+        import logging as _logging
+
+        from daemon.filters import _is_newer_than_baseline
+
+        caplog.set_level(_logging.WARNING)
+
+        baseline = datetime(2026, 4, 15, tzinfo=UTC)
+        # createdAt is a string — _parse_created_at returns None → conservative True
+        result = _is_newer_than_baseline(
+            {"createdAt": "garbage"}, baseline, creator_id=12345
+        )
+
+        assert result is True
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("unrecognised createdAt for creator 12345" in m for m in warnings)
+
+
+class TestShouldProcessCreatorMonitorStateLoadError:
+    """Lines 158-164: store.get(MonitorState) raises → log warning + return True conservatively."""
+
+    @pytest.mark.asyncio
+    async def test_monitor_state_load_failure_returns_true(
+        self, config_wired, entity_store, monkeypatch, caplog
+    ):
+        """When MonitorState load raises, default to processing (don't miss content)."""
+        import logging as _logging
+
+        caplog.set_level(_logging.WARNING)
+        creator_id = snowflake_id()
+
+        from daemon.filters import get_store as real_get_store
+
+        real_store = real_get_store()
+
+        class _LoadFails:
+            def __init__(self, real):
+                self._real = real
+
+            def get_from_cache(self, model, key):
+                return self._real.get_from_cache(model, key)
+
+            async def get(self, model, key):
+                if model.__name__ == "MonitorState":
+                    raise RuntimeError("simulated MonitorState load failure")
+                return await self._real.get(model, key)
+
+            async def save(self, obj):
+                return await self._real.save(obj)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        monkeypatch.setattr("daemon.filters.get_store", lambda: _LoadFails(real_store))
+
+        # session_baseline=None forces the MonitorState load path.
+        result = await should_process_creator(
+            config_wired, creator_id, session_baseline=None
+        )
+
+        assert result is True
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "could not load MonitorState" in m
+            and str(creator_id) in m
+            and "simulated MonitorState load failure" in m
+            for m in warnings
+        )

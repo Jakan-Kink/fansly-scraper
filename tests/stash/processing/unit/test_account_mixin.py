@@ -11,11 +11,14 @@ import httpx
 import pytest
 import respx
 from PIL import Image
+from stash_graphql_client.types import Image as SGCImage
+from stash_graphql_client.types import Performer
 
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_graphql_response,
+    create_image_dict,
     create_performer_dict,
 )
 from tests.fixtures.stash.stash_type_factories import PerformerFactory
@@ -205,9 +208,6 @@ class TestAccountProcessingMixin:
             img.save(temp_avatar_path, "JPEG")
 
         try:
-            # Mock GraphQL responses for avatar update
-            from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
-
             # Create image dict with visual_files
             image_dict = create_image_dict(
                 id="48000",
@@ -450,10 +450,6 @@ class TestAccountProcessingMixin:
         Uses Django-style filter: aliases__contains=username
         This syntax works with stash-graphql-client v0.10.6+.
         """
-        from unittest.mock import patch
-
-        from stash_graphql_client.types import Performer
-
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="test_user")
 
@@ -737,3 +733,148 @@ class TestAccountProcessingMixin:
 
         assert result is not None
         assert result.id == "5702"
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_performer_url_cache_hit(self, respx_stash_processor):
+        """Lines 148-154: _get_or_create_performer URL cache hit (zero GraphQL calls).
+
+        Pre-loads a Performer with the matching fansly_url into the store
+        cache. Name and alias cache filters miss; URL filter HITS — no
+        GraphQL search needed.
+        """
+        acct_id = snowflake_id()
+        username = f"cached_user_{acct_id}"
+        account = AccountFactory.build(id=acct_id, username=username)
+        fansly_url = f"https://fansly.com/{username}"
+
+        # Pre-load a performer with a different name/no alias but matching URL.
+        # Performer.id must be numeric (StashObject validator rejects non-numeric).
+        cached_perf_id = str(snowflake_id())
+        cached_performer = PerformerFactory.build(
+            id=cached_perf_id,
+            name="DifferentName",
+            alias_list=[],
+            urls=[fansly_url],
+        )
+        await respx_stash_processor.context.get_client()
+        respx_stash_processor.context.store.add(cached_performer)
+
+        # Production tries name + alias GraphQL queries before reaching the
+        # URL cache filter. Mock those as empty findPerformers so we fall
+        # through to the URL-cache-hit branch (lines 153-154) without an
+        # extra findPerformers-by-URL call (since cache hits before fallback).
+        respx.reset()
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # findPerformers by name → empty
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 0, "performers": []}
+                    ),
+                ),
+                # findPerformers by alias → empty
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 0, "performers": []}
+                    ),
+                ),
+                # No third call expected — URL cache hits before find_one fires.
+            ]
+        )
+
+        try:
+            result = await respx_stash_processor._get_or_create_performer(account)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_url_cache_hit")
+
+        # Found via URL cache. Exactly 2 GraphQL calls fired (name + alias);
+        # the URL find_one was skipped because the cache filter returned the
+        # preloaded performer at lines 153-154.
+        assert result.id == cached_perf_id
+        assert graphql_route.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_success_logs_avatar_updated(
+        self, respx_stash_processor
+    ):
+        """Line 273: _update_performer_avatar happy path → debug_print 'avatar_updated'.
+
+        The pre-existing tests take the no_avatar_found branch because
+        their tempfile has a random name that doesn't contain the avatar's
+        local_filename. This test crafts the visual_files path to include
+        the filename, so the cache-filter match succeeds and update_avatar
+        runs to completion.
+        """
+        acct_id = snowflake_id()
+        username = "avatar_test_user"
+        account = AccountFactory.build(id=acct_id, username=username)
+
+        # Avatar with a known filename. The image's visual_files path MUST
+        # contain this filename for the cache filter to match.
+        local_filename = "specific_avatar_xyz.jpg"
+        avatar = MediaFactory.build(
+            id=snowflake_id(),
+            accountId=acct_id,
+            local_filename=local_filename,
+        )
+        account.avatar = avatar
+
+        # image_path="default=true" routes the production path through the
+        # avatar-update branch rather than skip.
+        mock_performer = PerformerFactory.build(
+            id="123",
+            name=username,
+            image_path="default=true",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            avatar_full_path = Path(tmpdir) / local_filename
+            Image.new("RGB", (2, 2), color="red").save(avatar_full_path, "JPEG")
+
+            await respx_stash_processor.context.get_client()
+
+            cached_image_dict = create_image_dict(
+                id=str(snowflake_id()),
+                title=None,
+                visual_files=[
+                    {
+                        "id": str(snowflake_id()),
+                        "path": str(avatar_full_path),
+                        "basename": local_filename,
+                        "parent_folder_id": str(snowflake_id()),
+                        "mod_time": "2024-01-01T00:00:00Z",
+                        "size": 1024,
+                        "fingerprints": [],
+                        "width": 2,
+                        "height": 2,
+                    }
+                ],
+            )
+            cached_image = SGCImage.model_validate(cached_image_dict)
+            respx_stash_processor.context.store.add(cached_image)
+
+            performer_dict = create_performer_dict(id="123", name=username)
+
+            # Only performerUpdate should fire — cache hit on findImages.
+            graphql_route = respx.post("http://localhost:9999/graphql").mock(
+                side_effect=[
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response("performerUpdate", performer_dict),
+                    ),
+                ]
+            )
+
+            try:
+                # Should hit line 273 debug_print on success.
+                await respx_stash_processor._update_performer_avatar(
+                    account, mock_performer
+                )
+            finally:
+                dump_graphql_calls(graphql_route.calls, "test_avatar_updated")
+
+            # Exactly one GraphQL call (performerUpdate). The findImages was
+            # served from cache via store.filter().
+            assert graphql_route.call_count == 1

@@ -13,6 +13,7 @@ Key improvements:
 import asyncio
 import contextlib
 import json
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -35,7 +36,7 @@ from tests.fixtures.stash.stash_api_fixtures import (
     assert_op_with_vars,
     dump_graphql_calls,
 )
-from tests.fixtures.stash.stash_type_factories import JobFactory
+from tests.fixtures.stash.stash_type_factories import JobFactory, PerformerFactory
 
 
 # ============================================================================
@@ -241,7 +242,6 @@ class TestCreatorProcessing:
 
         # Create performer for process_creator_studio
         # Note: Performer ID must be string(int) format until assigned by Stash
-        from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
         performer = PerformerFactory.build(id="123", name="Test User")
 
@@ -310,26 +310,27 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_no_stash_context(
-        self, entity_store, respx_stash_processor
+        self, entity_store, respx_stash_processor, caplog
     ):
         """Test start_creator_processing when stash_context_conn is not configured."""
+        caplog.set_level(logging.WARNING)
         processor = respx_stash_processor
         # Remove stash context
         processor.config.stash_context_conn = None
 
-        with patch("stash.processing.base.print_warning") as mock_print_warning:
-            # Call start_creator_processing
-            await processor.start_creator_processing()
+        await processor.start_creator_processing()
 
-            # Verify warning was printed
-            mock_print_warning.assert_called_once()
-            assert "not configured" in str(mock_print_warning.call_args)
+        # Verify the "not configured" warning was emitted via print_warning → loguru.
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        not_configured = [m for m in warnings if "not configured" in m]
+        assert len(not_configured) == 1
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_stash_version_error(
-        self, entity_store, respx_stash_processor
+        self, entity_store, respx_stash_processor, caplog
     ):
         """Test start_creator_processing when Stash server is too old (lines 379-382)."""
+        caplog.set_level(logging.WARNING)
         processor = respx_stash_processor
         processor.config.stash_context_conn = {
             "scheme": "http",
@@ -338,27 +339,26 @@ class TestCreatorProcessing:
             "apikey": "",
         }
 
-        with (
-            patch.object(
-                processor.context,
-                "get_client",
-                new_callable=AsyncMock,
-                side_effect=StashVersionError("Server too old"),
-            ),
-            patch("stash.processing.base.print_error") as mock_error,
-            patch("stash.processing.base.print_warning") as mock_warning,
+        with patch.object(
+            processor.context,
+            "get_client",
+            new_callable=AsyncMock,
+            side_effect=StashVersionError("Server too old"),
         ):
             await processor.start_creator_processing()
 
-            mock_error.assert_called_once()
-            assert "too old" in str(mock_error.call_args)
-            mock_warning.assert_called_once()
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        too_old_errors = [m for m in errors if "too old" in m]
+        assert len(too_old_errors) == 1
+        assert len(warnings) == 1
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_runtime_error(
-        self, entity_store, respx_stash_processor
+        self, entity_store, respx_stash_processor, caplog
     ):
         """Test start_creator_processing when client init fails (lines 383-385)."""
+        caplog.set_level(logging.ERROR)
         processor = respx_stash_processor
         processor.config.stash_context_conn = {
             "scheme": "http",
@@ -367,19 +367,17 @@ class TestCreatorProcessing:
             "apikey": "",
         }
 
-        with (
-            patch.object(
-                processor.context,
-                "get_client",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("Connection refused"),
-            ),
-            patch("stash.processing.base.print_error") as mock_error,
+        with patch.object(
+            processor.context,
+            "get_client",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Connection refused"),
         ):
             await processor.start_creator_processing()
 
-            mock_error.assert_called_once()
-            assert "Failed to initialize" in str(mock_error.call_args)
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        init_errors = [m for m in errors if "Failed to initialize" in m]
+        assert len(init_errors) == 1
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_with_stash_context(
@@ -656,9 +654,10 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_no_base_path(
-        self, respx_stash_processor, tmp_path
+        self, respx_stash_processor, tmp_path, caplog
     ):
         """Test scan_creator_folder creates and uses download_path when base_path is None."""
+        caplog.set_level(logging.INFO)
         processor = respx_stash_processor
         # Setup: No base_path
         processor.state.base_path = None
@@ -695,36 +694,38 @@ class TestCreatorProcessing:
         # Initialize client
         await processor.context.get_client()
 
-        # Mock path creation utility (OK to patch utility functions)
-        with (
-            patch("stash.processing.base.print_info") as mock_print_info,
-            patch(
-                "stash.processing.base.set_create_directory_for_download"
-            ) as mock_set_path,
-        ):
+        # set_create_directory_for_download is a leaf utility that creates an
+        # actual directory on disk; patching it lets the test stay hermetic.
+        with patch(
+            "stash.processing.base.set_create_directory_for_download"
+        ) as mock_set_path:
             mock_set_path.return_value = created_path
 
             # Call scan_creator_folder
             await processor.scan_creator_folder()
 
-            # === PERMANENT GraphQL call sequence assertions ===
-            assert len(graphql_route.calls) == 3, (
-                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
-            )
+        # === PERMANENT GraphQL call sequence assertions ===
+        assert len(graphql_route.calls) == 3, (
+            f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+        )
 
-            # Call 2: metadataScan mutation with created path
-            assert_op(graphql_route.calls[1], "metadataScan")
-            call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert str(created_path) in call2_body["variables"]["input"]["paths"]
+        # Call 2: metadataScan mutation with created path
+        assert_op(graphql_route.calls[1], "metadataScan")
+        call2_body = json.loads(graphql_route.calls[1].request.content)
+        assert str(created_path) in call2_body["variables"]["input"]["paths"]
 
-            # Verify path creation and state updates
-            mock_print_info.assert_any_call(
-                "No download path set, attempting to create one..."
-            )
-            mock_set_path.assert_called_once_with(processor.config, processor.state)
-            assert processor.state.download_path == created_path
-            # After fix: base_path should be updated to download_path
-            assert processor.state.base_path == created_path
+        # Verify the "No download path set" info log was emitted via print_info → loguru.
+        info_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "INFO"
+        ]
+        assert any(
+            "No download path set, attempting to create one..." in m
+            for m in info_messages
+        )
+        mock_set_path.assert_called_once_with(processor.config, processor.state)
+        assert processor.state.download_path == created_path
+        # After fix: base_path should be updated to download_path
+        assert processor.state.base_path == created_path
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_wait_for_job_exception_handling(

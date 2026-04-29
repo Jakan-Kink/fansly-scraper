@@ -7,7 +7,7 @@ with correct data from our test objects.
 
 import asyncio
 import json
-from unittest.mock import patch
+import logging
 
 import httpx
 import pytest
@@ -97,13 +97,14 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_create_new(
-        self, respx_stash_processor, mock_account, mock_studio
+        self, respx_stash_processor, mock_account, mock_studio, caplog
     ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created.
 
         Pattern: get_or_create() creates immediately, doesn't search first.
         Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (new)
         """
+        caplog.set_level(logging.INFO)
         # Create responses
         fansly_studio_dict = create_studio_dict(id="10400", name="Fansly (network)")
         fansly_studio_result = create_find_studios_result(
@@ -143,43 +144,44 @@ class TestStudioProcessingMixin:
         )
 
         # Call process_creator_studio (respx will intercept HTTP calls)
-        with patch("stash.processing.mixins.studio.print_info") as mock_print_info:
-            result = await respx_stash_processor.process_creator_studio(
-                account=mock_account,
-            )
+        result = await respx_stash_processor.process_creator_studio(
+            account=mock_account,
+        )
 
-            # === PERMANENT GraphQL call sequence assertions ===
-            assert len(graphql_route.calls) == 3, (
-                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
-            )
+        # === PERMANENT GraphQL call sequence assertions ===
+        assert len(graphql_route.calls) == 3, (
+            f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+        )
 
-            # Call 1: Find Fansly studio
-            # Note: Don't assert on filter structure - that's library implementation
-            assert_op(graphql_route.calls[0], "findStudios")
+        # Call 1: Find Fansly studio
+        # Note: Don't assert on filter structure - that's library implementation
+        assert_op(graphql_route.calls[0], "findStudios")
 
-            # Call 2: Find creator studio (not found)
-            assert_op(graphql_route.calls[1], "findStudios")
+        # Call 2: Find creator studio (not found)
+        assert_op(graphql_route.calls[1], "findStudios")
 
-            # Call 3: Create studio
-            assert_op_with_vars(
-                graphql_route.calls[2],
-                "studioCreate",
-                input__name="test_user (Fansly)",
-            )
-            call3_body = json.loads(graphql_route.calls[2].request.content)
-            assert (
-                "https://fansly.com/test_user"
-                in call3_body["variables"]["input"]["urls"]
-            )
+        # Call 3: Create studio
+        assert_op_with_vars(
+            graphql_route.calls[2],
+            "studioCreate",
+            input__name="test_user (Fansly)",
+        )
+        call3_body = json.loads(graphql_route.calls[2].request.content)
+        assert (
+            "https://fansly.com/test_user" in call3_body["variables"]["input"]["urls"]
+        )
 
-            # Verify result
-            assert result is not None
-            # The result should be the created studio
-            assert hasattr(result, "id")
+        # Verify result
+        assert result is not None
+        # The result should be the created studio
+        assert hasattr(result, "id")
 
-            # Verify print_info called
-            mock_print_info.assert_called_once()
-            assert "Studio created" in str(mock_print_info.call_args)
+        # Verify the "Studio created" info log was emitted via print_info → loguru.
+        info_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "INFO"
+        ]
+        studio_created = [m for m in info_messages if "Studio created" in m]
+        assert len(studio_created) == 1
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_fansly_not_found(
@@ -212,7 +214,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_creation_fails_then_retry(
-        self, respx_stash_processor, mock_account
+        self, respx_stash_processor, mock_account, caplog
     ):
         """Test process_creator_studio when creation fails (no automatic retry in current implementation).
 
@@ -253,51 +255,62 @@ class TestStudioProcessingMixin:
             ]
         )
 
-        # Call process_creator_studio with error mocks (respx will intercept HTTP calls)
-        with (
-            patch("stash.processing.mixins.studio.print_error") as mock_print_error,
-            patch(
-                "stash.processing.mixins.studio.logger.exception"
-            ) as mock_logger_exception,
-            patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
-        ):
-            result = await respx_stash_processor.process_creator_studio(
-                account=mock_account,
-            )
+        # caplog.set_level(DEBUG) captures both print_error/logger.exception
+        # (ERROR via loguru) and debug_print (DEBUG via stash_logger).
+        caplog.set_level(logging.DEBUG)
 
-            # === PERMANENT GraphQL call sequence assertions ===
-            assert len(graphql_route.calls) == 3, (
-                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
-            )
+        result = await respx_stash_processor.process_creator_studio(
+            account=mock_account,
+        )
 
-            # Call 1: Find Fansly studio
-            # Note: Don't assert on filter structure - that's library implementation
-            assert_op(graphql_route.calls[0], "findStudios")
+        # === PERMANENT GraphQL call sequence assertions ===
+        assert len(graphql_route.calls) == 3, (
+            f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+        )
 
-            # Call 2: Find creator studio (not found)
-            assert_op(graphql_route.calls[1], "findStudios")
+        # Call 1: Find Fansly studio
+        # Note: Don't assert on filter structure - that's library implementation
+        assert_op(graphql_route.calls[0], "findStudios")
 
-            # Call 3: Create studio (will fail)
-            assert_op_with_vars(
-                graphql_route.calls[2],
-                "studioCreate",
-                input__name="test_user (Fansly)",
-            )
+        # Call 2: Find creator studio (not found)
+        assert_op(graphql_route.calls[1], "findStudios")
 
-            # Verify result is None (creation failed, no retry)
-            assert result is None
+        # Call 3: Create studio (will fail)
+        assert_op_with_vars(
+            graphql_route.calls[2],
+            "studioCreate",
+            input__name="test_user (Fansly)",
+        )
 
-            # Verify error handling
-            mock_print_error.assert_called_once()
-            assert "Failed to find/create studio" in str(mock_print_error.call_args)
-            mock_logger_exception.assert_called_once()
-            # debug_print is called twice: once at start, once in exception handler
-            assert mock_debug_print.call_count == 2
-            assert "studio_find_or_create_failed" in str(mock_debug_print.call_args)
+        # Verify result is None (creation failed, no retry)
+        assert result is None
+
+        # Production emits 2 ERROR records on the failure path: one from
+        # print_error and one from logger.exception (with exc_info attached).
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        find_create_errors = [
+            r for r in error_records if "Failed to find/create studio" in r.getMessage()
+        ]
+        assert len(find_create_errors) == 2
+        assert any(r.exc_info is not None for r in find_create_errors), (
+            "logger.exception should attach exc_info to its record"
+        )
+
+        # debug_print fires twice: initial method-entry pformat plus exception-branch pformat.
+        debug_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+            and "StashProcessing - process_creator_studio" in r.getMessage()
+        ]
+        assert len(debug_records) == 2
+        assert any(
+            "studio_find_or_create_failed" in r.getMessage() for r in debug_records
+        )
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_creation_fails_retry_also_fails(
-        self, respx_stash_processor, mock_account
+        self, respx_stash_processor, mock_account, caplog
     ):
         """Test process_creator_studio when creation fails AND retry finds nothing (line 141).
 
@@ -344,27 +357,33 @@ class TestStudioProcessingMixin:
             ]
         )
 
-        # Call process_creator_studio with error mocks
-        with (
-            patch("stash.processing.mixins.studio.print_error") as mock_print_error,
-            patch(
-                "stash.processing.mixins.studio.logger.exception"
-            ) as mock_logger_exception,
-            patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
-        ):
-            result = await respx_stash_processor.process_creator_studio(
-                account=mock_account,
-            )
+        caplog.set_level(logging.DEBUG)
 
-            # Verify result is None (line 141)
-            assert result is None
+        result = await respx_stash_processor.process_creator_studio(
+            account=mock_account,
+        )
 
-            # Verify error handling was called
-            mock_print_error.assert_called_once()
-            assert "Failed to find/create studio" in str(mock_print_error.call_args)
-            mock_logger_exception.assert_called_once()
-            # debug_print is called twice: once at start, once in exception handler
-            assert mock_debug_print.call_count == 2
+        # Verify result is None (line 141)
+        assert result is None
+
+        # 2 ERROR records: 1 from print_error + 1 from logger.exception (with exc_info).
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        find_create_errors = [
+            r for r in error_records if "Failed to find/create studio" in r.getMessage()
+        ]
+        assert len(find_create_errors) == 2
+        assert any(r.exc_info is not None for r in find_create_errors), (
+            "logger.exception should attach exc_info to its record"
+        )
+
+        # debug_print fires twice: method-entry + exception-branch.
+        debug_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+            and "StashProcessing - process_creator_studio" in r.getMessage()
+        ]
+        assert len(debug_records) == 2
 
     @pytest.mark.asyncio
     async def test_get_studio_lock_race_condition(self, respx_stash_processor, faker):

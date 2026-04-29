@@ -22,6 +22,7 @@ Real code throughout: ``process_account_data`` saves accounts;
 (invokes the patched ``download_media`` leaf for each accessible item).
 """
 
+import logging
 from unittest.mock import AsyncMock
 
 import httpx
@@ -279,15 +280,21 @@ class TestDownloadCollections:
 
     @pytest.mark.asyncio
     async def test_no_duplicate_message_when_zero(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path, monkeypatch
+        self,
+        respx_fansly_api,
+        mock_config,
+        entity_store,
+        tmp_path,
+        monkeypatch,
+        caplog,
     ):
         """duplicate_count == 0 → "Skipped N already downloaded" message NOT printed.
 
-        Asserts via captured stdout (caplog) that the conditional log line
-        at lines 47-55 of download/collections.py does not fire when
-        ``state.duplicate_count`` is zero — even with show_downloads=True
-        and show_skipped_downloads=False.
+        Asserts via caplog that the conditional log line at lines 47-55 of
+        download/collections.py does not fire when ``state.duplicate_count``
+        is zero — even with show_downloads=True and show_skipped_downloads=False.
         """
+        caplog.set_level(logging.INFO)
         mock_config.show_downloads = True
         mock_config.show_skipped_downloads = False
         mock_config.download_directory = tmp_path
@@ -320,15 +327,6 @@ class TestDownloadCollections:
         _noop = lambda _: None  # noqa: E731
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
 
-        # Capture print_info output to assert the "Skipped N" message
-        # is NOT emitted.
-        printed: list[str] = []
-
-        def _capture_print_info(msg: str) -> None:
-            printed.append(msg)
-
-        monkeypatch.setattr("download.collections.print_info", _capture_print_info)
-
         state = DownloadState(creator_name="no_dup_user")
         state.duplicate_count = 0
 
@@ -337,7 +335,10 @@ class TestDownloadCollections:
         finally:
             dump_fansly_calls(respx.calls, label="collections_no_dups")
 
-        skipped_messages = [m for m in printed if "Skipped" in m]
+        info_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "INFO"
+        ]
+        skipped_messages = [m for m in info_messages if "Skipped" in m]
         assert skipped_messages == [], (
             f"With duplicate_count=0, the 'Skipped N already downloaded' "
             f"message must not fire. Got: {skipped_messages}"

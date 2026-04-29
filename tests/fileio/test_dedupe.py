@@ -12,7 +12,9 @@ import pytest
 from PIL import Image
 
 from download.types import DownloadType
+from errors import MediaHashMismatchError
 from fileio.dedupe import (
+    _calculate_hash_for_file,
     calculate_file_hash,
     categorize_file,
     dedupe_init,
@@ -995,7 +997,6 @@ class TestGetOrCreateMediaDeepBranches:
     @pytest.mark.asyncio
     async def test_hash_mismatch_raises(self, entity_store, config, tmp_path):
         """Lines 361-379: existing record has hash, file has different hash → MediaHashMismatchError."""
-        from errors import MediaHashMismatchError
 
         acct_id = snowflake_id()
         await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
@@ -1167,7 +1168,6 @@ class TestCalculateHashForFileEdge:
     @pytest.mark.asyncio
     async def test_exception_returns_none(self, tmp_path):
         """Lines 902-913: hash function raises → caught, returns None."""
-        from fileio.dedupe import _calculate_hash_for_file
 
         file_path = create_test_image(tmp_path, "broken.jpg")
         with patch("imagehash.phash", side_effect=RuntimeError("corrupt")):
@@ -1177,7 +1177,6 @@ class TestCalculateHashForFileEdge:
     @pytest.mark.asyncio
     async def test_video_hash(self, tmp_path):
         """Lines 900-901: video mimetype → get_hash_for_other_content."""
-        from fileio.dedupe import _calculate_hash_for_file
 
         file_path = create_test_file(tmp_path, "test.mp4", b"x" * 1024)
         with patch("fileio.fnmanip.hash_mp4file", return_value="vidhash"):

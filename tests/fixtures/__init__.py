@@ -181,10 +181,13 @@ from .stash import (
 )
 from .stash import GroupFactory as StashGroupFactory
 from .utils import (
+    cleanup_fansly_websockets,
     cleanup_global_config_state,
     cleanup_http_sessions,
+    cleanup_jspybridge,
     cleanup_loguru_handlers,
     cleanup_mock_patches,
+    cleanup_rate_limiter_displays,
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
     snowflake_id,
@@ -399,6 +402,9 @@ mod_cleanup_fixtures = [
     "cleanup_global_config_state",
     "cleanup_unawaited_coroutines",
     "cleanup_mock_patches",
+    "cleanup_jspybridge",
+    "cleanup_rate_limiter_displays",
+    "cleanup_fansly_websockets",
 ]
 
 mod_init = [

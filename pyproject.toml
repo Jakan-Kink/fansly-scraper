@@ -308,6 +308,11 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
     "--cov-config=pyproject.toml",
+    # Honor ``@pytest.mark.xdist_group(name=...)`` so tests that share a
+    # fragile resource (currently: the ``message_media_generator`` fixture's
+    # find-or-create-on-shared-Docker-Stash race) all run on the same xdist
+    # worker. Tests without the marker still load-balance normally.
+    "--dist=loadgroup",
 ]
 timeout = 60
 timeout_func_only = true
@@ -335,6 +340,7 @@ markers = [
     "full_workflow: marks tests that run the complete workflow",
     "comprehensive: marks tests that check for comprehensive coverage",
     "empty_db: opt out of the pg_template_db fast path; get a bare empty database (Alembic walk tests)",
+    "xdist_group(name): pin a test to a worker group (used with --dist=loadgroup) so tests sharing fragile state run serially on one worker",
 ]
 
 [tool.coverage.run]
@@ -383,7 +389,6 @@ exclude_also = [
     "raise NotImplementedError",
     "if 0:",
     "if False:",
-    "if TESTING:"
 ]
 ignore_errors = true
 skip_empty = true

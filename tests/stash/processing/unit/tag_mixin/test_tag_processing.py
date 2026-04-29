@@ -9,6 +9,7 @@ import respx
 
 from tests.fixtures import (
     HashtagFactory,
+    SceneFactory,
     TagFactory,
     create_find_scenes_result,
     create_find_tags_result,
@@ -170,7 +171,6 @@ async def test_process_hashtags_to_tags_multiple(respx_stash_processor):
 async def test_add_preview_tag_not_found(respx_stash_processor):
     """Test add_preview_tag when Trailer tag doesn't exist."""
     # Create Scene using factory
-    from tests.fixtures import SceneFactory
 
     scene = SceneFactory.build(id="300", title="Test Scene", tags=[])
 
@@ -196,7 +196,6 @@ async def test_add_preview_tag_not_found(respx_stash_processor):
 async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     """Test add_preview_tag when Trailer tag exists and is added."""
     # Create Scene using factory
-    from tests.fixtures import SceneFactory
 
     scene = SceneFactory.build(id="300", title="Test Scene", tags=[])
 
@@ -254,7 +253,6 @@ async def test_add_preview_tag_already_has_tag(respx_stash_processor):
     trailer_tag = TagFactory.build(id="400", name="Trailer")
 
     # Create Scene with Trailer tag already added
-    from tests.fixtures import SceneFactory
 
     scene = SceneFactory.build(
         id="300",

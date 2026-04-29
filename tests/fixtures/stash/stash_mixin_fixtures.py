@@ -27,6 +27,7 @@ from stash.processing.mixins.gallery import GalleryProcessingMixin
 from stash.processing.mixins.media import MediaProcessingMixin
 from stash.processing.mixins.studio import StudioProcessingMixin
 from stash.processing.mixins.tag import TagProcessingMixin
+from tests.fixtures.metadata.metadata_factories import PostFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -203,8 +204,6 @@ def mock_item():
     Returns:
         Post: Real Post object (detached from database)
     """
-    from tests.fixtures.metadata.metadata_factories import PostFactory
-
     # Create real Post object (detached from database)
     acct_id = snowflake_id()
     item = PostFactory.build(

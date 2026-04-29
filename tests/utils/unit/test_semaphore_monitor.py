@@ -1,5 +1,6 @@
 """Tests for utils/semaphore_monitor.py — POSIX semaphore monitoring utilities."""
 
+import logging
 import subprocess
 from unittest.mock import patch
 
@@ -12,6 +13,20 @@ from utils.semaphore_monitor import (
     get_process_semaphores,
     monitor_semaphores,
 )
+
+
+def _warning_messages(caplog) -> list[str]:
+    """Return WARNING-level messages from caplog (loguru → pytest-loguru bridge)."""
+    return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+
+def _trace_messages(caplog) -> list[str]:
+    """Return TRACE-level messages from caplog.
+
+    loguru's TRACE level is 5; pytest-loguru forwards records through the
+    stdlib LogRecord protocol with levelname="TRACE" preserved.
+    """
+    return [r.getMessage() for r in caplog.records if r.levelname == "TRACE"]
 
 
 @pytest.fixture(autouse=True)
@@ -201,8 +216,9 @@ python  12345  shawn    6u   PSXSEM              0      /sem.other
         # Only /sem.worker1 matches the pattern
         mock_unlink.assert_called_once()
 
-    def test_cleanup_handles_unlink_oserror(self):
+    def test_cleanup_handles_unlink_oserror(self, caplog):
         """OSError during unlink is caught and warned about."""
+        caplog.set_level(logging.WARNING)
         output = "python  12345  shawn    5u   PSXSEM              0      /sem.locked\n"
         mock_result = subprocess.CompletedProcess(
             args=["lsof"], returncode=0, stdout=output, stderr=""
@@ -212,30 +228,42 @@ python  12345  shawn    6u   PSXSEM              0      /sem.other
             patch("utils.semaphore_monitor.subprocess.run", return_value=mock_result),
             patch("pathlib.Path.unlink", side_effect=OSError("busy")),
         ):
-            # Should not raise — prints a warning instead
+            # Should not raise — logs a warning instead.
             cleanup_semaphores()
+
+        cleanup_warnings = [
+            m for m in _warning_messages(caplog) if "Failed to clean up semaphore" in m
+        ]
+        assert len(cleanup_warnings) == 1
+        assert "busy" in cleanup_warnings[0]
 
 
 # -- monitor_semaphores --
 
 
 class TestMonitorSemaphores:
-    def test_no_warning_below_threshold(self):
+    def test_no_warning_below_threshold(self, caplog):
         """No warning when semaphore count is below threshold."""
+        caplog.set_level(logging.WARNING)
         mock_result = subprocess.CompletedProcess(
             args=["lsof"], returncode=0, stdout=LSOF_OUTPUT_WITH_SEMAPHORES, stderr=""
         )
         with (
             patch("utils.semaphore_monitor.shutil.which", return_value="/usr/bin/lsof"),
             patch("utils.semaphore_monitor.subprocess.run", return_value=mock_result),
-            patch("utils.semaphore_monitor.print_warning") as mock_warn,
         ):
             monitor_semaphores(threshold=60)
 
-        mock_warn.assert_not_called()
+        threshold_warnings = [
+            m
+            for m in _warning_messages(caplog)
+            if "High number of POSIX semaphores" in m
+        ]
+        assert threshold_warnings == []
 
-    def test_warns_above_threshold(self):
+    def test_warns_above_threshold(self, caplog):
         """Warning issued when semaphore count exceeds threshold."""
+        caplog.set_level(logging.WARNING)
         # Create output with many semaphores
         lines = [
             f"python  12345  shawn    {i}u   PSXSEM              0      /sem.s{i}"
@@ -250,15 +278,21 @@ class TestMonitorSemaphores:
         with (
             patch("utils.semaphore_monitor.shutil.which", return_value="/usr/bin/lsof"),
             patch("utils.semaphore_monitor.subprocess.run", return_value=mock_result),
-            patch("utils.semaphore_monitor.print_warning") as mock_warn,
         ):
             monitor_semaphores(threshold=10)
 
-        mock_warn.assert_called_once()
-        assert "High number of POSIX semaphores" in mock_warn.call_args[0][0]
+        threshold_warnings = [
+            m
+            for m in _warning_messages(caplog)
+            if "High number of POSIX semaphores" in m
+        ]
+        assert len(threshold_warnings) == 1
 
-    def test_groups_by_creation_point(self):
+    def test_groups_by_creation_point(self, caplog):
         """When above threshold, semaphores are grouped by creation point in trace log."""
+        # caplog.set_level uses the integer level so loguru's TRACE (5) is captured;
+        # logging.NOTSET would also work but TRACE-as-int is more explicit.
+        caplog.set_level(5)
         # Pre-populate _seen_semaphores with known creation points
         _seen_semaphores["/sem.s5"].add("test.py:test_func:10")
 
@@ -275,10 +309,9 @@ class TestMonitorSemaphores:
         with (
             patch("utils.semaphore_monitor.shutil.which", return_value="/usr/bin/lsof"),
             patch("utils.semaphore_monitor.subprocess.run", return_value=mock_result),
-            patch("utils.semaphore_monitor.print_warning"),
-            patch("utils.semaphore_monitor.trace_logger") as mock_trace,
         ):
             monitor_semaphores(threshold=5)
 
-        # trace_logger.trace should be called multiple times for grouping
-        assert mock_trace.trace.call_count > 0
+        # trace_logger.trace is called for the "Semaphore list:" header plus
+        # once per creation-point grouping line and FD line.
+        assert len(_trace_messages(caplog)) > 0

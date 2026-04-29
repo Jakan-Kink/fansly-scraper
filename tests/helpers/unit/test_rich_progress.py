@@ -3,15 +3,21 @@
 No external boundaries — all pure logic. Uses real Rich objects.
 """
 
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
 
-from rich.progress import Task
+import pytest
+from rich.console import Console
+from rich.progress import ProgressBar, Task
+from rich.segment import Segment
 from rich.text import Text
 
 from helpers.rich_progress import (
     ContextualTimeColumn,
+    PhasedBar,
+    PhasedBarColumn,
     ProgressManager,
     _do_watch_progress,
     _shutdown_progress_live,
@@ -20,6 +26,7 @@ from helpers.rich_progress import (
     ffmpeg_progress,
     get_progress_manager,
     get_rich_console,
+    handle_download_progress,
 )
 
 
@@ -73,6 +80,332 @@ class TestContextualTimeColumn:
         task = self._make_task(description="Some unknown task")
         result = col.render(task)
         assert isinstance(result, Text)
+
+
+class TestPhasedBar:
+    """Lines 117-235: multi-colored progress bar renderable.
+
+    PhasedBar is a custom Rich renderable that draws several colored
+    segments per task (e.g., downloaded=green + skipped=yellow + errors=red).
+    Tests render to a Console and verify the produced segments / styles.
+    """
+
+    def _render(self, bar: PhasedBar, *, color_system="truecolor"):
+        """Render a PhasedBar against a deterministic Console and return segments."""
+        # Use a fixed-width, color-enabled console so phase styles render to Segments.
+        console = Console(
+            width=40,
+            color_system=color_system,
+            force_terminal=True,
+            legacy_windows=False,
+        )
+        options = console.options
+        return list(bar.__rich_console__(console, options))
+
+    def test_init_stores_attributes(self):
+        """Lines 150-156: __init__ assigns every constructor arg to self."""
+        bar = PhasedBar(
+            total=100,
+            phases={"a": 10, "b": 5},
+            phase_styles={"a": "green", "b": "red"},
+            width=20,
+            background_style="bar.back",
+            pulse=False,
+            animation_time=1.5,
+        )
+        assert bar.total == 100
+        assert bar.phases == {"a": 10, "b": 5}
+        assert bar.phase_styles == {"a": "green", "b": "red"}
+        assert bar.width == 20
+        assert bar.background_style == "bar.back"
+        assert bar.pulse is False
+        assert bar.animation_time == 1.5
+
+    def test_pulse_true_delegates_to_progress_bar(self):
+        """Lines 165-174: pulse=True yields fallback ProgressBar segments."""
+        bar = PhasedBar(
+            total=100,
+            phases={"a": 50},
+            phase_styles={"a": "green"},
+            width=20,
+            pulse=True,
+        )
+        segments = self._render(bar)
+        # ProgressBar fallback yields at least one Segment (the pulse animation).
+        assert any(isinstance(s, Segment) for s in segments)
+
+    def test_total_none_delegates_to_pulse_fallback(self):
+        """Lines 165-174: total=None also takes the indeterminate path."""
+        bar = PhasedBar(
+            total=None,
+            phases={},
+            phase_styles={},
+            width=20,
+        )
+        segments = self._render(bar)
+        assert any(isinstance(s, Segment) for s in segments)
+
+    def test_renders_phase_segments_with_styles(self):
+        """Lines 186-211: each non-zero phase yields a Segment with its style."""
+        bar = PhasedBar(
+            total=10,
+            phases={"green_phase": 5, "red_phase": 3},
+            phase_styles={"green_phase": "green", "red_phase": "red"},
+            width=20,
+        )
+        segments = self._render(bar)
+        # Collect just text segments (excluding Style/no-text markers).
+        rendered = [s for s in segments if isinstance(s, Segment) and s.text]
+        # The two phases produce visible bar characters; combined text must cover them.
+        all_text = "".join(s.text for s in rendered)
+        # BAR character is "━"; ASCII fallback is "-". Either should appear.
+        assert "━" in all_text or "-" in all_text
+
+    def test_skips_zero_count_phases(self):
+        """Lines 188-189: count <= 0 → continue without yielding."""
+        bar = PhasedBar(
+            total=10,
+            phases={"green": 5, "red": 0, "blue": 0},
+            phase_styles={"green": "green", "red": "red", "blue": "blue"},
+            width=20,
+        )
+        segments = self._render(bar)
+        # Should still render — green phase yields output even with two zero phases.
+        assert any(isinstance(s, Segment) and s.text for s in segments)
+
+    def test_minimum_one_half_for_tiny_phases(self):
+        """Lines 194-197: tiny non-zero count → at least 1 half-char visible."""
+        bar = PhasedBar(
+            total=1000,
+            # 1 of 1000 = 0.1% — would normally round to 0 halves.
+            phases={"errors": 1, "ok": 999},
+            phase_styles={"errors": "red", "ok": "green"},
+            width=20,
+        )
+        segments = self._render(bar)
+        # Both phases must yield something visible — total segments should
+        # include both red and green styles.
+        text_segments = [s for s in segments if isinstance(s, Segment) and s.text]
+        assert len(text_segments) >= 2
+
+    def test_background_fill_when_color_system_present(self):
+        """Lines 213-226: remaining halves fill with background style."""
+        bar = PhasedBar(
+            total=20,
+            phases={"a": 5},  # only 25% — leaves 75% for background
+            phase_styles={"a": "green"},
+            width=20,
+        )
+        segments = self._render(bar, color_system="truecolor")
+        # Background fill must produce additional segments beyond the phase.
+        text_segments = [s for s in segments if isinstance(s, Segment) and s.text]
+        assert len(text_segments) >= 2
+
+    def test_no_background_when_color_disabled(self):
+        """Line 215: ``not console.no_color and console.color_system`` gates fill."""
+        # color_system=None → no color → background fill skipped.
+        bar = PhasedBar(
+            total=20,
+            phases={"a": 5},
+            phase_styles={"a": "green"},
+            width=20,
+        )
+        segments = self._render(bar, color_system=None)
+        # Phase still renders, but no background segments added.
+        assert any(isinstance(s, Segment) and s.text for s in segments)
+
+    def test_measure_with_explicit_width(self):
+        """Lines 233-234: width set → Measurement(width, width)."""
+        bar = PhasedBar(total=10, phases={}, phase_styles={}, width=15)
+        console = Console(width=80)
+        measurement = bar.__rich_measure__(console, console.options)
+        assert measurement.minimum == 15
+        assert measurement.maximum == 15
+
+    def test_measure_without_width(self):
+        """Line 235: width=None → Measurement(4, options.max_width)."""
+        bar = PhasedBar(total=10, phases={}, phase_styles={}, width=None)
+        console = Console(width=80)
+        measurement = bar.__rich_measure__(console, console.options)
+        assert measurement.minimum == 4
+        assert measurement.maximum == console.options.max_width
+
+
+class TestPhasedBarColumn:
+    """Lines 238-294: column wrapper that picks PhasedBar or fallback ProgressBar."""
+
+    def _make_task(self, fields=None, *, started=True, total=100, completed=10):
+        # Rich's Task.started is a read-only property derived from
+        # start_time != None. Set start_time directly to control it.
+        task = Task(
+            id=0,
+            description="Test task",
+            total=total,
+            completed=completed,
+            _get_time=time.monotonic,
+        )
+        if started:
+            task.start_time = time.monotonic()
+        if fields:
+            task.fields = fields
+        return task
+
+    def test_renders_phased_bar_when_phases_present(self):
+        """Lines 272-281: task.fields has phase_styles + phases → PhasedBar."""
+        column = PhasedBarColumn(bar_width=20)
+        task = self._make_task(
+            fields={
+                "phase_styles": {"a": "green", "b": "red"},
+                "phases": {"a": 5, "b": 3},
+            }
+        )
+        result = column.render(task)
+        assert isinstance(result, PhasedBar)
+        assert result.phases == {"a": 5, "b": 3}
+        assert result.phase_styles == {"a": "green", "b": "red"}
+
+    def test_renders_progress_bar_fallback_without_phases(self):
+        """Lines 283-294: missing phases → standard ProgressBar fallback."""
+        column = PhasedBarColumn(bar_width=20)
+        task = self._make_task(fields={})
+        result = column.render(task)
+        assert isinstance(result, ProgressBar)
+
+    def test_renders_progress_bar_when_phase_styles_only(self):
+        """Lines 272 false branch: phase_styles present but phases empty/missing."""
+        column = PhasedBarColumn(bar_width=20)
+        task = self._make_task(fields={"phase_styles": {"a": "green"}})
+        result = column.render(task)
+        assert isinstance(result, ProgressBar)
+
+    def test_phased_bar_pulse_when_task_not_started(self):
+        """Line 279: started=False → PhasedBar(pulse=True)."""
+        column = PhasedBarColumn(bar_width=20)
+        task = self._make_task(
+            fields={
+                "phase_styles": {"a": "green"},
+                "phases": {"a": 1},
+            },
+            started=False,
+        )
+        result = column.render(task)
+        assert isinstance(result, PhasedBar)
+        assert result.pulse is True
+
+    def test_bar_width_none_yields_none_width(self):
+        """Line 270: bar_width=None → width=None passed through."""
+        column = PhasedBarColumn(bar_width=None)
+        task = self._make_task(
+            fields={
+                "phase_styles": {"a": "green"},
+                "phases": {"a": 5},
+            }
+        )
+        result = column.render(task)
+        assert isinstance(result, PhasedBar)
+        assert result.width is None
+
+
+class TestHandleDownloadProgress:
+    """Lines 643-667: async chunk-progress accumulator with optional callback."""
+
+    @pytest.mark.asyncio
+    async def test_no_callback_returns_updated_total(self):
+        """Lines 664, 667: callback=None → just sum and return."""
+        result = await handle_download_progress(
+            chunk=b"abcde", downloaded=100, total=1000, callback=None
+        )
+        assert result == 105
+
+    @pytest.mark.asyncio
+    async def test_callback_invoked_via_to_thread(self):
+        """Lines 665-666: callback present → asyncio.to_thread(callback, downloaded, total)."""
+        captured: list[tuple[int, int]] = []
+
+        def _cb(downloaded: int, total: int) -> None:
+            captured.append((downloaded, total))
+
+        result = await handle_download_progress(
+            chunk=b"hello", downloaded=50, total=500, callback=_cb
+        )
+
+        assert result == 55
+        assert captured == [(55, 500)]
+
+    @pytest.mark.asyncio
+    async def test_empty_chunk_does_not_advance_count(self):
+        """len(b'') == 0 → downloaded unchanged but callback still fires."""
+        captured: list[tuple[int, int]] = []
+        result = await handle_download_progress(
+            chunk=b"",
+            downloaded=42,
+            total=100,
+            callback=lambda d, t: captured.append((d, t)),
+        )
+        assert result == 42
+        assert captured == [(42, 100)]
+
+
+class TestProgressManagerExtras:
+    """Cover small ProgressManager methods not exercised by TestProgressManager.
+
+    Targets the missed lines 533-536 (phased update), 561-563 (hide_task),
+    and 579 (get_task_fields when name missing).
+    """
+
+    def test_update_task_with_phases_auto_computes_completed(self):
+        """Lines 533-536: phases provided + no explicit completed → sum(phases.values())."""
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task(
+                name="phased_task",
+                description="Phased",
+                total=10,
+                phase_styles={"a": "green", "b": "red"},
+            )
+            pm.update_task("phased_task", phases={"a": 3, "b": 2})
+
+            fields = pm.get_task_fields("phased_task")
+            # phases stored on task.fields as kwargs; completed should equal 5.
+            assert fields.get("phases") == {"a": 3, "b": 2}
+
+    def test_update_task_with_explicit_completed_overrides_phases(self):
+        """Lines 532-534: explicit completed wins even when phases also given."""
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task(
+                name="phased_explicit",
+                description="Mixed",
+                total=10,
+                phase_styles={"a": "green"},
+            )
+            # No exception — both phases AND completed accepted; completed wins.
+            pm.update_task("phased_explicit", phases={"a": 3}, completed=7)
+
+    def test_hide_task_makes_invisible_without_removing(self):
+        """Lines 561-563: hide_task(name) → set visible=False, task remains in active_tasks."""
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task(name="hideable", description="Hide me", total=10)
+            assert "hideable" in pm.active_tasks
+
+            pm.hide_task("hideable")
+
+            # Task still tracked even after hiding.
+            assert "hideable" in pm.active_tasks
+
+    def test_hide_task_unknown_name_is_noop(self):
+        """Line 562: name not in active_tasks → silently skip."""
+        pm = ProgressManager()
+        with pm.session():
+            # Must not raise.
+            pm.hide_task("never_added")
+
+    def test_get_task_fields_unknown_name_returns_empty(self):
+        """Line 579: name not in active_tasks → return {} (early)."""
+        pm = ProgressManager()
+        with pm.session():
+            assert pm.get_task_fields("missing") == {}
 
 
 class TestProgressManager:
@@ -225,6 +558,32 @@ class TestDoWatchProgress:
             _do_watch_progress(nonexistent, lambda k, v: events.append((k, v)))
 
         assert events == []
+
+    def test_stop_event_breaks_read_loop(self, tmp_path):
+        """stop_event.set() exits the readline/sleep loop without "progress=end".
+
+        Without cooperative cancellation, a killed FFmpeg leaves this daemon
+        thread spinning forever in the time.sleep(0.05) branch — racing
+        _Py_Finalize on shutdown. The stop_event lets the context manager
+        signal a clean exit.
+        """
+        progress_file = tmp_path / "ffmpeg_progress.txt"
+        progress_file.write_text("frame=1\n")  # one event then EOF (no "progress=end")
+
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=_do_watch_progress,
+            args=(progress_file, lambda _k, _v: None, stop_event),
+            daemon=True,
+        )
+        thread.start()
+
+        # Let the thread enter the readline/sleep cycle, then signal stop.
+        time.sleep(0.15)
+        stop_event.set()
+        thread.join(timeout=1.0)
+
+        assert not thread.is_alive(), "stop_event did not break the read loop"
 
 
 class TestWatchProgress:

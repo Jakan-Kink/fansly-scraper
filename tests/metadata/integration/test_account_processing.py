@@ -1,5 +1,6 @@
 """Integration tests for account processing functionality."""
 
+import copy
 from datetime import UTC, datetime
 
 import httpx
@@ -107,7 +108,6 @@ async def test_process_account_media_bundles(entity_store, mock_config, timeline
         pytest.skip("No bundles found in test data")
 
     # Convert string IDs to int (mimics what API layer does via convert_ids_to_int)
-    import copy
 
     response = FanslyApi.convert_ids_to_int(copy.deepcopy(timeline_data["response"]))
 

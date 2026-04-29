@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import Field as PydanticField
 
 from errors import StubNotImplementedError
 from metadata.models import (
@@ -603,8 +604,6 @@ class TestProcessNestedCacheLookups:
 
     @pytest.mark.asyncio
     async def test_scalar_alias_removal_all_paths(self, entity_store):
-        from pydantic import Field as PydanticField
-
         class _AliasedParent(FanslyObject):
             __table_name__: str = ""
             __tracked_fields__ = set()

@@ -22,6 +22,7 @@ full real orchestration; ``dedupe_init`` reads the real ``tmp_path``
 download directory.
 """
 
+import logging
 from unittest.mock import AsyncMock
 
 import httpx
@@ -193,7 +194,13 @@ class TestDownloadSinglePost:
 
     @pytest.mark.asyncio
     async def test_success_with_account_media_only_capitalizes_username(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path, monkeypatch
+        self,
+        respx_fansly_api,
+        mock_config,
+        entity_store,
+        tmp_path,
+        monkeypatch,
+        caplog,
     ):
         """No bundles + no displayName → creator_id from accountMedia[0], capitalize username.
 
@@ -201,6 +208,7 @@ class TestDownloadSinglePost:
         when bundles is empty) and 94-97 (capitalize username when
         displayName is missing).
         """
+        caplog.set_level(logging.INFO)
         post_id = snowflake_id()
         mock_config.post_id = str(post_id)
         mock_config.download_directory = tmp_path
@@ -248,10 +256,6 @@ class TestDownloadSinglePost:
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
         monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-        # Capture print_info to assert the capitalize() branch fired.
-        printed: list[str] = []
-        monkeypatch.setattr("download.single.print_info", printed.append)
-
         state = DownloadState()
         try:
             await download_single_post(mock_config, state)
@@ -261,15 +265,18 @@ class TestDownloadSinglePost:
         assert state.creator_name == "nocaps"
         assert state.creator_id == creator_id
         # The "Inspecting post X by Nocaps" line proves capitalize() ran.
-        capitalize_messages = [m for m in printed if "Nocaps" in m]
+        info_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "INFO"
+        ]
+        capitalize_messages = [m for m in info_messages if "Nocaps" in m]
         assert capitalize_messages, (
             f"Expected the displayName-fallback capitalize() branch to fire. "
-            f"Printed messages: {printed}"
+            f"INFO messages: {info_messages}"
         )
 
     @pytest.mark.asyncio
     async def test_no_accessible_content_logs_warning(
-        self, respx_fansly_api, mock_config, entity_store, monkeypatch
+        self, respx_fansly_api, mock_config, entity_store, monkeypatch, caplog
     ):
         """No accountMedia + no bundles → warning logged, no download attempted.
 
@@ -277,6 +284,7 @@ class TestDownloadSinglePost:
         Real ``process_timeline_posts`` runs (Post persisted) but the
         guard at line 67 short-circuits the download path.
         """
+        caplog.set_level(logging.WARNING)
         post_id = snowflake_id()
         mock_config.post_id = str(post_id)
         mock_config.interactive = False
@@ -311,18 +319,18 @@ class TestDownloadSinglePost:
             ],
         )
 
-        warnings: list[str] = []
-        monkeypatch.setattr("download.single.print_warning", warnings.append)
-
         state = DownloadState()
         try:
             await download_single_post(mock_config, state)
         finally:
             dump_fansly_calls(respx.calls, label="single_no_content")
 
-        assert any(f"post {post_id}" in w for w in warnings), (
+        warning_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+        ]
+        assert any(f"post {post_id}" in w for w in warning_messages), (
             f"Expected 'Could not find any accessible content in post {post_id}' "
-            f"warning, got: {warnings}"
+            f"warning, got: {warning_messages}"
         )
 
     @pytest.mark.asyncio

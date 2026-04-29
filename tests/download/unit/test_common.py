@@ -1,5 +1,6 @@
 """Tests for common download functionality."""
 
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -272,8 +273,9 @@ async def test_process_download_accessible_media_general_error(
     assert result is True  # Should continue processing
 
 
-def test_print_download_info(mock_config):
+def test_print_download_info(mock_config, caplog):
     """Test download info printing."""
+    caplog.set_level(logging.INFO)
     mock_config.user_agent = (
         "Test User Agent String That Is Really Long For Testing Truncation"
     )
@@ -281,22 +283,32 @@ def test_print_download_info(mock_config):
     mock_config.download_media_previews = True
     mock_config.interactive = False
 
-    with (
-        patch("download.common.print_info") as mock_print_info,
-        patch("download.common.print_warning") as mock_print_warning,
-    ):
-        print_download_info(mock_config)
+    print_download_info(mock_config)
 
-        mock_print_info.assert_any_call(
-            f"Using user-agent: '{mock_config.user_agent[:28]} [...] {mock_config.user_agent[-35:]}'"
-        )
-        mock_print_info.assert_any_call(
-            f"Open download folder when finished, is set to: '{mock_config.open_folder_when_finished}'"
-        )
-        mock_print_info.assert_any_call(
-            f"Downloading files marked as preview, is set to: '{mock_config.download_media_previews}'"
-        )
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    warning_messages = [
+        r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+    ]
 
-        mock_print_warning.assert_called_once_with(
-            "Previews downloading is enabled; repetitive and/or emoji spammed media might be downloaded!"
-        )
+    expected_user_agent = (
+        f"Using user-agent: '{mock_config.user_agent[:28]} [...] "
+        f"{mock_config.user_agent[-35:]}'"
+    )
+    assert expected_user_agent in info_messages
+    assert (
+        f"Open download folder when finished, is set to: '{mock_config.open_folder_when_finished}'"
+        in info_messages
+    )
+    assert (
+        f"Downloading files marked as preview, is set to: '{mock_config.download_media_previews}'"
+        in info_messages
+    )
+
+    preview_warnings = [
+        m for m in warning_messages if "Previews downloading is enabled" in m
+    ]
+    assert len(preview_warnings) == 1
+    assert (
+        preview_warnings[0]
+        == "Previews downloading is enabled; repetitive and/or emoji spammed media might be downloaded!"
+    )

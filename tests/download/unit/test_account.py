@@ -858,3 +858,125 @@ class TestGetFollowingAccounts:
         expected_usernames = {f"user_{cid}" for cid in creator_ids}
         assert result == expected_usernames
         assert mock_make_request.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_reverse_order_processes_accounts_in_reverse(
+        self, mock_make_request, mock_config_with_api, entity_store, caplog
+    ):
+        """Lines 448-450: config.reverse_order=True → reverse list + log info."""
+        import logging as _logging
+
+        caplog.set_level(_logging.INFO)
+        creator_a = snowflake_id()
+        creator_b = snowflake_id()
+        creator_c = snowflake_id()
+
+        mock_config_with_api.reverse_order = True
+
+        state = DownloadState()
+        state.creator_id = snowflake_id()
+
+        request = httpx.Request("GET", "https://example.com")
+        following_list_response = httpx.Response(
+            status_code=200,
+            json={
+                "success": "true",
+                "response": [
+                    {"accountId": str(creator_a)},
+                    {"accountId": str(creator_b)},
+                    {"accountId": str(creator_c)},
+                ],
+            },
+            request=request,
+        )
+        account_details_response = httpx.Response(
+            status_code=200,
+            json={
+                "success": "true",
+                "response": [
+                    {"id": str(creator_a), "username": "alpha"},
+                    {"id": str(creator_b), "username": "bravo"},
+                    {"id": str(creator_c), "username": "charlie"},
+                ],
+            },
+            request=request,
+        )
+
+        mock_make_request.side_effect = [
+            following_list_response,
+            account_details_response,
+        ]
+
+        with patch("asyncio.sleep", AsyncMock()):
+            result = await get_following_accounts(mock_config_with_api, state)
+
+        # All three creators surfaced; the order isn't observable in the
+        # returned set, but the "Processing accounts in reverse order"
+        # info log proves the branch fired.
+        assert result == {"alpha", "bravo", "charlie"}
+        info_messages = [
+            r.getMessage() for r in caplog.records if r.levelname == "INFO"
+        ]
+        assert any("Processing accounts in reverse order" in m for m in info_messages)
+
+    @pytest.mark.asyncio
+    async def test_per_account_exception_logged_loop_continues(
+        self, mock_make_request, mock_config_with_api, entity_store, caplog, monkeypatch
+    ):
+        """Lines 468-471: process_account_data raises mid-loop → log error + continue."""
+        import logging as _logging
+
+        caplog.set_level(_logging.ERROR)
+        creator_good = snowflake_id()
+        creator_bad = snowflake_id()
+
+        state = DownloadState()
+        state.creator_id = snowflake_id()
+
+        request = httpx.Request("GET", "https://example.com")
+        following_list_response = httpx.Response(
+            status_code=200,
+            json={
+                "success": "true",
+                "response": [
+                    {"accountId": str(creator_good)},
+                    {"accountId": str(creator_bad)},
+                ],
+            },
+            request=request,
+        )
+        account_details_response = httpx.Response(
+            status_code=200,
+            json={
+                "success": "true",
+                "response": [
+                    {"id": str(creator_good), "username": "goodguy"},
+                    {"id": str(creator_bad), "username": "badguy"},
+                ],
+            },
+            request=request,
+        )
+
+        mock_make_request.side_effect = [
+            following_list_response,
+            account_details_response,
+        ]
+
+        # Monkeypatch process_account_data: raise for badguy's data.
+        # Match by username (not id) — the id field may go through int/str
+        # coercion somewhere upstream. Username is a stable string.
+        async def _selective_raise(*, config, state, data):
+            if data.get("username") == "badguy":
+                raise RuntimeError("simulated account-process failure")
+
+        monkeypatch.setattr("download.account.process_account_data", _selective_raise)
+
+        with patch("asyncio.sleep", AsyncMock()):
+            result = await get_following_accounts(mock_config_with_api, state)
+
+        # Loop continued past the failure — good account still in result,
+        # bad account excluded (its except-branch's continue prevented
+        # usernames.add). This behavior alone proves the except path fired:
+        # without it, the RuntimeError would propagate and fail the test.
+        assert "goodguy" in result
+        assert "badguy" not in result
