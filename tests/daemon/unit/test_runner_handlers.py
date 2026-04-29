@@ -23,10 +23,12 @@ happy paths live in test_runner_wiring.py.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
 
+from api.websocket import FanslyWebSocket
 from daemon.handlers import (
     CheckCreatorAccess,
     DownloadMessagesForGroup,
@@ -37,6 +39,7 @@ from daemon.handlers import (
     RedownloadCreatorMedia,
 )
 from daemon.runner import (
+    ErrorBudget,
     _handle_check_access_item,
     _handle_full_creator_item,
     _handle_mark_messages_deleted,
@@ -44,8 +47,13 @@ from daemon.runner import (
     _handle_redownload_item,
     _handle_stories_only_item,
     _handle_timeline_only_item,
+    _handle_work_item,
+    _make_ws,
+    _make_ws_handler,
+    _resolve_creator_name,
 )
 from metadata import Message
+from tests.fixtures.daemon import RecordingSimulator
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MessageFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -580,4 +588,156 @@ class TestHandleMarkMessagesDeleted:
         info = _logged(caplog, "INFO")
         assert any(
             "marked 0 message(s) deleted (1 not in local archive)" in m for m in info
+        )
+
+
+# ---------------------------------------------------------------------------
+# _make_ws — line 156
+# ---------------------------------------------------------------------------
+
+
+class TestMakeWs:
+    """Construction-only smoke test for the WebSocket factory shim."""
+
+    def test_returns_fansly_websocket_with_credentials(self, config):
+        config.token = "tok-abc"
+        config.user_agent = "test-ua"
+        ws = _make_ws(config)
+        assert isinstance(ws, FanslyWebSocket)
+        assert ws.token == "tok-abc"
+        assert ws.user_agent == "test-ua"
+
+    def test_falsy_token_or_user_agent_coerces_to_empty_string(self, config):
+        config.token = None
+        config.user_agent = None
+        ws = _make_ws(config)
+        assert ws.token == ""
+        assert ws.user_agent == ""
+
+
+# ---------------------------------------------------------------------------
+# _resolve_creator_name — exception path (lines 176-177)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCreatorNameException:
+    """Lines 174-180: store.get raises → warning logged + returns None."""
+
+    @pytest.mark.asyncio
+    async def test_store_get_exception_logs_warning_and_returns_none(
+        self, entity_store, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        creator_id = snowflake_id()
+
+        class _RaisingStore:
+            def __init__(self, real):
+                self._real = real
+
+            def get_from_cache(self, _model, _id):
+                return None  # force the await path
+
+            async def get(self, _model, _id):
+                raise RuntimeError("simulated store outage")
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        monkeypatch.setattr(
+            "daemon.runner.get_store", lambda: _RaisingStore(entity_store)
+        )
+
+        result = await _resolve_creator_name(creator_id)
+        assert result is None
+
+        warnings = _logged(caplog, "WARNING")
+        assert any(
+            f"could not load Account {creator_id}" in m
+            and "simulated store outage" in m
+            for m in warnings
+        )
+
+
+# ---------------------------------------------------------------------------
+# _handle_work_item — unknown WorkItem type (lines 498-499)
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchWorkItemUnknown:
+    """Lines 496-499: a WorkItem with no registered handler logs and returns."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_work_item_type_logs_and_returns(self, config, caplog):
+        caplog.set_level(logging.WARNING)
+
+        class _MysteryItem:
+            """Not registered in _WORK_DISPATCH."""
+
+        await _handle_work_item(config, _MysteryItem())  # must not raise
+
+        warnings = _logged(caplog, "WARNING")
+        assert any("unhandled WorkItem type _MysteryItem" in m for m in warnings)
+
+
+# ---------------------------------------------------------------------------
+# _on_service_event (returned by _make_ws_handler) — lines 982, 988, 996-1000,
+# 1004, 1018: malformed-envelope and unknown-event guard branches
+# ---------------------------------------------------------------------------
+
+
+class TestOnServiceEvent:
+    """Edge-case envelope shapes that exercise the WS handler's early returns."""
+
+    def _make_handler(self):
+        sim = RecordingSimulator()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = ErrorBudget(timeout_seconds=3600)
+        handler = _make_ws_handler(sim, queue, budget)
+        return sim, queue, budget, handler
+
+    @pytest.mark.asyncio
+    async def test_non_dict_event_data_returns_silently(self):
+        _sim, queue, _budget, handler = self._make_handler()
+        await handler("not a dict")
+        await handler(None)
+        await handler(42)
+        assert queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_missing_service_id_returns_silently(self):
+        _sim, queue, _budget, handler = self._make_handler()
+        await handler({"event": '{"type": 1}'})  # no serviceId
+        assert queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_malformed_event_json_logs_warning(self, caplog):
+        caplog.set_level(logging.WARNING)
+        _sim, queue, _budget, handler = self._make_handler()
+
+        # raw_event is a string but not valid JSON.
+        await handler({"serviceId": 15, "event": "{not json"})
+
+        assert queue.empty()
+        warnings = _logged(caplog, "WARNING")
+        assert any("WS envelope decode error svc=15" in m for m in warnings)
+
+    @pytest.mark.asyncio
+    async def test_event_type_missing_returns_silently(self):
+        _sim, queue, _budget, handler = self._make_handler()
+        # inner dict has no 'type'
+        await handler({"serviceId": 15, "event": {"nope": True}})
+        assert queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_unknown_event_type_logs_debug_and_returns(self, caplog):
+        caplog.set_level(logging.DEBUG)
+        _sim, queue, _budget, handler = self._make_handler()
+
+        # serviceId/eventType combination that has no handler.
+        await handler({"serviceId": 99999, "event": {"type": 99999, "payload": {}}})
+
+        assert queue.empty()
+        debug = _logged(caplog, "DEBUG")
+        assert any(
+            "WS event unknown / unhandled" in m and "svc=99999" in m for m in debug
         )

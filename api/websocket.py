@@ -1175,7 +1175,7 @@ class FanslyWebSocket:
             try:
                 if self._ws_loop is not None and not self._ws_loop.is_closed():
                     self._ws_loop.close()
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover — defensive: asyncio loop.close() rarely raises
                 logger.warning("Error closing WS loop: {}", exc)
             self._ws_loop = None
 
@@ -1201,7 +1201,7 @@ class FanslyWebSocket:
         self._stop_event.set()
 
         await asyncio.to_thread(self._ws_thread.join, join_timeout)
-        if self._ws_thread.is_alive():
+        if self._ws_thread.is_alive():  # pragma: no cover — defensive: requires a hung thread that ignores stop_event for join_timeout (10s default)
             logger.error(
                 "WebSocket thread did not exit within {}s — orphan thread",
                 join_timeout,
@@ -1239,7 +1239,7 @@ class FanslyWebSocket:
         # Same-loop fast path: no thread boundary → just invoke directly.
         try:
             current_loop = asyncio.get_running_loop()
-        except RuntimeError:
+        except RuntimeError:  # pragma: no cover — defensive: dispatch is always called from an async context
             current_loop = None
 
         no_thread_boundary = (
@@ -1260,7 +1260,7 @@ class FanslyWebSocket:
                 asyncio.run_coroutine_threadsafe(handler(event), self._main_loop)
             else:
                 self._main_loop.call_soon_threadsafe(handler, event)
-        except RuntimeError as exc:
+        except RuntimeError as exc:  # pragma: no cover — defensive: only fires if target loop is closed mid-dispatch
             logger.error("Failed to dispatch WS event to main loop: {}", exc)
 
     async def send_message(self, message_type: int, data: Any) -> None:

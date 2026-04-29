@@ -194,10 +194,10 @@ async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
 
     # Mock the API call for the 2 missing accountMedia items
     # get_with_ngsw does OPTIONS preflight + GET
-    respx.options(url__regex=r".*account/media.*").mock(
+    respx.options(url__startswith="https://apiv3.fansly.com/api/v1/account/media").mock(
         side_effect=[httpx.Response(200)],
     )
-    respx.get(url__regex=r".*account/media.*").mock(
+    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/media").mock(
         side_effect=[
             httpx.Response(
                 200,

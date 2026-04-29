@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, PropertyMock, patch
 
 import httpx
 import pytest
-import pytest_asyncio
 import respx
 from loguru import logger
 
@@ -29,7 +28,6 @@ from daemon.simulator import ActivitySimulator
 from metadata.models import MonitorState
 from tests.fixtures.api import FakeWS, make_fake_ws_factory
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
-from tests.fixtures.metadata.metadata_factories import AccountFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -53,23 +51,10 @@ def fake_ws() -> FakeWS:
     return FakeWS()
 
 
-@pytest_asyncio.fixture
-async def saved_account(entity_store):
-    """Create and persist a test Account to satisfy FK constraints."""
-    account = AccountFactory.build()
-    await entity_store.save(account)
-    return account
-
-
-@pytest.fixture
-def config_wired(config, entity_store, fansly_api):
-    """Config wired with a real FanslyApi and entity_store singleton set.
-
-    ``entity_store`` is listed in the signature so the store singleton is
-    initialised before any polling/filter functions call ``get_store()``.
-    """
-    config._api = fansly_api
-    return config
+# `saved_account` and `config_wired` come from the canonical fixtures
+# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
+# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
+# Per Cat L policy: don't redefine here.
 
 
 # ---------------------------------------------------------------------------

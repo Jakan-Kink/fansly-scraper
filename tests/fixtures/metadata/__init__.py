@@ -36,9 +36,6 @@ from .metadata_fixtures import (
 )
 
 
-# Alias GroupFactory to avoid collision with Stash GroupFactory
-MetadataGroupFactory = GroupFactory
-
 __all__ = [
     # Factories
     "AccountFactory",
@@ -53,7 +50,6 @@ __all__ = [
     "MediaStoryFactory",
     "MediaStoryStateFactory",
     "MessageFactory",
-    "MetadataGroupFactory",
     "MonitorStateFactory",
     "PostFactory",
     "StubTrackerFactory",

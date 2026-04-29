@@ -443,11 +443,11 @@ class TestProcessItemsWithGallery:
         # Verify GraphQL calls were made (at least one per item with attachments)
         assert len(graphql_route.calls) > 0
 
-        # Inspect the requests to verify correct data was sent
+        # Inspect the requests to verify correct data was sent.
+        # `req["query"]` access below KeyErrors naturally if missing — no
+        # need for a tautological "query in req" pre-assertion.
         for call in graphql_route.calls:
             req = json.loads(call.request.content)
-            assert "query" in req
-            # populate()'s filter-query inlines values and omits variables
             variables = req.get("variables", {})
 
             # If this is a galleryCreate call, verify the input data

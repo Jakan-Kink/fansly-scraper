@@ -191,8 +191,10 @@ class FakeWS:
 
     Mirrors the post-thread-refactor surface:
       * ``register_handler(msg_type, handler)`` — record a handler
-      * ``start_in_thread(*_, **_)`` — sync, sets ``started`` flag
-      * ``stop_thread(*_, **_)`` — async, sets ``stopped`` flag
+      * ``start_in_thread(*_, **_)`` — sync, sets ``started`` flag,
+        increments ``start_calls`` counter, raises ``start_raises`` if set
+      * ``stop_thread(*_, **_)`` — async, sets ``stopped`` flag,
+        increments ``stop_calls`` counter, raises ``stop_raises`` if set
       * ``fire(service_id, event_type, inner_dict)`` — synchronously invoke
         the registered ``MSG_SERVICE_EVENT`` handler with the envelope
         shape the real ``_handle_message`` produces after type-10000
@@ -201,13 +203,28 @@ class FakeWS:
     The ``*_args, **_kwargs`` on the lifecycle methods absorb the real
     signatures' optional arguments (``main_loop``, ``ready_timeout``,
     ``join_timeout``) so callers don't need a special-case path.
+
+    Args:
+        start_raises: Optional exception raised by ``start_in_thread``.
+            Use to exercise the WS-start-failure branch in production code.
+        stop_raises: Optional exception raised by ``stop_thread``.
+            Use to exercise the WS-teardown-failure branch.
     """
 
     MSG_SERVICE_EVENT = 10000
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        start_raises: BaseException | None = None,
+        stop_raises: BaseException | None = None,
+    ) -> None:
         self.started = False
         self.stopped = False
+        self.start_calls = 0
+        self.stop_calls = 0
+        self._start_raises = start_raises
+        self._stop_raises = stop_raises
         self._handlers: dict[int, Callable] = {}
 
     def register_handler(self, message_type: int, handler: Callable) -> None:
@@ -216,10 +233,16 @@ class FakeWS:
 
     def start_in_thread(self, *_args: Any, **_kwargs: Any) -> None:
         """Simulate thread start without network. Sync to match production."""
+        self.start_calls += 1
+        if self._start_raises is not None:
+            raise self._start_raises
         self.started = True
 
     async def stop_thread(self, *_args: Any, **_kwargs: Any) -> None:
         """Simulate thread stop. Async to match production."""
+        self.stop_calls += 1
+        if self._stop_raises is not None:
+            raise self._stop_raises
         self.stopped = True
 
     async def fire(

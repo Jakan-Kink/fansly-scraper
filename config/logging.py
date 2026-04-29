@@ -16,12 +16,20 @@ import contextlib
 import logging
 import os
 import sys
+import warnings as _warnings_module
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from errors import InvalidTraceLogError
+
+
+# Frames inside ``logging.__file__`` and ``warnings.__file__`` should be
+# skipped when computing loguru's stack depth — otherwise the recorded
+# call site lands inside the stdlib instead of user code. Used by
+# ``InterceptHandler.emit`` and ``SQLAlchemyInterceptHandler.emit``.
+_SKIP_FRAME_FILES = frozenset((logging.__file__, _warnings_module.__file__))
 
 
 if sys.platform == "win32":  # pragma: no cover
@@ -63,14 +71,23 @@ DEFAULT_WEBSOCKET_LOG_FILE = "websocket.log"
 
 
 class InterceptHandler(logging.Handler):
-    """Intercepts standard logging and redirects to loguru.
+    """Intercepts standard logging and routes records to bound loguru sinks.
 
-    This handler can be used to capture logs from libraries that use
-    standard logging and redirect them to loguru. Example:
+    Routes by ``record.name`` (and ``record.pathname`` for captured warnings):
+      * ``sqlalchemy.*`` / ``asyncpg`` / ``alembic.runtime.migration`` → ``db_logger``
+      * ``stash_graphql_client.*`` → ``stash_logger``
+      * ``py.warnings`` records → ``stash_logger`` if the originating file is
+        under ``stash_graphql_client/`` (e.g., ``StashUnmappedFieldWarning``);
+        otherwise ``textio_logger``
+      * everything else → ``textio_logger``
 
-    ```python
-    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
-    ```
+    The bound-target dispatch is essential — file sinks in
+    ``setup_handlers()`` filter on ``record.extra.logger == "<name>"``, so
+    routing through the unbound global ``logger`` would silently drop
+    records that don't match any sink filter.
+
+    Example:
+        logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
     """
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -81,16 +98,18 @@ class InterceptHandler(logging.Handler):
             # accepts ints directly (a string fallback would re-raise here).
             level = record.levelno
 
+        target = self._select_target(record)
+
         frame, depth = sys._getframe(6), 6
         while (
-            frame and frame.f_code.co_filename == logging.__file__
+            frame and frame.f_code.co_filename in _SKIP_FRAME_FILES
         ):  # pragma: no cover
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
         exc_info = record.exc_info
         try:
-            logger.opt(depth=depth, exception=exc_info).log(level, record.getMessage())
+            target.opt(depth=depth, exception=exc_info).log(level, record.getMessage())
         finally:
             # Release refs so coverage.py's SQLite connection doesn't linger
             # on the call stack and trigger a ResourceWarning.
@@ -98,6 +117,33 @@ class InterceptHandler(logging.Handler):
             if exc_info:
                 del exc_info
             record.exc_info = None
+
+    @staticmethod
+    def _select_target(record: logging.LogRecord) -> Any:
+        """Pick the bound loguru logger for ``record`` based on origin."""
+        name = record.name
+        if (
+            name.startswith(("sqlalchemy.", "asyncpg"))
+            or name == "alembic.runtime.migration"
+        ):
+            return db_logger
+        if name.startswith("stash_graphql_client"):
+            return stash_logger
+        if name == "py.warnings":
+            # Captured warnings: ``record.pathname`` is always ``warnings.py``
+            # (where ``_showwarning`` lives), so we can't route by it. The
+            # originating module is embedded in the formatted warning string
+            # — ``warnings.formatwarning(...)`` produces
+            # ``"<filename>:<lineno>: <Category>: <message>\n  <source line>"``,
+            # which the stdlib captureWarnings hook passes as the log message.
+            try:
+                message = record.getMessage()
+            except Exception:  # pragma: no cover — defensive: getMessage formats args
+                message = ""
+            if "stash_graphql_client" in message:
+                return stash_logger
+            return textio_logger
+        return textio_logger
 
 
 class SQLAlchemyInterceptHandler(logging.Handler):
@@ -116,7 +162,7 @@ class SQLAlchemyInterceptHandler(logging.Handler):
 
         frame, depth = sys._getframe(6), 6
         while (
-            frame and frame.f_code.co_filename == logging.__file__
+            frame and frame.f_code.co_filename in _SKIP_FRAME_FILES
         ):  # pragma: no cover
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
@@ -250,32 +296,6 @@ db_logger = logger.bind(logger="db")
 websocket_logger = logger.bind(logger="websocket")
 
 
-def _auto_bind_logger(record: Any) -> Any:
-    """Automatically bind unbound logger calls to appropriate context.
-
-    Routes logs to appropriate logger context based on their source:
-    - SQLAlchemy loggers -> "db"
-    - Everything else -> "textio"
-
-    This ensures proper routing of echo=True SQLAlchemy logs while
-    maintaining textio binding for direct loguru imports.
-    """
-    if "logger" not in record["extra"]:
-        logger_name = record.get("name", "")
-        if (
-            logger_name.startswith(("sqlalchemy.", "asyncpg"))
-            or logger_name == "alembic.runtime.migration"
-        ):
-            record["extra"]["logger"] = "db"
-        else:
-            record["extra"]["logger"] = "textio"
-    return record
-
-
-# Patch global logger to auto-bind imports to appropriate context
-logger.patch(_auto_bind_logger)
-
-
 # Run at import time so SQLAlchemy can't log to console before
 # init_logging_config installs the real handlers.
 def _early_sqlalchemy_suppression() -> None:
@@ -363,8 +383,11 @@ def setup_handlers() -> None:
             return False
 
         # Unbound logs: suppress SQLAlchemy/asyncpg/alembic noise.
-        # pragma: no cover — defensive net; _auto_bind_logger pre-binds these to "db",
-        # so by the time records reach this filter logger_type is set above.
+        # pragma: no cover — defensive net; InterceptHandler.emit routes
+        # SA/asyncpg/alembic records to db_logger BEFORE they hit this
+        # filter, so by the time they arrive logger_type is already "db"
+        # and the early check above returns False. This guard catches
+        # records that bypass InterceptHandler entirely.
         logger_name = record.get("name", "")
         if (  # pragma: no cover
             logger_name.startswith(("sqlalchemy.", "asyncpg"))
@@ -594,6 +617,12 @@ def init_logging_config(config: Any) -> None:
     # THEN configure SQLAlchemy logging to route to those handlers
     _configure_sqlalchemy_logging()
 
+    # Capture stdlib warnings (warnings.warn) into loguru so SGC's
+    # StashUnmappedFieldWarning and similar reach the rich console + log
+    # files. Without captureWarnings(True), warnings.warn() goes to stderr
+    # and bypasses every loguru sink.
+    _configure_warnings_capture()
+
 
 def set_debug_enabled(enabled: bool) -> None:
     """Set the global debug flag."""
@@ -688,6 +717,26 @@ def update_logging_config(config: Any, enabled: bool) -> None:
     # Update handlers with new configuration (includes SQLAlchemy configuration)
     setup_handlers()
     _configure_sqlalchemy_logging()
+    _configure_warnings_capture()
+
+
+def _configure_warnings_capture() -> None:
+    """Wire ``warnings.warn`` capture so SGC + other library warnings reach loguru.
+
+    Without ``captureWarnings(True)``, ``warnings.warn(...)`` writes raw
+    text to ``sys.stderr`` — bypassing the rich console handler and every
+    log-file sink. With it, warnings are routed through the ``py.warnings``
+    stdlib logger; we attach an ``InterceptHandler`` so the handler's
+    routing logic picks the appropriate bound sink (e.g.,
+    ``StashUnmappedFieldWarning`` from ``stash_graphql_client/`` → ``stash_logger``).
+    """
+    logging.captureWarnings(True)
+    py_warnings_logger = logging.getLogger("py.warnings")
+    # Clear any existing handlers (re-runs idempotent on repeated init).
+    py_warnings_logger.handlers.clear()
+    py_warnings_logger.addHandler(InterceptHandler())
+    py_warnings_logger.propagate = False
+    py_warnings_logger.setLevel(logging.WARNING)
 
 
 def _configure_sqlalchemy_logging() -> None:

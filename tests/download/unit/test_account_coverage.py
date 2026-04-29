@@ -70,10 +70,12 @@ class TestGetAccountResponseNon200:
         state.creator_name = "testcreator"
 
         with respx.mock:
-            respx.options(url__regex=r".*").mock(side_effect=[httpx.Response(200)])
-            route = respx.get(url__regex=r".*account\?usernames=.*").mock(
-                side_effect=[httpx.Response(204, text="")]
-            )
+            respx.options(
+                url__startswith="https://apiv3.fansly.com/api/v1/account"
+            ).mock(side_effect=[httpx.Response(200)])
+            route = respx.get(
+                url__startswith="https://apiv3.fansly.com/api/v1/account"
+            ).mock(side_effect=[httpx.Response(204, text="")])
 
             try:
                 with pytest.raises(

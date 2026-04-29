@@ -32,13 +32,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-import pytest_asyncio
 import respx
 
 from daemon.filters import MAX_FILTER_PAGES, should_process_creator
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 from tests.fixtures.metadata.metadata_factories import (
-    AccountFactory,
     MonitorStateFactory,
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -89,25 +87,10 @@ def _timeline_response(posts: list[dict]) -> httpx.Response:
 # ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture
-async def saved_account(entity_store):
-    """Create and persist a test account so MonitorState FK can be satisfied."""
-    account = AccountFactory.build()
-    await entity_store.save(account)
-    return account
-
-
-@pytest.fixture
-def config_wired(config, entity_store, fansly_api):
-    """Config wired with a real FanslyApi and backed by the test entity_store.
-
-    Both ``config`` and ``entity_store`` chain through ``uuid_test_db_factory``
-    so they share the same underlying PostgreSQL database.
-    entity_store must be listed before config_wired to ensure FanslyObject._store
-    is set before the filter functions call get_store().
-    """
-    config._api = fansly_api
-    return config
+# `saved_account` and `config_wired` come from the canonical fixtures
+# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
+# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
+# Per Cat L policy: don't redefine here.
 
 
 # ---------------------------------------------------------------------------

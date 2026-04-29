@@ -26,6 +26,7 @@ from config.logging import init_logging_config
 from config.modes import DownloadMode
 from errors import EXIT_SUCCESS, SOME_USERS_FAILED, ConfigError
 from fansly_downloader_ng import main
+from stash import StashProcessing as _RealStashProcessing
 from tests.fixtures.api import fansly_json, run_main_and_cleanup
 
 
@@ -797,57 +798,66 @@ async def test_main_daemon_mode_invokes_run_daemon(main_integration_env, caplog)
     )
 
 
-class _FakeStashProcessor:
-    """Stand-in for ``stash.StashProcessing`` used by the Stash-branch tests.
+class _SelectiveSpyStashProcessing(_RealStashProcessing):
+    """Real ``StashProcessing`` subclass with a selective spy on
+    ``start_creator_processing``.
 
-    Tests do NOT want to spin up a real StashClient or touch Stash GraphQL
-    for ``fansly_downloader_ng.main()`` orchestration coverage — that's
-    Wave 3 territory. This fake honors the three methods main() invokes
-    (``from_config``, ``start_creator_processing``, ``cleanup``) and
-    exposes a ``_background_task`` attribute for the await-branch.
+    All real method implementations are inherited unchanged EXCEPT
+    ``start_creator_processing``, which is replaced with a spy that installs
+    a test-controlled ``_background_task`` coroutine instead of running real
+    metadata-scan + GraphQL traffic. ``from_config``, ``cleanup``, and the
+    rest of the ``StashProcessing`` surface run real code.
 
-    Passing ``task_fn`` selects whether the background task completes
-    normally or raises — that's the only behavioral axis main():497-502
-    cares about.
+    This narrows the Cat D footprint from "wholesale class fake" to "one
+    deliberate-deviation spy on a single method" — the test still controls
+    the background-task outcome (the only behavioral axis main():497-502
+    cares about), but main()'s orchestration runs against a real
+    ``StashProcessing`` instance, so any future change that breaks the
+    cleanup/from_config contract surfaces here.
+
+    Per-test ``task_fn`` injection happens via
+    ``_make_stash_processor_factory(task_fn=...)``, which produces a
+    subclass with the function baked in. Each test gets its own subclass
+    so task_fn never leaks between tests.
     """
 
-    background_exception: BaseException | None = None
-
-    def __init__(self, *, task_fn):
-        self._task_fn = task_fn
-        self._background_task = None
-        self.cleanup_called = False
+    _spy_task_fn = None  # set per-subclass via _make_stash_processor_factory
 
     @classmethod
-    def from_config(cls, _config, _state) -> "_FakeStashProcessor":
-        return cls(task_fn=cls._default_task_fn)
+    def from_config(cls, config, state) -> "_SelectiveSpyStashProcessing":
+        # Delegate to real from_config; ``cls`` ensures our subclass is
+        # instantiated rather than the real class.
+        return _RealStashProcessing.from_config.__func__(cls, config, state)
 
-    @staticmethod
-    async def _default_task_fn() -> None:
-        return None
+    async def start_creator_processing(self) -> None:
+        """Spy: skip real metadata-scan + GraphQL; install controlled task.
 
-    async def start_creator_processing(self):
-        self._background_task = asyncio.create_task(self._task_fn())
-
-    async def cleanup(self):
-        self.cleanup_called = True
+        Real ``start_creator_processing`` would call
+        ``self.context.get_client()`` (real GraphQL connection) and run a
+        metadata scan. For main()'s orchestration tests we only need
+        ``_background_task`` to exist with a controlled outcome.
+        """
+        if type(self)._spy_task_fn is None:
+            raise RuntimeError(
+                "_SelectiveSpyStashProcessing requires _spy_task_fn — "
+                "use _make_stash_processor_factory(task_fn=...)"
+            )
+        self._background_task = asyncio.create_task(type(self)._spy_task_fn())
 
 
 def _make_stash_processor_factory(*, task_fn):
-    """Build a fake ``StashProcessing`` class that produces tasks via ``task_fn``.
+    """Build a SelectiveSpy subclass with ``task_fn`` baked in.
 
-    ``main()`` calls ``StashProcessing.from_config(config, state)`` — a
-    classmethod — so we return a fresh subclass whose ``from_config``
-    bakes in the desired coroutine factory. This gives each test its
-    own coroutine shape without sharing state across tests.
+    main() calls ``StashProcessing.from_config(config, state)`` (a
+    classmethod). This factory returns a fresh subclass per test so the
+    spied ``task_fn`` doesn't leak across tests — each test gets its own
+    coroutine shape.
     """
 
-    class _FactoryFakeStash(_FakeStashProcessor):
-        @classmethod
-        def from_config(cls, _config, _state) -> "_FactoryFakeStash":
-            return cls(task_fn=task_fn)
+    class _Factory(_SelectiveSpyStashProcessing):
+        _spy_task_fn = staticmethod(task_fn)
 
-    return _FactoryFakeStash
+    return _Factory
 
 
 async def test_main_processes_stash_context_branch_success(
@@ -1368,13 +1378,11 @@ async def test_main_stash_branch_skips_await_when_no_background_task(
 
     caplog.set_level(logging.INFO)
 
-    class _NoBackgroundStash(_FakeStashProcessor):
-        @classmethod
-        def from_config(cls, _config, _state) -> "_NoBackgroundStash":
-            return cls(task_fn=cls._default_task_fn)
-
+    class _NoBackgroundStash(_SelectiveSpyStashProcessing):
         async def start_creator_processing(self):
             # Deliberately do NOT assign _background_task — it stays None.
+            # Spy overrides the parent's "install controlled task" behavior
+            # to test main()'s _background_task=None branch.
             pass
 
     cleanup_calls = {"n": 0}

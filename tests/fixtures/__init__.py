@@ -6,6 +6,7 @@ a nested folder structure for better maintainability.
 
 Fixture Organization:
 - core/: Configuration and app-level fixtures
+- daemon/: Simulator + collaborator fakes for daemon tests
 - download/: Download state and path fixtures
 - api/: API client fixtures with respx for HTTP mocking
 - metadata/: Database model factories and fixtures
@@ -36,6 +37,9 @@ from .api import (
     make_fake_ws_factory,
     mock_fansly_account_response,
     mock_fansly_timeline_response,
+    mount_client_account_me_route,
+    mount_empty_creator_pipeline,
+    mount_empty_following_route,
     respx_fansly_api,
     run_main_and_cleanup,
     ws_message,
@@ -47,6 +51,10 @@ from .core import (
     config_wired,
     fast_timing,
     minimal_argv,
+)
+from .daemon import (
+    RecordingSimulator,
+    StubSimulator,
 )
 from .database import (
     config,
@@ -94,7 +102,6 @@ from .metadata import (
     MediaStoryFactory,
     MediaStoryStateFactory,
     MessageFactory,
-    MetadataGroupFactory,
     MonitorStateFactory,
     PostFactory,
     StubTrackerFactory,
@@ -110,7 +117,6 @@ from .metadata import (
     test_posts,
 )
 
-# Note: Stash GroupFactory imported separately to avoid name collision
 # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures;
 # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories);
 # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures;
@@ -134,6 +140,8 @@ from .stash import (
     TagFactory,
     VideoFileFactory,
     account_mixin,
+    assert_op,
+    assert_op_with_vars,
     batch_mixin,
     content_mixin,
     create_find_galleries_result,
@@ -153,6 +161,7 @@ from .stash import (
     create_studio_dict,
     create_tag_create_result,
     create_tag_dict,
+    dump_graphql_calls,
     enable_scene_creation,
     fansly_network_studio,
     gallery_mixin,
@@ -179,8 +188,8 @@ from .stash import (
     tag_mixin,
     test_state,
 )
-from .stash import GroupFactory as StashGroupFactory
 from .utils import (
+    SyncExecutor,
     cleanup_fansly_websockets,
     cleanup_global_config_state,
     cleanup_http_sessions,
@@ -190,6 +199,8 @@ from .utils import (
     cleanup_rate_limiter_displays,
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
+    get_unique_test_id,
+    get_worker_id,
     snowflake_id,
 )
 
@@ -207,6 +218,11 @@ mod_core_fixtures = [
     "config_wired",
     "fast_timing",
     "minimal_argv",
+]
+
+mod_daemon_fakes = [
+    "RecordingSimulator",
+    "StubSimulator",
 ]
 
 mod_download_factories = [
@@ -231,6 +247,9 @@ mod_api_fixtures = [
     "make_fake_ws_factory",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
+    "mount_client_account_me_route",
+    "mount_empty_creator_pipeline",
+    "mount_empty_following_route",
     "respx_fansly_api",
     "run_main_and_cleanup",
     "ws_message",
@@ -247,8 +266,8 @@ mod_metadata_factories = [
     "MediaLocationFactory",
     "MediaStoryFactory",
     "MediaStoryStateFactory",
+    "GroupFactory",
     "MessageFactory",
-    "MetadataGroupFactory",
     "MonitorStateFactory",
     "PostFactory",
     "StubTrackerFactory",
@@ -283,7 +302,6 @@ mod_stash_type_factories = [
     "ImageFileFactory",
     "VideoFileFactory",
     "JobFactory",
-    "StashGroupFactory",
     # Fixtures that return REAL objects (not MagicMock)
     "mock_performer",  # From stash_type_factories - returns PerformerFactory()
     "mock_studio",  # From stash_type_factories - returns StudioFactory()
@@ -374,6 +392,9 @@ mod_stash_processing_fixtures = [
 ]
 
 mod_stash_api_fixtures = [
+    "assert_op",
+    "assert_op_with_vars",
+    "dump_graphql_calls",
     "stash_context",
     "stash_client",
     "respx_stash_client",
@@ -407,6 +428,13 @@ mod_cleanup_fixtures = [
     "cleanup_fansly_websockets",
 ]
 
+mod_utils_helpers = [
+    "SyncExecutor",
+    "get_unique_test_id",
+    "get_worker_id",
+    "snowflake_id",
+]
+
 mod_init = [
     "load_json_fixture",
     "save_json_fixture",
@@ -419,6 +447,7 @@ mod_init = [
 __all__ = [  # noqa: PLE0604
     *mod_core_factories,
     *mod_core_fixtures,
+    *mod_daemon_fakes,
     *mod_download_factories,
     *mod_api_fixtures,
     *mod_metadata_factories,
@@ -431,6 +460,7 @@ __all__ = [  # noqa: PLE0604
     *mod_stash_api_fixtures,
     *mod_stash_integration_fixtures,
     *mod_cleanup_fixtures,
+    *mod_utils_helpers,
     *mod_init,
 ]
 

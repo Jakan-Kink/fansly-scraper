@@ -38,7 +38,6 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-import pytest_asyncio
 import respx
 
 from daemon.polling import poll_home_timeline, poll_story_states
@@ -87,31 +86,10 @@ def _make_story_state_dict(
 # ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture
-async def saved_account(entity_store):
-    """Create and persist a test account to satisfy FK constraints."""
-    acc_id = snowflake_id()
-    account = Account(
-        id=acc_id,
-        username=f"creator_{acc_id}",
-        displayName=f"Creator {acc_id}",
-        createdAt=datetime.now(UTC),
-    )
-    await entity_store.save(account)
-    return account
-
-
-@pytest.fixture
-def config_wired(config, entity_store, fansly_api):
-    """Config wired with a real FanslyApi and backed by the test entity_store.
-
-    Both ``config`` and ``entity_store`` chain through ``uuid_test_db_factory``
-    so they share the same underlying PostgreSQL database.
-    entity_store must be listed before config_wired to ensure FanslyObject._store
-    is set before the polling functions call get_store().
-    """
-    config._api = fansly_api
-    return config
+# `saved_account` and `config_wired` come from the canonical fixtures
+# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
+# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
+# Per Cat L policy: don't redefine here.
 
 
 # ---------------------------------------------------------------------------

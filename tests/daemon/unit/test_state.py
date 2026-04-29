@@ -30,17 +30,9 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def config_wired(config, entity_store, fansly_api):
-    """Config wired with a real FanslyApi and backed by the test entity_store.
-
-    Both ``config`` and ``entity_store`` chain through ``uuid_test_db_factory``
-    so they share the same underlying PostgreSQL database.
-    entity_store must be listed before config_wired to ensure FanslyObject._store
-    is set before the state functions call get_store().
-    """
-    config._api = fansly_api
-    return config
+# `config_wired` comes from the canonical fixture
+# (tests/fixtures/core/config_fixtures.py) via the wildcard import in
+# tests/conftest.py. Per Cat L policy: don't redefine here.
 
 
 # ---------------------------------------------------------------------------

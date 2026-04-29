@@ -15,9 +15,13 @@ config_wired) are provided by tests/daemon/conftest.py.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
+import logging
+import signal
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -49,6 +53,7 @@ from daemon.runner import (
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
 from tests.fixtures.api import (
+    FakeWS,
     dump_fansly_calls,
     make_fake_ws_factory,
     mount_client_account_me_route,
@@ -1665,3 +1670,329 @@ class TestMarkViewedFalse:
         item = await queue.get()
         assert isinstance(item, DownloadStoriesOnly)
         assert item.creator_id == creator_id
+
+
+# ===========================================================================
+# Phase 3: _run_daemon_body shutdown lifecycle (lines 1167-1219, 1278,
+# 1293-1296, 1300-1301)
+# ===========================================================================
+
+
+def _logged(caplog, level: str) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelname == level]
+
+
+# ---------------------------------------------------------------------------
+# bootstrap.ws_started=True → reuse the bootstrap WS (lines 1167-1173)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonBootstrapReuse:
+    """Lines 1167-1173: bootstrap with ws_started=True → reuse its WS."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_bootstrap_ws_started_reuses_ws(
+        self, config_wired, entity_store, fake_ws
+    ):
+        """The factory must not be called when bootstrap supplies a started WS."""
+        shared_queue: asyncio.Queue[WorkItem] = asyncio.Queue()
+        shared_simulator = ActivitySimulator()
+
+        bootstrap = DaemonBootstrap(
+            ws=fake_ws,
+            queue=shared_queue,
+            simulator=shared_simulator,
+            baseline_consumed=set(),
+            ws_started=True,
+        )
+
+        factory_calls = 0
+
+        def _factory(_config) -> Any:
+            nonlocal factory_calls
+            factory_calls += 1
+            return fake_ws
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=_factory,
+                stop_event=stop_event,
+                bootstrap=bootstrap,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop_event.set()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        assert factory_calls == 0, (
+            "ws_factory should not run when bootstrap.ws_started is True"
+        )
+        # Handler IS re-registered on the bootstrap's ws (budget-aware closure).
+        assert fake_ws.MSG_SERVICE_EVENT in fake_ws._handlers
+
+
+# ---------------------------------------------------------------------------
+# ws.start_in_thread() raises (lines 1187-1189)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonWsStartFailure:
+    """Lines 1187-1189: ws.start_in_thread raises → daemon continues without WS."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_ws_start_exception_logged_daemon_proceeds(
+        self, config_wired, entity_store, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        broken_ws = FakeWS(start_raises=RuntimeError("ws connect failed"))
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=lambda _c: broken_ws,
+                stop_event=stop_event,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop_event.set()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        warnings = _logged(caplog, "WARNING")
+        assert any("WebSocket failed to start" in m for m in warnings)
+
+
+# ---------------------------------------------------------------------------
+# SIGINT handler — first press (1208-1210) and second press (1211-1219)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonSigintHandler:
+    """Capture the SIGINT handler installed by _run_daemon_body and exercise both branches."""
+
+    async def _run_with_captured_sigint_handler(
+        self, config_wired, fake_ws, monkeypatch
+    ):
+        """Install a capture for loop.add_signal_handler and start the daemon.
+
+        Returns (task, captured_handler_list, stop_event).
+        Caller is responsible for shutting down the task.
+        """
+        captured: list = []
+        loop = asyncio.get_running_loop()
+        original = loop.add_signal_handler
+
+        def _capture(sig, handler, *args):
+            if sig == signal.SIGINT:
+                captured.append(handler)
+            else:
+                original(sig, handler, *args)
+
+        monkeypatch.setattr(loop, "add_signal_handler", _capture)
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=make_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
+            )
+        )
+        # Give setup time to install the signal handler.
+        for _ in range(20):
+            if captured:
+                break
+            await asyncio.sleep(0.01)
+        return task, captured, stop_event
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_first_sigint_sets_stop_event_and_logs_info(
+        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.INFO)
+        task, captured, stop_event = await self._run_with_captured_sigint_handler(
+            config_wired, fake_ws, monkeypatch
+        )
+
+        assert captured, "SIGINT handler was not installed by _run_daemon_body"
+        captured[0]()  # first press
+
+        assert stop_event.is_set(), "First SIGINT did not set stop_event"
+
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        info = _logged(caplog, "INFO")
+        assert any("SIGINT received - shutting down" in m for m in info)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_second_sigint_raises_keyboard_interrupt_and_logs_warning(
+        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        task, captured, _stop_event = await self._run_with_captured_sigint_handler(
+            config_wired, fake_ws, monkeypatch
+        )
+
+        assert captured, "SIGINT handler was not installed by _run_daemon_body"
+        handler = captured[0]
+        handler()  # first press: sets stop_event
+        with pytest.raises(KeyboardInterrupt, match="force shutdown"):
+            handler()  # second press: raises KeyboardInterrupt
+
+        warnings = _logged(caplog, "WARNING")
+        assert any("second SIGINT" in m for m in warnings)
+
+        # Shut down cleanly afterward.
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# CancelledError catch (line 1278) — one inner task raises CancelledError
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonInnerCancellation:
+    """Line 1278: a poller task raises CancelledError → caught, finally runs."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_inner_cancelled_error_is_caught_and_finally_runs(
+        self, config_wired, entity_store, fake_ws, monkeypatch
+    ):
+        async def _cancel_immediately(*_a, **_k):
+            raise asyncio.CancelledError("simulated inner cancellation")
+
+        monkeypatch.setattr("daemon.runner._simulator_tick_loop", _cancel_immediately)
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=make_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
+            )
+        )
+
+        # Daemon should reach the finally block and shut down without
+        # propagating CancelledError out.
+        try:
+            exit_code = await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            exit_code = None
+
+        # The except (CancelledError, KeyboardInterrupt): pass branch swallows
+        # the cancellation, so exit_code is EXIT_SUCCESS (0), NOT a re-raise.
+        assert exit_code == 0
+        # WS was stopped via the finally block.
+        assert fake_ws.stopped
+
+
+# ---------------------------------------------------------------------------
+# Worker drain timeout (lines 1293-1296)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonWorkerDrainTimeout:
+    """Lines 1293-1296: worker_task asyncio.wait_for raises TimeoutError → cancel."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_worker_drain_timeout_logs_and_cancels(
+        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        real_wait_for = asyncio.wait_for
+
+        async def _selective_wait_for(target, timeout=None):  # noqa: ASYNC109 — must mirror asyncio.wait_for signature
+            # Trigger TimeoutError ONLY for the worker drain (timeout=30.0)
+            # so we don't break the test's own outer wait_for.
+            if (
+                hasattr(target, "get_name")
+                and target.get_name() == "daemon-worker"
+                and timeout == 30.0
+            ):
+                raise TimeoutError("simulated worker drain timeout")
+            return await real_wait_for(target, timeout=timeout)
+
+        monkeypatch.setattr("daemon.runner.asyncio.wait_for", _selective_wait_for)
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=make_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop_event.set()
+        try:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        warnings = _logged(caplog, "WARNING")
+        assert any("worker did not drain in 30s" in m for m in warnings)
+
+
+# ---------------------------------------------------------------------------
+# ws.stop_thread raises (lines 1300-1301)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonWsStopThreadException:
+    """Lines 1300-1301: ws.stop_thread raises → caught, warning logged."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_stop_thread_exception_logged_does_not_propagate(
+        self, config_wired, entity_store, caplog
+    ):
+        caplog.set_level(logging.WARNING)
+        broken_ws = FakeWS(stop_raises=RuntimeError("ws teardown failed"))
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=lambda _c: broken_ws,
+                stop_event=stop_event,
+            )
+        )
+        await asyncio.sleep(0.05)
+        stop_event.set()
+
+        # The daemon should NOT propagate the stop_thread RuntimeError.
+        with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5.0)
+
+        warnings = _logged(caplog, "WARNING")
+        assert any(
+            "error stopping WebSocket" in m and "ws teardown failed" in m
+            for m in warnings
+        )

@@ -20,12 +20,14 @@ class TestFanslyApiAdditional:
     def test_get_account_media_response(self, fansly_api):
         """Test get_account_media returns the response from get_with_ngsw"""
         # Mock CORS OPTIONS request
-        respx.options(url__regex=r".*account/media.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Mock HTTP response at the edge
-        media_route = respx.get(url__regex=r".*account/media.*").mock(
+        media_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+        ).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
         )
 
@@ -46,14 +48,14 @@ class TestFanslyApiAdditional:
     def test_account_media_validation_flow(self, fansly_api):
         """Test validation flow for get_account_media when used with get_json_response_contents"""
         # Mock CORS OPTIONS request
-        respx.options(url__regex=r".*account/media.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Mock invalid API response at the edge
-        validation_route = respx.get(url__regex=r".*account/media.*").mock(
-            side_effect=[httpx.Response(200, json={"success": "false"})]
-        )
+        validation_route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+        ).mock(side_effect=[httpx.Response(200, json={"success": "false"})])
 
         try:
             # First get the API response
@@ -82,12 +84,14 @@ class TestFanslyApiAdditional:
     def test_get_wall_posts_with_params(self, fansly_api):
         """Test get_wall_posts with custom cursor"""
         # Mock CORS OPTIONS request
-        respx.options(url__regex=r".*timelinenew.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Capture the request to verify parameters
-        route = respx.get(url__regex=r".*timelinenew.*").mock(
+        route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+        ).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
@@ -112,12 +116,14 @@ class TestFanslyApiAdditional:
     def test_get_wall_posts_default_cursor(self, fansly_api):
         """Test get_wall_posts with default cursor"""
         # Mock CORS OPTIONS request
-        respx.options(url__regex=r".*timelinenew.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Capture the request to verify parameters
-        route = respx.get(url__regex=r".*timelinenew.*").mock(
+        route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+        ).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
@@ -141,12 +147,14 @@ class TestFanslyApiAdditional:
     def test_get_client_account_info_with_alternate_token(self, fansly_api):
         """Test get_client_account_info with alternate token"""
         # Mock CORS OPTIONS request
-        respx.options(url__regex=r".*account/me.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
+        ).mock(side_effect=[httpx.Response(200)])
 
         # Capture the request to verify headers
-        route = respx.get(url__regex=r".*account/me.*").mock(
+        route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
+        ).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
         )
 
@@ -503,11 +511,11 @@ class TestValidateJsonResponse:
         get_with_ngsw should retry on 418 and eventually succeed.
         """
         # CORS OPTIONS
-        respx.options(url__regex=r".*api/v1/test.*").mock(
+        respx.options(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
             side_effect=[httpx.Response(200)]
         )
         # First call returns 418, retry returns success
-        route = respx.get(url__regex=r".*api/v1/test.*").mock(
+        route = respx.get(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
             side_effect=[
                 httpx.Response(418),
                 httpx.Response(
@@ -616,10 +624,12 @@ class TestGetClientUserName:
     @respx.mock
     def test_empty_username_returns_none(self, fansly_api):
         """Empty username in API response returns None (line 965)."""
-        respx.options(url__regex=r".*account/me.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
-        route = respx.get(url__regex=r".*account/me.*").mock(
+        respx.options(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
+        ).mock(side_effect=[httpx.Response(200)])
+        route = respx.get(
+            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,

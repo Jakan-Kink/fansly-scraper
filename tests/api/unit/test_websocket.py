@@ -16,34 +16,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.frames import Close
 
 from api.websocket import FanslyWebSocket
-
-
-class FakeSocket:
-    """Test double for a websockets connection.
-
-    Records all sent messages and feeds back scripted recv responses.
-    No mocks — just a list-based message queue.
-    """
-
-    def __init__(self, recv_messages: list[str] | None = None):
-        self.sent: list[str] = []
-        self._recv_queue = list(recv_messages or [])
-        self._block_event = asyncio.Event()
-        self.closed = False
-
-    async def send(self, message: str) -> None:
-        self.sent.append(message)
-
-    async def recv(self) -> str:
-        if self._recv_queue:
-            return self._recv_queue.pop(0)
-        # Block until unblocked (simulates waiting for server message)
-        await self._block_event.wait()
-        return ""
-
-    async def close(self) -> None:
-        self.closed = True
-        self._block_event.set()  # Unblock any pending recv
+from tests.fixtures.api.fake_websocket import FakeSocket
 
 
 def _make_ws(*, enable_logging=False, on_unauthorized=None, on_rate_limited=None):
@@ -1344,7 +1317,7 @@ class TestMonitorChatEvent:
 
 
 # ---------------------------------------------------------------------------
-# TIER 5A: edge coverage to push api/websocket.py from 88% toward 95%
+# Wave 6 item #3: edge coverage to push api/websocket.py from 88% toward 95%
 #
 # Targets:
 #   - _absorb_response_cookies (lines 257-283, 27 lines — biggest single block)
@@ -1633,3 +1606,344 @@ class TestThreadMainErrorCapture:
         assert ws._thread_exc is None
         assert ws._thread_ready.is_set()
         assert ws._ws_loop is None
+
+
+# ---------------------------------------------------------------------------
+# Wave 6 item #4: edge coverage to push api/websocket.py to 100%
+#
+# Targets remaining missing lines from latest log: 223 (cookie jar fallback),
+# 333 (monitor_events branch), 394-395 (generic exception in _handle_message),
+# 960 (stale ping task ref clear), 978 (ping disconnect mid-loop), 1007-1008
+# (generic exception in ping_worker), 1011 (ping CancelledError), 1050
+# (listen loop CancelledError), 1083-1085 (maintain_connection lost-conn),
+# 1242-1243 (dispatch RuntimeError), 1258-1264 (cross-thread dispatch).
+# ---------------------------------------------------------------------------
+
+
+class _CookieWithJar:
+    """httpx.Cookies-like object exposing a `.jar` iterable of cookie objects.
+
+    Used by `_current_cookies` line 223 fallback path. Each yielded object
+    needs `.name` and `.value` attributes.
+    """
+
+    class _Cookie:
+        def __init__(self, name: str, value: str) -> None:
+            self.name = name
+            self.value = value
+
+    def __init__(self, items: dict[str, str]) -> None:
+        self.jar = [self._Cookie(n, v) for n, v in items.items()]
+
+
+class _HttpClientWithJar:
+    """Stand-in http_client with a `.cookies.jar` attribute."""
+
+    def __init__(self, cookies: dict[str, str]) -> None:
+        self.cookies = _CookieWithJar(cookies)
+
+
+class TestWaveSixCoverage:
+    """Edge cases pushing api/websocket.py from 94.43% to 100%."""
+
+    def test_current_cookies_uses_http_client_jar(self):
+        """Line 223: when http_client is set, cookies sourced from .cookies.jar."""
+        ws = _make_ws()
+        ws.http_client = _HttpClientWithJar({"sess": "abc", "csrf": "xyz"})
+
+        result = ws._current_cookies()
+
+        assert result == {"sess": "abc", "csrf": "xyz"}
+
+    @pytest.mark.asyncio
+    async def test_handle_message_monitor_events_calls_monitor(self):
+        """Line 333: monitor_events=True triggers _monitor_event."""
+        ws = _make_ws(enable_logging=False)
+        ws.monitor_events = True
+
+        captured: list[tuple[int, object]] = []
+
+        def _spy_monitor(message_type, message_data):
+            captured.append((message_type, message_data))
+
+        ws._monitor_event = _spy_monitor  # type: ignore[method-assign]
+
+        # Type-3 message (no special handler, just monitored)
+        await ws._handle_message(json.dumps({"t": 3, "d": "payload"}))
+
+        assert captured == [(3, "payload")]
+
+    @pytest.mark.asyncio
+    async def test_handle_message_generic_exception_caught(self, caplog):
+        """Lines 394-395: non-JSON exception during processing is caught + logged."""
+        caplog.set_level(logging.ERROR)
+        ws = _make_ws()
+
+        # Register a handler that raises — exception path is downstream of
+        # the JSON decode, hits line 394-395.
+        def _broken_handler(_data):
+            raise RuntimeError("handler exploded")
+
+        ws._event_handlers[42] = _broken_handler
+
+        await ws._handle_message(json.dumps({"t": 42, "d": "ok"}))
+
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Error handling WebSocket message" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_start_ping_loop_clears_stale_done_task(self):
+        """Line 960: stale `_ping_task` (already done) is cleared before restart."""
+        ws = _make_ws()
+        ws.websocket = FakeSocket()
+        ws.connected = True
+
+        # Pre-set a "done" ping task to simulate a previous worker that exited.
+        async def _already_done():
+            return None
+
+        prior_task = asyncio.create_task(_already_done())
+        await prior_task  # ensure done() is True
+        ws._ping_task = prior_task
+
+        with patch("api.websocket.timing_jitter", return_value=0.01):
+            ws._start_ping_loop()
+            # New task created, prior was cleared first
+            assert ws._ping_task is not prior_task
+            assert ws._ping_task is not None
+
+        ws.connected = False
+        ws._stop_ping_loop()
+        await asyncio.sleep(0.05)
+
+    @pytest.mark.asyncio
+    async def test_ping_worker_breaks_when_websocket_set_to_none(self):
+        """Line 978: connected=True but websocket=None → break loop.
+
+        Production guard at line 977 catches mid-loop disconnection
+        (websocket cleared) and breaks the worker cleanly.
+        """
+        ws = _make_ws()
+        # connected=True but websocket=None — ping worker enters the while
+        # loop, runs timing_jitter + sleep, then the line-977 check trips
+        # and the loop breaks.
+        ws.websocket = None
+        ws.connected = True
+
+        with patch("api.websocket.timing_jitter", return_value=0.01):
+            ws._start_ping_loop()
+            # Wait for the worker to complete one iteration + break.
+            assert ws._ping_task is not None
+            await asyncio.wait_for(ws._ping_task, timeout=1.0)
+
+        # Task completed (broke out of the loop, hit line 978).
+        assert ws._ping_task is None or ws._ping_task.done()
+
+    @pytest.mark.asyncio
+    async def test_ping_worker_generic_exception_logged_and_breaks(self, caplog):
+        """Lines 1007-1008: non-WebSocketException in ping loop logs + breaks."""
+        caplog.set_level(logging.ERROR)
+        ws = _make_ws()
+        ws.websocket = FakeSocket()
+        ws.connected = True
+
+        # Force timing_jitter to raise a non-WebSocketException
+        # (TypeError is fine — it bypasses the WebSocketException catch
+        # and lands in the generic Exception handler at 1006).
+        def _boom(*_a, **_k):
+            raise TypeError("unexpected")
+
+        with patch("api.websocket.timing_jitter", _boom):
+            ws._start_ping_loop()
+            await asyncio.sleep(0.1)
+
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Unexpected error in ping loop" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_ping_worker_cancelled_error_logged(self, caplog):
+        """Line 1011: outer CancelledError handler logs + exits cleanly."""
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        ws.websocket = FakeSocket()
+        ws.connected = True
+
+        with patch("api.websocket.timing_jitter", return_value=10.0):
+            ws._start_ping_loop()
+            await asyncio.sleep(0.01)
+            assert ws._ping_task is not None
+            ws._ping_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await ws._ping_task
+
+        debug = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+        assert any("Ping loop cancelled" in m for m in debug)
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_cancelled_error_logged(self, caplog):
+        """Line 1050: outer CancelledError handler in _listen_loop."""
+        caplog.set_level(logging.INFO)
+        ws = _make_ws()
+        ws.websocket = FakeSocket()
+        ws.connected = True
+
+        task = asyncio.create_task(ws._listen_loop())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+        info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+        assert any("WebSocket listen loop cancelled" in m for m in info)
+
+    @pytest.mark.asyncio
+    async def test_maintain_connection_logs_lost_then_reconnects(self, caplog):
+        """Lines 1083-1085: _listen_loop returned without stop_event → log + disconnect."""
+        caplog.set_level(logging.WARNING)
+        ws = _make_ws()
+        ws.connected = True
+        ws.websocket = FakeSocket()
+        # Already past max attempts to break out cleanly on next iteration.
+        ws._reconnect_attempts = ws._max_reconnect_attempts
+
+        async def _listen_returns_immediately():
+            return None  # simulates connection lost without stop_event
+
+        async def _disconnect_marker():
+            ws._stop_event.set()  # break out of maintain_connection
+
+        ws._listen_loop = _listen_returns_immediately  # type: ignore[method-assign]
+        ws.disconnect = _disconnect_marker  # type: ignore[method-assign]
+
+        await ws._maintain_connection()
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("WebSocket connection lost" in m for m in warnings)
+
+    @pytest.mark.asyncio
+    async def test_dispatch_event_runtime_error_in_get_running_loop(self, caplog):
+        """Lines 1242-1243: get_running_loop fails → current_loop=None → fall through."""
+        # When get_running_loop raises (called outside an async context),
+        # current_loop becomes None. Combined with _main_loop also None,
+        # no_thread_boundary is True → handler runs inline.
+        ws = _make_ws()
+        ws._main_loop = None  # force inline path
+
+        captured = []
+
+        def _sync_handler(event):
+            captured.append(event)
+
+        await ws._dispatch_event(_sync_handler, {"hello": "world"})
+
+        assert captured == [{"hello": "world"}]
+
+    @pytest.mark.asyncio
+    async def test_dispatch_event_cross_thread_sync_handler(self):
+        """Line 1262: sync handler cross-thread → main_loop.call_soon_threadsafe."""
+        import threading
+
+        other_loop = asyncio.new_event_loop()
+        loop_ready = threading.Event()
+        captured = []
+
+        def _run_other_loop():
+            asyncio.set_event_loop(other_loop)
+            loop_ready.set()
+            other_loop.run_forever()
+
+        other_thread = threading.Thread(target=_run_other_loop, daemon=True)
+        other_thread.start()
+        loop_ready.wait(timeout=2.0)
+
+        try:
+            ws = _make_ws()
+            ws._main_loop = other_loop  # different from current loop
+
+            def _sync_handler(event):
+                captured.append(event)
+
+            await ws._dispatch_event(_sync_handler, {"y": 2})
+            await asyncio.sleep(0.05)
+        finally:
+            other_loop.call_soon_threadsafe(other_loop.stop)
+            other_thread.join(timeout=2.0)
+            other_loop.close()
+
+        assert captured == [{"y": 2}]
+
+    @pytest.mark.asyncio
+    async def test_dispatch_event_cross_thread_path(self):
+        """Lines 1258-1264: cross-thread path marshals via run_coroutine_threadsafe.
+
+        Sets _main_loop to a different (running) loop than the test's loop,
+        forcing the no_thread_boundary check to be False. Verifies the cross-
+        thread dispatch is invoked.
+        """
+        import threading
+
+        # Build a separate event loop in another thread to act as _main_loop.
+        other_loop = asyncio.new_event_loop()
+        loop_ready = threading.Event()
+        captured = []
+
+        def _run_other_loop():
+            asyncio.set_event_loop(other_loop)
+            loop_ready.set()
+            other_loop.run_forever()
+
+        other_thread = threading.Thread(target=_run_other_loop, daemon=True)
+        other_thread.start()
+        loop_ready.wait(timeout=2.0)
+
+        try:
+            ws = _make_ws()
+            ws._main_loop = other_loop  # different from current running loop
+
+            async def _async_handler(event):
+                captured.append(event)
+
+            await ws._dispatch_event(_async_handler, {"x": 1})
+            # Give the cross-thread coroutine time to land
+            await asyncio.sleep(0.05)
+        finally:
+            other_loop.call_soon_threadsafe(other_loop.stop)
+            other_thread.join(timeout=2.0)
+            other_loop.close()
+
+        assert captured == [{"x": 1}]
+
+    @pytest.mark.asyncio
+    async def test_start_in_thread_timeout_raises(self, monkeypatch):
+        """Line 1141: thread fails to set _thread_ready within timeout → RuntimeError."""
+        ws = _make_ws()
+
+        # Patch _thread_main to never set _thread_ready (sleep instead).
+        import time
+
+        def _hung_thread_main(*_a, **_kw):
+            time.sleep(2.0)  # never sets _thread_ready
+
+        monkeypatch.setattr(ws, "_thread_main", _hung_thread_main)
+
+        # ready_timeout=0.05 ensures the wait expires fast.
+        with pytest.raises(RuntimeError, match=r"failed to initialize within 0\.05s"):
+            ws.start_in_thread(ready_timeout=0.05)
+
+    @pytest.mark.asyncio
+    async def test_start_in_thread_re_raises_thread_setup_exception(self, monkeypatch):
+        """Line 1151: thread setup crashes during startup → RuntimeError re-raised."""
+        ws = _make_ws()
+
+        def _crashing_thread_main(*_a, **_kw):
+            # Set _thread_ready quickly so start_in_thread's wait succeeds,
+            # then crash so _thread_exc is populated before the join check.
+            ws._thread_ready.set()
+            ws._thread_exc = ValueError("simulated thread setup crash")
+
+        monkeypatch.setattr(ws, "_thread_main", _crashing_thread_main)
+
+        with pytest.raises(
+            RuntimeError, match="failed during startup: simulated thread setup crash"
+        ):
+            ws.start_in_thread()

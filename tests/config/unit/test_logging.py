@@ -15,13 +15,16 @@ from config.logging import (
     _LEVEL_VALUES,
     InterceptHandler,
     SQLAlchemyInterceptHandler,
-    _auto_bind_logger,
     _configure_sqlalchemy_logging,
+    _configure_warnings_capture,
     _early_sqlalchemy_suppression,
     _trace_level_only,
+    db_logger,
     get_log_level,
     init_logging_config,
     set_debug_enabled,
+    stash_logger,
+    textio_logger,
     update_logging_config,
 )
 from errors import InvalidTraceLogError
@@ -323,41 +326,79 @@ class TestSQLAlchemyInterceptHandler:
             assert record.exc_info is None
 
 
-# -- _auto_bind_logger --
+# -- InterceptHandler._select_target (replaces _auto_bind_logger) --
 
 
-class TestAutoBindLogger:
-    """Cover _auto_bind_logger routing (lines 221-231)."""
+def _make_log_record(
+    name: str,
+    *,
+    pathname: str = "",
+    msg: str = "test",
+    args: tuple = (),
+) -> logging.LogRecord:
+    """Build a minimal LogRecord for routing tests."""
+    return logging.LogRecord(
+        name=name,
+        level=logging.INFO,
+        pathname=pathname,
+        lineno=0,
+        msg=msg,
+        args=args,
+        exc_info=None,
+    )
 
-    def test_unbound_record_gets_textio(self):
-        """Unbound record (no logger extra) → defaults to 'textio' (line 230)."""
-        record = {"extra": {}, "name": "some.module"}
-        result = _auto_bind_logger(record)
-        assert result["extra"]["logger"] == "textio"
 
-    def test_sqlalchemy_record_gets_db(self):
-        """SQLAlchemy-related record → 'db' binding (lines 225-228)."""
-        record = {"extra": {}, "name": "sqlalchemy.engine"}
-        result = _auto_bind_logger(record)
-        assert result["extra"]["logger"] == "db"
+class TestInterceptHandlerRouting:
+    """Cover InterceptHandler._select_target — replaces the dead _auto_bind_logger.
 
-    def test_asyncpg_record_gets_db(self):
-        """asyncpg record → 'db' binding."""
-        record = {"extra": {}, "name": "asyncpg"}
-        result = _auto_bind_logger(record)
-        assert result["extra"]["logger"] == "db"
+    The old _auto_bind_logger was supposed to mutate record["extra"]["logger"]
+    via logger.patch, but that was a no-op (loguru's .patch returns a NEW
+    logger; the global was never mutated). Routing now happens inside
+    InterceptHandler.emit which dispatches to the correct bound loguru target.
+    """
 
-    def test_alembic_migration_gets_db(self):
-        """Alembic migration record → 'db' binding."""
-        record = {"extra": {}, "name": "alembic.runtime.migration"}
-        result = _auto_bind_logger(record)
-        assert result["extra"]["logger"] == "db"
+    def test_sqlalchemy_record_routes_to_db_logger(self):
+        record = _make_log_record("sqlalchemy.engine")
+        assert InterceptHandler._select_target(record) is db_logger
 
-    def test_already_bound_record_unchanged(self):
-        """Record with existing logger binding is left alone (line 221)."""
-        record = {"extra": {"logger": "stash"}, "name": "anything"}
-        result = _auto_bind_logger(record)
-        assert result["extra"]["logger"] == "stash"
+    def test_asyncpg_record_routes_to_db_logger(self):
+        record = _make_log_record("asyncpg")
+        assert InterceptHandler._select_target(record) is db_logger
+
+    def test_alembic_migration_routes_to_db_logger(self):
+        record = _make_log_record("alembic.runtime.migration")
+        assert InterceptHandler._select_target(record) is db_logger
+
+    def test_stash_graphql_client_routes_to_stash_logger(self):
+        record = _make_log_record("stash_graphql_client.types.scene")
+        assert InterceptHandler._select_target(record) is stash_logger
+
+    def test_warning_from_sgc_module_routes_to_stash_logger(self):
+        """py.warnings record from a stash_graphql_client/* module → stash sink.
+
+        captureWarnings sends the formatted warning string AS the log
+        message — `record.pathname` is always `warnings.py` (where
+        `_showwarning` lives), so routing keys off the message content
+        (which begins with the warning's source filename:lineno).
+        """
+        record = _make_log_record(
+            "py.warnings",
+            msg="%s",
+            args=("stash_graphql_client/types/scene.py:42: UserWarning: from sgc\n",),
+        )
+        assert InterceptHandler._select_target(record) is stash_logger
+
+    def test_warning_from_other_module_routes_to_textio_logger(self):
+        record = _make_log_record(
+            "py.warnings",
+            msg="%s",
+            args=("some/other/module.py:1: UserWarning: from other module\n",),
+        )
+        assert InterceptHandler._select_target(record) is textio_logger
+
+    def test_default_routes_to_textio_logger(self):
+        record = _make_log_record("some.unrelated.module")
+        assert InterceptHandler._select_target(record) is textio_logger
 
 
 # -- update_logging_config --
@@ -508,3 +549,39 @@ class TestSetupHandlers:
         finally:
             logger.remove()
             os.chdir(original_cwd)
+
+    def test_configure_warnings_capture_wires_py_warnings_handler(self):
+        """_configure_warnings_capture wires captureWarnings + py.warnings handler.
+
+        Without this, warnings.warn() writes raw text to sys.stderr instead
+        of reaching loguru sinks — SGC's StashUnmappedFieldWarning would
+        bypass both the rich console and every log file.
+        """
+        # Save state for restoration
+        py_warnings_logger = logging.getLogger("py.warnings")
+        original_handlers = py_warnings_logger.handlers[:]
+        original_propagate = py_warnings_logger.propagate
+        original_level = py_warnings_logger.level
+
+        try:
+            _configure_warnings_capture()
+
+            # captureWarnings should be enabled
+            assert logging._warnings_showwarning is not None  # type: ignore[attr-defined]
+
+            # py.warnings logger should have exactly one InterceptHandler
+            handlers = [
+                h
+                for h in py_warnings_logger.handlers
+                if isinstance(h, InterceptHandler)
+            ]
+            assert len(handlers) == 1, (
+                f"Expected exactly 1 InterceptHandler, got {len(handlers)}"
+            )
+            assert py_warnings_logger.propagate is False
+            assert py_warnings_logger.level == logging.WARNING
+        finally:
+            py_warnings_logger.handlers[:] = original_handlers
+            py_warnings_logger.propagate = original_propagate
+            py_warnings_logger.setLevel(original_level)
+            logging.captureWarnings(False)

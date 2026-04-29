@@ -1,4 +1,4 @@
-"""Unit tests for daemon.runner orchestration loops (TIER 4B).
+"""Unit tests for daemon.runner orchestration loops (Wave 6 item #2).
 
 Targets the previously-uncovered orchestration-layer branches in:
 - _process_timeline_candidate exception path (lines 545-551)
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 import pytest
 
@@ -41,6 +40,8 @@ from daemon.runner import (
 )
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
+from tests.fixtures.api import FakeWS
+from tests.fixtures.daemon import StubSimulator
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -612,23 +613,6 @@ class TestFollowingRefreshLoop:
 # ---------------------------------------------------------------------------
 
 
-class _FakeWs:
-    """Minimal WS stub for _simulator_tick_loop unhide path."""
-
-    def __init__(self, stop_raises: BaseException | None = None) -> None:
-        self.stop_calls = 0
-        self.start_calls = 0
-        self._stop_raises = stop_raises
-
-    async def stop_thread(self, *_a: Any, **_k: Any) -> None:
-        self.stop_calls += 1
-        if self._stop_raises is not None:
-            raise self._stop_raises
-
-    def start_in_thread(self, *_a: Any, **_k: Any) -> None:
-        self.start_calls += 1
-
-
 class TestSimulatorTickLoopUnhideErrors:
     """Lines 935-947: ws.stop_thread raises during unhide → log + dashboard.set_ws_state(False)."""
 
@@ -649,7 +633,7 @@ class TestSimulatorTickLoopUnhideErrors:
 
         sim.tick = _tick  # type: ignore[method-assign]
 
-        ws = _FakeWs(stop_raises=RuntimeError("ws stop boom"))
+        ws = FakeWS(stop_raises=RuntimeError("ws stop boom"))
         stop_event = asyncio.Event()
         refresh_event = asyncio.Event()
         dashboard = _FastDashboard()
@@ -676,7 +660,7 @@ class TestSimulatorTickLoopUnhideErrors:
 
         sim.tick = _tick  # type: ignore[method-assign]
 
-        ws = _FakeWs()  # no error on stop
+        ws = FakeWS()  # no error on stop
         stop_event = asyncio.Event()
         refresh_event = asyncio.Event()
         dashboard = _FastDashboard()
@@ -689,7 +673,7 @@ class TestSimulatorTickLoopUnhideErrors:
 
 
 # ---------------------------------------------------------------------------
-# TIER 5B — _worker_loop exception paths + _refresh_following gaps
+# _worker_loop exception paths + _refresh_following gaps
 #
 # Targets:
 #   - _worker_loop CancelledError on queue.get (line 746-747)
@@ -700,7 +684,7 @@ class TestSimulatorTickLoopUnhideErrors:
 # ---------------------------------------------------------------------------
 
 
-from daemon.handlers import (  # noqa: E402 — deferred import to keep TIER 4B + 5B imports separate
+from daemon.handlers import (  # noqa: E402 — deferred to keep section's import scope local
     CheckCreatorAccess,
     FullCreatorDownload,
     RedownloadCreatorMedia,
@@ -917,3 +901,238 @@ class TestRefreshFollowing:
         )
         # user_names unchanged on error.
         assert config.user_names == {"unchanged"}
+
+
+# ---------------------------------------------------------------------------
+# _process_timeline_candidate — out-of-scope skip (lines 531-533)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessTimelineCandidateOutOfScope:
+    """Line 532-533: creator out of scope → debug log + early return."""
+
+    @pytest.mark.asyncio
+    async def test_out_of_scope_creator_is_skipped(self, config, monkeypatch, caplog):
+        caplog.set_level(logging.DEBUG)
+        creator_id = snowflake_id()
+
+        async def _scope_check(_config, _cid):
+            return False  # out of scope
+
+        called = []
+
+        async def _should_process(*_a, **_k):
+            called.append(True)
+            return True
+
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _scope_check)
+        monkeypatch.setattr("daemon.runner.should_process_creator", _should_process)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+
+        await _process_timeline_candidate(
+            config,
+            creator_id,
+            prefetched=[],
+            session_baseline=None,
+            baseline_consumed=set(),
+            queue=queue,
+            budget=budget,
+        )
+
+        # Out of scope: never reached should_process_creator and never enqueued.
+        assert not called
+        assert queue.empty()
+
+        debug = _logged(caplog, "DEBUG")
+        assert any(f"creator {creator_id} out of scope" in m for m in debug)
+
+
+# ---------------------------------------------------------------------------
+# _timeline_poll_loop / _story_poll_loop branches that need StubSimulator
+# (lines 610, 626 timeline; 686, 702 story) — see tests/fixtures/daemon/.
+# ---------------------------------------------------------------------------
+
+
+class TestTimelinePollLoopShouldPollFalse:
+    """Line 610: should_poll=False mid-loop → continue (skip this iteration)."""
+
+    @pytest.mark.asyncio
+    async def test_should_poll_false_skips_poll(self, config, monkeypatch):
+        sim = StubSimulator(timeline_interval=1.0, should_poll=False)
+
+        poll_calls = 0
+
+        async def _poll(_config):
+            nonlocal poll_calls
+            poll_calls += 1
+            return [], {}
+
+        monkeypatch.setattr("daemon.runner.poll_home_timeline", _poll)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+        dashboard = _FastDashboard()
+
+        async def _stop_soon():
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            stop_event.set()
+
+        await asyncio.gather(
+            _timeline_poll_loop(
+                config,
+                sim,
+                queue,
+                None,
+                set(),
+                stop_event,
+                budget,
+                refresh_event,
+                dashboard,
+            ),
+            _stop_soon(),
+        )
+
+        # should_poll=False short-circuits before poll_home_timeline runs.
+        assert poll_calls == 0
+
+
+class TestTimelinePollLoopActiveTransition:
+    """Line 626: on_new_content returns True → refresh_event.set."""
+
+    @pytest.mark.asyncio
+    async def test_transition_to_active_sets_refresh_event(self, config, monkeypatch):
+        sim = StubSimulator(timeline_interval=1.0, should_poll=True, transitions=True)
+
+        creator_id = snowflake_id()
+        poll_count = 0
+
+        async def _poll(_config):
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count >= 1:
+                stop_event.set()
+            return [creator_id], {creator_id: []}
+
+        async def _scope_check(_config, _cid):
+            return True
+
+        async def _should_process(*_a, **_k):
+            return False  # don't enqueue — we only care about the refresh side-effect
+
+        monkeypatch.setattr("daemon.runner.poll_home_timeline", _poll)
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _scope_check)
+        monkeypatch.setattr("daemon.runner.should_process_creator", _should_process)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+        dashboard = _FastDashboard()
+
+        await _timeline_poll_loop(
+            config,
+            sim,
+            queue,
+            None,
+            set(),
+            stop_event,
+            budget,
+            refresh_event,
+            dashboard,
+        )
+
+        # The simulator transition fired refresh_event.
+        assert refresh_event.is_set()
+
+
+class TestStoryPollLoopShouldPollFalse:
+    """Line 686: should_poll=False mid-loop → continue."""
+
+    @pytest.mark.asyncio
+    async def test_should_poll_false_skips_poll(self, config, monkeypatch):
+        sim = StubSimulator(story_interval=1.0, should_poll=False)
+
+        poll_calls = 0
+
+        async def _poll(_config):
+            nonlocal poll_calls
+            poll_calls += 1
+            return []
+
+        monkeypatch.setattr("daemon.runner.poll_story_states", _poll)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+        dashboard = _FastDashboard()
+
+        async def _stop_soon():
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            stop_event.set()
+
+        await asyncio.gather(
+            _story_poll_loop(
+                config,
+                sim,
+                queue,
+                stop_event,
+                budget,
+                refresh_event,
+                dashboard,
+            ),
+            _stop_soon(),
+        )
+
+        assert poll_calls == 0
+
+
+class TestStoryPollLoopActiveTransition:
+    """Line 702: on_new_content returns True → refresh_event.set."""
+
+    @pytest.mark.asyncio
+    async def test_transition_to_active_sets_refresh_event(self, config, monkeypatch):
+        sim = StubSimulator(story_interval=1.0, should_poll=True, transitions=True)
+
+        creator_id = snowflake_id()
+        poll_count = 0
+
+        async def _poll(_config):
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count >= 1:
+                stop_event.set()
+            return [creator_id]
+
+        async def _scope_check(_config, _cid):
+            # Return False so the per-creator inner loop short-circuits — we
+            # only care that the transition triggered refresh_event before
+            # iterating creators.
+            return False
+
+        monkeypatch.setattr("daemon.runner.poll_story_states", _poll)
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _scope_check)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+        dashboard = _FastDashboard()
+
+        await _story_poll_loop(
+            config,
+            sim,
+            queue,
+            stop_event,
+            budget,
+            refresh_event,
+            dashboard,
+        )
+
+        assert refresh_event.is_set()

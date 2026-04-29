@@ -55,7 +55,6 @@ from .stash_mixin_fixtures import (
 # No direct exports needed here - fixtures available via stash_processing_fixtures module
 from .stash_type_factories import (
     GalleryFactory,
-    GroupFactory,
     ImageFactory,
     ImageFileFactory,
     JobFactory,
@@ -77,7 +76,6 @@ from .stash_type_factories import (
 
 __all__ = [
     "GalleryFactory",
-    "GroupFactory",
     "ImageFactory",
     "ImageFileFactory",
     "JobFactory",

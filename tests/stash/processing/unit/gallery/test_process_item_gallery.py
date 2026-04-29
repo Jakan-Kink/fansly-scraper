@@ -201,11 +201,10 @@ class TestProcessItemGallery:
 
         post_id_str = str(post_id)
 
-        # Verify each request contains proper data
+        # Verify each request contains proper data. The `req["query"]`
+        # access below KeyErrors naturally if the field is missing.
         for i, call in enumerate(calls):
             req = json.loads(call.request.content)
-
-            assert "query" in req, f"Call {i}: Missing 'query' field"
 
             query = req["query"]
             variables = req.get("variables", {})

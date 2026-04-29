@@ -5,8 +5,6 @@ mocking, allowing real code execution through the entire processing pipeline.
 We verify that data flows correctly from database queries to GraphQL API calls.
 """
 
-import json
-
 import httpx
 import pytest
 import respx
@@ -102,15 +100,13 @@ class TestPostProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "test_process_creator_posts")
 
-        # Verify GraphQL calls were made
+        # Verify GraphQL calls were made. Per-operation pinning lives in the
+        # integration test at tests/stash/processing/integration/test_content_processing.py
+        # which uses assert_op against capture_graphql_calls; the unit-level
+        # check here is intentionally loose because populate()'s filter-query
+        # inlines values and omits variables, so per-call variable assertions
+        # would produce brittle test text without strengthening the contract.
         assert len(graphql_route.calls) > 0, "Expected GraphQL calls to be made"
-
-        # Verify the requests contain expected data
-        for call in graphql_route.calls:
-            req = json.loads(call.request.content)
-            assert "query" in req or "mutation" in req.get("query", "")
-            # populate()'s filter-query inlines values and omits variables
-            # Skip variables assertion for such calls
 
     @pytest.mark.asyncio
     async def test_process_creator_posts_empty(
