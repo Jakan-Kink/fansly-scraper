@@ -585,3 +585,48 @@ class TestSetupHandlers:
             py_warnings_logger.propagate = original_propagate
             py_warnings_logger.setLevel(original_level)
             logging.captureWarnings(False)
+
+    def test_format_record_escapes_loguru_tags_in_message(self, tmp_path, capsys):
+        """Messages containing `<module>` (and similar) must not crash colorizer.
+
+        Regression: a real ImportError traceback contains frame names like
+        `<module>`, `<listcomp>`, `<genexpr>`. loguru re-parses callable
+        formatter output to strip color tags even when colorize=False, so
+        any unescaped `<` in the embedded message previously raised
+        `ValueError: Tag "<module>" does not correspond to any known color
+        directive` from Colorizer.prepare_stripped_format.
+
+        Caveat: loguru's emit() catches exceptions and routes them through
+        its error interceptor (which prints the `--- Logging error ...`
+        envelope to stderr) rather than re-raising. So the assertion here
+        must be on stderr, not on whether an exception propagated.
+        """
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            config = FanslyConfig(program_version="test")
+            init_logging_config(config)
+
+            # Real-world traceback fragments that previously broke the sink.
+            for payload in (
+                'File ".../foo.py", line 1, in <module>',
+                "list comprehension at <listcomp>",
+                "generator expression at <genexpr>",
+                "tag-soup with <unknown> and </closing>",
+            ):
+                textio_logger.error(payload)
+
+            # The bug's user-visible symptom is loguru printing its error
+            # envelope to stderr — that's what the original transcript
+            # showed. Assert it doesn't appear.
+            captured = capsys.readouterr()
+            assert "Logging error in Loguru Handler" not in captured.err, (
+                "loguru emitted its error envelope — colorizer likely "
+                "tripped on an unescaped `<` in the formatted message."
+            )
+            assert "does not correspond to any known color directive" not in (
+                captured.err
+            ), "Colorizer parse failure leaked into stderr."
+        finally:
+            logger.remove()
+            os.chdir(original_cwd)

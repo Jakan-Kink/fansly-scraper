@@ -424,7 +424,16 @@ def setup_handlers() -> None:
                 None,
             )
             icon = level_data["icon"] if level_data else "●"
-            safe_msg = str(record["message"]).replace("{", "{{").replace("}", "}}")
+            # Escape `{`/`}` (Python format specs) AND `<` (loguru color tags).
+            # loguru re-parses the returned format string to strip tags even
+            # with colorize=False; an embedded traceback frame name like
+            # `<module>` would otherwise crash Colorizer.prepare_stripped_format.
+            safe_msg = (
+                str(record["message"])
+                .replace("{", "{{")
+                .replace("}", "}}")
+                .replace("<", r"\<")
+            )
             return f"{icon} {safe_msg}"
 
         # RichHandler handles its own coloring — disable loguru's ANSI injection
