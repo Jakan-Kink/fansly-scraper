@@ -162,6 +162,19 @@ def _make_ws(config: FanslyConfig) -> FanslyWebSocket:
     )
 
 
+def _make_simulator(config: FanslyConfig) -> ActivitySimulator:
+    """Construct an ActivitySimulator from config monitoring values."""
+    return ActivitySimulator(
+        active_min=config.monitoring_active_duration_minutes,
+        idle_min=config.monitoring_idle_duration_minutes,
+        hidden_min=config.monitoring_hidden_duration_minutes,
+        timeline_poll_active_seconds=config.monitoring_timeline_poll_active_seconds,
+        timeline_poll_idle_seconds=config.monitoring_timeline_poll_idle_seconds,
+        story_poll_active_seconds=config.monitoring_story_poll_active_seconds,
+        story_poll_idle_seconds=config.monitoring_story_poll_idle_seconds,
+    )
+
+
 async def _resolve_creator_name(creator_id: int) -> str | None:
     """Resolve a creator's username from the identity-map cache or store.
 
@@ -1025,6 +1038,12 @@ def _make_ws_handler(
                     service_id,
                     event_type,
                 )
+                ws_logger.trace(
+                    "daemon.runner: unknown event (svc={} type={}) payload - {}",
+                    service_id,
+                    event_type,
+                    inner,
+                )
             # Handled events that return None (filtered by their handler
             # OR an explicit no-op routed via _NOOP_DESCRIPTIONS) have
             # already produced their own log line at the appropriate
@@ -1115,7 +1134,7 @@ async def run_daemon(
         baseline_consumed = bootstrap.baseline_consumed
     else:
         queue = asyncio.Queue()
-        simulator = ActivitySimulator()
+        simulator = _make_simulator(config)
         baseline_consumed = set()
 
     budget = ErrorBudget(

@@ -32,6 +32,8 @@ nav:
   - Changelog: changelog.md
   - Guide:
       - Manual Token Extraction: guide/manual-token-extraction.md
+  - Configuration:
+      - Config Options: configuration/config_options.md
   - Reference:
       - Architecture: reference/architecture.md
       - Monitoring Daemon Cadence: reference/monitoring-cadence.md

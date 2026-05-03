@@ -284,6 +284,25 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     )
     config.monitoring_dashboard_enabled = schema.monitoring.dashboard_enabled
     config.monitoring_websocket_subprocess = schema.monitoring.websocket_subprocess
+    config.monitoring_active_duration_minutes = (
+        schema.monitoring.active_duration_minutes
+    )
+    config.monitoring_idle_duration_minutes = schema.monitoring.idle_duration_minutes
+    config.monitoring_hidden_duration_minutes = (
+        schema.monitoring.hidden_duration_minutes
+    )
+    config.monitoring_timeline_poll_active_seconds = (
+        schema.monitoring.timeline_poll_active_seconds
+    )
+    config.monitoring_timeline_poll_idle_seconds = (
+        schema.monitoring.timeline_poll_idle_seconds
+    )
+    config.monitoring_story_poll_active_seconds = (
+        schema.monitoring.story_poll_active_seconds
+    )
+    config.monitoring_story_poll_idle_seconds = (
+        schema.monitoring.story_poll_idle_seconds
+    )
 
     # --- StashContext (optional) ---
     if schema.stash_context is not None:

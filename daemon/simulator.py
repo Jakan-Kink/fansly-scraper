@@ -48,6 +48,10 @@ class ActivitySimulator:
         active_min: int = 60,
         idle_min: int = 120,
         hidden_min: int = 300,
+        timeline_poll_active_seconds: int = 180,
+        timeline_poll_idle_seconds: int = 600,
+        story_poll_active_seconds: int = 30,
+        story_poll_idle_seconds: int = 300,
         *,
         now: Callable[[], float] = time.monotonic,
         jitter: Callable[[float, float], float] = random.uniform,
@@ -58,6 +62,10 @@ class ActivitySimulator:
             active_min: Duration of the active phase in minutes.
             idle_min: Duration of the idle phase in minutes.
             hidden_min: Duration of the hidden phase in minutes.
+            timeline_poll_active_seconds: Home-timeline poll interval while active.
+            timeline_poll_idle_seconds: Home-timeline poll interval while idle.
+            story_poll_active_seconds: Story-state poll interval while active.
+            story_poll_idle_seconds: Story-state poll interval while idle.
             now: Callable returning the current time as a float (seconds).
                  Defaults to ``time.monotonic``; inject a fake clock in tests.
             jitter: Callable(low, high) returning a float in [low, high].
@@ -66,6 +74,11 @@ class ActivitySimulator:
         self.active_duration: float = active_min * 60.0
         self.idle_duration: float = idle_min * 60.0
         self.hidden_duration: float = hidden_min * 60.0
+
+        self._timeline_poll_active: float = float(timeline_poll_active_seconds)
+        self._timeline_poll_idle: float = float(timeline_poll_idle_seconds)
+        self._story_poll_active: float = float(story_poll_active_seconds)
+        self._story_poll_idle: float = float(story_poll_idle_seconds)
 
         self._now = now
         self._jitter = jitter
@@ -81,26 +94,24 @@ class ActivitySimulator:
     def timeline_interval(self) -> float:
         """Seconds between home-timeline polls for the current state.
 
-        Returns:
-            180 + jitter(0, 10) in active, 600 + jitter(0, 10) in idle, 0 in hidden.
+        Configured base value plus jitter in active/idle; 0 in hidden.
         """
         if self.state == "active":
-            return 180.0 + self._jitter(0.0, 10.0)
+            return self._timeline_poll_active + self._jitter(0.0, 10.0)
         if self.state == "idle":
-            return 600.0 + self._jitter(0.0, 10.0)
+            return self._timeline_poll_idle + self._jitter(0.0, 10.0)
         return 0.0  # hidden — polling suspended
 
     @property
     def story_interval(self) -> float:
         """Seconds between story-state polls for the current state.
 
-        Returns:
-            30 + jitter(0, 2) in active, 300 + jitter(0, 2) in idle, 0 in hidden.
+        Configured base value plus jitter in active/idle; 0 in hidden.
         """
         if self.state == "active":
-            return 30.0 + self._jitter(0.0, 2.0)
+            return self._story_poll_active + self._jitter(0.0, 2.0)
         if self.state == "idle":
-            return 300.0 + self._jitter(0.0, 2.0)
+            return self._story_poll_idle + self._jitter(0.0, 2.0)
         return 0.0  # hidden — polling suspended
 
     @property

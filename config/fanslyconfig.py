@@ -12,6 +12,8 @@ from pydantic import SecretStr
 from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
+from api.rate_limiter import RateLimiter
+from api.rate_limiter_display import RateLimiterDisplay
 from config.modes import DownloadMode
 from config.schema import (
     CacheSection,
@@ -176,6 +178,15 @@ class FanslyConfig:
     # schema.monitoring.websocket_subprocess. See
     # api/websocket_subprocess.py for the proxy implementation.
     monitoring_websocket_subprocess: bool = False
+    # Three-tier simulator state durations + per-resource poll intervals.
+    # Loaded from schema.monitoring.* — see config_options.md for semantics.
+    monitoring_active_duration_minutes: int = 60
+    monitoring_idle_duration_minutes: int = 120
+    monitoring_hidden_duration_minutes: int = 300
+    monitoring_timeline_poll_active_seconds: int = 180
+    monitoring_timeline_poll_idle_seconds: int = 600
+    monitoring_story_poll_active_seconds: int = 30
+    monitoring_story_poll_idle_seconds: int = 300
 
     # StashContext
     # Widened to dict[str, Any] so port:int coexists with the string-valued keys.
@@ -218,9 +229,6 @@ class FanslyConfig:
                 and (self.token_is_valid() or has_login_credentials)
             ):
                 # Initialize rate limiter with visual display
-                from api.rate_limiter import RateLimiter
-                from api.rate_limiter_display import RateLimiterDisplay
-
                 rate_limiter = RateLimiter(self)
                 self._rate_limiter_display = RateLimiterDisplay(rate_limiter)
                 self._rate_limiter_display.start()

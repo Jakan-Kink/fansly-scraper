@@ -89,7 +89,7 @@ def _setup_child_logging(log_path: str) -> None:
     logger.remove()
     logger.add(
         log_path,
-        format="{time:HH:mm:ss.SS} | {level:<7} | {name}:{function}:{line} - {message}",
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {name}:{function}:{line} - {message}",
         enqueue=False,
         rotation="50 MB",
         retention=5,

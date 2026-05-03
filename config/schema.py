@@ -4,6 +4,11 @@ Load with ``ConfigSchema.load_yaml(path)``.  Write back with
 ``schema.dump_yaml(path)``.  Comments in the YAML file are preserved across
 load → modify → dump cycles because the loaded ``ruamel.yaml`` CommentedMap
 is stored on the instance and mutated in-place at dump time.
+
+Per-field semantics (defaults, bounds, retired-key history, intended use)
+live in ``docs/configuration/config_options.md`` — when adding a new field
+or changing an existing one, update that doc instead of inlining rationale
+here.
 """
 
 from __future__ import annotations
@@ -112,7 +117,28 @@ def _pretty_error_message(err: dict[str, Any]) -> str:
     return err.get("msg", str(err))
 
 
-class TargetedCreatorSection(BaseModel):
+class _BaseSection(BaseModel):
+    """Schema-section base providing retired-field auto-stripping.
+
+    Subclasses with retired YAML keys override ``_DROPPED_FIELDS`` to a
+    frozenset of those keys; the inherited ``_drop_retired_fields``
+    validator pops them from the incoming dict before ``extra="forbid"``
+    rejects them, so old config.yaml files keep loading on upgrade.
+    """
+
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_fields(cls, data: Any) -> Any:
+        """Strip retired keys from incoming YAML/dict before extra="forbid" bites."""
+        if isinstance(data, dict):
+            for key in cls._DROPPED_FIELDS:
+                data.pop(key, None)
+        return data
+
+
+class TargetedCreatorSection(_BaseSection):
     """Settings for the creator(s) to download.
 
     ``usernames`` is a list because the CLI (``-u alice bob``) and the
@@ -136,53 +162,33 @@ class TargetedCreatorSection(BaseModel):
         return v
 
 
-class MyAccountSection(BaseModel):
+class MyAccountSection(_BaseSection):
     """Fansly account credentials and authentication."""
 
     model_config = ConfigDict(extra="forbid")
 
-    # authorization_token is SecretStr so it is never accidentally printed
-    # in logs or tracebacks; call .get_secret_value() to read the raw token.
     authorization_token: SecretStr = SecretStr("ReplaceMe")
-    # user_agent is a plain str — it's a public HTTP header, not a secret.
     user_agent: str = "ReplaceMe"
     check_key: str = "qybZy9-fyszis-bybxyf"
     username: str | None = None
     password: SecretStr | None = None
 
 
-class OptionsSection(BaseModel):
+class OptionsSection(_BaseSection):
     """Download behaviour and output options."""
 
     model_config = ConfigDict(extra="forbid")
 
-    # Retired fields silently dropped during load so upgrading doesn't
-    # require manual config edits. Keep entries for at least one release.
+    # Retired fields silently dropped during load (see config_options.md).
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
-            # Removed: legacy SQLite-era flag that was no-op under Postgres.
-            # _build_connection_url never used creator_name, so the flag had
-            # no effect regardless of setting. See git history for details.
             "separate_metadata",
-            # Removed: no runtime code branches on SIMPLE vs ADVANCED.
             "metadata_handling",
-            # Removed: SQLite-era write-sync tuning knobs, never read
-            # under Postgres. CLI flags (--db-sync-commits etc.) and
-            # INI keys are still silently accepted for backward compat.
             "db_sync_commits",
             "db_sync_seconds",
             "db_sync_min_size",
         }
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _drop_retired_fields(cls, data: Any) -> Any:
-        """Strip retired keys from incoming YAML/dict before extra="forbid" bites."""
-        if isinstance(data, dict):
-            for key in cls._DROPPED_FIELDS:
-                data.pop(key, None)
-        return data
 
     download_directory: str = "Local_directory"
     download_mode: DownloadMode = DownloadMode.NORMAL
@@ -221,17 +227,8 @@ class OptionsSection(BaseModel):
         return v
 
 
-class PostgresSection(BaseModel):
-    """PostgreSQL connection configuration for asyncpg.
-
-    SSL settings are accepted but currently NOT wired to
-    ``asyncpg.create_pool`` — see ``metadata/database.py``. A follow-up
-    task should pass ``ssl=`` to the pool when any ``pg_ssl*`` value is
-    set. ``pg_max_overflow`` and ``pg_pool_timeout`` are legacy SQLAlchemy
-    pool settings kept for round-trip parity with config.ini; asyncpg's pool
-    uses only ``min_size``/``max_size`` so these values are stored but not
-    wired to the pool.
-    """
+class PostgresSection(_BaseSection):
+    """PostgreSQL connection configuration for asyncpg."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -249,7 +246,7 @@ class PostgresSection(BaseModel):
     pg_pool_timeout: int = 30
 
 
-class CacheSection(BaseModel):
+class CacheSection(_BaseSection):
     """Device ID cache for Fansly API authentication.
 
     These values are managed at runtime by the API layer; users should not
@@ -262,7 +259,7 @@ class CacheSection(BaseModel):
     device_id_timestamp: int | None = None
 
 
-class LoggingSection(BaseModel):
+class LoggingSection(_BaseSection):
     """Log level configuration for named loggers.
 
     The YAML key for the JSON logger is ``json:``, but the Python
@@ -283,7 +280,7 @@ class LoggingSection(BaseModel):
     json_level: str = Field("INFO", alias="json", serialization_alias="json")
 
 
-class StashContextSection(BaseModel):
+class StashContextSection(_BaseSection):
     """Stash media server connection settings.
 
     This section is optional — it is only written when the Stash integration
@@ -299,20 +296,18 @@ class StashContextSection(BaseModel):
     apikey: str = ""
 
 
-class MonitoringSection(BaseModel):
-    """Monitoring daemon configuration (WebSocket + polling loop).
-
-    INTERRUPT_EVENTS is NOT exposed here — it's a protocol constant
-    (which Fansly WebSocket events wake the daemon from hidden state)
-    that lives in ``daemon/simulator.py``. Editing it breaks the daemon,
-    so it's intentionally not user-tunable.
-    """
+class MonitoringSection(_BaseSection):
+    """Monitoring daemon configuration (WebSocket + polling loop)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    # When True, enter the post-batch monitoring daemon after the normal
-    # batch download completes.  Mirrors the --daemon / -d CLI flag.
+    # Retired fields silently dropped during load (see config_options.md).
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "enabled",
+        }
+    )
+
     daemon_mode: bool = False
     active_duration_minutes: int = 60
     idle_duration_minutes: int = 120
@@ -321,29 +316,9 @@ class MonitoringSection(BaseModel):
     timeline_poll_idle_seconds: int = 600
     story_poll_active_seconds: int = 30
     story_poll_idle_seconds: int = 300
-    # Optional per-run baseline. When set, should_process_creator uses this
-    # value instead of each creator's stored lastCheckedAt. A very old value
-    # (e.g. 2000-01-01) effectively forces a full pass for every creator.
-    # When None (default), uses each creator's own MonitorState.lastCheckedAt.
     session_baseline: datetime | None = None
-    # Fatal error escalation: if the daemon has had NO successful operation
-    # for this many seconds, exit with DAEMON_UNRECOVERABLE. Rate-limiter,
-    # transient 5xx, and network blips are NOT escalated as long as some
-    # operation (poll, WS ping-pong, or dispatch) still succeeds within the
-    # window. Default 1 hour.
     unrecoverable_error_timeout_seconds: int = 3600
-    # Rich-based live dashboard showing simulator state and per-loop
-    # countdown bars while the daemon runs. Default on — set False to
-    # disable when piping output through tools that don't render ANSI
-    # escape sequences cleanly.
     dashboard_enabled: bool = True
-    # Run the Fansly WebSocket in an isolated subprocess (Lever 4) so its
-    # ping/pong heartbeat is insulated from main-process GIL contention.
-    # Without this, CPU-bound main-loop bursts (image hashing, dedupe,
-    # large JSON decodes) starve the WS thread enough to miss the
-    # spec-mandated 1.2*pingInterval window, triggering reconnect storms.
-    # Default off until the subprocess path has stabilized; flip on for a
-    # validation run, then promote in a follow-up.
     websocket_subprocess: bool = False
 
     @field_validator("session_baseline", mode="before")
@@ -359,7 +334,7 @@ class MonitoringSection(BaseModel):
         return v
 
 
-class LogicSection(BaseModel):
+class LogicSection(_BaseSection):
     """Regex patterns for extracting check-key and main.js URL from Fansly."""
 
     model_config = ConfigDict(extra="forbid")
@@ -368,7 +343,7 @@ class LogicSection(BaseModel):
     main_js_pattern: str = r"\ssrc\s*=\s*\"(main\..*?\.js)\""
 
 
-class ConfigSchema(BaseModel):
+class ConfigSchema(_BaseSection):
     """Root configuration schema for config.yaml.
 
     All sections are optional at parse time; defaults are used when a section

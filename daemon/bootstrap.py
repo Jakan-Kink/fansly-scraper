@@ -37,7 +37,7 @@ from config.logging import textio_logger as logger
 from config.logging import websocket_logger as ws_logger
 
 from .handlers import WorkItem
-from .runner import _handle_work_item, _make_ws_handler
+from .runner import _handle_work_item, _make_simulator, _make_ws_handler
 from .simulator import ActivitySimulator
 
 
@@ -100,7 +100,7 @@ async def bootstrap_daemon_ws(config: FanslyConfig) -> DaemonBootstrap:
         success, or ``None`` if no WS was available to attach to.
     """
     queue: asyncio.Queue[WorkItem] = asyncio.Queue()
-    simulator = ActivitySimulator()
+    simulator = _make_simulator(config)
     baseline_consumed: set[int] = set()
 
     api = getattr(config, "_api", None)
