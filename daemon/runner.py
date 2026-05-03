@@ -40,6 +40,7 @@ import httpx
 from loguru import logger
 
 from api.websocket import FanslyWebSocket
+from api.websocket_subprocess import get_websocket_class
 from config.fanslyconfig import FanslyConfig
 from config.logging import websocket_logger as ws_logger
 from daemon.dashboard import (
@@ -153,7 +154,9 @@ def _make_ws(config: FanslyConfig) -> FanslyWebSocket:
     Returns:
         A new FanslyWebSocket ready for ``start_in_thread()``.
     """
-    return FanslyWebSocket(
+    return get_websocket_class(
+        use_subprocess=getattr(config, "monitoring_websocket_subprocess", False),
+    )(
         token=config.token or "",
         user_agent=config.user_agent or "",
     )

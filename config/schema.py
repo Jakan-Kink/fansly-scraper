@@ -337,6 +337,14 @@ class MonitoringSection(BaseModel):
     # disable when piping output through tools that don't render ANSI
     # escape sequences cleanly.
     dashboard_enabled: bool = True
+    # Run the Fansly WebSocket in an isolated subprocess (Lever 4) so its
+    # ping/pong heartbeat is insulated from main-process GIL contention.
+    # Without this, CPU-bound main-loop bursts (image hashing, dedupe,
+    # large JSON decodes) starve the WS thread enough to miss the
+    # spec-mandated 1.2*pingInterval window, triggering reconnect storms.
+    # Default off until the subprocess path has stabilized; flip on for a
+    # validation run, then promote in a follow-up.
+    websocket_subprocess: bool = False
 
     @field_validator("session_baseline", mode="before")
     @classmethod

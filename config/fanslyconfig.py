@@ -171,6 +171,11 @@ class FanslyConfig:
     # piping through log-capture tools that mangle ANSI escape sequences.
     # Loaded from schema.monitoring.dashboard_enabled.
     monitoring_dashboard_enabled: bool = True
+    # Subprocess-isolate the Fansly WebSocket so its heartbeat is not
+    # starved by main-process GIL contention. Loaded from
+    # schema.monitoring.websocket_subprocess. See
+    # api/websocket_subprocess.py for the proxy implementation.
+    monitoring_websocket_subprocess: bool = False
 
     # StashContext
     # Widened to dict[str, Any] so port:int coexists with the string-valued keys.
