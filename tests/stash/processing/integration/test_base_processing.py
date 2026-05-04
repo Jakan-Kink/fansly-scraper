@@ -537,16 +537,18 @@ class TestPreloadIntegration:
     async def test_preload_stash_entities_with_real_data(
         self, real_stash_processor, stash_cleanup_tracker
     ):
-        """_preload_stash_entities iterates real performers/tags/studios (line 146).
+        """_preload_stash_entities is a TTL-config no-op against real Stash.
 
-        Docker Stash contains test data; find_iter yields them into the cache.
+        Mixin lookup pattern (filter → find_one fallback) lazy-populates
+        the cache, so this method does no GraphQL fetch — it just pins TTLs.
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
+            cache_before = real_stash_processor.store.cache_stats().total_entries
+
             await real_stash_processor._preload_stash_entities()
 
-            # After preload, the store should have cached entries
-            stats = real_stash_processor.store.cache_stats()
-            assert stats.total_entries > 0
+            cache_after = real_stash_processor.store.cache_stats().total_entries
+            assert cache_after == cache_before
 
     @pytest.mark.asyncio
     async def test_preload_creator_media_with_real_data(

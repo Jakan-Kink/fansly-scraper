@@ -2,16 +2,10 @@
 
 from datetime import UTC, datetime
 
-import httpx
 import pytest
 import respx
 
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
-from tests.fixtures.stash.stash_graphql_fixtures import (
-    create_graphql_response,
-    create_performer_dict,
-    create_tag_dict,
-)
 from tests.fixtures.stash.stash_type_factories import (
     ImageFactory,
     ImageFileFactory,
@@ -184,61 +178,22 @@ class TestPreloadEntities:
     """Test _preload_stash_entities and _preload_creator_media."""
 
     @pytest.mark.asyncio
-    async def test_preload_entities_with_data(self, respx_stash_processor):
-        """_preload_stash_entities iterates yielded entities (line 146)."""
-        performer = create_performer_dict(id="5703", name="Performer One")
-        tag = create_tag_dict(id="102", name="Tag One")
-        studio_dict = {"id": "10402", "name": "Studio One", "urls": []}
+    async def test_preload_entities_makes_no_network_calls(self, respx_stash_processor):
+        """_preload_stash_entities only configures TTLs — no GraphQL fetch.
 
-        route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 1, "performers": [performer]}
-                    ),
-                ),
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findTags", {"count": 1, "tags": [tag]}
-                    ),
-                ),
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findStudios", {"count": 1, "studios": [studio_dict]}
-                    ),
-                ),
-            ]
-        )
+        Mixin call sites use the ``store.filter() → store.find_one()``
+        pattern, which lazy-populates the cache as entities are looked up.
+        """
+        route = respx.post("http://localhost:9999/graphql").mock(side_effect=[])
 
         try:
             await respx_stash_processor._preload_stash_entities()
         finally:
-            dump_graphql_calls(route.calls, "test_preload_entities_with_data")
+            dump_graphql_calls(
+                route.calls, "test_preload_entities_makes_no_network_calls"
+            )
 
-        assert route.call_count == 3
-
-    @pytest.mark.asyncio
-    async def test_preload_entities_exception(self, respx_stash_processor):
-        """_preload_stash_entities catches exceptions (lines 153-154)."""
-        route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "errors": [{"message": "server error"}],
-                        "data": None,
-                    },
-                ),
-            ]
-        )
-
-        try:
-            await respx_stash_processor._preload_stash_entities()
-        finally:
-            dump_graphql_calls(route.calls, "test_preload_entities_exception")
+        assert route.call_count == 0
 
     @pytest.mark.asyncio
     async def test_preload_no_base_path(self, respx_stash_processor):

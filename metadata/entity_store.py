@@ -327,7 +327,7 @@ class PostgresEntityStore:
             decoder=json.loads,
             schema="pg_catalog",
         )
-        from .logging_config import get_db_logger
+        from .logging_config import get_db_logger  # isort: skip
 
         conn.add_query_logger(get_db_logger().query_logger_callback)
 
@@ -1016,7 +1016,7 @@ class PostgresEntityStore:
                 stub._is_new = False
                 self.cache_instance(stub)
 
-                from .stub_tracker import register_stub
+                from .stub_tracker import register_stub  # isort: skip
 
                 await register_stub(
                     target_table, target_id, reason=f"junction_fk:{assoc_table}"
@@ -1495,9 +1495,12 @@ class PostgresEntityStore:
         self._stats.clear()
 
     async def close(self) -> None:
-        """Close store: clean up thread pools, clear cache."""
+        """Close thread pools.
+
+        Skips ``_cache.clear()`` — OS reclaims the heap at process exit
+        faster than the decref cascade over the cross-referenced graph.
+        """
         await self.close_thread_resources()
-        self._cache.clear()
         self._fully_loaded.clear()
         FanslyObject._store = None
         db_logger.info("PostgresEntityStore closed")

@@ -425,9 +425,6 @@ class TestCreatorProcessing:
         )
 
         # Empty preload results
-        empty_performers = create_find_performers_result(count=0, performers=[])
-        empty_tags = {"count": 0, "tags": []}
-        empty_studios = create_find_studios_result(count=0, studios=[])
         empty_scenes = {"count": 0, "scenes": []}
         empty_images = {"count": 0, "images": []}
         empty_galleries = {"count": 0, "galleries": []}
@@ -437,17 +434,6 @@ class TestCreatorProcessing:
             side_effect=[
                 # First call: connect_async() connection establishment
                 httpx.Response(200, json={"data": {}}),
-                # === Preload: _preload_stash_entities() ===
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findPerformers", empty_performers),
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findTags", empty_tags)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
                 # === scan_creator_folder() (sets base_path, triggers Stash scan) ===
                 # metadataScan mutation (returns job ID string)
                 httpx.Response(200, json={"data": {"metadataScan": "job_123"}}),
@@ -487,22 +473,25 @@ class TestCreatorProcessing:
         await processor.start_creator_processing()
 
         # === PERMANENT GraphQL call sequence assertions ===
-        # 1 connect + 3 entity preload + 2 scan + 2 media preload + 1 findPerformers = 9
-        assert len(graphql_route.calls) == 9, (
-            f"Expected exactly 9 GraphQL calls, got {len(graphql_route.calls)}"
+        # 1 connect + 2 scan + 2 media preload + 1 findPerformers = 6
+        # (shared preload removed — uses lazy filter→find_one pattern instead)
+        assert len(graphql_route.calls) == 6, (
+            f"Expected exactly 6 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
         # Call 0: connect_async
         # Calls 1-3: _preload_stash_entities (findPerformers, findTags, findStudios)
         # Call 4: metadataScan (scan_creator_folder)
-        assert_op(graphql_route.calls[4], "metadataScan")
+        # Call 0: connect_async
+        # Call 1: metadataScan (scan_creator_folder)
+        assert_op(graphql_route.calls[1], "metadataScan")
 
-        # Call 5: findJob (scan_creator_folder)
-        assert_op(graphql_route.calls[5], "findJob")
+        # Call 2: findJob (scan_creator_folder)
+        assert_op(graphql_route.calls[2], "findJob")
 
-        # Calls 6-7: _preload_creator_media (findScenes, findImages)
-        # Call 8: findPerformers (process_creator)
-        assert_op(graphql_route.calls[8], "findPerformers")
+        # Calls 3-4: _preload_creator_media (findScenes, findImages)
+        # Call 5: findPerformers (process_creator)
+        assert_op(graphql_route.calls[5], "findPerformers")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None

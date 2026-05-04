@@ -127,40 +127,19 @@ class StashProcessingBase(StashProcessingProtocol):
         return self.context.capabilities
 
     async def _preload_stash_entities(self) -> None:
-        """Preload shared entities (Tags, Performers, Studios) into identity map.
+        """Configure cache TTLs for Stash entity types.
 
-        Sets TTL to None (no expiration) since the script is the sole writer
-        to Stash during processing. These entities are shared across creators
-        and persist for the entire run. Per-creator entities (Gallery, Image,
-        Scene) also get TTL=None but are invalidated per-creator.
+        Pins TTL to None (no expiration) since the script is the sole writer
+        to Stash during processing — cached entities stay valid for the run.
+        Mixin call sites use the ``store.filter(...) → store.find_one(...)``
+        pattern, so the cache populates lazily as entities are actually
+        looked up; no upfront fetch is needed.
+
+        Per-creator entities (Gallery, Image, Scene) also get TTL=None but
+        are invalidated per-creator (see processing/__init__.py).
         """
-        for entity_type in (Performer, Tag, Studio):
+        for entity_type in (Performer, Tag, Studio, Gallery, Image, Scene):
             self.store.set_ttl(entity_type, None)
-        for entity_type in (Gallery, Image, Scene):
-            self.store.set_ttl(entity_type, None)
-
-        if getattr(self.config, "_stash_shared_preloaded", False):
-            return
-
-        logger.info("Preloading shared Stash entities into identity map...")
-
-        try:
-            for entity_type in (Performer, Tag, Studio):
-                count = 0
-                async for _ in self.store.find_iter(entity_type, query_batch=500):
-                    count += 1
-                logger.info(f"Preloaded {count} {entity_type.__name__}s")
-
-        except Exception as e:
-            logger.warning(f"Failed to preload entities (continuing anyway): {e}")
-
-        self.config._stash_shared_preloaded = True
-
-        stats = self.store.cache_stats()
-        logger.info(
-            f"Cache after shared preload: {stats.total_entries} entries "
-            f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
-        )
 
     async def _preload_creator_media(self) -> None:
         """Preload Galleries, Images, and Scenes for current creator into identity map.
