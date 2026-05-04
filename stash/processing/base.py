@@ -394,10 +394,7 @@ class StashProcessingBase(StashProcessingProtocol):
 
         await self._preload_stash_entities()
 
-        # _preload_creator_media() must run AFTER scan_creator_folder()
-        # so it can index the files the scan discovers.
         await self.scan_creator_folder()
-        await self._preload_creator_media()
         account, performer = await self.process_creator()
 
         loop = asyncio.get_running_loop()
