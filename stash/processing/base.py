@@ -134,23 +134,27 @@ class StashProcessingBase(StashProcessingProtocol):
         and persist for the entire run. Per-creator entities (Gallery, Image,
         Scene) also get TTL=None but are invalidated per-creator.
         """
+        for entity_type in (Performer, Tag, Studio):
+            self.store.set_ttl(entity_type, None)
+        for entity_type in (Gallery, Image, Scene):
+            self.store.set_ttl(entity_type, None)
+
+        if getattr(self.config, "_stash_shared_preloaded", False):
+            return
+
         logger.info("Preloading shared Stash entities into identity map...")
 
         try:
-            # find_iter() avoids the 1000-result limit on find()
             for entity_type in (Performer, Tag, Studio):
-                self.store.set_ttl(entity_type, None)
                 count = 0
                 async for _ in self.store.find_iter(entity_type, query_batch=500):
                     count += 1
                 logger.info(f"Preloaded {count} {entity_type.__name__}s")
 
-            # Per-creator entities — never expire, but invalidated per-creator
-            for entity_type in (Gallery, Image, Scene):
-                self.store.set_ttl(entity_type, None)
-
         except Exception as e:
             logger.warning(f"Failed to preload entities (continuing anyway): {e}")
+
+        self.config._stash_shared_preloaded = True
 
         stats = self.store.cache_stats()
         logger.info(
