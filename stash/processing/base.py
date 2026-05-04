@@ -30,7 +30,7 @@ from stash_graphql_client.types import (
 )
 
 from metadata import Account, Database
-from pathio import set_create_directory_for_download
+from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
 from ..logging import debug_print
@@ -172,7 +172,7 @@ class StashProcessingBase(StashProcessingProtocol):
             logger.debug("No base_path set, skipping creator media preload")
             return
 
-        path_filter = str(self.state.base_path).rstrip("/")
+        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
         logger.info(f"Preloading creator media from: {path_filter}")
 
         self._scene_code_index.clear()
@@ -336,7 +336,7 @@ class StashProcessingBase(StashProcessingProtocol):
         }
         try:
             job_id = await self.context.client.metadata_scan(
-                paths=[str(self.state.base_path)],
+                paths=[get_stash_path(self.state.base_path, self.config)],
                 flags=flags,
             )
             print_info(f"Metadata scan job ID: {job_id}")

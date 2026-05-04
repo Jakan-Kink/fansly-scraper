@@ -26,6 +26,7 @@ from stash_graphql_client.types import Image, ImageFile, Scene, Studio, VideoFil
 from stash_graphql_client.types.base import is_set
 
 from metadata import Account, AccountMediaBundle, Attachment, Media
+from pathio import get_stash_path
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
@@ -120,7 +121,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
             and hasattr(self.state, "base_path")
             and self.state.base_path
         ):
-            base_path_str = str(self.state.base_path)
+            base_path_str = get_stash_path(self.state.base_path, self.config)
             # Match: /base/path/.*(code1|code2|code3)
             return f"{re.escape(base_path_str)}.*({'|'.join(escaped_codes)})"
 

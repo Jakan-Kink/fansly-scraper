@@ -67,11 +67,6 @@ def complete_args():
         pg_password=None,
         temp_folder=None,
         stash_only=False,
-        # Stash Options
-        stash_scheme=None,
-        stash_host=None,
-        stash_port=None,
-        stash_apikey=None,
         # Developer/troubleshooting
         debug=False,
     )

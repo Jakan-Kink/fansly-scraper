@@ -13,6 +13,7 @@ from .pathio import (
     get_creator_base_path,
     get_creator_metadata_path,
     get_media_save_path,
+    get_stash_path,
     set_create_directory_for_download,
 )
 from .types import PathConfig
@@ -27,6 +28,7 @@ __all__ = [
     "get_creator_base_path",
     "get_creator_metadata_path",
     "get_media_save_path",
+    "get_stash_path",
     "set_create_directory_for_download",
 ]
 
