@@ -192,6 +192,7 @@ class FanslyConfig:
     # Widened to dict[str, Any] so port:int coexists with the string-valued keys.
     # StashContext accepts a port:int, so we don't need to stringify it.
     stash_context_conn: dict[str, Any] | None = None
+    stash_mapped_path: Path | None = None
 
     # Logging
     log_levels: dict[str, str] = field(
@@ -433,6 +434,9 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
             host=conn.get("host", "localhost"),
             port=int(conn.get("port", 9999)),
             apikey=conn.get("apikey", ""),
+            mapped_path=str(config.stash_mapped_path)
+            if config.stash_mapped_path is not None
+            else None,
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

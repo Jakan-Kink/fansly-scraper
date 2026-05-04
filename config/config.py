@@ -312,6 +312,8 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
             "port": schema.stash_context.port,
             "apikey": schema.stash_context.apikey,
         }
+        if schema.stash_context.mapped_path is not None:
+            config.stash_mapped_path = Path(schema.stash_context.mapped_path)
 
 
 def _handle_config_error(e: Exception) -> None:

@@ -17,6 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `stash_context.mapped_path` config field: translates the local
+  `download_directory` prefix to the path the Stash container sees,
+  enabling the Stash integration for Docker / NFS setups where mount
+  point prefixes differ between the scraper environment and the Stash
+  server. Set to the Stash-side root (e.g. `/data/fansly`) and leave
+  `download_directory` as the local path. All three Stash path
+  operations (metadata scan, `path__contains` preload filter, and
+  targeted regex fallback) now go through a new `get_stash_path()`
+  helper in `pathio`.
+
+### Removed
+
+- `--stash-scheme`, `--stash-host`, `--stash-port`, `--stash-apikey`
+  CLI flags. These were silently broken (the application code was
+  accidentally placed inside a docstring in `check_attributes()` and
+  never executed). Stash connection settings are config-file only;
+  `--stash-only` (a mode flag, not a connection setting) is retained.
+
+### Added
+
 - WebSocket transport now runs on its own dedicated thread with a private
   asyncio loop (`FanslyWebSocket.start_in_thread()` / `stop_thread()`).
   Inbound service events are marshalled back to the main loop so handler-

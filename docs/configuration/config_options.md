@@ -280,14 +280,16 @@ stash_context:
   host: localhost
   port: 9999
   apikey: ""
+  mapped_path: null
 ```
 
-| Field    | Type  | Default       | Description |
-| -------- | ----- | ------------- | ----------- |
-| `scheme` | `str` | `"http"`      | URL scheme for the Stash server (`http` or `https`) |
-| `host`   | `str` | `"localhost"` | Stash server hostname |
-| `port`   | `int` | `9999`        | Stash server port |
-| `apikey` | `str` | `""`          | Stash API key. Empty string disables authentication. Required if your Stash server has API auth enabled |
+| Field         | Type          | Default       | Description |
+| ------------- | ------------- | ------------- | ----------- |
+| `scheme`      | `str`         | `"http"`      | URL scheme for the Stash server (`http` or `https`) |
+| `host`        | `str`         | `"localhost"` | Stash server hostname |
+| `port`        | `int`         | `9999`        | Stash server port |
+| `apikey`      | `str`         | `""`          | Stash API key. Empty string disables authentication. Required if your Stash server has API auth enabled |
+| `mapped_path` | `str \| None` | `null`        | **Docker / NFS path mapping.** Set this when Stash runs in a container that mounts your download directory under a different path prefix than the scraper sees. For example: if the scraper writes to `/home/user/downloads/` but the Stash container mounts the same share as `/data/fansly/`, set `mapped_path: /data/fansly`. The scraper will substitute the `options.download_directory` prefix with this value in every path it sends to Stash (scan jobs, path filters, regex queries). Leave `null` when both environments share identical paths |
 
 ---
 

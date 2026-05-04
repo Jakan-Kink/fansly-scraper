@@ -33,3 +33,8 @@ class PathConfig(Protocol):
     def separate_previews(self) -> bool:
         """Whether to separate preview content into its own folder."""
         ...
+
+    @property
+    def stash_mapped_path(self) -> Path | None:
+        """Stash-visible root path for NFS/Docker path remapping."""
+        ...

@@ -294,6 +294,7 @@ class StashContextSection(_BaseSection):
     host: str = "localhost"
     port: int = 9999
     apikey: str = ""
+    mapped_path: str | None = None
 
 
 class MonitoringSection(_BaseSection):

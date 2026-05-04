@@ -185,6 +185,28 @@ def get_creator_metadata_path(config: PathConfig, creator_name: str) -> Path:
     return meta_dir
 
 
+def get_stash_path(local_path: Path, config: PathConfig) -> str:
+    """Translate a local filesystem path to the path Stash sees.
+
+    When Stash runs in Docker/NFS with a different mount prefix than the
+    scraper, this replaces the download_directory prefix with stash_mapped_path.
+    Falls back to str(local_path) when no mapping is configured.
+
+    Args:
+        local_path: The local Path object to translate.
+        config: The program configuration.
+
+    Returns:
+        String path in Stash's coordinate system.
+    """
+    local_str = str(local_path)
+    if config.stash_mapped_path is not None and config.download_directory is not None:
+        local_prefix = str(config.download_directory)
+        if local_str.startswith(local_prefix):
+            return str(config.stash_mapped_path) + local_str[len(local_prefix) :]
+    return local_str
+
+
 def get_media_save_path(
     config: PathConfig, state: DownloadState, media_item: Media
 ) -> tuple[Path, Path]:

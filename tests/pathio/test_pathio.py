@@ -17,6 +17,7 @@ from pathio import (
     get_creator_base_path,
     get_creator_metadata_path,
     get_media_save_path,
+    get_stash_path,
     set_create_directory_for_download,
 )
 
@@ -31,12 +32,14 @@ class MockPathConfig:
         separate_timeline=True,
         separate_previews=True,
         use_folder_suffix=True,
+        stash_mapped_path=None,
     ):
         self.download_directory = download_directory
         self.separate_messages = separate_messages
         self.separate_timeline = separate_timeline
         self.separate_previews = separate_previews
         self.use_folder_suffix = use_folder_suffix
+        self.stash_mapped_path = stash_mapped_path
 
 
 @pytest.fixture
@@ -560,3 +563,54 @@ class TestPathIO:
         delete_temporary_pyinstaller_files()
 
         # No assertion needed - just checking it doesn't crash
+
+
+class TestGetStashPath:
+    """Tests for get_stash_path() path-translation helper."""
+
+    def test_no_mapping_returns_local_path(self):
+        """When stash_mapped_path is None, the original path string is returned."""
+        config = MockPathConfig(
+            download_directory=Path("/home/user/downloads"),
+            stash_mapped_path=None,
+        )
+        local = Path("/home/user/downloads/alice_fansly/Timeline")
+        assert get_stash_path(local, config) == str(local)
+
+    def test_mapping_replaces_prefix(self):
+        """When stash_mapped_path is set and prefix matches, it is substituted."""
+        config = MockPathConfig(
+            download_directory=Path("/home/user/downloads"),
+            stash_mapped_path=Path("/data/fansly"),
+        )
+        local = Path("/home/user/downloads/alice_fansly/Timeline")
+        assert get_stash_path(local, config) == "/data/fansly/alice_fansly/Timeline"
+
+    def test_mapping_no_prefix_match_returns_local(self):
+        """When stash_mapped_path is set but path doesn't share the download_directory
+        prefix, the original path string is returned unchanged."""
+        config = MockPathConfig(
+            download_directory=Path("/home/user/downloads"),
+            stash_mapped_path=Path("/data/fansly"),
+        )
+        local = Path("/other/location/alice_fansly")
+        assert get_stash_path(local, config) == str(local)
+
+    def test_download_directory_none_returns_local(self):
+        """When download_directory is None, no substitution is attempted."""
+        config = MockPathConfig(
+            download_directory=None,
+            stash_mapped_path=Path("/data/fansly"),
+        )
+        local = Path("/home/user/downloads/alice_fansly")
+        assert get_stash_path(local, config) == str(local)
+
+    def test_mapping_preserves_subdirectory_structure(self):
+        """Nested subdirectories (Timeline, Videos, etc.) are preserved after remapping."""
+        config = MockPathConfig(
+            download_directory=Path("/mnt/storage"),
+            stash_mapped_path=Path("/stash/library"),
+        )
+        local = Path("/mnt/storage/creator_fansly/Timeline/Videos")
+        result = get_stash_path(local, config)
+        assert result == "/stash/library/creator_fansly/Timeline/Videos"
