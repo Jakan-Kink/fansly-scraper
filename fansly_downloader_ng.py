@@ -2,7 +2,7 @@
 
 """Fansly Downloader NG"""
 
-__version__ = "0.13.0"
+__version__ = "0.13.2"
 
 import asyncio
 import atexit
