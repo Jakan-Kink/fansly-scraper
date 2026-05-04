@@ -163,8 +163,14 @@ class TestFanslyApi:
         mock_ws_client.start_in_thread = MagicMock()
         mock_ws_client.stop_thread = AsyncMock()
 
-        # Mock the FanslyWebSocket class (websockets are external boundary)
-        with patch("api.fansly.FanslyWebSocket", return_value=mock_ws_client):
+        # Mock get_websocket_class — production resolves the WS class via this
+        # accessor (Lever 4 subprocess gateway) and then calls it with the
+        # constructor kwargs, so we return a lambda that ignores those kwargs
+        # and yields the prepared mock instance.
+        with patch(
+            "api.fansly.get_websocket_class",
+            return_value=lambda **_kwargs: mock_ws_client,
+        ):
             result = await fansly_api.setup_session()
             assert result is True
             assert fansly_api.session_id == "test_session_id"

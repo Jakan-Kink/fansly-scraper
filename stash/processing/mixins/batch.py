@@ -140,12 +140,17 @@ class BatchProcessingMixin(StashProcessingProtocol):
                     queue.task_done()
 
         try:
-            # Start consumers
-            consumers = [asyncio.create_task(consumer()) for _ in range(max_concurrent)]
+            # Start consumers — names let cleanup_with_global_timeout find them
+            # via task.get_name() instead of a fragile qualname match on the
+            # closure-defined "consumer".
+            consumers = [
+                asyncio.create_task(consumer(), name=f"stash-batch-consumer-{i}")
+                for i in range(max_concurrent)
+            ]
             all_tasks.extend(consumers)
 
             # Start producer
-            producer_task = asyncio.create_task(producer())
+            producer_task = asyncio.create_task(producer(), name="stash-batch-producer")
             all_tasks.append(producer_task)
 
             # Register tasks with config for cleanup if available

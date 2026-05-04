@@ -11,6 +11,7 @@ downloads and other operations, mimicking real browser behavior.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import ssl
 import threading
@@ -1199,6 +1200,26 @@ class FanslyWebSocket:
 
         logger.info("Stopping WebSocket thread")
         self._stop_event.set()
+
+        # Wake the listen loop now. Without this it's blocked in
+        # ``asyncio.wait_for(self.websocket.recv(), timeout=60.0)`` and
+        # won't observe ``_stop_event`` until that 60s recv timeout fires
+        # — well past ``join_timeout``, producing a misleading "orphan
+        # thread" warning. Closing the websocket from the WS thread's
+        # own loop causes the in-flight ``recv()`` to return immediately,
+        # so the listen loop exits, _maintain_connection observes
+        # ``_stop_event`` on its next while-check, and the thread joins
+        # promptly.
+        ws_loop = self._ws_loop
+        ws = self.websocket
+        if ws_loop is not None and not ws_loop.is_closed() and ws is not None:
+
+            async def _close_ws() -> None:
+                with contextlib.suppress(Exception):
+                    await ws.close()
+
+            with contextlib.suppress(RuntimeError, Exception):
+                asyncio.run_coroutine_threadsafe(_close_ws(), ws_loop)
 
         await asyncio.to_thread(self._ws_thread.join, join_timeout)
         if self._ws_thread.is_alive():  # pragma: no cover — defensive: requires a hung thread that ignores stop_event for join_timeout (10s default)

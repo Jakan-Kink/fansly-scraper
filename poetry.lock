@@ -3228,14 +3228,14 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "stash-graphql-client"
-version = "0.12.2"
+version = "0.12.4"
 description = "Async Python client for Stash GraphQL API"
 optional = false
 python-versions = "<4.0,>=3.12"
 groups = ["main"]
 files = [
-    {file = "stash_graphql_client-0.12.2-py3-none-any.whl", hash = "sha256:71008939fa729c0d05bf824ec3240a1b935742b09ea8fc0809913c39d76e0561"},
-    {file = "stash_graphql_client-0.12.2.tar.gz", hash = "sha256:334765e5af797f3569cbe89fe0904cbb09d10bda0d4ab0bc6c085806fcb5bb58"},
+    {file = "stash_graphql_client-0.12.4-py3-none-any.whl", hash = "sha256:7adfd523423ade94533b616ae5ec0ff81259fee1c82cfa6e9702094b7790bed7"},
+    {file = "stash_graphql_client-0.12.4.tar.gz", hash = "sha256:72f06f05b90b3fcbd503f604ba7d6601dd956a279484594429b0280b67f93179"},
 ]
 
 [package.dependencies]
@@ -3350,14 +3350,14 @@ files = [
 
 [[package]]
 name = "types-requests"
-version = "2.33.0.20260408"
+version = "2.33.0.20260503"
 description = "Typing stubs for requests"
 optional = false
 python-versions = ">=3.10"
 groups = ["typing"]
 files = [
-    {file = "types_requests-2.33.0.20260408-py3-none-any.whl", hash = "sha256:81f31d5ea4acb39f03be7bc8bed569ba6d5a9c5d97e89f45ac43d819b68ca50f"},
-    {file = "types_requests-2.33.0.20260408.tar.gz", hash = "sha256:95b9a86376807a216b2fb412b47617b202091c3ea7c078f47cc358d5528ccb7b"},
+    {file = "types_requests-2.33.0.20260503-py3-none-any.whl", hash = "sha256:02aaa7e3577a13471715bb1bddb693cc985ea514f754b503bf033e6a09a3e528"},
+    {file = "types_requests-2.33.0.20260503.tar.gz", hash = "sha256:9721b2d9dbee7131f2fb39f20f0ebb1999c18cef4b512c9a7932f3722de7c5f4"},
 ]
 
 [package.dependencies]
@@ -3780,4 +3780,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "9afa033c8a15e4752e06545de0a9e99c850f67f76e272ace20d0a405354cdca0"
+content-hash = "f7dbe0977b6e8c342b7cab935a8dc481b75ef68074a88515789f26e96bca958b"

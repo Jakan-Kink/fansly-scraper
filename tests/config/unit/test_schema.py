@@ -60,7 +60,7 @@ def test_default_instantiation_is_valid() -> None:
 
     # MonitoringSection defaults match the architecture plan
     mon = schema.monitoring
-    assert mon.enabled is False
+    assert mon.daemon_mode is False
     assert mon.active_duration_minutes == 60
     assert mon.idle_duration_minutes == 120
     assert mon.hidden_duration_minutes == 300
@@ -252,7 +252,7 @@ def test_missing_section_gets_defaults(tmp_path: Path) -> None:
     assert schema.targeted_creator.usernames == ["alice"]
 
     # All omitted sections fall back to defaults
-    assert schema.monitoring.enabled is False
+    assert schema.monitoring.daemon_mode is False
     assert schema.monitoring.active_duration_minutes == 60
     assert schema.postgres.pg_host == "localhost"
     assert schema.postgres.pg_port == 5432
@@ -442,7 +442,7 @@ def test_load_yaml_empty_file_returns_defaults(tmp_path: Path) -> None:
     schema = ConfigSchema.load_yaml(empty_path)
 
     # Should equal a default-constructed instance
-    assert schema.monitoring.enabled is False
+    assert schema.monitoring.daemon_mode is False
     assert schema.postgres.pg_host == "localhost"
     assert schema.targeted_creator.usernames == ["replaceme"]
 

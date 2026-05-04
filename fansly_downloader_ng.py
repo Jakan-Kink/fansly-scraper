@@ -11,6 +11,7 @@ import contextlib
 import gc
 import signal
 import sys
+import threading
 import time
 import traceback
 from datetime import UTC, datetime
@@ -70,7 +71,7 @@ from errors import (
 )
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
-from helpers.rich_progress import get_progress_manager
+from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
@@ -216,8 +217,10 @@ def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: AR
 def increase_file_descriptor_limit() -> None:
     """Increase the file descriptor limit to handle many open files."""
     try:
+        # isort: off
         import resource  # Unix-only module, not available on Windows
 
+        # isort: on
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         # Try to increase to hard limit or 4096, whichever is lower
         new_soft = min(hard, 4096)
@@ -488,8 +491,12 @@ async def main(config: FanslyConfig) -> int:
                             )
 
                         if config.stash_context_conn is not None:
+                            # isort: off
+                            # Conditional on stash_context_conn — avoid eager-
+                            # importing stash deps when integration is disabled.
                             from stash import StashProcessing
 
+                            # isort: on
                             stash_processor = StashProcessing.from_config(config, state)
                             await stash_processor.start_creator_processing()
 
@@ -545,11 +552,16 @@ async def main(config: FanslyConfig) -> int:
 
             for task in config.get_background_tasks():
                 try:
-                    # Check if this is a StashProcessing task by examining the coroutine name
+                    # Check if this is a StashProcessing task by examining the
+                    # coroutine name OR the task name (the BatchProcessingMixin
+                    # worker pool tags its consumers/producer with "stash-batch-"
+                    # so cleanup can find them without matching closure qualnames).
                     coro_name = task.get_coro().__qualname__
+                    task_name = task.get_name()
                     if (
                         "StashProcessing" in coro_name
                         or "_safe_background_processing" in coro_name
+                        or task_name.startswith("stash-batch-")
                     ):
                         stash_tasks.append(task)
                     else:
@@ -688,119 +700,174 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
     cleanup_start = time.time()
     max_cleanup_time = 40  # Increased maximum cleanup time to 40 seconds
 
-    # First, properly stop the WebSocket if it exists
-    # This MUST be done before cancelling tasks to prevent reconnect loops
-    try:
-        if hasattr(config, "_api") and config._api is not None:
-            print_info("Stopping WebSocket connection...")
-            try:
-                await config._api.close_websocket()
-                print_info("WebSocket stopped successfully")
-            except Exception as e:
-                print_warning(f"Error stopping WebSocket: {e}")
-    except Exception as e:
-        print_warning(f"Error during WebSocket shutdown: {e}")
+    # Per-phase timing — emits "cleanup phase X: Ys" via the existing
+    # logging path, so future bug reports localise slow phases without
+    # needing fresh instrumentation.
+    phase_starts: dict[str, float] = {}
 
-    # Then check and cancel any Stash processing tasks
-    try:
-        # Look for tasks that belong to StashProcessing
-        stash_tasks = []
-        for task in config.get_background_tasks():
+    def phase_done(name: str) -> None:
+        start = phase_starts.get(name)
+        if start is None:
+            return
+        elapsed = time.perf_counter() - start
+        print_info(f"cleanup phase {name}: {elapsed:.2f}s")
+
+    # Heartbeat thread — uses Rich's Console.log (Live-aware, won't smear
+    # progress bars) so the user can tell a slow cleanup from a hung one.
+    # Most runs will be fast and won't trigger any heartbeat lines.
+    heartbeat_done = threading.Event()
+    heartbeat_start = time.perf_counter()
+
+    def heartbeat() -> None:
+        console = get_rich_console()
+        while not heartbeat_done.wait(3.0):
+            elapsed = time.perf_counter() - heartbeat_start
             with contextlib.suppress(Exception):
-                coro_name = task.get_coro().__qualname__
-                if (
-                    "StashProcessing" in coro_name
-                    or "_safe_background_processing" in coro_name
-                ):
-                    stash_tasks.append(task)
+                console.log(f"cleanup alive @ {elapsed:.0f}s")
 
-        if stash_tasks:
-            print_warning(
-                f"Found {len(stash_tasks)} Stash processing tasks to clean up..."
-            )
-            # Cancel Stash tasks first
-            for task in stash_tasks:
-                if not task.done():
-                    task.cancel()
+    heartbeat_thread = threading.Thread(
+        target=heartbeat, daemon=True, name="cleanup-heartbeat"
+    )
+    heartbeat_thread.start()
 
-            # Give Stash tasks a chance to cleanup their resources
-            stash_timeout = min(10, max_cleanup_time - (time.time() - cleanup_start))
-            if stash_timeout > 0:
-                try:
-                    await asyncio.wait(stash_tasks, timeout=stash_timeout)
-                    print_info("Stash tasks cleanup completed or timed out")
-                except Exception as e:
-                    print_warning(f"Error waiting for Stash tasks: {e}")
-    except Exception as e:
-        print_warning(f"Error during Stash task cleanup: {e}")
-
-    # Then handle remaining background tasks
-    background_tasks = config.get_background_tasks()
-    if background_tasks:
-        print_warning(
-            f"Cancelling {len(background_tasks)} remaining background tasks..."
-        )
+    try:
+        # First, properly stop the WebSocket if it exists
+        # This MUST be done before cancelling tasks to prevent reconnect loops
+        phase_starts["ws"] = time.perf_counter()
         try:
-            # Cancel all tasks and wait for them with timeout
-            for task in background_tasks:
-                if not task.done():
-                    task.cancel()
+            if hasattr(config, "_api") and config._api is not None:
+                print_info("Stopping WebSocket connection...")
+                try:
+                    await config._api.close_websocket()
+                    print_info("WebSocket stopped successfully")
+                except Exception as e:
+                    print_warning(f"Error stopping WebSocket: {e}")
+        except Exception as e:
+            print_warning(f"Error during WebSocket shutdown: {e}")
+        phase_done("ws")
 
-            # Give tasks a chance to cleanup
-            try:
-                background_timeout = min(
+        # Then check and cancel any Stash processing tasks
+        phase_starts["stash"] = time.perf_counter()
+        try:
+            # Look for tasks that belong to StashProcessing. The coroutine
+            # qualname check catches the StashProcessing class methods and
+            # the _safe_background_processing wrapper; the task-name prefix
+            # check catches the BatchProcessingMixin worker pool's
+            # consumer/producer tasks, which are closure-defined and thus
+            # opaque to qualname-only filtering.
+            stash_tasks = []
+            for task in config.get_background_tasks():
+                with contextlib.suppress(Exception):
+                    coro_name = task.get_coro().__qualname__
+                    task_name = task.get_name()
+                    if (
+                        "StashProcessing" in coro_name
+                        or "_safe_background_processing" in coro_name
+                        or task_name.startswith("stash-batch-")
+                    ):
+                        stash_tasks.append(task)
+
+            if stash_tasks:
+                print_warning(
+                    f"Found {len(stash_tasks)} Stash processing tasks to clean up..."
+                )
+                # Cancel Stash tasks first
+                for task in stash_tasks:
+                    if not task.done():
+                        task.cancel()
+
+                # Give Stash tasks a chance to cleanup their resources
+                stash_timeout = min(
                     10, max_cleanup_time - (time.time() - cleanup_start)
                 )
-                if background_timeout > 0:
-                    await asyncio.wait(background_tasks, timeout=background_timeout)
-                    print_info("Background tasks cleanup completed or timed out")
-            except TimeoutError:
-                print_warning(
-                    f"Background task cleanup timed out after {background_timeout} seconds"
-                )
-            except Exception as e:
-                print_warning(f"Error waiting for background tasks: {e}")
+                if stash_timeout > 0:
+                    try:
+                        await asyncio.wait(stash_tasks, timeout=stash_timeout)
+                        print_info("Stash tasks cleanup completed or timed out")
+                    except Exception as e:
+                        print_warning(f"Error waiting for Stash tasks: {e}")
         except Exception as e:
-            print_warning(f"Could not cancel background tasks: {e}")
+            print_warning(f"Error during Stash task cleanup: {e}")
+        phase_done("stash")
 
-    # Now handle database cleanup
-    print_info("Starting database cleanup...")
-    try:
-        # Calculate remaining time for database cleanup
-        db_timeout = min(30, max_cleanup_time - (time.time() - cleanup_start))
-        if db_timeout <= 0:
-            print_warning("No time remaining for database cleanup")
-            return
+        # Then handle remaining background tasks
+        phase_starts["background"] = time.perf_counter()
+        background_tasks = config.get_background_tasks()
+        if background_tasks:
+            print_warning(
+                f"Cancelling {len(background_tasks)} remaining background tasks..."
+            )
+            try:
+                # Cancel all tasks and wait for them with timeout
+                for task in background_tasks:
+                    if not task.done():
+                        task.cancel()
 
-        # Call cleanup directly without a task or timeout
-        # The Database.cleanup method now has built-in progress display
-        if hasattr(config, "_database") and config._database is not None:
-            await cleanup_database(config)
-            print_info("Database cleanup completed successfully")
-        else:
-            print_info("No database to clean up")
-    except Exception as db_error:
-        print_error(f"Error during database cleanup: {db_error}")
+                # Give tasks a chance to cleanup
+                try:
+                    background_timeout = min(
+                        10, max_cleanup_time - (time.time() - cleanup_start)
+                    )
+                    if background_timeout > 0:
+                        await asyncio.wait(background_tasks, timeout=background_timeout)
+                        print_info("Background tasks cleanup completed or timed out")
+                except TimeoutError:
+                    print_warning(
+                        f"Background task cleanup timed out after {background_timeout} seconds"
+                    )
+                except Exception as e:
+                    print_warning(f"Error waiting for background tasks: {e}")
+            except Exception as e:
+                print_warning(f"Could not cancel background tasks: {e}")
+        phase_done("background")
 
-    # Finally clean up any remaining semaphores if time allows
-    try:
-        remaining_time = max_cleanup_time - (time.time() - cleanup_start)
-        if remaining_time > 0:
-            print_info("Cleaning up semaphores...")
-            monitor_semaphores(threshold=20)
-            cleanup_semaphores(r"/mp-.*")
-            print_info("Semaphore cleanup completed")
-        else:
-            print_warning("No time remaining for semaphore cleanup")
-    except Exception as e:
-        print_warning(f"Error during semaphore cleanup: {e}")
+        # Now handle database cleanup
+        phase_starts["db"] = time.perf_counter()
+        print_info("Starting database cleanup...")
+        try:
+            # Calculate remaining time for database cleanup
+            db_timeout = min(30, max_cleanup_time - (time.time() - cleanup_start))
+            if db_timeout <= 0:
+                print_warning("No time remaining for database cleanup")
+                return
 
-    total_cleanup_time = time.time() - cleanup_start
-    print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
+            # Call cleanup directly without a task or timeout
+            # The Database.cleanup method now has built-in progress display
+            if hasattr(config, "_database") and config._database is not None:
+                await cleanup_database(config)
+                print_info("Database cleanup completed successfully")
+            else:
+                print_info("No database to clean up")
+        except Exception as db_error:
+            print_error(f"Error during database cleanup: {db_error}")
+        phase_done("db")
 
-    # Request garbage collection as a last attempt to clean up
-    with contextlib.suppress(Exception):
-        gc.collect()
+        # Finally clean up any remaining semaphores if time allows
+        phase_starts["semaphores"] = time.perf_counter()
+        try:
+            remaining_time = max_cleanup_time - (time.time() - cleanup_start)
+            if remaining_time > 0:
+                print_info("Cleaning up semaphores...")
+                monitor_semaphores(threshold=20)
+                cleanup_semaphores(r"/mp-.*")
+                print_info("Semaphore cleanup completed")
+            else:
+                print_warning("No time remaining for semaphore cleanup")
+        except Exception as e:
+            print_warning(f"Error during semaphore cleanup: {e}")
+        phase_done("semaphores")
+
+        total_cleanup_time = time.time() - cleanup_start
+        print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
+
+        # Request garbage collection as a last attempt to clean up
+        with contextlib.suppress(Exception):
+            gc.collect()
+    finally:
+        # Stop the heartbeat thread regardless of how cleanup exited
+        # (normal completion, early return on db_timeout, exception).
+        heartbeat_done.set()
+        heartbeat_thread.join(timeout=1.0)
 
 
 async def _async_main(config: FanslyConfig) -> int:
@@ -817,7 +884,13 @@ async def _async_main(config: FanslyConfig) -> int:
 
         # Run main program
         exit_code = await main(config)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # KeyboardInterrupt: SIGINT landed in user code → handler raised it
+        # synchronously and it propagated up the await chain.
+        # CancelledError: SIGINT landed during loop idle (select/poll). asyncio's
+        # runner caught it at the runner level and cancelled the running task,
+        # which raises CancelledError into _async_main's suspended await.
+        # Both paths should produce the same user-visible shutdown messaging.
         print_error("Program interrupted by user")
         exit_code = EXIT_ABORT
         # Make sure we don't try to raise KeyboardInterrupt again in cleanup
