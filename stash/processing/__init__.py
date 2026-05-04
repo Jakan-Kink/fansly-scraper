@@ -180,10 +180,6 @@ class StashProcessing(
             self._studio = None
             self._scene_code_index.clear()
             self._image_code_index.clear()
-            # Drop both parents and their file leaves — Scene/Image preload
-            # via GraphQL fragment caches VideoFile/ImageFile as separate
-            # entries; orphaning them across creators leaks ~3.9k objects
-            # per pass on a typical fan with ~3k images and ~800 scenes.
             for entity_type in (
                 Gallery,
                 GalleryChapter,
@@ -193,7 +189,6 @@ class StashProcessing(
                 ImageFile,
             ):
                 self.store.invalidate_type(entity_type)
-            logger.debug("Invalidated per-creator entity caches and media code indexes")
 
             performer_name = (
                 performer.name if isinstance(performer, Performer) else repr(performer)

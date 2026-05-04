@@ -71,9 +71,9 @@ class StashProcessingProtocol(Protocol):
     _studio: Studio | None
     _stash_parent_task: str | None
 
-    # Media code indexes for O(1) lookups
-    _scene_code_index: dict[str, list[Scene]]
-    _image_code_index: dict[str, list[Image]]
+    # Media code indexes for O(1) lookups (id-only — see base.py rationale)
+    _scene_code_index: dict[str, list[str]]
+    _image_code_index: dict[str, list[str]]
 
     # --- Base class properties ---
 
@@ -94,11 +94,11 @@ class StashProcessingProtocol(Protocol):
         total_media: int | None = None,
     ) -> str: ...
 
-    def find_scenes_by_media_codes(
+    async def find_scenes_by_media_codes(
         self, media_codes: list[str]
     ) -> dict[str, list[Scene]]: ...
 
-    def find_images_by_media_codes(
+    async def find_images_by_media_codes(
         self, media_codes: list[str]
     ) -> dict[str, list[Image]]: ...
 

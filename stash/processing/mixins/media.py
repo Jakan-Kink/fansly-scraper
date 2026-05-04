@@ -320,10 +320,9 @@ class MediaProcessingMixin(StashProcessingProtocol):
 
         found = []
 
-        # Primary path: O(1) index lookup (built during _preload_creator_media)
         if self._scene_code_index or self._image_code_index:
             if image_ids:
-                images_by_code = self.find_images_by_media_codes(image_ids)
+                images_by_code = await self.find_images_by_media_codes(image_ids)
                 found.extend(
                     (image, file)
                     for images in images_by_code.values()
@@ -332,7 +331,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 )
 
             if scene_ids:
-                scenes_by_code = self.find_scenes_by_media_codes(scene_ids)
+                scenes_by_code = await self.find_scenes_by_media_codes(scene_ids)
                 found.extend(
                     (scene, file)
                     for scenes in scenes_by_code.values()

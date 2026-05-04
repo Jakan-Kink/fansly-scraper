@@ -335,9 +335,8 @@ class TestIndexBasedLookup:
             path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_999.mp4"
         )
         scene = SceneFactory(id="55002", files=[video])
-
-        # Populate the scene code index
-        respx_stash_processor._scene_code_index["999"].append(scene)
+        respx_stash_processor.store.add(scene)
+        respx_stash_processor._scene_code_index["999"].append(scene.id)
 
         result = await respx_stash_processor._find_stash_files_by_path(
             media_files=[("999", "video/mp4")]
@@ -354,7 +353,8 @@ class TestIndexBasedLookup:
         )
         image = ImageFactory(id="45005", visual_files=[img_file])
 
-        respx_stash_processor._image_code_index["888"].append(image)
+        respx_stash_processor.store.add(image)
+        respx_stash_processor._image_code_index["888"].append(image.id)
 
         result = await respx_stash_processor._find_stash_files_by_path(
             media_files=[("888", "image/jpeg")]
@@ -371,7 +371,8 @@ class TestIndexBasedLookup:
         )
         scene = SceneFactory(id="55003", files=[video])
 
-        respx_stash_processor._scene_code_index["777"].append(scene)
+        respx_stash_processor.store.add(scene)
+        respx_stash_processor._scene_code_index["777"].append(scene.id)
 
         result = await respx_stash_processor._find_stash_files_by_path(
             media_files=[("777", "video/mp4")]

@@ -244,18 +244,7 @@ class PostgresEntityStore:
     ) -> None:
         self.pool = pool
         self._cache: dict[tuple[type, int], FanslyObject] = {}
-        # Secondary index: per-type id sets. Lets per-type iteration
-        # (filter, find cache-first, find_one, count, find_iter,
-        # invalidate_type, cache_stats) skip the global O(N) scan over
-        # _cache. Maintained alongside _cache in cache_instance and
-        # invalidate*. Mirrors MMsD postgres_entity_store.py:333 / SGC
-        # store.py _type_index.
         self._type_index: dict[type, set[int]] = {}
-        # Optional cache TTL (opt-in). Default None = no expiry. Per-type
-        # overrides via set_ttl(). Daemon poll cadences span 30s (stories)
-        # to 10min (FYP), so per-type granularity matters. time.monotonic
-        # is immune to wall-clock changes. Mirrors MMsD postgres_entity_store
-        # / SGC store.py TTL machinery.
         if isinstance(default_ttl, int):
             default_ttl = timedelta(seconds=default_ttl)
         self._default_ttl: timedelta | None = default_ttl
@@ -456,20 +445,8 @@ class PostgresEntityStore:
     def _autolink_relationships(self, obj: FanslyObject) -> None:
         """Resolve singular ``belongs_to`` relationships from the identity map.
 
-        Pydantic ``model_validate`` populates FK scalar columns from the row
-        dict but leaves the corresponding relationship fields at ``UNSET`` —
-        the model_validator can't see this store's identity map mid-validation.
-        After validation, walk each singular relationship; if the FK is set
-        and the field is still UNSET, link from the local cache (or set None
-        if the FK itself is None). Cache miss leaves UNSET so callers can
-        distinguish "not yet loaded" from "explicitly cleared" via ``is_set``.
-
-        Defensive intent: keeps the three-state contract (``UNSET`` /
-        ``None`` / object) symmetric across cached vs. uncached loads.
-        Without it, ``is_set``-aware consumers would see an FK-set object
-        as "not yet loaded" even when its target sits in the same store —
-        a needless ambiguity for any code that introspects relationship
-        fields after a DB read.
+        Cache hit links the relationship; cache miss leaves it ``UNSET``.
+        Use ``is_set()`` to distinguish unloaded from explicit None.
         """
         for field_name, meta in type(obj).__relationships__.items():
             if not meta.fk_column or meta.assoc_table or meta.is_list:

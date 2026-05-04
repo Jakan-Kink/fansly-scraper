@@ -69,8 +69,8 @@ class StashProcessingBase(StashProcessingProtocol):
     _performer: Performer | None
     _studio: Studio | None
     _stash_parent_task: str | None
-    _scene_code_index: dict[str, list[Scene]]
-    _image_code_index: dict[str, list[Image]]
+    _scene_code_index: dict[str, list[str]]
+    _image_code_index: dict[str, list[str]]
 
     def __init__(
         self,
@@ -109,8 +109,8 @@ class StashProcessingBase(StashProcessingProtocol):
         self._stash_parent_task: str | None = None
 
         # Media code indexes — filename pattern: {date}_at_{time}_UTC_id_{media_id}.{ext}
-        self._scene_code_index: dict[str, list[Scene]] = defaultdict(list)
-        self._image_code_index: dict[str, list[Image]] = defaultdict(list)
+        self._scene_code_index: dict[str, list[str]] = defaultdict(list)
+        self._image_code_index: dict[str, list[str]] = defaultdict(list)
 
     @property
     def store(self) -> StashEntityStore:
@@ -196,7 +196,7 @@ class StashProcessingBase(StashProcessingProtocol):
         )
 
     def _index_scene_files(self, scene: Scene) -> None:
-        """Index a scene's files by media code for O(1) lookups."""
+        """Index a scene's files by media code."""
         if not is_set(scene.files) or not scene.files:
             return
         for f in scene.files:
@@ -209,10 +209,10 @@ class StashProcessingBase(StashProcessingProtocol):
                         after_marker = f.path.split(marker)[-1]
                         media_code = after_marker.split(".")[0]
                         if media_code:
-                            self._scene_code_index[media_code].append(scene)
+                            self._scene_code_index[media_code].append(scene.id)
 
     def _index_image_files(self, image: Image) -> None:
-        """Index an image's visual files by media code for O(1) lookups."""
+        """Index an image's visual files by media code."""
         if not is_set(image.visual_files) or not image.visual_files:
             return
         for f in image.visual_files:
@@ -222,41 +222,55 @@ class StashProcessingBase(StashProcessingProtocol):
                         after_marker = f.path.split(marker)[-1]
                         media_code = after_marker.split(".")[0]
                         if media_code:
-                            self._image_code_index[media_code].append(image)
+                            self._image_code_index[media_code].append(image.id)
 
-    def find_scenes_by_media_codes(
+    async def find_scenes_by_media_codes(
         self, media_codes: list[str]
     ) -> dict[str, list[Scene]]:
-        """Find scenes by media codes using the pre-built index. O(1) per lookup."""
-        result: dict[str, list[Scene]] = {}
+        """Find scenes by media code."""
+        all_ids: set[str] = set()
+        code_to_ids: dict[str, list[str]] = {}
         for code in media_codes:
-            candidates = self._scene_code_index.get(code, [])
-            if candidates:
-                seen_ids: set[str] = set()
-                unique = [
-                    s
-                    for s in candidates
-                    if s.id not in seen_ids and not seen_ids.add(s.id)
-                ]
-                result[code] = unique
-        return result
+            ids = self._scene_code_index.get(code, [])
+            if not ids:
+                continue
+            unique_ids = list(dict.fromkeys(ids))
+            code_to_ids[code] = unique_ids
+            all_ids.update(unique_ids)
 
-    def find_images_by_media_codes(
+        if not all_ids:
+            return {}
+
+        scenes = await self.store.get_many(Scene, list(all_ids))
+        by_id: dict[str, Scene] = {s.id: s for s in scenes if s is not None}
+        return {
+            code: [by_id[i] for i in ids if i in by_id]
+            for code, ids in code_to_ids.items()
+        }
+
+    async def find_images_by_media_codes(
         self, media_codes: list[str]
     ) -> dict[str, list[Image]]:
-        """Find images by media codes using the pre-built index. O(1) per lookup."""
-        result: dict[str, list[Image]] = {}
+        """Find images by media code."""
+        all_ids: set[str] = set()
+        code_to_ids: dict[str, list[str]] = {}
         for code in media_codes:
-            candidates = self._image_code_index.get(code, [])
-            if candidates:
-                seen_ids: set[str] = set()
-                unique = [
-                    i
-                    for i in candidates
-                    if i.id not in seen_ids and not seen_ids.add(i.id)
-                ]
-                result[code] = unique
-        return result
+            ids = self._image_code_index.get(code, [])
+            if not ids:
+                continue
+            unique_ids = list(dict.fromkeys(ids))
+            code_to_ids[code] = unique_ids
+            all_ids.update(unique_ids)
+
+        if not all_ids:
+            return {}
+
+        images = await self.store.get_many(Image, list(all_ids))
+        by_id: dict[str, Image] = {i.id: i for i in images if i is not None}
+        return {
+            code: [by_id[i] for i in ids if i in by_id]
+            for code, ids in code_to_ids.items()
+        }
 
     @classmethod
     def from_config(
