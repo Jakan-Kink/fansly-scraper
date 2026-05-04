@@ -50,23 +50,41 @@
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#added">Added</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#changed">Changed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#removed_1">Removed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#internal">Internal</a>
+    </li>
         </ul>
     </li>
-    <li class="toctree-l2"><a class="reference internal" href="#0130-2026-04-22">0.13.0 - 2026-04-22</a>
+    <li class="toctree-l2"><a class="reference internal" href="#0131-2026-04-23">0.13.1 - 2026-04-23</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
     </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#0130-2026-04-22">0.13.0 - 2026-04-22</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added_3">Added</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#deprecated">Deprecated</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#removed_2">Removed</a>
     </li>
         </ul>
     </li>
@@ -76,6 +94,11 @@
               <p class="caption"><span class="caption-text">Guide</span></p>
               <ul>
                   <li class="toctree-l1"><a class="reference internal" href="../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../configuration/config_options/">Config Options</a>
                   </li>
               </ul>
               <p class="caption"><span class="caption-text">Reference</span></p>
@@ -165,15 +188,204 @@ in the project's original prose-style format. The v0.13.0 entry is
 mirrored here in Keep-a-Changelog form and is the canonical structure
 for all subsequent releases.</p>
 </blockquote>
-<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>stash_context.mapped_path</code> config field: translates the local
+  <code>download_directory</code> prefix to the path the Stash container sees,
+  enabling the Stash integration for Docker / NFS setups where mount
+  point prefixes differ between the scraper environment and the Stash
+  server. Set to the Stash-side root (e.g. <code>/data/fansly</code>) and leave
+  <code>download_directory</code> as the local path. All three Stash path
+  operations (metadata scan, <code>path__contains</code> preload filter, and
+  targeted regex fallback) now go through a new <code>get_stash_path()</code>
+  helper in <code>pathio</code>.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>--stash-scheme</code>, <code>--stash-host</code>, <code>--stash-port</code>, <code>--stash-apikey</code>
+  CLI flags. These were silently broken (the application code was
+  accidentally placed inside a docstring in <code>check_attributes()</code> and
+  never executed). Stash connection settings are config-file only;
+  <code>--stash-only</code> (a mode flag, not a connection setting) is retained.</li>
+</ul>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>WebSocket transport now runs on its own dedicated thread with a private
+  asyncio loop (<code>FanslyWebSocket.start_in_thread()</code> / <code>stop_thread()</code>).
+  Inbound service events are marshalled back to the main loop so handler-
+  side state (EntityStore, StashClient, asyncpg pool) stays single-
+  threaded.</li>
+<li>New <code>_handle_wallet_transaction</code> daemon handler observes Fansly
+  <code>svc=6 type=3</code> wallet transaction events (subscription/PPV payments)
+  and logs them at INFO so file-availability changes leave a trail.</li>
+<li><code>_configure_warnings_capture()</code> wires <code>logging.captureWarnings(True)</code>
+  and routes <code>py.warnings</code> records through loguru, so warnings emitted
+  via <code>warnings.warn()</code> (notably <code>stash-graphql-client</code>'s
+  <code>StashUnmappedFieldWarning</code>) now reach the rich console and every
+  log-file sink instead of bypassing them to raw stderr.</li>
+<li><code>InterceptHandler.emit</code> now routes by <code>record.name</code>: SQLAlchemy /
+  asyncpg / Alembic records to the db sink, <code>stash_graphql_client.*</code> to
+  the stash sink, and <code>py.warnings</code> records routed by origin file path.</li>
+</ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Eliminated WebSocket reconnect death-spiral.</strong> The ping_worker
+  previously shared the main asyncio loop with downloads, GraphQL
+  processing, and polling; under load the loop drifted &gt; 5s, the worker
+  woke late and misdiagnosed its own scheduling lag as a Fansly server
+  keepalive failure, tearing down a healthy connection roughly every
+  30 seconds. Moving the WebSocket transport to its own thread with a
+  private loop fixes the root cause (the ping timeout itself is
+  spec'd from Fansly's <code>main.js</code> as <code>1.2 * pingInterval</code> and cannot
+  be loosened without diverging from protocol behavior).</li>
+<li><strong>CLI flags no longer silently rewrite <code>config.yaml</code>.</strong> Every flagged
+  field (<code>--stash-only</code>, <code>--normal</code>, <code>--messages</code>, <code>--timeline</code>,
+  <code>--collection</code>, <code>--single</code>, <code>--debug</code>, <code>-uf</code> / <code>-ufp</code>, <code>-u</code>, the nine
+  negative-bool flags, the three positive-bool flags) is now marked as
+  an <em>ephemeral override</em> and cannot leak into the on-disk YAML. In
+  particular, <code>--debug</code> no longer clobbers <code>debug: true</code> in YAML on every
+  invocation that omits the flag, and <code>-u creator1,creator2</code> no longer
+  overwrites a curated <code>user_names</code> list with the daemon's auto-fetched
+  following list.</li>
+<li><strong>Narrowed daemon over-eager following refresh.</strong> <code>_worker_loop</code> now
+  only triggers <code>_refresh_following</code> on <code>FullCreatorDownload</code> (confirmed
+  subscription WS events), not on <code>DownloadTimelineOnly</code>. The
+  <code>/timeline/home</code> poll's creators are already in the following set by
+  construction, so the prior per-poll-hit refresh fanned out to ~30
+  account fetches per new post.</li>
+<li>YAML's <code>session_baseline</code> is now consume-and-reset: loaded once into
+  the runtime field, then cleared and persisted as <code>null</code>. Self-heals
+  YAMLs left in permanent-full-pass state by a prior schema-write bug.</li>
+<li>Hash-computation calls in <code>download/media.py</code> (post-download and
+  mid-download checks, 4 sites) now run via <code>asyncio.to_thread</code> so they
+  no longer block the main download loop.</li>
+<li>Bumped <code>stash-graphql-client</code> floor from <code>&gt;=0.12.0</code> to <code>&gt;=0.12.2</code>.
+  <code>stash/processing/base.py</code> imports and catches <code>StashCapabilityError</code>,
+  which only exists in SGC ≥ 0.12.2; the older floor allowed installs to
+  resolve to a version missing that symbol.</li>
+</ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>StashUnmappedFieldWarning</code> and other <code>warnings.warn()</code> output now
+  reach loguru sinks.</strong> Two compound failures: <code>logger.patch()</code> was
+  treated as in-place but actually returns a new logger (so
+  <code>extra["logger"]</code> was never bound on stdlib-routed records, and every
+  sink's <code>record.extra.logger == "&lt;name&gt;"</code> filter rejected them), and
+  <code>logging.captureWarnings(True)</code> was never called (so <code>warnings.warn()</code>
+  never entered the stdlib logging path at all). Together, SGC's
+  <code>StashUnmappedFieldWarning</code> and any other library's <code>warnings.warn()</code>
+  output bypassed the rich console + log files entirely.</li>
+<li><code>InterceptHandler.emit</code> and <code>SQLAlchemyInterceptHandler.emit</code> previously
+  fell back to <code>level = str(record.levelno)</code> on unknown level names; that
+  string re-raised inside loguru's <code>.log()</code> because numeric strings are
+  not registered level names. Pass the int through directly — loguru
+  accepts ints natively.</li>
+<li><code>config/logging.py</code>'s console formatter now escapes <code>&lt;</code> in record
+  messages in addition to <code>{</code>/<code>}</code>, so traceback frame names like
+  <code>&lt;module&gt;</code>, <code>&lt;listcomp&gt;</code>, and <code>&lt;genexpr&gt;</code> no longer crash loguru's
+  colorizer with <code>ValueError: Tag "&lt;module&gt;" does not correspond to any
+  known color directive</code>. Loguru re-parses callable formatter output to
+  strip tags even when <code>colorize=False</code>, so the escape is required
+  regardless of sink color setting.</li>
+<li><code>stash/processing/base.py</code> now catches <code>StashCapabilityError</code> distinct
+  from <code>StashVersionError</code>, so per-feature appSchema gate failures
+  surface as a clean error message rather than the bare exception that
+  was leaking out of <code>get_client()</code>. Also broadens an over-narrow
+  <code>except RuntimeError</code> (line 346): <code>stash_graphql_client.metadata_scan</code>
+  raises <code>ValueError</code> on transport errors, which previously escaped
+  uncaught.</li>
+<li><code>_shutdown_js_bridge</code> (<code>helpers/checkkey.py</code>) previously only called
+  <code>connection.stop()</code>, which terminates the Node subprocess but leaves
+  several JSPyBridge Python daemon threads (<code>com_thread</code>, <code>stdout_thread</code>,
+  <code>EventLoop.callbackExecutor</code>, per-task threads) blocking on
+  <code>stream.readline()</code> / <code>queue.get()</code> until each individually polls and
+  notices the subprocess died. Now joins all of them explicitly.</li>
+<li>Three daemon worker-loop bugs surfaced and fixed during test reform:
+  <code>_handle_full_creator_download</code> was calling <code>download_wall(config,
+  state)</code> without the required <code>wall_id</code>, <code>_refresh_following</code> was
+  missing <code>get_creator_account_info</code>, and <code>_handle_timeline_only_item</code>
+  was passing an empty <code>creator_name=""</code> downstream.</li>
+<li>xdist worker shutdown no longer raises <code>SIGABRT</code> / <code>SIGSEGV</code> / <code>SIGBUS</code>.
+  Root cause was daemon threads (Rich Live refresh, loguru handler
+  workers, httpx connection pool teardown) racing against
+  <code>_Py_Finalize.flush_std_files</code> mid-buffered-write. Fixed by setting
+  <code>TESTING=1</code> before any project import (forces synchronous loguru
+  sinks), enabling <code>faulthandler.enable(all_threads=True)</code> for future
+  diagnostics, plus per-test cleanup discipline (autouse fixtures that
+  reset Rich/loguru/httpx state after every test) and an <code>atexit</code>
+  backstop in <code>helpers/rich_progress.py</code>.</li>
+<li>Stash GraphQL test responses aligned with SGC 0.12's numeric-string /
+  UUID4 ID validator and the new <code>StashEntityStore.populate()</code> filter-
+  query resolution hop that fires before mutations.</li>
+</ul>
+<h3 id="removed_1">Removed<a class="headerlink" href="#removed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>FanslyWebSocket.start_background()</code> / <code>stop()</code> / <code>_background_task</code>
+  — replaced by the thread-based lifecycle (<code>start_in_thread()</code> /
+  <code>stop_thread()</code>). Migrated all in-tree callers (<code>api/fansly.py</code>,
+  <code>daemon/runner.py</code>, <code>scripts/websocket_example.py</code>); no deprecation
+  period.</li>
+<li><code>--updated-to</code> CLI flag and the corresponding <code>FanslyConfig</code> field.
+  The self-update feature was removed upstream and the field had zero
+  readers.</li>
+<li><code>tests/daemon/conftest.py</code> — only <code>tests/conftest.py</code> is permitted
+  per the project rule. The three fixtures it housed (<code>fake_ws</code>,
+  <code>saved_account</code>, <code>config_wired</code>) migrated to <code>tests/fixtures/</code>.</li>
+</ul>
+<h3 id="internal">Internal<a class="headerlink" href="#internal" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Test-suite reform: every internal mock removed in favor of real
+  fixtures, factories, and <code>store.add()</code> / <code>store.save()</code> preloads.
+  Edges remain mocked via <code>respx</code> (Fansly HTTP, Stash GraphQL via the
+  <code>httpx</code> transport) and external-library leaf calls (<code>imagehash</code>,
+  <code>hashlib</code>, ffmpeg subprocess). Total project coverage rose to ~97.5%
+  with <code>config/logging.py</code> at 100%, <code>api/websocket.py</code> at 99.06%, and
+  new daemon test modules covering bootstrap, runner handlers, and
+  runner loops end-to-end.</li>
+<li>New <code>--dist=loadgroup</code> pytest configuration plus an
+  <code>xdist_group(name)</code> marker. Tests pinned to the same group share an
+  xdist worker so their fragile shared state (notably the
+  <code>message_media_generator</code> fixture's find-or-create race against a
+  shared Docker Stash) doesn't deadlock across workers.</li>
+</ul>
+<h2 id="0131-2026-04-23"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1">0.13.1</a> - 2026-04-23<a class="headerlink" href="#0131-2026-04-23" title="Permanent link">&para;</a></h2>
+<p>Patch release fixing two issues reported on Windows + Python 3.14, plus
+rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>docs/reference/request-signing.md</code> — reverse-engineered notes on Fansly's
+  request-signing scheme.</li>
+</ul>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Dependency</strong>: added <code>filelock ^3.29.0</code> as a direct runtime dep, replacing
+  POSIX-only <code>fcntl</code> usage in the <code>config.ini → config.yaml</code> migration lock
+  (see #77). filelock picks the right platform primitive automatically
+  (<code>fcntl.flock</code> on POSIX, <code>msvcrt.locking</code> on Windows).</li>
+<li><code>poetry.lock</code> and pre-commit hook versions refreshed.</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>#77</strong> — Unconditional <code>import fcntl</code> at <code>config/loader.py:28</code> crashed app
+  startup on Windows (fcntl is POSIX-only). Swapped to
+  <a href="https://github.com/tox-dev/filelock">filelock</a> with identical non-blocking
+  semantics. Bonus: filelock cleans up stale <code>config.ini.migrating.lock</code> files
+  on release (safe — unlink happens while the lock is still held, no TOCTOU).</li>
+<li><strong>#78</strong> — Fansly returns <code>locations=[{"location": null, "locationId": 1}]</code>
+  for some media (Direct slots with no CDN path resolved yet), which the
+  required-str typing on <code>MediaLocation.location</code> rejected with 8 Pydantic
+  validation errors per affected <code>Media</code>. Relaxed the field to <code>str | None</code>
+  and the DB column to NULL-tolerant (Alembic migration
+  <code>bb7006ec7c0e_make_media_locations_location_nullable</code>). Downstream readers
+  at <code>media/media.py:27</code> already handled <code>None</code> via the <code>loc.raw_url or
+  loc.location</code> fallback.</li>
+</ul>
 <h2 id="0130-2026-04-22"><a href="https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0">0.13.0</a> - 2026-04-22<a class="headerlink" href="#0130-2026-04-22" title="Permanent link">&para;</a></h2>
 <p>First release under the Keep-a-Changelog format. Flagship feature: the
 post-batch monitoring daemon. Also rolls up every notable change landed
 since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Post-batch monitoring daemon</strong> (<code>--daemon</code> / <code>-d</code> / <code>--monitor</code>) — continuous
   WebSocket-driven event dispatch for new posts, stories, PPV messages,
@@ -215,7 +427,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
 <li><code>download/messages.py::download_messages_for_group</code> — daemon entry point that downloads a DM group by id, resolving creator identity from the group. Batch-path <code>download_messages</code> unchanged.</li>
 <li><code>DownloadMessagesForGroup.sender_id</code> — optional field carrying the WS <code>senderId</code> so the runner can pre-populate creator identity.</li>
 </ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Dependency floor</strong>: <code>stash-graphql-client</code> bumped from <code>&gt;=0.11.0</code> to
   <code>&gt;=0.12.0</code>, unlocking batched GraphQL mutations (<code>save_batch</code>,
@@ -233,7 +445,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
   now <strong>Ready to Start</strong>, with the SGC v0.12 batch APIs identified as
   primary adoption targets</li>
 </ul>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Rich Live display corruption from stdout prints — stable frame
   rendering under concurrent logging</li>
@@ -255,7 +467,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
 <li>Classic prose-style <code>ReleaseNotes.md</code> is frozen at v0.13.0. New
   releases are authored in this file (<code>CHANGELOG.md</code>) going forward.</li>
 </ul>
-<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<h3 id="removed_2">Removed<a class="headerlink" href="#removed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Retired settings</strong> (silently dropped from legacy configs — no
   runtime code branches on them):</li>

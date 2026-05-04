@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/configuration/config_options/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Config Options - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Config Options";
+        var mkdocs_page_input_path = "configuration/config_options.md";
+        var mkdocs_page_url = "/fansly-scraper/configuration/config_options/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Config Options</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#quick-example">Quick example</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#targeted_creator">targeted_creator</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#my_account">my_account</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#options">options</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#options-output-ui">options — output &amp; UI</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#options-debugging">options — debugging</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#options-deduplication">options — deduplication</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#options-retries-rate-limiting">options — retries &amp; rate limiting</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#postgres">postgres</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#cache">cache</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#logging">logging</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#stash_context">stash_context</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#monitoring">monitoring</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#monitoring-top-level">monitoring — top-level</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#monitoring-session-baseline">monitoring — session baseline</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#monitoring-three-tier-cadence">monitoring — three-tier cadence</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#websocket-subprocess-isolation">WebSocket subprocess isolation</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#logic">logic</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#download-modes">Download modes</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#cli-config-mapping">CLI ↔ config mapping</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#first-run-migration-behaviour">First-run / migration behaviour</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/request-signing/">Request Signing</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Configuration</li>
+      <li class="breadcrumb-item active">Config Options</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/configuration/config_options.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h1>
+<p>Fansly Downloader NG reads configuration from a single <strong><code>config.yaml</code></strong> at
+the working directory root. The loader uses <a href="https://yaml.readthedocs.io/"><code>ruamel.yaml</code></a>,
+which preserves comments, key order, and anchors across rewrites — your
+hand-written YAML structure survives load → modify → dump cycles intact.</p>
+<p>CLI flags override config values when both are present (see
+<a href="#cli--config-mapping">CLI ↔ config mapping</a> below).</p>
+<blockquote>
+<p><strong>Auto-migration on first load</strong>: a legacy <code>config.ini</code> is silently
+migrated to <code>config.yaml</code> on first run; the original <code>.ini</code> is preserved
+as a backup. Retired keys (<code>db_sync_*</code>, <code>metadata_handling</code>,
+<code>separate_metadata</code>) are silently dropped from the YAML on load.</p>
+<p><strong><code>extra="forbid"</code> everywhere</strong>: every section enforces strict-key
+validation. A typo in a key name raises a clear <code>ValidationError</code> at
+startup rather than being silently ignored. If the loader rejects your
+file, the error message names the unknown key and the section it appeared
+in.</p>
+</blockquote>
+<h2 id="quick-example">Quick example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
+<p>A minimal <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">targeted_creator</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">usernames</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+
+<span class="nt">my_account</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">authorization_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_session_token_here</span>
+<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Mozilla/5.0</span><span class="nv"> </span><span class="s">…&quot;</span>
+
+<span class="nt">options</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">download_directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/mnt/media/Fansly</span>
+<span class="w">  </span><span class="nt">download_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NORMAL</span>
+
+<span class="nt">postgres</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pg_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">pg_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
+<span class="w">  </span><span class="nt">pg_database</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_metadata</span>
+<span class="w">  </span><span class="nt">pg_user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_user</span>
+<span class="w">  </span><span class="nt">pg_password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_db_password</span>
+</code></pre></div>
+<hr />
+<h2 id="targeted_creator"><code>targeted_creator</code><a class="headerlink" href="#targeted_creator" title="Permanent link">&para;</a></h2>
+<p>Which creator(s) to download from.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">targeted_creator</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">usernames</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">  </span><span class="nt">use_following</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">use_following_with_pagination</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>usernames</code></td>
+<td><code>list[str]</code></td>
+<td><code>["replaceme"]</code></td>
+<td>Creator usernames to process. A comma-separated string (legacy <code>config.ini</code> shape) is auto-coerced into a list at parse time</td>
+</tr>
+<tr>
+<td><code>use_following</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>When <code>true</code>, ignore <code>usernames</code> and download from every creator the account follows. Equivalent to <code>-uf</code> on the CLI</td>
+</tr>
+<tr>
+<td><code>use_following_with_pagination</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Same as <code>use_following</code> but uses paginated <code>/account/{id}/following</code> walking instead of a single batched call. Useful for accounts following thousands of creators where the batched call hits server-side response-size limits</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="my_account"><code>my_account</code><a class="headerlink" href="#my_account" title="Permanent link">&para;</a></h2>
+<p>Authentication credentials.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">my_account</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">authorization_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_session_token_here</span>
+<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Mozilla/5.0</span><span class="nv"> </span><span class="s">…&quot;</span>
+<span class="w">  </span><span class="nt">check_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qybZy9-fyszis-bybxyf</span>
+<span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>authorization_token</code></td>
+<td><code>SecretStr</code></td>
+<td><code>"ReplaceMe"</code></td>
+<td>Fansly session token. Stored as <code>SecretStr</code> so it never accidentally prints in logs or tracebacks. Read via <code>.get_secret_value()</code> in code</td>
+</tr>
+<tr>
+<td><code>user_agent</code></td>
+<td><code>str</code></td>
+<td><code>"ReplaceMe"</code></td>
+<td>Browser user-agent string sent on every HTTP request. Must match the user-agent of the browser the <code>authorization_token</code> was extracted from, or Fansly's session-binding will reject the requests</td>
+</tr>
+<tr>
+<td><code>check_key</code></td>
+<td><code>str</code></td>
+<td><code>"qybZy9-fyszis-bybxyf"</code></td>
+<td>Fansly's per-deployment request-signing key. Auto-extracted from <code>main.js</code> on session setup; the default here is a known-good seed for first-run config generation</td>
+</tr>
+<tr>
+<td><code>username</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>Account username (optional; used for the password-login flow as an alternative to <code>authorization_token</code> extraction)</td>
+</tr>
+<tr>
+<td><code>password</code></td>
+<td><code>SecretStr \| None</code></td>
+<td><code>null</code></td>
+<td>Account password (optional; pairs with <code>username</code> for the password-login flow). Stored as <code>SecretStr</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="options"><code>options</code><a class="headerlink" href="#options" title="Permanent link">&para;</a></h2>
+<p>Download behaviour, output formatting, rate limiting.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">options</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">download_directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Local_directory</span>
+<span class="w">  </span><span class="nt">download_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NORMAL</span>
+<span class="w">  </span><span class="nt">show_downloads</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">show_skipped_downloads</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">download_media_previews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">open_folder_when_finished</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">separate_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">separate_previews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">separate_timeline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">use_duplicate_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">use_pagination_duplication</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">use_folder_suffix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">interactive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">prompt_on_exit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">debug</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">trace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">timeline_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">  </span><span class="nt">timeline_delay_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">api_max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">rate_limiting_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">rate_limiting_adaptive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">rate_limiting_requests_per_minute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">rate_limiting_burst_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">rate_limiting_retry_after_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">rate_limiting_backoff_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
+<span class="w">  </span><span class="nt">rate_limiting_max_backoff_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">  </span><span class="nt">temp_folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</code></pre></div>
+<h3 id="options-output-ui"><code>options</code> — output &amp; UI<a class="headerlink" href="#options-output-ui" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>download_directory</code></td>
+<td><code>str</code></td>
+<td><code>"Local_directory"</code></td>
+<td>Where downloaded files land. Per-creator subdirectories are created underneath</td>
+</tr>
+<tr>
+<td><code>download_mode</code></td>
+<td>enum</td>
+<td><code>NORMAL</code></td>
+<td>One of: <code>NORMAL</code>, <code>TIMELINE</code>, <code>MESSAGES</code>, <code>COLLECTION</code>, <code>WALL</code>, <code>SINGLE</code>, <code>STORIES</code>, <code>STASH_ONLY</code>. Case-insensitive at parse time. See <a href="#download-modes">download modes reference</a></td>
+</tr>
+<tr>
+<td><code>show_downloads</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Print one line per file as it downloads</td>
+</tr>
+<tr>
+<td><code>show_skipped_downloads</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Print one line per file skipped due to deduplication</td>
+</tr>
+<tr>
+<td><code>download_media_previews</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Download free preview media on PPV-locked items</td>
+</tr>
+<tr>
+<td><code>open_folder_when_finished</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Open the download directory in the OS file manager when the run finishes (no-op in non-interactive / daemon mode)</td>
+</tr>
+<tr>
+<td><code>separate_messages</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Place message attachments in <code>messages/</code> subdirectory rather than mixed with timeline content</td>
+</tr>
+<tr>
+<td><code>separate_previews</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Place free-preview media in <code>previews/</code> subdirectory rather than alongside the locked content</td>
+</tr>
+<tr>
+<td><code>separate_timeline</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Place timeline content in <code>timeline/</code> subdirectory</td>
+</tr>
+<tr>
+<td><code>use_folder_suffix</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Append a <code>_(creator_id)</code> suffix to the per-creator folder name to disambiguate creators who change usernames</td>
+</tr>
+<tr>
+<td><code>interactive</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Show interactive menus and prompts. Set <code>false</code> for cron / automation</td>
+</tr>
+<tr>
+<td><code>prompt_on_exit</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Wait for an Enter keypress before exiting. Set <code>false</code> for non-interactive runs</td>
+</tr>
+<tr>
+<td><code>temp_folder</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>Override the temp directory used during in-flight downloads. <code>null</code> uses the OS default</td>
+</tr>
+</tbody>
+</table>
+<h3 id="options-debugging"><code>options</code> — debugging<a class="headerlink" href="#options-debugging" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>debug</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Set the global file-log floor to DEBUG (console untouched)</td>
+</tr>
+<tr>
+<td><code>trace</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Set the global file-log floor to TRACE (console never hits TRACE regardless of this flag)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="options-deduplication"><code>options</code> — deduplication<a class="headerlink" href="#options-deduplication" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>use_duplicate_threshold</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Stop processing a creator's timeline after a configurable threshold of consecutive already-downloaded items</td>
+</tr>
+<tr>
+<td><code>use_pagination_duplication</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Same idea but at pagination granularity — stop paginating after a fully-duplicate page</td>
+</tr>
+</tbody>
+</table>
+<h3 id="options-retries-rate-limiting"><code>options</code> — retries &amp; rate limiting<a class="headerlink" href="#options-retries-rate-limiting" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>timeline_retries</code></td>
+<td><code>int</code></td>
+<td><code>1</code></td>
+<td>Number of retries on a failed timeline page fetch</td>
+</tr>
+<tr>
+<td><code>timeline_delay_seconds</code></td>
+<td><code>int</code></td>
+<td><code>60</code></td>
+<td>Cooldown between retries on the same creator's timeline</td>
+</tr>
+<tr>
+<td><code>api_max_retries</code></td>
+<td><code>int</code></td>
+<td><code>10</code></td>
+<td>Total retry attempts for any API call before giving up</td>
+</tr>
+<tr>
+<td><code>rate_limiting_enabled</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>Master switch for the outbound rate limiter</td>
+</tr>
+<tr>
+<td><code>rate_limiting_adaptive</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>When <code>true</code>, the limiter widens its window after sustained 200s and narrows after 429s. When <code>false</code>, the configured static rate is enforced regardless of server feedback</td>
+</tr>
+<tr>
+<td><code>rate_limiting_requests_per_minute</code></td>
+<td><code>int</code></td>
+<td><code>60</code></td>
+<td>Target sustained outbound rate</td>
+</tr>
+<tr>
+<td><code>rate_limiting_burst_size</code></td>
+<td><code>int</code></td>
+<td><code>10</code></td>
+<td>Token-bucket capacity — max requests in a burst before refill matters</td>
+</tr>
+<tr>
+<td><code>rate_limiting_retry_after_seconds</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>Default wait when the server's <code>Retry-After</code> header is absent on a 429</td>
+</tr>
+<tr>
+<td><code>rate_limiting_backoff_factor</code></td>
+<td><code>float</code></td>
+<td><code>1.5</code></td>
+<td>Multiplicative backoff applied on each rate-limit (429) response</td>
+</tr>
+<tr>
+<td><code>rate_limiting_max_backoff_seconds</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>Cap on the backoff sleep duration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load" title="Permanent link">&para;</a></h3>
+<p>The following keys were valid in earlier versions and are now silently
+stripped from the YAML on load. Keeping them in your file is harmless:</p>
+<ul>
+<li><code>separate_metadata</code> — SQLite-era flag; was always a no-op under Postgres</li>
+<li><code>metadata_handling</code> — runtime never branched on <code>SIMPLE</code> vs <code>ADVANCED</code></li>
+<li><code>db_sync_commits</code>, <code>db_sync_seconds</code>, <code>db_sync_min_size</code> — SQLite-era
+  write-sync tuning knobs; not consulted under asyncpg</li>
+</ul>
+<hr />
+<h2 id="postgres"><code>postgres</code><a class="headerlink" href="#postgres" title="Permanent link">&para;</a></h2>
+<p>PostgreSQL connection settings for asyncpg.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">postgres</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pg_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">pg_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
+<span class="w">  </span><span class="nt">pg_database</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_metadata</span>
+<span class="w">  </span><span class="nt">pg_user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_user</span>
+<span class="w">  </span><span class="nt">pg_password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_db_password</span>
+<span class="w">  </span><span class="nt">pg_sslmode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prefer</span>
+<span class="w">  </span><span class="nt">pg_sslcert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">pg_sslkey</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">pg_sslrootcert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">pg_pool_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w">  </span><span class="nt">pg_max_overflow</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">pg_pool_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pg_host</code></td>
+<td><code>str</code></td>
+<td><code>"localhost"</code></td>
+<td>Postgres server hostname</td>
+</tr>
+<tr>
+<td><code>pg_port</code></td>
+<td><code>int</code></td>
+<td><code>5432</code></td>
+<td>Postgres server port</td>
+</tr>
+<tr>
+<td><code>pg_database</code></td>
+<td><code>str</code></td>
+<td><code>"fansly_metadata"</code></td>
+<td>Database name</td>
+</tr>
+<tr>
+<td><code>pg_user</code></td>
+<td><code>str</code></td>
+<td><code>"fansly_user"</code></td>
+<td>Postgres role</td>
+</tr>
+<tr>
+<td><code>pg_password</code></td>
+<td><code>SecretStr \| None</code></td>
+<td><code>null</code></td>
+<td>Database password. Stored as <code>SecretStr</code> so it never appears in logs</td>
+</tr>
+<tr>
+<td><code>pg_sslmode</code></td>
+<td><code>str</code></td>
+<td><code>"prefer"</code></td>
+<td>libpq-style SSL mode. <strong>Currently NOT wired to <code>asyncpg.create_pool</code></strong> — the value is parsed and stored but not passed to the pool. A future task should pass <code>ssl=</code> when any <code>pg_ssl*</code> value is set</td>
+</tr>
+<tr>
+<td><code>pg_sslcert</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>SSL client certificate path. Same NOT-wired caveat as <code>pg_sslmode</code></td>
+</tr>
+<tr>
+<td><code>pg_sslkey</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>SSL client key path. Same NOT-wired caveat</td>
+</tr>
+<tr>
+<td><code>pg_sslrootcert</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>SSL root cert path. Same NOT-wired caveat</td>
+</tr>
+<tr>
+<td><code>pg_pool_size</code></td>
+<td><code>int</code></td>
+<td><code>5</code></td>
+<td>asyncpg pool <code>min_size</code>/<code>max_size</code></td>
+</tr>
+<tr>
+<td><code>pg_max_overflow</code></td>
+<td><code>int</code></td>
+<td><code>10</code></td>
+<td>Legacy SQLAlchemy pool setting kept for round-trip parity with <code>config.ini</code>. <strong>Not consulted by asyncpg</strong> — the asyncpg pool only respects <code>min_size</code>/<code>max_size</code></td>
+</tr>
+<tr>
+<td><code>pg_pool_timeout</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>Same legacy / not-consulted caveat as <code>pg_max_overflow</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="cache"><code>cache</code><a class="headerlink" href="#cache" title="Permanent link">&para;</a></h2>
+<p>Runtime device-id cache for Fansly API authentication. Managed by the
+API layer at runtime; <strong>users should not edit these manually</strong> (changes
+are overwritten on the next session-setup pass).</p>
+<div class="highlight"><pre><span></span><code><span class="nt">cache</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">device_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">device_id_timestamp</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>device_id</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>Cached Fansly device identifier; populated automatically on first connect</td>
+</tr>
+<tr>
+<td><code>device_id_timestamp</code></td>
+<td><code>int \| None</code></td>
+<td><code>null</code></td>
+<td>Unix timestamp when the cached <code>device_id</code> was issued</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="logging"><code>logging</code><a class="headerlink" href="#logging" title="Permanent link">&para;</a></h2>
+<p>Per-named-logger floor levels. The application uses 6 named loggers
+plus <code>json</code> (an output format, not a topic); each can be tuned independently.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">sqlalchemy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">stash_console</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">stash_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">textio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">websocket</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>YAML key</th>
+<th>Python attribute</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sqlalchemy</code></td>
+<td><code>sqlalchemy</code></td>
+<td><code>"INFO"</code></td>
+<td>SQLAlchemy / asyncpg / alembic log floor</td>
+</tr>
+<tr>
+<td><code>stash_console</code></td>
+<td><code>stash_console</code></td>
+<td><code>"INFO"</code></td>
+<td>Stash integration console output</td>
+</tr>
+<tr>
+<td><code>stash_file</code></td>
+<td><code>stash_file</code></td>
+<td><code>"INFO"</code></td>
+<td>Stash integration file log (<code>stash.log</code>)</td>
+</tr>
+<tr>
+<td><code>textio</code></td>
+<td><code>textio</code></td>
+<td><code>"INFO"</code></td>
+<td>Default user-facing console + main file log</td>
+</tr>
+<tr>
+<td><code>websocket</code></td>
+<td><code>websocket</code></td>
+<td><code>"INFO"</code></td>
+<td>WebSocket protocol traffic log (<code>websocket.log</code>). Set <code>TRACE</code> to dump every received frame</td>
+</tr>
+<tr>
+<td><code>json</code></td>
+<td><code>json_level</code></td>
+<td><code>"INFO"</code></td>
+<td>JSON-formatted file log (<code>fansly_downloader_ng_json.log</code>). Note the YAML key is <code>json</code> but the Python attribute is <code>json_level</code> because <code>json</code> would shadow Pydantic's <code>BaseModel.json()</code> serialiser</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="stash_context"><code>stash_context</code><a class="headerlink" href="#stash_context" title="Permanent link">&para;</a></h2>
+<p><a href="https://github.com/stashapp/stash">Stash media server</a> integration
+connection. <strong>Optional</strong> — omit the section entirely to disable Stash
+integration. When absent, the downloader skips all Stash sync logic
+without warning.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">stash_context</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9999</span>
+<span class="w">  </span><span class="nt">apikey</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<span class="w">  </span><span class="nt">mapped_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scheme</code></td>
+<td><code>str</code></td>
+<td><code>"http"</code></td>
+<td>URL scheme for the Stash server (<code>http</code> or <code>https</code>)</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td><code>str</code></td>
+<td><code>"localhost"</code></td>
+<td>Stash server hostname</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td><code>int</code></td>
+<td><code>9999</code></td>
+<td>Stash server port</td>
+</tr>
+<tr>
+<td><code>apikey</code></td>
+<td><code>str</code></td>
+<td><code>""</code></td>
+<td>Stash API key. Empty string disables authentication. Required if your Stash server has API auth enabled</td>
+</tr>
+<tr>
+<td><code>mapped_path</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td><strong>Docker / NFS path mapping.</strong> Set this when Stash runs in a container that mounts your download directory under a different path prefix than the scraper sees. For example: if the scraper writes to <code>/home/user/downloads/</code> but the Stash container mounts the same share as <code>/data/fansly/</code>, set <code>mapped_path: /data/fansly</code>. The scraper will substitute the <code>options.download_directory</code> prefix with this value in every path it sends to Stash (scan jobs, path filters, regex queries). Leave <code>null</code> when both environments share identical paths</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="monitoring"><code>monitoring</code><a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h2>
+<p>Post-batch monitoring daemon configuration. The daemon (entered via
+<code>--daemon</code> CLI flag or <code>daemon_mode: true</code> here) keeps running after the
+initial batch download completes — it consumes WebSocket events plus
+falls back to timeline/story polling for continuous archiving. See
+<a href="../../reference/monitoring-cadence/">monitoring-cadence</a> for the
+intervals and the <code>main.js</code> evidence behind them.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">monitoring</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">daemon_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">active_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">idle_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span>
+<span class="w">  </span><span class="nt">hidden_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">  </span><span class="nt">timeline_poll_active_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
+<span class="w">  </span><span class="nt">timeline_poll_idle_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span>
+<span class="w">  </span><span class="nt">story_poll_active_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">story_poll_idle_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">  </span><span class="nt">session_baseline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">unrecoverable_error_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+<span class="w">  </span><span class="nt">dashboard_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">websocket_subprocess</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+<h3 id="monitoring-top-level"><code>monitoring</code> — top-level<a class="headerlink" href="#monitoring-top-level" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>CLI equivalent</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>daemon_mode</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td><code>--daemon</code> / <code>-d</code></td>
+<td>Enter the post-batch monitoring daemon after the normal batch download completes. Mirrors the CLI flag — CLI takes precedence when both are set</td>
+</tr>
+<tr>
+<td><code>unrecoverable_error_timeout_seconds</code></td>
+<td><code>int</code></td>
+<td><code>3600</code></td>
+<td>—</td>
+<td>Fatal-error escalation window. If the daemon has had <strong>no</strong> successful operation (poll, WS ping-pong, or dispatch) for this many seconds, exit with <code>DAEMON_UNRECOVERABLE</code>. Rate-limiter pauses, transient 5xx, and network blips do <strong>not</strong> escalate as long as some other operation succeeds within the window. Default = 1 hour</td>
+</tr>
+<tr>
+<td><code>dashboard_enabled</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>—</td>
+<td>Show the Rich-based live dashboard (simulator state + per-loop countdown bars) while the daemon runs. Set <code>false</code> when piping output through tools that mangle ANSI escape sequences</td>
+</tr>
+<tr>
+<td><code>websocket_subprocess</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>—</td>
+<td>Run the Fansly WebSocket in an isolated subprocess so its ping/pong heartbeat is insulated from main-process GIL contention. Default off until the subprocess path stabilizes; flip on for a validation run, then promote in a follow-up. See <a href="#websocket-subprocess-isolation">WebSocket subprocess isolation</a> below</td>
+</tr>
+</tbody>
+</table>
+<h3 id="monitoring-session-baseline"><code>monitoring</code> — session baseline<a class="headerlink" href="#monitoring-session-baseline" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>CLI equivalent</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session_baseline</code></td>
+<td><code>datetime \| None</code></td>
+<td><code>null</code></td>
+<td><code>--monitor-since</code>, <code>--full-pass</code></td>
+<td>Optional per-run baseline for <code>should_process_creator()</code>. When set, the filter compares against this datetime instead of each creator's stored <code>MonitorState.lastCheckedAt</code>. Setting a very old value (e.g. <code>2000-01-01</code>) effectively forces a full pass over every creator. When <code>null</code>, each creator's own <code>lastCheckedAt</code> is used. Naive datetimes are coerced to UTC at parse time</td>
+</tr>
+</tbody>
+</table>
+<h3 id="monitoring-three-tier-cadence"><code>monitoring</code> — three-tier cadence<a class="headerlink" href="#monitoring-three-tier-cadence" title="Permanent link">&para;</a></h3>
+<p>The simulator runs a three-tier state machine (<code>active</code> → <code>idle</code> →
+<code>hidden</code> → <code>active</code>); each state has its own duration window and per-
+resource poll intervals. Defaults match the values in Fansly's <code>main.js</code>
+(see <a href="../../reference/monitoring-cadence/">monitoring-cadence</a>) — diverging
+from those values measurably risks creating an anti-detection fingerprint,
+so tune within narrow operational windows rather than aggressively.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Semantics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>active_duration_minutes</code></td>
+<td><code>int</code></td>
+<td><code>60</code></td>
+<td>Minutes in <code>active</code> state before transitioning to <code>idle</code></td>
+</tr>
+<tr>
+<td><code>idle_duration_minutes</code></td>
+<td><code>int</code></td>
+<td><code>120</code></td>
+<td>Minutes in <code>idle</code> before transitioning to <code>hidden</code></td>
+</tr>
+<tr>
+<td><code>hidden_duration_minutes</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>Minutes in <code>hidden</code> before terminating the run</td>
+</tr>
+<tr>
+<td><code>timeline_poll_active_seconds</code></td>
+<td><code>int</code></td>
+<td><code>180</code></td>
+<td>Home-timeline poll interval while <code>active</code> (3 min — matches <code>main.js</code>)</td>
+</tr>
+<tr>
+<td><code>timeline_poll_idle_seconds</code></td>
+<td><code>int</code></td>
+<td><code>600</code></td>
+<td>Home-timeline poll interval while <code>idle</code> (10 min — matches <code>main.js</code>)</td>
+</tr>
+<tr>
+<td><code>story_poll_active_seconds</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>Story-state poll interval while <code>active</code> (matches <code>main.js</code>)</td>
+</tr>
+<tr>
+<td><code>story_poll_idle_seconds</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>Story-state poll interval while <code>idle</code> (5 min — matches <code>main.js</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Jitter (0-10 s for timeline polls, 0-2 s for story polls) is added on top
+of each base interval so the daemon's traffic pattern doesn't look
+machine-precise.</p>
+<h3 id="retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>Never had a runtime consumer; <code>daemon_mode</code> is the actual on/off switch</td>
+</tr>
+</tbody>
+</table>
+<h3 id="websocket-subprocess-isolation">WebSocket subprocess isolation<a class="headerlink" href="#websocket-subprocess-isolation" title="Permanent link">&para;</a></h3>
+<p>The in-thread <code>FanslyWebSocket</code> runs on its own asyncio loop in a daemon
+thread, but the GIL still binds it to whichever thread holds it. Under
+heavy main-thread CPU bursts (image hashing, dedupe, large JSON decodes),
+the WS thread can't acquire the GIL within the spec-mandated
+<code>1.2 × pingInterval</code> window, manifesting as repeated
+<code>Ping timeout (&gt;30s since last response)</code> warnings and reconnect storms.</p>
+<p>The pattern is <strong>asymmetric-GIL</strong>: a thread that does microseconds of
+work per minute but has a hard ~30 s deadline can't be saved by
+<code>sys.setswitchinterval</code>, thread priority, or moving to its own asyncio
+loop — the failure mode is <em>GIL-acquisition wait</em>, which only goes away
+when the deadline-sensitive code has its own GIL. That requires a separate
+process.</p>
+<p>When <code>websocket_subprocess: true</code>, the <code>FanslyWebSocketProxy</code> wraps the
+WebSocket in a <code>multiprocessing.Process</code> — the child has its own GIL, so
+the heartbeat is fully insulated. Surface compatibility is preserved
+(same public attributes, same handler-registration API), so callers don't
+branch on the toggle. Cookies sync across the boundary via <code>cmd_q</code> /
+<code>evt_q</code> queues; auth-error and rate-limit signals propagate the same way.</p>
+<hr />
+<h2 id="logic"><code>logic</code><a class="headerlink" href="#logic" title="Permanent link">&para;</a></h2>
+<p>Regex patterns for extracting values from Fansly's served JavaScript.
+These rarely need user adjustment — the defaults track Fansly's current
+<code>main.js</code> shape and are auto-applied on every fresh extraction.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">logic</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">check_key_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;this\.checkKey_\s*=\s*[&quot;</span><span class="se">&#39;&#39;</span><span class="s">]([^&quot;</span><span class="se">&#39;&#39;</span><span class="s">]+)[&quot;</span><span class="se">&#39;&#39;</span><span class="s">]&#39;</span>
+<span class="w">  </span><span class="nt">main_js_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;\ssrc\s*=\s*&quot;(main\..*?\.js)&quot;&#39;</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>check_key_pattern</code></td>
+<td><code>str</code></td>
+<td><code>r'this\.checkKey_\s*=\s*["'']([^"'']+)["'']'</code></td>
+<td>Regex matching Fansly's per-deployment request-signing key inside <code>main.js</code>. The capture group must yield the raw key string</td>
+</tr>
+<tr>
+<td><code>main_js_pattern</code></td>
+<td><code>str</code></td>
+<td><code>r'\ssrc\s*=\s*"(main\..*?\.js)"'</code></td>
+<td>Regex matching the <code>&lt;script src="..."&gt;</code> tag in <code>index.html</code> that points at the current <code>main.js</code> URL. The capture group must yield the filename (Fansly versions it: <code>main.&lt;hash&gt;.js</code>)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="download-modes">Download modes<a class="headerlink" href="#download-modes" title="Permanent link">&para;</a></h2>
+<p><code>options.download_mode</code> is one of:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NORMAL</code></td>
+<td>Default — downloads timeline, messages, collection, wall, and stories per per-creator config</td>
+</tr>
+<tr>
+<td><code>TIMELINE</code></td>
+<td>Only public-timeline posts</td>
+</tr>
+<tr>
+<td><code>MESSAGES</code></td>
+<td>Only direct-message attachments</td>
+</tr>
+<tr>
+<td><code>COLLECTION</code></td>
+<td>Only the user's collection (saved/liked content)</td>
+</tr>
+<tr>
+<td><code>WALL</code></td>
+<td>Only wall posts</td>
+</tr>
+<tr>
+<td><code>SINGLE</code></td>
+<td>Single-post download (used with <code>-p &lt;post_id&gt;</code>)</td>
+</tr>
+<tr>
+<td><code>STORIES</code></td>
+<td>Only ephemeral stories</td>
+</tr>
+<tr>
+<td><code>STASH_ONLY</code></td>
+<td>Skip downloading; only push existing local metadata to Stash</td>
+</tr>
+</tbody>
+</table>
+<p>Case-insensitive at parse time — <code>normal</code>, <code>Normal</code>, <code>NORMAL</code> all resolve
+to <code>DownloadMode.NORMAL</code>.</p>
+<hr />
+<h2 id="cli-config-mapping">CLI ↔ config mapping<a class="headerlink" href="#cli-config-mapping" title="Permanent link">&para;</a></h2>
+<p>CLI flags override config values when both are supplied.</p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>targeted_creator.usernames</code></td>
+<td><code>-u &lt;name&gt;[,&lt;name&gt;...]</code> or positional args</td>
+</tr>
+<tr>
+<td><code>targeted_creator.use_following</code></td>
+<td><code>-uf</code> / <code>--use-following</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode</code></td>
+<td><code>-dm &lt;mode&gt;</code> / <code>--download-mode &lt;mode&gt;</code></td>
+</tr>
+<tr>
+<td><code>options.interactive</code></td>
+<td><code>-ni</code> / <code>--non-interactive</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.prompt_on_exit</code></td>
+<td><code>-npox</code> / <code>--no-prompt-on-exit</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.debug</code></td>
+<td><code>-v</code></td>
+</tr>
+<tr>
+<td><code>options.trace</code></td>
+<td><code>-vv</code></td>
+</tr>
+<tr>
+<td><code>monitoring.daemon_mode</code></td>
+<td><code>--daemon</code> / <code>-d</code></td>
+</tr>
+<tr>
+<td><code>monitoring.session_baseline</code></td>
+<td><code>--monitor-since &lt;iso&gt;</code>, <code>--full-pass</code></td>
+</tr>
+</tbody>
+</table>
+<p>CLI-only flags (no config equivalent):</p>
+<ul>
+<li><code>-p &lt;post_id&gt;</code> — single-post download (use with <code>-dm SINGLE</code>)</li>
+<li><code>--metadata-only</code> — sync metadata to DB without downloading files</li>
+<li><code>--stash-only</code> — equivalent to <code>-dm STASH_ONLY</code></li>
+</ul>
+<hr />
+<h2 id="first-run-migration-behaviour">First-run / migration behaviour<a class="headerlink" href="#first-run-migration-behaviour" title="Permanent link">&para;</a></h2>
+<p>On startup, the loader performs a one-shot migration pass against
+<code>config.yaml</code>:</p>
+<ul>
+<li><strong>Legacy <code>config.ini</code> migration</strong> — if a <code>config.yaml</code> doesn't exist
+  but a <code>config.ini</code> does, the loader converts the <code>.ini</code> to YAML and
+  preserves the original <code>.ini</code> as a backup.</li>
+<li><strong>Retired keys are silently stripped</strong> — the <code>_DROPPED_FIELDS</code> set in
+  <code>OptionsSection</code> lists keys that the project no longer reads. They're
+  removed from the parsed dict before validation so <code>extra="forbid"</code>
+  doesn't reject upgrade paths.</li>
+<li><strong>Comments survive</strong> — your hand-edited comments, anchors, and key
+  order are preserved across the rewrite via <code>ruamel.yaml</code> round-tripping.</li>
+<li><strong>Typos raise an error</strong> — unknown keys that don't match a retirement
+  raise <code>ValidationError</code> at startup with the unknown key name and its
+  section. This catches misspellings before they silently affect behaviour.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../../guide/manual-token-extraction/" class="btn btn-neutral float-left" title="Manual Token Extraction"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../../reference/architecture/" class="btn btn-neutral float-right" title="Architecture">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+      <span><a href="../../guide/manual-token-extraction/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../../reference/architecture/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
