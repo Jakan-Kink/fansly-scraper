@@ -434,7 +434,9 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
             host=conn.get("host", "localhost"),
             port=int(conn.get("port", 9999)),
             apikey=conn.get("apikey", ""),
-            mapped_path=str(config.stash_mapped_path) if config.stash_mapped_path is not None else None,
+            mapped_path=str(config.stash_mapped_path)
+            if config.stash_mapped_path is not None
+            else None,
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

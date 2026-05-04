@@ -203,7 +203,7 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     if config.stash_mapped_path is not None and config.download_directory is not None:
         local_prefix = str(config.download_directory)
         if local_str.startswith(local_prefix):
-            return str(config.stash_mapped_path) + local_str[len(local_prefix):]
+            return str(config.stash_mapped_path) + local_str[len(local_prefix) :]
     return local_str
 
 

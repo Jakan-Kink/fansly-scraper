@@ -226,7 +226,9 @@ def test_stash_context_round_trip(config_dir: Path, fresh_config: FanslyConfig) 
     assert fresh_config.stash_context_conn["apikey"] == "secret-api-key"
 
 
-def test_stash_mapped_path_round_trip(config_dir: Path, fresh_config: FanslyConfig) -> None:
+def test_stash_mapped_path_round_trip(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
     """stash_context.mapped_path round-trips through config.yaml."""
     yaml_path = config_dir / "config.yaml"
 
@@ -245,7 +247,9 @@ def test_stash_mapped_path_round_trip(config_dir: Path, fresh_config: FanslyConf
     assert fresh_config.stash_mapped_path == Path("/data/fansly")
 
 
-def test_stash_mapped_path_none_when_absent(config_dir: Path, fresh_config: FanslyConfig) -> None:
+def test_stash_mapped_path_none_when_absent(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
     """stash_mapped_path is None when mapped_path is not set in schema."""
     yaml_path = config_dir / "config.yaml"
 
