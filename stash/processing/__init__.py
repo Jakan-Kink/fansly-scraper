@@ -179,7 +179,12 @@ class StashProcessing(
             performer_name = (
                 performer.name if isinstance(performer, Performer) else repr(performer)
             )
-            print_info(f"Finished Stash processing for {performer_name}")
+            stats = self.store.cache_stats()
+            by_type = ", ".join(f"{k}={v}" for k, v in sorted(stats.by_type.items()))
+            print_info(
+                f"Finished Stash processing for {performer_name} "
+                f"(cache: {stats.total_entries} entries — {by_type})"
+            )
 
 
 # Export main class
