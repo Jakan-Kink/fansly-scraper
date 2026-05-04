@@ -199,6 +199,7 @@ from .utils import (
     cleanup_rate_limiter_displays,
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
+    fake_monotonic_clock,
     get_unique_test_id,
     get_worker_id,
     snowflake_id,
@@ -435,6 +436,10 @@ mod_utils_helpers = [
     "snowflake_id",
 ]
 
+mod_utils_fixtures = [
+    "fake_monotonic_clock",
+]
+
 mod_init = [
     "load_json_fixture",
     "save_json_fixture",
@@ -461,6 +466,7 @@ __all__ = [  # noqa: PLE0604
     *mod_stash_integration_fixtures,
     *mod_cleanup_fixtures,
     *mod_utils_helpers,
+    *mod_utils_fixtures,
     *mod_init,
 ]
 

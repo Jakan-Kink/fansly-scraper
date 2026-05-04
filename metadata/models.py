@@ -28,6 +28,9 @@ from pydantic import (
     ValidationInfo,
     model_validator,
 )
+from stash_graphql_client.types.unset import UNSET, UnsetType
+
+from errors import StubNotImplementedError
 
 
 # ── Snowflake ID type ───────────────────────────────────────────────────
@@ -442,6 +445,12 @@ class FanslyObject(BaseModel):
     - Bidirectional relationship sync via __setattr__
     - Relationship mutation via _add_to_relationship / _remove_from_relationship
     - Field update helper via update_fields()
+
+    Singular relationships are tri-state: ``UNSET`` (lazy/not-loaded),
+    ``None`` (explicit clear → FK column nulled), or an object (hydrated,
+    FK in sync). Use ``is_set()`` to distinguish UNSET from None. List
+    relationships use ``[]`` defaults — empty-list semantics are
+    well-defined and don't need the triality.
     """
 
     _store: ClassVar[Any] = None  # Set to PostgresEntityStore at runtime
@@ -652,6 +661,12 @@ class FanslyObject(BaseModel):
         Only iterates __relationships__ (not all model_fields). Inverse-only
         fields are populated via _sync_inverse_relationship during __setattr__,
         not during construction.
+
+        On cache miss for singular belongs_to relationships, the field is
+        left out of ``processed`` so the model field default (UNSET) is
+        preserved — distinguishes "lazy-not-loaded" from "explicit None".
+        ``_autolink_relationships`` on the store will hydrate later if the
+        target appears in the cache.
         """
         if not cls._store:
             return data
@@ -683,6 +698,7 @@ class FanslyObject(BaseModel):
                         )
                         if cached:
                             processed[field_name] = cached
+                        # cache miss → leave field unset; default=UNSET applies
                     continue
                 else:
                     continue
@@ -772,12 +788,16 @@ class FanslyObject(BaseModel):
     def __setattr__(self, name: str, value: Any) -> None:
         """Auto-sync FK↔relationship and inverse relationships on assignment.
 
-        Two sync paths:
-        1. Setting a relationship field (e.g., media.account = acct_obj)
-           → syncs FK scalar (media.accountId = acct_obj.id)
-           → syncs inverse relationship on related object
-        2. Setting an FK scalar (e.g., media.accountId = 123)
-           → auto-resolves relationship from cache (media.account = cached Account)
+        Three-state convention for singular belongs_to:
+
+        - Setting to a ``FanslyObject`` → sync FK column from value.id.
+        - Setting to ``None`` → null the FK column (explicit user clear).
+        - Setting to ``UNSET`` → leave FK alone (don't know yet; lazy
+          hydration will resolve later).
+
+        Path 2 (FK column set directly): relationship is marked UNSET on
+        cache miss (not None) so a future ``to_db_dict`` call doesn't see
+        ``rel=None`` and clobber the just-set FK column.
         """
         super().__setattr__(name, value)
 
@@ -785,21 +805,34 @@ class FanslyObject(BaseModel):
         if name in self.__relationships__:
             meta = self.__relationships__[name]
             if meta.fk_column and not meta.is_list:
-                # Sync FK: media.account = acct → media.accountId = acct.id
-                fk_val = value.id if isinstance(value, FanslyObject) else None
-                object.__setattr__(self, meta.fk_column, fk_val)
+                if isinstance(value, FanslyObject):
+                    # Sync FK: media.account = acct → media.accountId = acct.id
+                    object.__setattr__(self, meta.fk_column, value.id)
+                elif value is None:
+                    # Explicit clear → null the FK column
+                    object.__setattr__(self, meta.fk_column, None)
+                # UNSET → leave FK column alone (don't know yet)
             self._sync_inverse_relationship(name, value)
 
         # Path 2: FK scalar → auto-resolve relationship from cache
         elif name in self.__fk_to_rel__:
             rel_name, meta = self.__fk_to_rel__[name]
-            if value is not None and self._store:
+            if value is None:
+                # FK explicitly cleared → relationship is None (matches FK)
+                object.__setattr__(self, rel_name, None)
+            elif self._store:
                 cached = self._store.get_from_cache_by_type_name(
                     meta.inverse_type, value
                 )
-                object.__setattr__(self, rel_name, cached)
+                if cached is not None:
+                    object.__setattr__(self, rel_name, cached)
+                else:
+                    # Cache miss → mark UNSET so to_db_dict doesn't clobber
+                    # the FK on save and autolink can hydrate later.
+                    object.__setattr__(self, rel_name, UNSET)
             else:
-                object.__setattr__(self, rel_name, None)
+                # No store → cannot resolve; mark UNSET.
+                object.__setattr__(self, rel_name, UNSET)
 
     def _sync_inverse_relationship(self, field_name: str, new_value: Any) -> None:
         meta = self.__relationships__.get(field_name)
@@ -987,8 +1020,6 @@ class FanslyObject(BaseModel):
         Raises:
             StubNotImplementedError: Default — subclass must override.
         """
-        from errors import StubNotImplementedError
-
         raise StubNotImplementedError(cls, entity_id, context=context)
 
     # ── Field Update Helper ──────────────────────────────────────────
@@ -1167,7 +1198,7 @@ class MediaStory(FanslyObject):
     updatedAt: datetime | None = None
 
     # Relationships
-    account: Account | None = None  # type: ignore[name-defined]
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
 
 
 class TimelineStats(FanslyObject):
@@ -1274,7 +1305,7 @@ class MonitorState(FanslyObject):
     )
 
     # Relationship — auto-resolved from FK scalar via __setattr__ / cache
-    account: Account | None = None  # type: ignore[name-defined]
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
 
     @model_validator(mode="before")
     @classmethod
@@ -1370,7 +1401,7 @@ class Media(FanslyObject):
     default_normal_id: SnowflakeId | None = None
 
     # Relationships (managed by _sync_associations on save)
-    account: Account | None = None  # type: ignore[name-defined]
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     variants: list[Media] = []
     locations: list[MediaLocation] = []
 
@@ -1453,9 +1484,9 @@ class AccountMedia(FanslyObject):
     stash_id: int | None = None
 
     # Relationships (auto-resolved from FK scalars via __setattr__ / cache)
-    account: Account | None = None  # type: ignore[name-defined]
-    media: Media | None = None
-    preview: Media | None = None
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    media: Media | UnsetType | None = UNSET
+    preview: Media | UnsetType | None = UNSET
 
 
 class AccountMediaBundle(FanslyObject):
@@ -1513,8 +1544,8 @@ class AccountMediaBundle(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
-    account: Account | None = None  # type: ignore[name-defined]
-    preview: Media | None = None
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    preview: Media | UnsetType | None = UNSET
     accountMedia: list[AccountMedia] = Field(default=[], alias="accountMediaIds")
 
 
@@ -1545,7 +1576,7 @@ class Wall(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
-    account: Account | None = None  # type: ignore[name-defined]
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     posts: list[Post] = []  # type: ignore[name-defined]
 
 
@@ -1587,8 +1618,8 @@ class Attachment(FanslyObject):
     contentType: ContentType
 
     # Relationships
-    post: Post | None = None  # type: ignore[name-defined]
-    message: Message | None = None  # type: ignore[name-defined]
+    post: Post | UnsetType | None = UNSET  # type: ignore[name-defined]
+    message: Message | UnsetType | None = UNSET  # type: ignore[name-defined]
 
     @property
     def is_account_media(self) -> bool:
@@ -1673,8 +1704,8 @@ class PostMention(FanslyObject):
     handle: str
 
     # Relationships
-    post: Post | None = None  # type: ignore[name-defined]
-    account: Account | None = None  # type: ignore[name-defined]
+    post: Post | UnsetType | None = UNSET  # type: ignore[name-defined]
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
 
     def __repr__(self) -> str:
         return f"<PostMention {self.id}: @{self.handle} on post {self.postId}>"
@@ -1750,9 +1781,9 @@ class Post(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
-    account: Account | None = None  # type: ignore[name-defined]
-    replyTo: Post | None = None
-    replyToRoot: Post | None = None
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    replyTo: Post | UnsetType | None = UNSET
+    replyToRoot: Post | UnsetType | None = UNSET
     attachments: list[Attachment] = []
     hashtags: list[Hashtag] = []
     walls: list[Wall] = []
@@ -1766,8 +1797,6 @@ class Post(FanslyObject):
         """
         account_id = context.get("accountId")
         if not account_id:
-            from errors import StubNotImplementedError
-
             raise StubNotImplementedError(cls, entity_id, context=context)
         return cls(id=entity_id, accountId=account_id)
 
@@ -1828,9 +1857,9 @@ class Message(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
-    group: Group | None = None  # type: ignore[name-defined]
-    sender: Account | None = None  # type: ignore[name-defined]
-    recipient: Account | None = None  # type: ignore[name-defined]
+    group: Group | UnsetType | None = UNSET  # type: ignore[name-defined]
+    sender: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    recipient: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     attachments: list[Attachment] = []
 
     def __repr__(self) -> str:
@@ -1904,8 +1933,8 @@ class Group(FanslyObject):
     lastMessageId: SnowflakeId | None = None
 
     # Relationships
-    creator: Account | None = None  # type: ignore[name-defined]
-    lastMessage: Message | None = None
+    creator: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    lastMessage: Message | UnsetType | None = UNSET
     users: list[Account] = []  # type: ignore[name-defined]
     messages: list[Message] = []
 
@@ -1989,8 +2018,8 @@ class Account(FanslyObject):
     stash_id: int | None = None
 
     # Relationships (managed by store)
-    avatar: Media | None = None
-    banner: Media | None = None
+    avatar: Media | UnsetType | None = UNSET
+    banner: Media | UnsetType | None = UNSET
     pinnedPosts: list[PinnedPost] = []
     walls: list[Wall] = []
     accountMedia: list[AccountMedia] = []
@@ -1998,8 +2027,8 @@ class Account(FanslyObject):
     stories: list[MediaStory] = []
 
     # Inverse-only relationships (populated by bidirectional sync)
-    timelineStats: TimelineStats | None = None
-    mediaStoryState: MediaStoryState | None = None
+    timelineStats: TimelineStats | UnsetType | None = UNSET
+    mediaStoryState: MediaStoryState | UnsetType | None = UNSET
     posts: list[Post] = []
     sent_messages: list[Message] = []
     received_messages: list[Message] = []

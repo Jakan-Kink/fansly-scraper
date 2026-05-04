@@ -1,6 +1,7 @@
 """Common Download Functions"""
 
 import asyncio
+import traceback
 from typing import Any
 
 from config import FanslyConfig
@@ -145,8 +146,6 @@ async def process_download_accessible_media(
             return False
 
     except Exception:
-        import traceback
-
         print_error(
             f"Unexpected error during {state.download_type_str()} download: \n{traceback.format_exc()}",
             43,

@@ -8,7 +8,6 @@ import asyncio
 import atexit
 import base64
 import contextlib
-import gc
 import signal
 import sys
 import threading
@@ -218,7 +217,7 @@ def increase_file_descriptor_limit() -> None:
     """Increase the file descriptor limit to handle many open files."""
     try:
         # isort: off
-        import resource  # Unix-only module, not available on Windows
+        import resource  # noqa: PLC0415 # Unix-only module, not available on Windows
 
         # isort: on
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -405,6 +404,7 @@ async def main(config: FanslyConfig) -> int:
             with Timer(creator_name):
                 try:
                     state = DownloadState(creator_name=creator_name)
+                    creator_start_monotonic = monotonic()
 
                     try:
                         creator_start_monotonic = monotonic()
@@ -494,7 +494,7 @@ async def main(config: FanslyConfig) -> int:
                             # isort: off
                             # Conditional on stash_context_conn — avoid eager-
                             # importing stash deps when integration is disabled.
-                            from stash import StashProcessing
+                            from stash import StashProcessing  # noqa: PLC0415 # Deferred import since only used in stash context
 
                             # isort: on
                             stash_processor = StashProcessing.from_config(config, state)
@@ -803,11 +803,11 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
                     if not task.done():
                         task.cancel()
 
+                background_timeout = min(
+                    10, max_cleanup_time - (time.time() - cleanup_start)
+                )
                 # Give tasks a chance to cleanup
                 try:
-                    background_timeout = min(
-                        10, max_cleanup_time - (time.time() - cleanup_start)
-                    )
                     if background_timeout > 0:
                         await asyncio.wait(background_tasks, timeout=background_timeout)
                         print_info("Background tasks cleanup completed or timed out")
@@ -859,10 +859,6 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
 
         total_cleanup_time = time.time() - cleanup_start
         print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
-
-        # Request garbage collection as a last attempt to clean up
-        with contextlib.suppress(Exception):
-            gc.collect()
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).

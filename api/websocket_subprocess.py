@@ -47,8 +47,14 @@ import contextlib
 import multiprocessing as mp
 import queue
 from collections.abc import Callable
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+from .websocket import FanslyWebSocket
+from .websocket import FanslyWebSocket as _BaseFWS
 
 
 # Drain-poll interval for the cmd_q/evt_q blocking get() calls. Short
@@ -84,8 +90,6 @@ def _setup_child_logging(log_path: str) -> None:
     Args:
         log_path: Filesystem path the child writes its log file to.
     """
-    from loguru import logger
-
     logger.remove()
     logger.add(
         log_path,
@@ -125,12 +129,6 @@ def _run_ws_subprocess(
             is always included.
     """
     _setup_child_logging(log_path)
-
-    from http.cookies import SimpleCookie
-
-    from loguru import logger
-
-    from api.websocket import FanslyWebSocket
 
     def _on_unauth() -> None:
         evt_q.put({"kind": "auth_error", "code": 401})
@@ -293,10 +291,6 @@ class FanslyWebSocketProxy:
     is just the parent-side shim that translates calls into queue
     messages and reflects subprocess state via mirrored attributes.
     """
-
-    # Mirror FanslyWebSocket's class constants so existing references like
-    # ``FanslyWebSocket.MSG_SERVICE_EVENT`` work via either class.
-    from api.websocket import FanslyWebSocket as _BaseFWS
 
     MSG_ERROR = _BaseFWS.MSG_ERROR
     MSG_SESSION = _BaseFWS.MSG_SESSION
@@ -586,6 +580,4 @@ def get_websocket_class(use_subprocess: bool = False) -> type:
     """
     if use_subprocess:
         return FanslyWebSocketProxy
-    from api.websocket import FanslyWebSocket
-
     return FanslyWebSocket

@@ -73,7 +73,7 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """Lazy-load browser functions to avoid requiring optional plyvel dependency."""
     if name in _BROWSER_FUNCTIONS:
-        from . import browser
+        from . import browser  # noqa: PLC0415, I001  # lazy-load: browser pulls optional plyvel dep
 
         return getattr(browser, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

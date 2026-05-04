@@ -1,6 +1,7 @@
 """Configuration Validation"""
 
 # import re
+import importlib.util
 from pathlib import Path
 from time import sleep
 
@@ -147,8 +148,6 @@ def validate_adjust_token(config: FanslyConfig) -> None:
 
     if not config.token_is_valid():
         try:
-            import importlib.util
-
             if importlib.util.find_spec("plyvel") is not None:
                 plyvel_installed = True
 
@@ -166,7 +165,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
     # semi-automatically set up value for config_token (authorization_token) based on the users input
     if plyvel_installed and not config.token_is_valid():
         # fansly-downloader plyvel dependant package imports
-        from config.browser import (
+        from config.browser import (  # noqa: PLC0415  # plyvel-gated: only import when plyvel is installed
             find_leveldb_folders,
             get_auth_token_from_leveldb_folder,
             get_browser_config_paths,
@@ -356,7 +355,7 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     )
 
     if config.user_agent:
-        from helpers.checkkey import guess_check_key
+        from helpers.checkkey import guess_check_key  # noqa: PLC0415, I001  # lazy: avoids JSPyBridge Node.js daemon threads at module load
 
         guessed_key = guess_check_key(
             config.user_agent,

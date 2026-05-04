@@ -22,7 +22,7 @@ def __getattr__(name: str) -> object:
     """Lazy import for checkkey to avoid loading JSPyBridge (Node.js daemon
     threads) in every process that imports from helpers."""
     if name == "guess_check_key":
-        from .checkkey import guess_check_key
+        from .checkkey import guess_check_key  # noqa: PLC0415, I001  # lazy: avoid JSPyBridge Node.js daemon threads in every process
 
         return guess_check_key
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

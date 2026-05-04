@@ -5,6 +5,7 @@ cache, and setting relationship objects auto-updates FK scalars.
 """
 
 import pytest
+from stash_graphql_client.types.unset import UNSET, is_set
 
 from metadata.models import (
     Account,
@@ -116,15 +117,17 @@ class TestFkToRelationshipSync:
         media.accountId = account.id  # re-set same value — should still resolve
         assert media.account is account
 
-    def test_fk_with_uncached_entity_sets_relationship_to_none(
+    def test_fk_with_uncached_entity_leaves_relationship_unset(
         self, store_with_account
     ):
         _store, _account = store_with_account
         uncached_id = snowflake_id()
         media = Media(id=snowflake_id(), accountId=uncached_id)
-        # Account with uncached_id is not in store → relationship should be None
-        assert media.account is None
-        # But FK should still hold the value
+        # Cache miss → relationship stays UNSET (lazy not-loaded), distinct
+        # from None (explicit clear). FK still holds the value, so
+        # to_db_dict won't clobber it.
+        assert media.account is UNSET
+        assert not is_set(media.account)
         assert media.accountId == uncached_id
 
     def test_account_media_resolves_media_and_preview(self, store_with_account):

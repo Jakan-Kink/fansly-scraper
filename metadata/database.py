@@ -146,7 +146,7 @@ class Database:
 
         # Preload all entities into identity map so model_validate merges
         # API data with DB state (preserves is_downloaded, content_hash, etc.)
-        from .models import (
+        from .models import (  # noqa: PLC0415  # circular: models → entity_store → database
             Account,
             AccountMedia,
             AccountMediaBundle,

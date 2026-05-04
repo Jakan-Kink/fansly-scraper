@@ -16,6 +16,7 @@ import contextlib
 import logging
 import os
 import sys
+import traceback
 import warnings as _warnings_module
 from pathlib import Path
 from typing import Any
@@ -363,7 +364,7 @@ def setup_handlers() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Import inside the function to avoid circular imports.
-    from textio.logging import SizeTimeRotatingHandler
+    from textio.logging import SizeTimeRotatingHandler  # noqa: PLC0415, I001  # circular: textio.logging → config.logging
 
     # Loguru's multi-process queue is off in tests (enqueue=True pickles
     # the sink, which breaks with RichHandler + module-scoped fixtures).
@@ -403,7 +404,7 @@ def setup_handlers() -> None:
     console_sink: Any
     use_colorize: bool
     try:
-        from helpers.rich_progress import create_rich_handler
+        from helpers.rich_progress import create_rich_handler  # noqa: PLC0415, I001  # circular: helpers.rich_progress → config.logging
 
         # Pick rich_style (not color) — Rich's parser wants underscores.
         level_styles = {
@@ -442,14 +443,12 @@ def setup_handlers() -> None:
         # Loud fallback: raw stdout bypasses Live coordination, so the
         # symptom (striped bars) is visible before the cause. Silent
         # fallback hid this for months before we caught it.
-        import traceback as _tb
-
         print(
             f"[logging] RichHandler setup failed — falling back to plain stdout "
             f"(bars will jitter). Cause: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
-        _tb.print_exc(file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         console_sink = sys.stdout
         format_record = "<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>"
         use_colorize = True
@@ -701,7 +700,7 @@ def update_logging_config(config: Any, enabled: bool) -> None:
         config: The FanslyConfig instance to use
         enabled: Whether debug mode should be enabled
     """
-    from config.fanslyconfig import FanslyConfig
+    from config.fanslyconfig import FanslyConfig  # noqa: PLC0415, I001  # circular: config.fanslyconfig → config.logging
 
     if not isinstance(config, FanslyConfig):
         raise TypeError("config must be an instance of FanslyConfig")

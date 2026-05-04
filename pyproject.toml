@@ -241,7 +241,6 @@ max-complexity = 14
 ]
 "metadata/*.py" = [
     "N815",     # mixedCase variable names match Fansly API response format
-    "PLC0415",  # imports inside functions to avoid circular dependencies
 ]
 "tests/fixtures/*.py" = [
     "N815",    # test factories mirror metadata models with camelCase fields
@@ -261,31 +260,9 @@ max-complexity = 14
 ]
 "stash/**/*.py" = [
     "TID252",   # relative imports are standard in this package structure
-    "PLC0415",  # imports inside functions to avoid circular dependencies
 ]
 "tests/stash/**/*.py" = [
     "TID252",   # relative imports for test fixtures
-]
-"config/*.py" = [
-    "PLC0415",  # imports inside functions to avoid circular dependencies
-]
-"download/*.py" = [
-    "PLC0415",  # imports inside functions to avoid circular dependencies
-]
-"api/*.py" = [
-    "PLC0415",  # conditional imports and circular import avoidance
-]
-"helpers/*.py" = [
-    "PLC0415",  # conditional imports and circular import avoidance
-]
-"fileio/*.py" = [
-    "PLC0415",  # imports inside functions to avoid circular dependencies
-]
-"scripts/*.py" = [
-    "PLC0415",  # script-specific lazy imports
-]
-"fansly_downloader_ng.py" = [
-    "PLC0415",  # lazy imports for optional dependencies and circular imports
 ]
 "**/conftest.py" = ["F401", "F811"]
 
