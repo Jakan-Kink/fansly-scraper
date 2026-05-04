@@ -7,7 +7,15 @@ import traceback
 from typing import TYPE_CHECKING
 
 from stash_graphql_client import StashContext
-from stash_graphql_client.types import Gallery, GalleryChapter, Image, Performer, Scene
+from stash_graphql_client.types import (
+    Gallery,
+    GalleryChapter,
+    Image,
+    ImageFile,
+    Performer,
+    Scene,
+    VideoFile,
+)
 
 from helpers.rich_progress import get_progress_manager
 from metadata import Account, Database
@@ -172,7 +180,18 @@ class StashProcessing(
             self._studio = None
             self._scene_code_index.clear()
             self._image_code_index.clear()
-            for entity_type in (Gallery, GalleryChapter, Scene, Image):
+            # Drop both parents and their file leaves — Scene/Image preload
+            # via GraphQL fragment caches VideoFile/ImageFile as separate
+            # entries; orphaning them across creators leaks ~3.9k objects
+            # per pass on a typical fan with ~3k images and ~800 scenes.
+            for entity_type in (
+                Gallery,
+                GalleryChapter,
+                Scene,
+                Image,
+                VideoFile,
+                ImageFile,
+            ):
                 self.store.invalidate_type(entity_type)
             logger.debug("Invalidated per-creator entity caches and media code indexes")
 
