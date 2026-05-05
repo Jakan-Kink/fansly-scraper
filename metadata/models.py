@@ -521,7 +521,7 @@ class FanslyObject(BaseModel):
         extra="ignore",
     )
 
-    _snapshot: dict = PrivateAttr(default_factory=dict)
+    _snapshot: dict | None = PrivateAttr(default=None)
     _is_new: bool = PrivateAttr(default=False)
 
     id: SnowflakeId | None = None
