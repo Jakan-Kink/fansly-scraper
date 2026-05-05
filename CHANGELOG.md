@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-05-04
+
 ### Added
 
 - `stash_context.mapped_path` config field: translates the local
@@ -90,6 +92,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stash/processing/base.py` imports and catches `StashCapabilityError`,
   which only exists in SGC ≥ 0.12.2; the older floor allowed installs to
   resolve to a version missing that symbol.
+
+### Performance
+
+- **30-creator daemon pass: ~70 min → ~12 min (6× speedup); peak RSS:
+  9 GB → ~2.4 GB.** Cumulative effect of the entries below.
+- FanslyObject `_snapshot` now uses `PrivateAttr(default=None)` with
+  initialization in `model_post_init`, rather than
+  `default_factory=dict`. Pydantic 2.13's `init_private_attributes`
+  calls `inspect.signature` on every `default_factory` per instance to
+  decide whether the factory takes a validated-data argument; for
+  C-implemented built-ins (`dict`) that lookup falls into
+  `inspect._signature_fromstr` (~50 KB allocation per call, not cached
+  upstream). At identity-map preload scale (~682K FanslyObject
+  constructions across all model types) this dominated per-instance
+  cost. Mirrors `stash-graphql-client@c701c4606` (the upstream sibling
+  fix that ships for SGC-side entities).
+- 18 mutable list field defaults converted from `= []` to
+  `Field(default_factory=list)`. Pydantic 2 deep-copies mutable field
+  defaults per instance to prevent shared state; `Field(default_factory=
+  list)` calls the factory directly without going through `copy.
+  deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts,
+  `_keep_alive` table, dispatch walks) per startup preload — confirmed
+  by memray attribution dropping from 119 MB to 13 MB through the
+  `copy.py` subtree.
+- `PostgresEntityStore._type_index: dict[type, set[int]]` secondary
+  index. Per-type iteration paths (`filter`, `find` cache-first,
+  `find_one`, `count`, `find_iter`, `invalidate_type`, `cache_stats`)
+  now run in O(this type) instead of O(`_cache`). Mirrors MMsD
+  `postgres_entity_store.py:333` / SGC `store.py` `_type_index`.
+  Maintained alongside `_cache` in `cache_instance` / `invalidate*`.
+- Monotonic-clock TTL with per-type override:
+  `PostgresEntityStore(default_ttl=...)` constructor argument and
+  `store.set_ttl(model_type, ttl)` per-type setter. `_is_expired` uses
+  `time.monotonic()` (immune to wall-clock changes). Daemon poll
+  cadences span 30s (stories) to 10min (FYP), so per-type granularity
+  matters; `get_from_cache` evicts and returns `None` once an entry's
+  TTL has elapsed.
+- `cache_stats()` rewritten to walk `_type_index` (O(types)) instead of
+  scanning `_cache` (O(N)); now also exposes the existing `_stats`
+  hit/miss counters in the same payload.
+- Singular `belongs_to` relationships go tri-state — `UNSET` /
+  `None` / object — using SGC's `UnsetType` sentinel imported from
+  `stash_graphql_client.types.unset`. `__setattr__` distinguishes the
+  three states; cache hits link the relationship, cache misses leave
+  `UNSET` so consumers use `is_set()` to distinguish "not yet loaded"
+  from "explicitly cleared". `_autolink_relationships(obj)` runs after
+  `model_validate` to resolve `UNSET` → cached object after DB-load,
+  preventing `to_db_dict`'s FK-derivation loop from clobbering FK
+  columns to NULL.
+- Stash creator-media indexes (`_scene_code_index`,
+  `_image_code_index`) now store entity IDs rather than full Pydantic
+  refs. Storing full objects pinned them past `invalidate_type`, so the
+  per-creator heap drop was deferred to end-of-stash. `find_*_by_media_
+  codes` rehydrates via `store.get_many` (cache-first, batched DB-fetch
+  for misses).
+- Per-creator stash invalidation list extended to include `VideoFile`
+  and `ImageFile` leaves. `Scene`/`Image` preload via the GraphQL
+  fragment caches the file-leaf children as separate identity-map
+  entries; orphaning them across creators leaked ~3.9k objects per pass
+  on a typical fan with ~3k images and ~800 scenes.
 
 ### Fixed
 
@@ -314,6 +376,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...HEAD
+[0.13.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3
 [0.13.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0
