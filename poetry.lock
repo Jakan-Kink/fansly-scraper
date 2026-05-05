@@ -2501,14 +2501,14 @@ hook-testing = ["execnet (>=1.5.0)", "psutil", "pytest (>=2.7.3)"]
 
 [[package]]
 name = "pyinstaller-hooks-contrib"
-version = "2026.4"
+version = "2026.5"
 description = "Community maintained hooks for PyInstaller"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
 files = [
-    {file = "pyinstaller_hooks_contrib-2026.4-py3-none-any.whl", hash = "sha256:1de1a5e49a878122010b88c7e295502bc69776c157c4a4dc78741a4e6178b00f"},
-    {file = "pyinstaller_hooks_contrib-2026.4.tar.gz", hash = "sha256:766c281acb1ecc32e21c8c667056d7ebf5da0aabd5e30c219f9c2a283620eeaa"},
+    {file = "pyinstaller_hooks_contrib-2026.5-py3-none-any.whl", hash = "sha256:ea1535783fbdac4626351709e83f3ea80b681d3a4745763ebb407b5e27342eb9"},
+    {file = "pyinstaller_hooks_contrib-2026.5.tar.gz", hash = "sha256:f066dfca8f7c45ff6336c9cf9fe25b4e48bfeb322a1aa24faaedfb8a8d1b0b08"},
 ]
 
 [package.dependencies]
@@ -3228,14 +3228,14 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "stash-graphql-client"
-version = "0.12.4"
+version = "0.12.5"
 description = "Async Python client for Stash GraphQL API"
 optional = false
 python-versions = "<4.0,>=3.12"
 groups = ["main"]
 files = [
-    {file = "stash_graphql_client-0.12.4-py3-none-any.whl", hash = "sha256:7adfd523423ade94533b616ae5ec0ff81259fee1c82cfa6e9702094b7790bed7"},
-    {file = "stash_graphql_client-0.12.4.tar.gz", hash = "sha256:72f06f05b90b3fcbd503f604ba7d6601dd956a279484594429b0280b67f93179"},
+    {file = "stash_graphql_client-0.12.5-py3-none-any.whl", hash = "sha256:7bcaa31f4ed54a791ab6bb816d81f5fc4ebc2c7988de55eb7894362e0c2ab310"},
+    {file = "stash_graphql_client-0.12.5.tar.gz", hash = "sha256:16d1199619c428dd6a93b4a6ba5499dd14c123e7a3a04cd32006571597d1560a"},
 ]
 
 [package.dependencies]
@@ -3463,14 +3463,14 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 
 [[package]]
 name = "virtualenv"
-version = "21.3.0"
+version = "21.3.1"
 description = "Virtual Python Environment builder"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
 files = [
-    {file = "virtualenv-21.3.0-py3-none-any.whl", hash = "sha256:4d28ee41f6d9ec8f1f00cd472b9ffbcedda1b3d3b9a575b5c94a2d004fd51bd7"},
-    {file = "virtualenv-21.3.0.tar.gz", hash = "sha256:733750db978ec95c2d8eb4feadaa57091002bce404cb39ba69899cf7bd28944e"},
+    {file = "virtualenv-21.3.1-py3-none-any.whl", hash = "sha256:d1a71cf58f2f9228fff23a1f6ec15d39785c6b32e03658d104974247145edd35"},
+    {file = "virtualenv-21.3.1.tar.gz", hash = "sha256:c2305bc1fddeec40699b8370d13f8d431b0701f00ce895061ce493aeded4426b"},
 ]
 
 [package.dependencies]
@@ -3780,4 +3780,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "885f0162ccff6dc3ca87fdbb6df897474c330c2be0522a5298f88a5f3f25f86d"
+content-hash = "da604021dcd403a88950a20161980b9e06d66862d021ba1b01097e2288e3dadd"
