@@ -1163,7 +1163,7 @@ class Hashtag(FanslyObject):
     id: int | None = None  # auto-increment, not a Snowflake
     value: str
     stash_id: int | None = None
-    posts: list[Post] = []  # type: ignore[name-defined]
+    posts: list[Post] = Field(default_factory=list)  # type: ignore[name-defined]
 
     def __repr__(self) -> str:
         return f"<Hashtag {self.id}: {self.value}>"
@@ -1402,8 +1402,8 @@ class Media(FanslyObject):
 
     # Relationships (managed by _sync_associations on save)
     account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
-    variants: list[Media] = []
-    locations: list[MediaLocation] = []
+    variants: list[Media] = Field(default_factory=list)
+    locations: list[MediaLocation] = Field(default_factory=list)
 
     _WRITE_EXCLUDED: ClassVar[set[str]] = {
         "download_url",
@@ -1577,7 +1577,7 @@ class Wall(FanslyObject):
 
     # Relationships
     account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
-    posts: list[Post] = []  # type: ignore[name-defined]
+    posts: list[Post] = Field(default_factory=list)  # type: ignore[name-defined]
 
 
 class Attachment(FanslyObject):
@@ -1784,9 +1784,9 @@ class Post(FanslyObject):
     account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     replyTo: Post | UnsetType | None = UNSET
     replyToRoot: Post | UnsetType | None = UNSET
-    attachments: list[Attachment] = []
-    hashtags: list[Hashtag] = []
-    walls: list[Wall] = []
+    attachments: list[Attachment] = Field(default_factory=list)
+    hashtags: list[Hashtag] = Field(default_factory=list)
+    walls: list[Wall] = Field(default_factory=list)
     mentions: list[PostMention] = Field(default=[], alias="accountMentions")
 
     @classmethod
@@ -1860,7 +1860,7 @@ class Message(FanslyObject):
     group: Group | UnsetType | None = UNSET  # type: ignore[name-defined]
     sender: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     recipient: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
-    attachments: list[Attachment] = []
+    attachments: list[Attachment] = Field(default_factory=list)
 
     def __repr__(self) -> str:
         return f"<Message {self.id}>"
@@ -1935,8 +1935,8 @@ class Group(FanslyObject):
     # Relationships
     creator: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
     lastMessage: Message | UnsetType | None = UNSET
-    users: list[Account] = []  # type: ignore[name-defined]
-    messages: list[Message] = []
+    users: list[Account] = Field(default_factory=list)  # type: ignore[name-defined]
+    messages: list[Message] = Field(default_factory=list)
 
 
 class Account(FanslyObject):
@@ -2020,18 +2020,18 @@ class Account(FanslyObject):
     # Relationships (managed by store)
     avatar: Media | UnsetType | None = UNSET
     banner: Media | UnsetType | None = UNSET
-    pinnedPosts: list[PinnedPost] = []
-    walls: list[Wall] = []
-    accountMedia: list[AccountMedia] = []
-    accountMediaBundles: list[AccountMediaBundle] = []
-    stories: list[MediaStory] = []
+    pinnedPosts: list[PinnedPost] = Field(default_factory=list)
+    walls: list[Wall] = Field(default_factory=list)
+    accountMedia: list[AccountMedia] = Field(default_factory=list)
+    accountMediaBundles: list[AccountMediaBundle] = Field(default_factory=list)
+    stories: list[MediaStory] = Field(default_factory=list)
 
     # Inverse-only relationships (populated by bidirectional sync)
     timelineStats: TimelineStats | UnsetType | None = UNSET
     mediaStoryState: MediaStoryState | UnsetType | None = UNSET
-    posts: list[Post] = []
-    sent_messages: list[Message] = []
-    received_messages: list[Message] = []
+    posts: list[Post] = Field(default_factory=list)
+    sent_messages: list[Message] = Field(default_factory=list)
+    received_messages: list[Message] = Field(default_factory=list)
 
     def __repr__(self) -> str:
         return f"<Account {self.id}: {self.username}>"
