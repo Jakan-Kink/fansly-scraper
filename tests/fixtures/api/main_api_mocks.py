@@ -589,13 +589,8 @@ async def main_integration_env(
     config.user_agent = "Mozilla/5.0 " + "A" * 60
     config.check_key = "check-key-placeholder-123"
     # Disable retry loops so empty-response paths terminate immediately.
-    # Tests that want to exercise retry logic should set these back.
     config.timeline_retries = 0
     config.timeline_delay_seconds = 0
-    config.wall_retries = 0
-    config.messages_retries = 0
-    config.collection_retries = 0
-    config.single_retries = 0
 
     # Seed the account-lookup registry with the client + default creator.
     # Tests can add more via ``env.add_creator(name, id)``.

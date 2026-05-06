@@ -110,7 +110,7 @@ def auth_response(
     Matches api/websocket.py:449 which reads ``session.id`` and
     ``session.websocketSessionId`` from the response to populate the
     ``FanslyWebSocket.session_id`` / ``websocket_session_id`` attributes.
-    ``FanslyApi.get_active_session_async`` waits up to 1 second for
+    ``FanslyApi.get_active_session`` waits up to 1 second for
     ``session_id`` to be populated (api/fansly.py:564-567).
 
     Args:
@@ -149,7 +149,7 @@ def fake_websocket_session(
     The Fansly WebSocket auth flow (api/fansly.py:548-584, api/websocket.py:449)
     reads ``session.id`` + ``session.websocketSessionId`` from the first
     type-1 message and populates ``FanslyWebSocket.session_id``. This helper
-    scripts that response so ``get_active_session_async`` succeeds.
+    scripts that response so ``get_active_session`` succeeds.
 
     Use this from any test (integration or unit) that drives code through
     ``FanslyApi.setup_api`` or ``FanslyWebSocket.connect`` without a real

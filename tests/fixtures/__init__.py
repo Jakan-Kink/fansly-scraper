@@ -25,6 +25,7 @@ from .api import (
     FakeWS,
     MainIntegrationEnv,
     auth_response,
+    build_mock_ws_class,
     create_mock_json_response,
     dump_fansly_calls,
     fake_websocket_session,
@@ -35,6 +36,7 @@ from .api import (
     fansly_json,
     main_integration_env,
     make_fake_ws_factory,
+    make_proxy,
     mock_fansly_account_response,
     mock_fansly_timeline_response,
     mount_client_account_me_route,
@@ -42,6 +44,7 @@ from .api import (
     mount_empty_following_route,
     respx_fansly_api,
     run_main_and_cleanup,
+    spawn_ctx_with_mock_process,
     ws_message,
 )
 from .core import (
@@ -199,6 +202,7 @@ from .utils import (
     cleanup_rate_limiter_displays,
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
+    close_qs,
     fake_monotonic_clock,
     get_unique_test_id,
     get_worker_id,
@@ -236,6 +240,7 @@ mod_api_fixtures = [
     "FakeWS",
     "MainIntegrationEnv",
     "auth_response",
+    "build_mock_ws_class",
     "create_mock_json_response",
     "dump_fansly_calls",
     "fake_websocket_session",
@@ -246,6 +251,7 @@ mod_api_fixtures = [
     "fansly_json",
     "main_integration_env",
     "make_fake_ws_factory",
+    "make_proxy",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "mount_client_account_me_route",
@@ -253,6 +259,7 @@ mod_api_fixtures = [
     "mount_empty_following_route",
     "respx_fansly_api",
     "run_main_and_cleanup",
+    "spawn_ctx_with_mock_process",
     "ws_message",
 ]
 
@@ -431,6 +438,7 @@ mod_cleanup_fixtures = [
 
 mod_utils_helpers = [
     "SyncExecutor",
+    "close_qs",
     "get_unique_test_id",
     "get_worker_id",
     "snowflake_id",

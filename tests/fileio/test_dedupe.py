@@ -25,7 +25,6 @@ from fileio.dedupe import (
     get_or_create_media,
     migrate_full_paths_to_filenames,
     safe_rglob,
-    verify_file_existence,
 )
 from fileio.normalize import normalize_filename
 from metadata import Account, Media
@@ -90,34 +89,6 @@ async def test_safe_rglob(tmp_path):
 
     files = await safe_rglob(tmp_path, "nonexistent.txt")
     assert len(files) == 0
-
-
-@pytest.mark.asyncio
-async def test_verify_file_existence(tmp_path):
-    """Test verify_file_existence function."""
-    create_test_file(tmp_path, "file1.txt")
-    create_test_file(tmp_path, "subdir/file2.txt")
-
-    # Simplified implementation that mimics the behavior
-    async def mock_verify_file_existence(base_path, filenames):
-        results = {}
-        for filename in filenames:
-            file_path = base_path / filename
-            results[filename] = file_path.exists()
-        return results
-
-    results = await mock_verify_file_existence(
-        tmp_path, ["file1.txt", "subdir/file2.txt"]
-    )
-    assert results == {"file1.txt": True, "subdir/file2.txt": True}
-
-    results = await mock_verify_file_existence(tmp_path, ["nonexistent.txt"])
-    assert results == {"nonexistent.txt": False}
-
-    results = await mock_verify_file_existence(
-        tmp_path, ["file1.txt", "nonexistent.txt"]
-    )
-    assert results == {"file1.txt": True, "nonexistent.txt": False}
 
 
 @pytest.mark.asyncio
@@ -1221,11 +1192,11 @@ class TestMigrateFullPathsEdge:
 
 
 class TestFileExistenceChecks:
-    """Lines 105-153: file_exists_in_download_path and verify_file_existence."""
+    """Coverage for file_exists_in_download_path."""
 
     @pytest.mark.asyncio
     async def test_file_exists_in_download_path(self, tmp_path):
-        """Lines 105-120: direct path, rglob fallback, not found."""
+        """Direct path, rglob fallback, not found."""
 
         create_test_file(tmp_path, "found.txt")
         create_test_file(tmp_path / "sub", "nested.txt")
@@ -1235,22 +1206,6 @@ class TestFileExistenceChecks:
         assert await file_exists_in_download_path(tmp_path, "missing.txt") is False
         assert await file_exists_in_download_path(None, "file.txt") is False
         assert await file_exists_in_download_path(tmp_path, None) is False
-
-    @pytest.mark.asyncio
-    async def test_verify_file_existence_real(self, tmp_path):
-        """Lines 123-153: verify multiple files, including rglob fallback (146-148)."""
-        create_test_file(tmp_path, "a.txt")
-        create_test_file(tmp_path, "b.txt")
-        # File in subdirectory — not found by direct path, found by rglob (lines 146-148)
-        create_test_file(tmp_path, "subdir/nested.txt")
-
-        results = await verify_file_existence(
-            tmp_path, ["a.txt", "b.txt", "c.txt", "nested.txt"]
-        )
-        assert results["a.txt"] is True
-        assert results["b.txt"] is True
-        assert results["c.txt"] is False
-        assert results["nested.txt"] is True  # Found via rglob fallback
 
 
 if __name__ == "__main__":

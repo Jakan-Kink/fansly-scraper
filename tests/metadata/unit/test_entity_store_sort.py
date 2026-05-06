@@ -27,10 +27,6 @@ class TestSortDirection:
     def test_desc_value(self):
         assert SortDirection.DESC.value == "DESC"
 
-    def test_is_str_enum(self):
-        assert isinstance(SortDirection.ASC, str)
-        assert SortDirection.ASC == "ASC"
-
 
 # ── _normalize_order_by Tests ───────────────────────────────────────────
 

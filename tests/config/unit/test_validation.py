@@ -15,7 +15,7 @@ Replacement strategy — only mock at true edges:
 - stdlib leaves: ``importlib.util.find_spec``, ``builtins.input``,
   ``config.validation.sleep``
 - Side-effectful leaves: ``config.validation.open_get_started_url``
-  (browser), ``config.validation.ask_correct_dir`` (tkinter dialog)
+  (browser), ``config.validation.ask_correct_dir`` (prompt_toolkit prompt)
 
 Everything else runs real code:
 - ``FanslyConfig`` is real — set ``token = "a" * 60`` for a valid-length
@@ -837,7 +837,7 @@ def test_validate_adjust_download_directory_invalid_prompts_for_replacement(
 
     Uses a non-existent Path as the bad directory; a real tmp_path
     directory as the replacement. Patches ``sleep`` (so tests don't
-    pause 10s) and ``ask_correct_dir`` (would open a tkinter dialog).
+    pause 10s) and ``ask_correct_dir`` (would open a prompt_toolkit prompt).
     """
     validation_config.download_directory = tmp_path / "nonexistent"
     replacement = tmp_path / "picked"

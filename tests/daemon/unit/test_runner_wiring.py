@@ -46,6 +46,7 @@ from daemon.runner import (
     _handle_timeline_only_item,
     _is_creator_in_scope,
     _make_ws_handler,
+    _process_timeline_candidate,
     _simulator_tick_loop,
     _worker_loop,
     run_daemon,
@@ -958,58 +959,81 @@ class TestSessionBaseline:
 
     @pytest.mark.asyncio
     async def test_session_baseline_first_call_then_none(
-        self, config_wired, entity_store, saved_account
+        self, config_wired, entity_store, saved_account, monkeypatch
     ):
-        """First should_process_creator call uses session_baseline; second uses None.
-
-        We cannot drive run_daemon's internal state from outside, so we verify
-        the consumption logic by invoking a spec'd AsyncMock with a shared
-        baseline_consumed set, mirroring how _timeline_poll_loop works.
-        """
         creator_id = saved_account.id
         session_baseline = datetime(2020, 1, 1, tzinfo=UTC)
         baseline_consumed: set[int] = set()
+        captured: list[datetime | None] = []
 
-        spy = AsyncMock(spec=should_process_creator, return_value=True)
+        async def _in_scope(_config, _cid):
+            return True
 
-        # First call - creator not yet in consumed
-        baseline = session_baseline if creator_id not in baseline_consumed else None
-        baseline_consumed.add(creator_id)
-        await spy(config_wired, creator_id, session_baseline=baseline)
+        async def _capture(_config, _cid, *, session_baseline=None, **_kwargs):
+            captured.append(session_baseline)
+            return True
 
-        # Second call - creator already consumed
-        baseline = session_baseline if creator_id not in baseline_consumed else None
-        baseline_consumed.add(creator_id)
-        await spy(config_wired, creator_id, session_baseline=baseline)
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _in_scope)
+        monkeypatch.setattr("daemon.runner.should_process_creator", _capture)
 
-        assert spy.call_args_list[0].kwargs["session_baseline"] == session_baseline, (
-            "First call should use session_baseline"
-        )
-        assert spy.call_args_list[1].kwargs["session_baseline"] is None, (
-            "Second call should use None (baseline consumed)"
-        )
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = ErrorBudget(timeout_seconds=3600)
+
+        for _ in range(2):
+            await _process_timeline_candidate(
+                config_wired,
+                creator_id,
+                prefetched=[],
+                session_baseline=session_baseline,
+                baseline_consumed=baseline_consumed,
+                queue=queue,
+                budget=budget,
+            )
+
+        assert captured == [session_baseline, None]
+        assert baseline_consumed == {creator_id}
 
     @pytest.mark.asyncio
     async def test_baseline_consumed_set_is_per_creator(
-        self, config_wired, entity_store
+        self, config_wired, entity_store, monkeypatch
     ):
-        """Different creators consume baseline independently."""
         session_baseline = datetime(2020, 1, 1, tzinfo=UTC)
         baseline_consumed: set[int] = set()
         creator_a = snowflake_id()
         creator_b = snowflake_id()
+        captured: list[tuple[int, datetime | None]] = []
 
-        def _get_baseline(cid: int) -> datetime | None:
-            b = session_baseline if cid not in baseline_consumed else None
-            baseline_consumed.add(cid)
-            return b
+        async def _in_scope(_config, _cid):
+            return True
 
-        # First access for each should get baseline
-        assert _get_baseline(creator_a) == session_baseline
-        assert _get_baseline(creator_b) == session_baseline
-        # Second access for each should get None
-        assert _get_baseline(creator_a) is None
-        assert _get_baseline(creator_b) is None
+        async def _capture(_config, cid, *, session_baseline=None, **_kwargs):
+            captured.append((cid, session_baseline))
+            return True
+
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _in_scope)
+        monkeypatch.setattr("daemon.runner.should_process_creator", _capture)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = ErrorBudget(timeout_seconds=3600)
+
+        for cid in (creator_a, creator_b, creator_a, creator_b):
+            await _process_timeline_candidate(
+                config_wired,
+                cid,
+                prefetched=[],
+                session_baseline=session_baseline,
+                baseline_consumed=baseline_consumed,
+                queue=queue,
+                budget=budget,
+            )
+
+        assert captured == [
+            (creator_a, session_baseline),
+            (creator_b, session_baseline),
+            (creator_a, None),
+            (creator_b, None),
+        ]
+        assert baseline_consumed == {creator_a, creator_b}
 
 
 # ---------------------------------------------------------------------------

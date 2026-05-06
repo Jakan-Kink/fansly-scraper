@@ -10,7 +10,6 @@ from .config import (
     save_config_or_raise,
     username_has_valid_chars,
     username_has_valid_length,
-    copy_old_config_values,
     load_config,
 )
 from .fanslyconfig import FanslyConfig
@@ -49,7 +48,6 @@ _BROWSER_FUNCTIONS = {
 __all__ = [
     "DownloadMode",
     "FanslyConfig",
-    "copy_old_config_values",
     "db_logger",
     "get_log_level",
     "init_logging_config",

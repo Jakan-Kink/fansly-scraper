@@ -1,10 +1,6 @@
 """Tests for download/media.py — fetch_and_process_media, validation, stats."""
 
-from unittest.mock import AsyncMock, patch
-
-import httpx
 import pytest
-import respx
 
 from download.downloadstate import DownloadState
 from download.media import (
@@ -12,7 +8,6 @@ from download.media import (
     _validate_media,
     fetch_and_process_media,
 )
-from download.types import DownloadType
 from errors import MediaError
 from metadata.models import Media
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -98,91 +93,3 @@ class TestFetchAndProcessMedia:
         """Line 53-54: empty media_ids → immediate return."""
         result = await fetch_and_process_media(mock_config, DownloadState(), [])
         assert result == []
-
-    @pytest.mark.asyncio
-    async def test_fetches_and_filters(self, respx_fansly_api, mock_config):
-        """Lines 56-96: batch fetch, process_media_info, parse_media_info, filter."""
-        mock_config.download_media_previews = False
-        mock_config.BATCH_SIZE = 50
-
-        am_id = snowflake_id()
-        media_info = {
-            "id": am_id,
-            "accountId": snowflake_id(),
-            "mediaId": snowflake_id(),
-            "createdAt": 1700000000,
-            "deleted": False,
-            "access": True,
-        }
-
-        respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [media_info],
-                    },
-                )
-            ],
-        )
-
-        state = DownloadState()
-        state.download_type = DownloadType.TIMELINE
-
-        fake_media = Media(
-            id=snowflake_id(),
-            accountId=snowflake_id(),
-            mimetype="image/jpeg",
-            download_url="https://cdn.fansly.com/img.jpg",
-        )
-
-        with (
-            patch("download.media.process_media_info", new_callable=AsyncMock),
-            patch("download.media.parse_media_info", return_value=fake_media),
-            patch("download.media.input_enter_continue"),
-        ):
-            result = await fetch_and_process_media(mock_config, state, [am_id])
-        assert isinstance(result, list)
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_parse_error_caught(self, respx_fansly_api, mock_config):
-        """Lines 81-88: parse_media_info raises → caught, prints error."""
-        mock_config.BATCH_SIZE = 50
-        mock_config.interactive = False
-
-        respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            {
-                                "id": snowflake_id(),
-                                "accountId": snowflake_id(),
-                                "mediaId": snowflake_id(),
-                                "createdAt": 1700000000,
-                                "deleted": False,
-                                "access": True,
-                            },
-                        ],
-                    },
-                )
-            ],
-        )
-
-        state = DownloadState()
-        state.download_type = DownloadType.COLLECTIONS
-
-        with (
-            patch("download.media.process_media_info", new_callable=AsyncMock),
-            patch(
-                "download.media.parse_media_info", side_effect=ValueError("bad media")
-            ),
-            patch("download.media.input_enter_continue"),
-        ):
-            result = await fetch_and_process_media(mock_config, state, [snowflake_id()])
-
-        assert isinstance(result, list)

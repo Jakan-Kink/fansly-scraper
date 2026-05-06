@@ -49,7 +49,8 @@ def run_migrations_offline() -> None:
     script output.
     """
     url = config.get_main_option("sqlalchemy.url")
-    if not url:
+    # FANSLY_PG_* fallback at module load always sets URL; defensive only.
+    if not url:  # pragma: no cover
         raise ValueError("No database URL configured in alembic.ini or environment")
 
     context.configure(
@@ -73,7 +74,8 @@ def run_migrations_online() -> None:
     if context.config.attributes.get("connection") is None:
         # Create engine from config URL
         url = config.get_main_option("sqlalchemy.url")
-        if not url:
+        # FANSLY_PG_* fallback at module load always sets URL; defensive only.
+        if not url:  # pragma: no cover
             raise ValueError("No database URL configured in alembic.ini or environment")
 
         connectable = create_engine(

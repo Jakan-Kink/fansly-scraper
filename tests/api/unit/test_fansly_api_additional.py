@@ -1,7 +1,7 @@
 """Additional unit tests for FanslyApi class to improve coverage"""
 
 import types
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -9,6 +9,7 @@ import respx
 
 from api.fansly import FanslyApi
 from api.rate_limiter import RateLimiter
+from api.websocket import FanslyWebSocket
 from config.fanslyconfig import FanslyConfig
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
@@ -173,24 +174,21 @@ class TestFanslyApiAdditional:
         assert "alt_token" in request.headers["authorization"]
 
     @pytest.mark.asyncio
-    async def test_get_active_session_async_error(self, fansly_api):
-        """Test get_active_session_async handles WebSocket errors"""
-        # Create a mock websocket instance with proper async methods
-        mock_ws_instance = AsyncMock()
-        mock_ws_instance.__aenter__.return_value = mock_ws_instance
+    async def test_get_active_session_error(self, fansly_api):
+        """get_active_session wraps a WS-start failure as RuntimeError.
 
-        # Return error response from WebSocket
-        mock_ws_instance.recv.return_value = '{"t":0,"d":"Error message"}'
-
-        # Mock the websocket connection
+        Patching ``start_in_thread`` to raise hits the production catch
+        at api/fansly.py:583-589 without waiting for the 5s auth timeout.
+        """
         with (
-            patch("websockets.client.connect", return_value=mock_ws_instance),
-            pytest.raises(
-                RuntimeError,
-                match=r"WebSocket (authentication failed|session setup failed)",
+            patch.object(
+                FanslyWebSocket,
+                "start_in_thread",
+                side_effect=Exception("simulated WS start failure"),
             ),
+            pytest.raises(RuntimeError, match=r"WebSocket session setup failed"),
         ):
-            await fansly_api.get_active_session_async()
+            await fansly_api.get_active_session()
 
     @respx.mock
     def test_get_with_ngsw_additional_parameters(self, fansly_api):
@@ -328,18 +326,6 @@ class TestFanslyApiAdditional:
         assert hash1 != hash2
         assert hash1 != hash3
         assert hash2 != hash3
-
-    @pytest.mark.asyncio
-    async def test_get_active_session(self, fansly_api):
-        """Test get_active_session calls get_active_session_async"""
-        with patch.object(
-            fansly_api,
-            "get_active_session_async",
-            new=AsyncMock(return_value="test_session"),
-        ) as mock_async:
-            result = await fansly_api.get_active_session()
-            mock_async.assert_called_once()
-            assert result == "test_session"
 
     @respx.mock
     def test_cors_options_request_includes_headers(self, fansly_api):

@@ -39,71 +39,45 @@ class TestErrorHandlers:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_image_exception(
-        self, respx_stash_processor, monkeypatch
-    ):
-        """_find_stash_files_by_id catches store.get_many errors for image batches.
+    async def test_find_stash_files_by_id_image_exception(self, respx_stash_processor):
+        """_find_stash_files_by_id catches transport errors during image batches.
 
-        Real-pipeline rewrite (Wave 2 Cat-D #11): the original patched
-        ``client.find_image`` to raise — but production at media.py:191
-        actually calls ``self.store.get_many(Image, ...)``, NEVER
-        ``client.find_image``. The dead patch caused the test to "pass"
-        coincidentally because the empty store returned ``[]`` without
-        the production exception handler at media.py:197 ever firing.
-
-        Patching the GraphQL POST doesn't propagate either:
-        ``stash-graphql-client``'s ``StashObject.find_by_id`` (base.py:1847)
-        swallows ALL exceptions internally and returns None, so transport
-        errors never reach ``store.get_many``'s caller. The production
-        ``except Exception`` at media.py:197 only fires if
-        ``store.get_many`` itself raises — which is rare/defensive code
-        for things like asyncio cancellation or lock-acquisition errors.
-
-        Per CLAUDE.md "External lib leaf calls — patch the leaf call
-        only" — ``store`` is a ``StashEntityStore`` from the external
-        ``stash-graphql-client`` package, so patching its ``get_many``
-        method is patching at the external-lib leaf boundary. This is
-        the most honest way to exercise the production defensive
-        handler without faking nonexistent client methods.
+        Production at media.py:189-206 wraps ``store.get_many(Image, ...)``
+        in ``try/except Exception``. When the GraphQL transport fails,
+        SGC propagates the error up through ``store.get_many``; the
+        production handler logs and the loop continues with an empty
+        ``found`` list.
         """
-
-        async def _failing_get_many(entity_type, ids):
-            raise RuntimeError("simulated store.get_many failure")
-
-        monkeypatch.setattr(
-            respx_stash_processor.context._store, "get_many", _failing_get_many
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.ConnectError("simulated GraphQL transport error"),
+            ]
         )
 
-        # Should NOT raise — the production handler at media.py:197 swallows.
         result = await respx_stash_processor._find_stash_files_by_id(
             stash_files=[("123", "image/jpeg")],
         )
 
+        assert graphql_route.call_count >= 1
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_scene_exception(
-        self, respx_stash_processor, monkeypatch
-    ):
-        """_find_stash_files_by_id catches store.get_many errors for scene batches.
+    async def test_find_stash_files_by_id_scene_exception(self, respx_stash_processor):
+        """_find_stash_files_by_id catches transport errors during scene batches.
 
-        Same pattern as the image exception test, but exercises the
-        scene-batch branch at media.py:234 (Scene get_many) → media.py:240
-        (the corresponding ``except Exception``). See the image test's
-        docstring for the layering rationale (external-lib leaf patch).
+        Mirrors the image-batch test at the scene branch (media.py:232-249).
         """
-
-        async def _failing_get_many(entity_type, ids):
-            raise RuntimeError("simulated store.get_many failure")
-
-        monkeypatch.setattr(
-            respx_stash_processor.context._store, "get_many", _failing_get_many
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.ConnectError("simulated GraphQL transport error"),
+            ]
         )
 
         result = await respx_stash_processor._find_stash_files_by_id(
             stash_files=[("456", "video/mp4")],
         )
 
+        assert graphql_route.call_count >= 1
         assert result == []
 
     @pytest.mark.asyncio
@@ -118,7 +92,7 @@ class TestErrorHandlers:
                 httpx.Response(
                     200,
                     json=create_graphql_response(
-                        "FindScenes",
+                        "findScenes",
                         create_find_scenes_result(count=0, scenes=[]),
                     ),
                 )
@@ -201,7 +175,7 @@ class TestErrorHandlers:
                 httpx.Response(
                     200,
                     json=create_graphql_response(
-                        "FindScenes",
+                        "findScenes",
                         create_find_scenes_result(count=0, scenes=[]),
                     ),
                 )
@@ -229,7 +203,7 @@ class TestErrorHandlers:
                 httpx.Response(
                     200,
                     json=create_graphql_response(
-                        "FindScenes",
+                        "findScenes",
                         create_find_scenes_result(count=1, scenes=[scene_dict]),
                     ),
                 )

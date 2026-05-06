@@ -74,7 +74,6 @@ from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
-from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_continue,
     json_output,
@@ -288,7 +287,6 @@ async def main(config: FanslyConfig) -> int:
 
     print_logo()
 
-    delete_temporary_pyinstaller_files()
     load_config(config)
 
     args = parse_args()

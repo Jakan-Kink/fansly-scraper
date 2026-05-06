@@ -290,20 +290,6 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # process_creator_posts: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
-                # process_creator_messages: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
             ]
         )
 
@@ -316,9 +302,9 @@ class TestBackgroundProcessing:
             dump_graphql_calls(graphql_route.calls, "test_continue_stash_processing")
 
         # Assert - verify correct GraphQL requests were sent
-        # (no preload calls -- preload only happens in start_creator_processing)
         # Only 3 calls: studio lookup + creation. No findGalleries because
-        # account has no posts/messages in database.
+        # account has no posts/messages in database — _run_worker_pool exits
+        # with empty items.
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
@@ -383,20 +369,6 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # process_creator_posts: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
-                # process_creator_messages: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
             ]
         )
 
@@ -417,8 +389,8 @@ class TestBackgroundProcessing:
         assert updated_account is not None
         assert updated_account.stash_id == 456  # int, not str
 
-        # Verify GraphQL call sequence (no preload calls, no gallery calls
-        # since account has no posts/messages in database)
+        # Verify GraphQL call sequence — no findGalleries calls because the
+        # account has no posts/messages, so _run_worker_pool exits early.
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
@@ -496,20 +468,6 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # process_creator_posts: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
-                # process_creator_messages: check for existing galleries
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries", {"count": 0, "galleries": []}
-                    ),
-                ),
             ]
         )
 
@@ -522,8 +480,8 @@ class TestBackgroundProcessing:
                 "test_continue_stash_processing_performer_dict",
             )
 
-        # Verify GraphQL call sequence (no preload calls, no gallery calls
-        # since account has no posts/messages in database)
+        # Verify GraphQL call sequence — no findGalleries calls because the
+        # account has no posts/messages, so _run_worker_pool exits early.
         calls = graphql_route.calls
         assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 

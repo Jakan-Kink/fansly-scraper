@@ -13,6 +13,7 @@ from .cleanup_fixtures import (
 )
 from .clock_fixtures import fake_monotonic_clock
 from .concurrency import SyncExecutor
+from .mp_queues import close_qs
 from .test_isolation import get_unique_test_id, get_worker_id, snowflake_id
 
 
@@ -27,6 +28,7 @@ __all__ = [
     "cleanup_rate_limiter_displays",
     "cleanup_rich_progress_state",
     "cleanup_unawaited_coroutines",
+    "close_qs",
     "fake_monotonic_clock",
     "get_unique_test_id",
     "get_worker_id",

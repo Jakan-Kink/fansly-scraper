@@ -28,6 +28,11 @@ from .main_api_mocks import (
     mount_empty_following_route,
     run_main_and_cleanup,
 )
+from .websocket_subprocess_helpers import (
+    build_mock_ws_class,
+    make_proxy,
+    spawn_ctx_with_mock_process,
+)
 
 
 __all__ = [
@@ -35,6 +40,7 @@ __all__ = [
     "FakeWS",
     "MainIntegrationEnv",
     "auth_response",
+    "build_mock_ws_class",
     "create_mock_json_response",
     "dump_fansly_calls",
     "fake_websocket_session",
@@ -45,6 +51,7 @@ __all__ = [
     "fansly_json",
     "main_integration_env",
     "make_fake_ws_factory",
+    "make_proxy",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "mount_client_account_me_route",
@@ -52,5 +59,6 @@ __all__ = [
     "mount_empty_following_route",
     "respx_fansly_api",
     "run_main_and_cleanup",
+    "spawn_ctx_with_mock_process",
     "ws_message",
 ]

@@ -481,18 +481,15 @@ def validate_adjust_download_directory(config: FanslyConfig) -> None:
         textio_logger.warning(
             f"The custom base download directory file path '{config.download_directory}' seems to be invalid!"
             f"\n{20 * ' '}Please change it to a correct file path, for example: 'C:\\MyFanslyDownloads'"
-            f"\n{20 * ' '}An Explorer window to help you set the correct path will open soon!"
-            f"\n{20 * ' '}You may right-click inside the Explorer to create a new folder."
-            f"\n{20 * ' '}Select a folder and it will be used as the default download directory."
+            f"\n{20 * ' '}You'll be prompted shortly to enter a valid path."
+            f"\n{20 * ' '}Tab key offers directory completion; ~ expands to your home folder."
         )
 
         sleep(10)  # give user time to realise instructions were given
 
-        config.download_directory = (
-            ask_correct_dir()
-        )  # ask user to select correct path using tkinters explorer dialog
+        config.download_directory = ask_correct_dir()
 
-        # save the config permanently into config.ini
+        # save the config permanently
         save_config_or_raise(config)
 
 

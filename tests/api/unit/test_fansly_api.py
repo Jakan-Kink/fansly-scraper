@@ -568,8 +568,7 @@ class TestFanslyApi:
     @pytest.mark.asyncio
     @respx.mock
     async def test_setup_session_error(self, fansly_api):
-        """Test setup_session handles errors - mocks HTTP at edge"""
-        # Mock HTTP response failure at edge (OPTIONS + GET)
+        """setup_session wraps an HTTP-layer auth failure as RuntimeError."""
         respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -577,12 +576,8 @@ class TestFanslyApi:
             side_effect=[httpx.Response(401)]
         )
 
-        # Mock websocket to raise exception (this is OK - websockets are external boundary)
-        with patch("websockets.client.connect") as mock_ws:
-            mock_ws.side_effect = Exception("Connection failed")
-
-            with pytest.raises(RuntimeError, match="Error during session setup"):
-                await fansly_api.setup_session()
+        with pytest.raises(RuntimeError, match="Error during session setup"):
+            await fansly_api.setup_session()
 
     def test_get_http_headers_with_session(self, fansly_api):
         """Test get_http_headers includes session ID when available"""

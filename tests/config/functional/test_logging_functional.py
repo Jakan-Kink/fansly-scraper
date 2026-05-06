@@ -238,26 +238,6 @@ def test_trace_logger_output(logging_config, log_dir, mock_config):
         init_logging_config(logging_config)
 
 
-def test_log_file_rotation(logging_config, log_dir):
-    """Test that log files are rotated correctly."""
-    # Instead of actually writing huge files, let's mock the rotation
-
-    # Create a base log file
-    log_path = log_dir / "fansly_downloader_ng.log"
-    with log_path.open("w") as f:
-        f.write("Test log content\n")
-
-    # Create a rotated log file
-    rotated_path = log_dir / "fansly_downloader_ng.log.1.gz"
-    with rotated_path.open("w") as f:
-        f.write("Rotated log content\n")
-
-    # Check that we have the expected files
-    log_files = list(log_dir.glob("fansly_downloader_ng.log*"))
-    assert len(log_files) > 1
-    assert any(f.name.endswith(".gz") for f in log_files)
-
-
 def test_debug_mode_all_loggers(logging_config, log_dir):
     """Test that debug mode affects all non-trace loggers."""
     set_debug_enabled(True)

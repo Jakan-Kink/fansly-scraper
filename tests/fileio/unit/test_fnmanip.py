@@ -8,10 +8,7 @@ from PIL import Image
 
 from errors.mp4 import InvalidMP4Error
 from fileio.fnmanip import (
-    extract_hash_from_filename,
     extract_media_id,
-    extract_old_hash0_from_filename,
-    extract_old_hash1_from_filename,
     get_hash_for_image,
     get_hash_for_other_content,
 )
@@ -36,79 +33,6 @@ class TestExtractors:
         assert extract_media_id("") is None
         assert extract_media_id("id_.jpg") is None
         assert extract_media_id("id_not_numeric.jpg") is None
-
-    def test_extract_old_hash0_from_filename(self):
-        """Test extract_old_hash0_from_filename with valid and invalid filenames."""
-        # Valid filenames with hash
-        assert (
-            extract_old_hash0_from_filename("2023-01-01_at_12-30_UTC_hash_abc123.jpg")
-            == "abc123"
-        )
-        assert (
-            extract_old_hash0_from_filename("some_prefix_hash_def456.mp4") == "def456"
-        )
-        assert (
-            extract_old_hash0_from_filename("path/to/file_hash_987654321abcdef.mp4")
-            == "987654321abcdef"
-        )
-
-        # Invalid filenames without hash
-        assert extract_old_hash0_from_filename("2023-01-01_at_12-30_UTC.jpg") is None
-        assert extract_old_hash0_from_filename("no_hash_here.mp4") is None
-        assert extract_old_hash0_from_filename("") is None
-        assert extract_old_hash0_from_filename("hash_.jpg") is None
-
-        # Filenames with other hash formats
-        assert extract_old_hash0_from_filename("file_hash1_abcdef.jpg") is None
-        assert extract_old_hash0_from_filename("file_hash2_123456.jpg") is None
-
-    def test_extract_old_hash1_from_filename(self):
-        """Test extract_old_hash1_from_filename with valid and invalid filenames."""
-        # Valid filenames with hash1
-        assert (
-            extract_old_hash1_from_filename("2023-01-01_at_12-30_UTC_hash1_abc123.jpg")
-            == "abc123"
-        )
-        assert (
-            extract_old_hash1_from_filename("some_prefix_hash1_def456.mp4") == "def456"
-        )
-        assert (
-            extract_old_hash1_from_filename("path/to/file_hash1_987654321abcdef.mp4")
-            == "987654321abcdef"
-        )
-
-        # Invalid filenames without hash1
-        assert extract_old_hash1_from_filename("2023-01-01_at_12-30_UTC.jpg") is None
-        assert extract_old_hash1_from_filename("no_hash_here.mp4") is None
-        assert extract_old_hash1_from_filename("") is None
-        assert extract_old_hash1_from_filename("hash1_.jpg") is None
-
-        # Filenames with other hash formats
-        assert extract_old_hash1_from_filename("file_hash_abcdef.jpg") is None
-        assert extract_old_hash1_from_filename("file_hash2_123456.jpg") is None
-
-    def test_extract_hash_from_filename(self):
-        """Test extract_hash_from_filename with valid and invalid filenames."""
-        # Valid filenames with hash2
-        assert (
-            extract_hash_from_filename("2023-01-01_at_12-30_UTC_hash2_abc123.jpg")
-            == "abc123"
-        )
-        assert extract_hash_from_filename("some_prefix_hash2_def456.mp4") == "def456"
-        assert (
-            extract_hash_from_filename("path/to/file_hash2_987654321abcdef.mp4")
-            == "987654321abcdef"
-        )
-
-        # Invalid filenames without hash2
-        assert extract_hash_from_filename("2023-01-01_at_12-30_UTC.jpg") is None
-        assert extract_hash_from_filename("no_hash_here.mp4") is None
-        assert extract_hash_from_filename("") is None
-        assert extract_hash_from_filename("hash2_.jpg") is None
-
-        # Filenames with other hash formats
-        assert extract_hash_from_filename("file_hash_abcdef.jpg") is None
-        assert extract_hash_from_filename("file_hash1_123456.jpg") is None
 
 
 class TestImageHash:

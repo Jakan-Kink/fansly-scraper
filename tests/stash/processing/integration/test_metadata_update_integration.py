@@ -115,31 +115,20 @@ class TestMetadataUpdateIntegration:
     async def test_update_stash_metadata_real_scene(
         self,
         media_mixin,
-        session_sync,
-        factory_session,
         stash_client,
         stash_cleanup_tracker,
         enable_scene_creation,
     ):
         """Test _update_stash_metadata with real Scene object created in Stash.
 
-        This test:
-        1. Creates a real Account and Post in PostgreSQL (using UUID DB session for cleanup)
-        2. Creates a real Scene in Stash via API
-        3. Updates the Scene metadata using _update_stash_metadata
-        4. Verifies the Scene was updated in Stash
-        5. Cleans up by deleting the Scene from Stash (automatic via cleanup tracker)
+        Creates a real Scene in Stash via API, updates its metadata, verifies
+        the change, and lets the cleanup tracker remove the Scene afterwards.
         """
-        # Create real account in database
-        account = AccountFactory(username="integration_scene_user")
-        session_sync.commit()
-
-        # Create real post in database
-        post = PostFactory(
+        account = AccountFactory.build(username="integration_scene_user")
+        post = PostFactory.build(
             accountId=account.id,
             content="Integration test scene #video #test",
         )
-        session_sync.commit()
 
         async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create a real Scene in Stash via API
@@ -190,8 +179,6 @@ class TestMetadataUpdateIntegration:
     async def test_update_stash_metadata_preserves_earliest_date(
         self,
         media_mixin,
-        session_sync,
-        factory_session,
         stash_client,
         stash_cleanup_tracker,
         enable_scene_creation,
@@ -202,25 +189,17 @@ class TestMetadataUpdateIntegration:
         - When a Scene has an earlier date than the new item, don't update
         - When a Scene has a later date than the new item, update to earlier date
         """
-        # Create real account
-        account = AccountFactory(username="date_test_user")
-        session_sync.commit()
-
-        # Create earlier post
-        earlier_post = PostFactory(
+        account = AccountFactory.build(username="date_test_user")
+        earlier_post = PostFactory.build(
             accountId=account.id,
             content="Earlier post",
             createdAt=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
-        session_sync.commit()
-
-        # Create later post
-        later_post = PostFactory(
+        later_post = PostFactory.build(
             accountId=account.id,
             content="Later post",
             createdAt=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
-        session_sync.commit()
 
         async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create scene with earlier date in Stash
@@ -286,8 +265,6 @@ class TestMetadataUpdateIntegration:
     async def test_update_stash_metadata_skips_organized(
         self,
         media_mixin,
-        session_sync,
-        factory_session,
         stash_client,
         stash_cleanup_tracker,
         enable_scene_creation,
@@ -296,10 +273,8 @@ class TestMetadataUpdateIntegration:
 
         Organized objects should not be modified.
         """
-        # Create real account and post
-        account = AccountFactory(username="organized_test_user")
-        post = PostFactory(accountId=account.id, content="Test post")
-        session_sync.commit()
+        account = AccountFactory.build(username="organized_test_user")
+        post = PostFactory.build(accountId=account.id, content="Test post")
 
         async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create organized scene in Stash

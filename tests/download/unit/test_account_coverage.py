@@ -27,7 +27,6 @@ def real_config(fansly_api):
     config.user_agent = "a" * 50
     config.check_key = "test-key"
     config.interactive = False
-    config.separate_metadata = True
     config.reverse_order = False
     return config
 

@@ -31,20 +31,14 @@ class TestWorkerPoolProcessing:
             item_type="post",
         )
 
-        # Verify task names are created
-        assert task_name is not None
+        # Task/process names should encode the item_type so the dashboard groups
+        # batches correctly.
         assert "post" in task_name or "add" in task_name
-        assert process_name is not None
         assert "post" in process_name or "process" in process_name
 
-        # Verify semaphore has reasonable concurrency limit
-        assert isinstance(semaphore, asyncio.Semaphore)
-        assert semaphore._value > 0
-        assert semaphore._value <= 10  # max_concurrent limit
-
-        # Verify queue is created with unlimited size
-        assert isinstance(queue, asyncio.Queue)
-        assert queue.maxsize == 0  # Unlimited
+        # Concurrency capped at 10; queue is unbounded.
+        assert semaphore._value <= 10
+        assert queue.maxsize == 0
 
     @pytest.mark.asyncio
     async def test_run_worker_pool_basic(self, respx_stash_processor):
@@ -90,24 +84,23 @@ class TestWorkerPoolProcessing:
     @pytest.mark.asyncio
     async def test_run_worker_pool_concurrent(self, respx_stash_processor):
         """Test _run_worker_pool processes items concurrently."""
-        # Create more items to demonstrate concurrency
         items = [{"id": i} for i in range(20)]
 
-        # Track processing order and timing
-        processing_started = []
-        processing_finished = []
+        in_flight = 0
+        max_in_flight = 0
+        finished = 0
         lock = asyncio.Lock()
 
         async def process_item(item):
-            """Processor that tracks timing."""
+            nonlocal in_flight, max_in_flight, finished
             async with lock:
-                processing_started.append(item["id"])
-            # Simulate some async work
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
             await asyncio.sleep(0.01)
             async with lock:
-                processing_finished.append(item["id"])
+                in_flight -= 1
+                finished += 1
 
-        # Setup infrastructure
         (
             task_name,
             process_name,
@@ -118,7 +111,6 @@ class TestWorkerPoolProcessing:
             item_type="test",
         )
 
-        # Run worker pool
         await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
@@ -128,14 +120,10 @@ class TestWorkerPoolProcessing:
             process_item=process_item,
         )
 
-        # Verify all items were processed
-        assert len(processing_finished) == 20
-
-        # Verify items were processed concurrently
-        # (If sequential, first 10 would finish before last 10 start)
-        # With concurrency, later items should start before earlier ones finish
-        first_10_finished = processing_finished[:10]
-        assert len(set(processing_started) - set(first_10_finished)) > 0
+        assert finished == 20
+        # Sequential execution would yield max_in_flight == 1.
+        # Anything > 1 proves the pool overlaps work.
+        assert max_in_flight > 1
 
     @pytest.mark.asyncio
     async def test_run_worker_pool_error_handling(self, respx_stash_processor):

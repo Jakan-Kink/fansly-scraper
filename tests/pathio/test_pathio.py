@@ -1,8 +1,6 @@
 """Tests for the pathio module."""
 
-import sys
 import tempfile
-import time
 from pathlib import Path
 from unittest import mock
 
@@ -13,7 +11,6 @@ from download.types import DownloadType
 from metadata import Media
 from pathio import (
     ask_correct_dir,
-    delete_temporary_pyinstaller_files,
     get_creator_base_path,
     get_creator_metadata_path,
     get_media_save_path,
@@ -51,69 +48,6 @@ def temp_dir():
 
 class TestPathIO:
     """Tests for pathio functions."""
-
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", True)
-    @mock.patch("pathio.pathio.Tk")
-    @mock.patch("pathio.pathio.filedialog")
-    @mock.patch("pathio.pathio.textio_logger")
-    def test_ask_correct_dir_valid_path(self, mock_logger, mock_filedialog, mock_tk):
-        """Test ask_correct_dir function with a valid path."""
-        # Setup mock
-        mock_filedialog.askdirectory.return_value = "/valid/path"
-        mock_path = mock.MagicMock()
-        mock_path.is_dir.return_value = True
-
-        # Mock Path to return our mock path
-        with mock.patch("pathio.pathio.Path", return_value=mock_path):
-            result = ask_correct_dir()
-
-        # Assertions
-        mock_tk.return_value.withdraw.assert_called_once()
-        mock_filedialog.askdirectory.assert_called_once()
-        # Verify INFO log was called (textio_logger.opt(depth=1).log("INFO", ...))
-        assert mock_logger.opt.return_value.log.call_count == 1
-        # Verify it was an INFO log, not ERROR
-        info_call = mock_logger.opt.return_value.log.call_args_list[0]
-        assert info_call[0][0] == "INFO"
-        assert result == mock_path
-
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", True)
-    @mock.patch("pathio.pathio.Tk")
-    @mock.patch("pathio.pathio.filedialog")
-    @mock.patch("pathio.pathio.textio_logger")
-    def test_ask_correct_dir_invalid_then_valid_path(
-        self, mock_logger, mock_filedialog, mock_tk
-    ):
-        """Test ask_correct_dir function with an invalid path followed by a valid path."""
-        # Setup mocks for two calls - first invalid, second valid
-        mock_filedialog.askdirectory.side_effect = ["/invalid/path", "/valid/path"]
-
-        # Rather than using a sequence for Path mock, use a function to handle any number of calls
-        def mock_path_side_effect(path_string):
-            mock_path = mock.MagicMock()
-            # The first call with "/invalid/path" should return a path that's not a directory
-            # Any call with "/valid/path" should return a path that is a directory
-            if path_string == "/invalid/path":
-                mock_path.is_dir.return_value = False
-            else:  # "/valid/path" or any other path
-                mock_path.is_dir.return_value = True
-            return mock_path
-
-        # Mock Path with the side effect function
-        with mock.patch("pathio.pathio.Path", side_effect=mock_path_side_effect):
-            result = ask_correct_dir()
-
-        # Assertions
-        assert mock_tk.return_value.withdraw.call_count == 1
-        assert mock_filedialog.askdirectory.call_count == 2
-        # Verify both ERROR and INFO logs were called
-        assert mock_logger.opt.return_value.log.call_count == 2
-        # First call should be ERROR (for invalid path), second should be INFO (for valid path)
-        error_call = mock_logger.opt.return_value.log.call_args_list[0]
-        info_call = mock_logger.opt.return_value.log.call_args_list[1]
-        assert error_call[0][0] == "ERROR"
-        assert info_call[0][0] == "INFO"
-        assert result.is_dir() is True  # Check the final path is a directory
 
     def test_set_create_directory_for_download_no_download_dir(self):
         """Test set_create_directory_for_download with missing download directory."""
@@ -437,80 +371,49 @@ class TestPathIO:
         assert save_dir == collections_dir
         assert save_path == expected_path
 
-    def test_delete_temporary_pyinstaller_files(self, temp_dir):
-        """Test delete_temporary_pyinstaller_files function with basic behavior."""
-        # Create a simple directory structure
-        mei_parent = temp_dir / "mei_temp"
-        mei_parent.mkdir()
-
-        # Create old MEI directory with files
-        old_mei = mei_parent / "_MEI123"
-        old_mei.mkdir()
-        (old_mei / "file1.txt").write_text("test")
-
-        # Create recent MEI directory
-        recent_mei = mei_parent / "_MEI999"
-        recent_mei.mkdir()
-
-        # Mock sys._MEIPASS to point to recent_mei
-        sys._MEIPASS = str(recent_mei)
-
-        try:
-            # Execute - the function should run without crashing
-            # Due to contextlib.suppress(Exception), it won't raise even if operations fail
-            delete_temporary_pyinstaller_files()
-
-            # Basic assertion: function completed without crashing
-            # The actual deletion behavior depends on file ages and exception handling,
-            # so we don't make strong assertions about what was deleted
-            assert True
-
-        finally:
-            # Cleanup
-            if hasattr(sys, "_MEIPASS"):
-                delattr(sys, "_MEIPASS")
-
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
-    def test_ask_correct_dir_text_fallback_valid(self, tmp_path):
-        """Lines 57-71: tkinter unavailable, stdin is tty, valid input."""
+    def test_ask_correct_dir_valid(self, tmp_path):
+        """TTY + valid input: returns the parsed directory."""
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
+        mock_session = mock.MagicMock()
+        mock_session.prompt.return_value = str(tmp_path)
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("builtins.input", return_value=str(tmp_path)),
+            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
         ):
             result = ask_correct_dir()
         assert result == tmp_path
 
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
-    def test_ask_correct_dir_text_fallback_invalid_then_valid(self, tmp_path):
-        """Lines 62-76: first input is invalid dir, second is valid."""
+    def test_ask_correct_dir_invalid_then_valid(self, tmp_path):
+        """Invalid path on first prompt → loop → valid path on second."""
         valid_dir = tmp_path / "valid"
         valid_dir.mkdir()
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
+        mock_session = mock.MagicMock()
+        mock_session.prompt.side_effect = ["/nonexistent", str(valid_dir)]
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("builtins.input", side_effect=["/nonexistent", str(valid_dir)]),
+            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
         ):
             result = ask_correct_dir()
         assert result == valid_dir
 
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
-    def test_ask_correct_dir_text_fallback_keyboard_interrupt(self):
-        """Lines 77-79: KeyboardInterrupt during text input."""
+    def test_ask_correct_dir_keyboard_interrupt(self):
+        """KeyboardInterrupt during prompt re-raises after logging."""
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
+        mock_session = mock.MagicMock()
+        mock_session.prompt.side_effect = KeyboardInterrupt
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("builtins.input", side_effect=KeyboardInterrupt),
+            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
             pytest.raises(KeyboardInterrupt),
         ):
             ask_correct_dir()
 
-    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
     def test_ask_correct_dir_non_interactive_raises(self):
-        """Lines 82-85: not interactive, no tkinter → RuntimeError."""
+        """No TTY → RuntimeError pointing at config.yaml."""
         with (
             mock.patch("pathio.pathio.sys.stdin", None),
             pytest.raises(RuntimeError, match="unable to prompt"),
@@ -522,47 +425,6 @@ class TestPathIO:
         config = MockPathConfig(download_directory=None)
         with pytest.raises(RuntimeError, match="not set"):
             get_creator_base_path(config, "creator")
-
-    def test_delete_pyinstaller_old_mei_files(self, temp_dir):
-        """Lines 253-260: old _MEI folders with files are deleted."""
-        mei_dir = temp_dir / "_MEI_old"
-        mei_dir.mkdir()
-        (mei_dir / "lib.dll").write_text("data")
-        sub = mei_dir / "subdir"
-        sub.mkdir()
-        (sub / "inner.txt").write_text("data")
-
-        current_mei = temp_dir / "_MEI_current"
-        current_mei.mkdir()
-        sys._MEIPASS = str(current_mei)
-
-        # Mock time.time to return a value far in the future so
-        # (current_time - folder.stat().st_ctime) > 3600 is True
-        future_time = time.time() + 999_999
-
-        try:
-            with mock.patch("pathio.pathio.time.time", return_value=future_time):
-                delete_temporary_pyinstaller_files()
-            assert not mei_dir.exists()
-        finally:
-            if hasattr(sys, "_MEIPASS"):
-                delattr(sys, "_MEIPASS")
-
-    def test_delete_pyinstaller_exception_in_getattr(self):
-        """Lines 240-241: exception during base_path resolution → return."""
-        with mock.patch("pathio.pathio.getattr", side_effect=Exception("boom")):
-            delete_temporary_pyinstaller_files()
-
-    @mock.patch("os.path.dirname")
-    def test_delete_temporary_pyinstaller_files_exception(self, mock_dirname):
-        """Test delete_temporary_pyinstaller_files handles exceptions gracefully."""
-        # Setup mock to raise exception
-        mock_dirname.side_effect = Exception("Test exception")
-
-        # Execute - should not raise an exception
-        delete_temporary_pyinstaller_files()
-
-        # No assertion needed - just checking it doesn't crash
 
 
 class TestGetStashPath:

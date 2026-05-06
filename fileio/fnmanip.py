@@ -25,36 +25,6 @@ def extract_media_id(filename: str) -> int | None:
     return None
 
 
-def extract_old_hash0_from_filename(filename: str) -> str | None:
-    """Extracts hash v0 from an existing file's name."""
-    match = re.search(r"_hash_([a-fA-F0-9]+)", filename)
-
-    if match:
-        return match.group(1)
-
-    return None
-
-
-def extract_old_hash1_from_filename(filename: str) -> str | None:
-    """Extracts hash v1 from an existing file's name."""
-    match = re.search(r"_hash1_([a-fA-F0-9]+)", filename)
-
-    if match:
-        return match.group(1)
-
-    return None
-
-
-def extract_hash_from_filename(filename: str) -> str | None:
-    """Extracts the hash from an existing file's name."""
-    match = re.search(r"_hash2_([a-fA-F0-9]+)", filename)
-
-    if match:
-        return match.group(1)
-
-    return None
-
-
 def get_hash_for_image(filename: Path) -> str:
     """Get hash for an image file.
 
