@@ -26,6 +26,8 @@ from config import (
     validate_adjust_config,
 )
 from config.args import (  # Keep in args to avoid circular imports
+    handle_generate_config,
+    handle_show_config,
     map_args_to_config,
     parse_args,
 )
@@ -289,9 +291,24 @@ async def main(config: FanslyConfig) -> int:
     print_logo()
 
     delete_temporary_pyinstaller_files()
+
+    # --generate-config short-circuits before any config load so it works
+    # without an existing config.yaml (its whole point is bootstrapping one).
+    args = parse_args()
+    if args.generate_config is not None:
+        handle_generate_config(args.generate_config)
+        sys.exit(0)
+
     load_config(config)
 
-    args = parse_args()
+    # --show-config runs AFTER load_config so the rendered output reflects
+    # the actual loaded state — operator-set fields visible as bold, defaults
+    # as dim, blank-eligible Optionals as empty after colon. Exits before any
+    # download work since this is purely an inspection mode.
+    if args.show_config:
+        handle_show_config(config)
+        sys.exit(0)
+
     download_mode_set = map_args_to_config(args, config)
     update_logging_config(
         config, config.debug
