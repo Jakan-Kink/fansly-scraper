@@ -81,7 +81,7 @@ pymdown-extensions = ">=10.21.2,<11.0.0"
 optional = true
 
 [tool.poetry.group.typing.dependencies]
-mypy = ">=1.11.0"
+mypy = ">=2.0.0"
 types-python-dateutil = ">=2.9.0.20241206"
 types-requests = ">=2.32.0.20241016"
 types-setuptools = ">=75.6.0.20241126"
