@@ -137,10 +137,14 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     unchanged.
     """
     # --- TargetedCreator ---
-    # Only override if not already set via command-line
+    # Only override if not already set via command-line. ``usernames`` is
+    # nullable in the schema (fresh scaffold has no creators yet) — skip
+    # the sanitize call when it's None so config.user_names stays None
+    # until something actually populates it.
     if config.user_names is None:
         raw_names = schema.targeted_creator.usernames
-        config.user_names = sanitize_creator_names(raw_names)
+        if raw_names:
+            config.user_names = sanitize_creator_names(raw_names)
 
     config.use_following = schema.targeted_creator.use_following
 
@@ -185,6 +189,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.use_duplicate_threshold = opts.use_duplicate_threshold
     config.use_pagination_duplication = opts.use_pagination_duplication
     config.use_folder_suffix = opts.use_folder_suffix
+    config.respect_timeline_stats = opts.respect_timeline_stats
     config.interactive = opts.interactive
     config.prompt_on_exit = opts.prompt_on_exit
     config.debug = opts.debug

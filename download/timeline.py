@@ -103,7 +103,7 @@ async def download_timeline(
     timeline_cursor = 0
     attempts = 0
 
-    if state.creator_content_unchanged:
+    if config.respect_timeline_stats and state.creator_content_unchanged:
         # Credit skipped items to duplicate_count so the final summary
         # reports them correctly — we never touched them individually,
         # but counts matched, so they're all known-in-DB duplicates.

@@ -339,291 +339,211 @@ def _get_int(
     return parser.getint(section, key, fallback=fallback)
 
 
+# ---------------------------------------------------------------------------
+# has_option-gated helpers — populate ``dest`` only when the INI carries the
+# key. The Pydantic schema's defaults handle every absent key, and crucially
+# the resulting ``model_fields_set`` reflects only what the operator actually
+# wrote in their ini. That keeps ``model_dump(exclude_unset=True)`` honest
+# across save round-trips post-migration: subsequent ``_save_config()`` calls
+# don't re-pin defaulted-away keys back into the YAML.
+# ---------------------------------------------------------------------------
+
+
+def _maybe_str(
+    parser: configparser.ConfigParser,
+    section: str,
+    key: str,
+    dest: dict,
+    *,
+    dest_key: str | None = None,
+) -> bool:
+    """Populate ``dest[dest_key or key]`` from INI when present. Return whether set."""
+    if parser.has_section(section) and parser.has_option(section, key):
+        dest[dest_key or key] = parser.get(section, key)
+        return True
+    return False
+
+
+def _maybe_bool(
+    parser: configparser.ConfigParser,
+    section: str,
+    key: str,
+    dest: dict,
+    *,
+    dest_key: str | None = None,
+) -> bool:
+    """Populate ``dest[dest_key or key]`` as bool when present. Return whether set."""
+    if parser.has_section(section) and parser.has_option(section, key):
+        dest[dest_key or key] = parser.getboolean(section, key)
+        return True
+    return False
+
+
+def _maybe_int(
+    parser: configparser.ConfigParser,
+    section: str,
+    key: str,
+    dest: dict,
+    *,
+    dest_key: str | None = None,
+) -> bool:
+    """Populate ``dest[dest_key or key]`` as int when present. Return whether set."""
+    if parser.has_section(section) and parser.has_option(section, key):
+        dest[dest_key or key] = parser.getint(section, key)
+        return True
+    return False
+
+
+def _maybe_float(
+    parser: configparser.ConfigParser,
+    section: str,
+    key: str,
+    dest: dict,
+    *,
+    dest_key: str | None = None,
+) -> bool:
+    """Populate ``dest[dest_key or key]`` as float when present. Return whether set."""
+    if parser.has_section(section) and parser.has_option(section, key):
+        dest[dest_key or key] = parser.getfloat(section, key)
+        return True
+    return False
+
+
 def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema:
     """Build a ConfigSchema from an already-parsed ConfigParser.
 
-    All string values from the ini are coerced to the correct Python type via
-    ``getboolean`` / ``getint`` before being handed to Pydantic, so we never
-    rely on Pydantic's string-to-bool / string-to-int coercion.
+    has_option-gated extraction: only INI keys that are *actually present*
+    are forwarded to Pydantic. Absent keys are omitted from the validation
+    dict so Pydantic's defaults apply, and crucially the resulting
+    ``model_fields_set`` reflects only what the operator wrote in their
+    ini. That means ``model_dump(exclude_unset=True)`` in the dump path
+    stays honest post-migration: subsequent ``_save_config()`` calls
+    don't re-pin defaulted-away keys back into the YAML.
 
-    Note: PostgreSQL connection keys (``pg_*``) live under ``[Options]`` in
-    legacy config.ini files — ``_handle_postgresql_options`` in config.py
-    confirms this.  We check ``[Postgres]`` first (future-proof) then fall
-    back to ``[Options]``.
+    Legacy spellings (``utilise_duplicate_threshold`` → ``use_duplicate_threshold``,
+    ``use_suffix`` → ``use_folder_suffix``, ``Username`` → ``usernames``,
+    ``Authorization_Token`` → ``authorization_token``, etc.) are translated
+    via ``dest_key=``. ``pg_*`` keys live under ``[Postgres]`` in modern
+    INIs but legacy files put them under ``[Options]``; we check both.
     """
+    raw: dict = {}
+
     # [TargetedCreator]
-    tc_section = "TargetedCreator"
-    username_raw = _get_str(parser, tc_section, "Username", fallback="replaceme")
-    use_following = _get_bool(parser, tc_section, "use_following", fallback=False)
-    use_following_with_pagination = _get_bool(
-        parser, tc_section, "use_following_with_pagination", fallback=False
-    )
+    tc: dict = {}
+    _maybe_str(parser, "TargetedCreator", "Username", tc, dest_key="usernames")
+    _maybe_bool(parser, "TargetedCreator", "use_following", tc)
+    if tc:
+        raw["targeted_creator"] = tc
 
     # [MyAccount]
-    acct_section = "MyAccount"
-    authorization_token = _get_str(
-        parser, acct_section, "Authorization_Token", fallback="ReplaceMe"
+    acct: dict = {}
+    _maybe_str(
+        parser, "MyAccount", "Authorization_Token", acct, dest_key="authorization_token"
     )
-    user_agent = _get_str(parser, acct_section, "User_Agent", fallback="ReplaceMe")
-    check_key = _get_str(
-        parser, acct_section, "Check_Key", fallback="qybZy9-fyszis-bybxyf"
-    )
-    username = _get_str(parser, acct_section, "username", fallback=None)
-    password = _get_str(parser, acct_section, "password", fallback=None)
+    _maybe_str(parser, "MyAccount", "User_Agent", acct, dest_key="user_agent")
+    _maybe_str(parser, "MyAccount", "Check_Key", acct, dest_key="check_key")
+    _maybe_str(parser, "MyAccount", "username", acct)
+    _maybe_str(parser, "MyAccount", "password", acct)
+    if acct:
+        raw["my_account"] = acct
 
-    # ------------------------------------------------------------------
-    # [Options] — contains both general and PostgreSQL settings
-    # ------------------------------------------------------------------
+    # [Options]
     opts_section = "Options"
-
-    download_directory = _get_str(
-        parser, opts_section, "download_directory", fallback="Local_directory"
-    )
-    download_mode = _get_str(parser, opts_section, "download_mode", fallback="Normal")
-    show_downloads = _get_bool(parser, opts_section, "show_downloads", fallback=True)
-    show_skipped_downloads = _get_bool(
-        parser, opts_section, "show_skipped_downloads", fallback=True
-    )
-    download_media_previews = _get_bool(
-        parser, opts_section, "download_media_previews", fallback=True
-    )
-    open_folder_when_finished = _get_bool(
-        parser, opts_section, "open_folder_when_finished", fallback=True
-    )
-    separate_messages = _get_bool(
-        parser, opts_section, "separate_messages", fallback=True
-    )
-    separate_previews = _get_bool(
-        parser, opts_section, "separate_previews", fallback=False
-    )
-    separate_timeline = _get_bool(
-        parser, opts_section, "separate_timeline", fallback=True
-    )
-    # Support the old spelling (utilise_) transparently
-    if parser.has_option(opts_section, "utilise_duplicate_threshold"):
-        use_duplicate_threshold = _get_bool(
-            parser, opts_section, "utilise_duplicate_threshold", fallback=False
-        )
-    else:
-        use_duplicate_threshold = _get_bool(
-            parser, opts_section, "use_duplicate_threshold", fallback=False
-        )
-    # Support the old spelling (use_suffix)
-    if parser.has_option(opts_section, "use_suffix"):
-        use_folder_suffix = _get_bool(parser, opts_section, "use_suffix", fallback=True)
-    else:
-        use_folder_suffix = _get_bool(
-            parser, opts_section, "use_folder_suffix", fallback=True
-        )
-    interactive = _get_bool(parser, opts_section, "interactive", fallback=True)
-    prompt_on_exit = _get_bool(parser, opts_section, "prompt_on_exit", fallback=True)
-    timeline_retries = _get_int(parser, opts_section, "timeline_retries", fallback=1)
-    timeline_delay_seconds = _get_int(
-        parser, opts_section, "timeline_delay_seconds", fallback=60
-    )
-    temp_folder = _get_str(parser, opts_section, "temp_folder", fallback=None)
-
-    # ------------------------------------------------------------------
-    # PostgreSQL — prefer [Postgres] section; fall back to [Options]
-    # ------------------------------------------------------------------
-    pg_section = "Postgres" if parser.has_section("Postgres") else opts_section
-
-    pg_host = _get_str(parser, pg_section, "pg_host", fallback="localhost")
-    pg_port = _get_int(parser, pg_section, "pg_port", fallback=5432)
-    pg_database = _get_str(
-        parser, pg_section, "pg_database", fallback="fansly_metadata"
-    )
-    pg_user = _get_str(parser, pg_section, "pg_user", fallback="fansly_user")
-    # FANSLY_PG_PASSWORD env var is intentionally NOT consulted here —
-    # it is a runtime override, not a disk value.
-    pg_password_raw = _get_str(parser, pg_section, "pg_password", fallback=None)
-    pg_sslmode = _get_str(parser, pg_section, "pg_sslmode", fallback="prefer")
-    pg_sslcert = _get_str(parser, pg_section, "pg_sslcert", fallback=None)
-    pg_sslkey = _get_str(parser, pg_section, "pg_sslkey", fallback=None)
-    pg_sslrootcert = _get_str(parser, pg_section, "pg_sslrootcert", fallback=None)
-    pg_pool_size = _get_int(parser, pg_section, "pg_pool_size", fallback=5)
-    # pg_max_overflow and pg_pool_timeout: kept for round-trip parity with
-    # existing config.ini files; the asyncpg pool does not use them at runtime.
-    pg_max_overflow = _get_int(parser, pg_section, "pg_max_overflow", fallback=10)
-    pg_pool_timeout = _get_int(parser, pg_section, "pg_pool_timeout", fallback=30)
-
-    # ------------------------------------------------------------------
-    # [Options] — extended: rate limiting, db sync, debug, retries
-    # ------------------------------------------------------------------
-    use_pagination_duplication = _get_bool(
-        parser, opts_section, "use_pagination_duplication", fallback=False
-    )
-    debug = _get_bool(parser, opts_section, "debug", fallback=False)
-    trace = _get_bool(parser, opts_section, "trace", fallback=False)
-    api_max_retries = _get_int(parser, opts_section, "api_max_retries", fallback=10)
-    rate_limiting_enabled = _get_bool(
-        parser, opts_section, "rate_limiting_enabled", fallback=True
-    )
-    rate_limiting_adaptive = _get_bool(
-        parser, opts_section, "rate_limiting_adaptive", fallback=True
-    )
-    rate_limiting_requests_per_minute = _get_int(
-        parser, opts_section, "rate_limiting_requests_per_minute", fallback=60
-    )
-    rate_limiting_burst_size = _get_int(
-        parser, opts_section, "rate_limiting_burst_size", fallback=10
-    )
-    rate_limiting_retry_after_seconds = _get_int(
-        parser, opts_section, "rate_limiting_retry_after_seconds", fallback=30
-    )
-    rate_limiting_max_backoff_seconds = _get_int(
-        parser, opts_section, "rate_limiting_max_backoff_seconds", fallback=300
-    )
-    # rate_limiting_backoff_factor is a float — no helper, use raw parser
-    if parser.has_section(opts_section) and parser.has_option(
-        opts_section, "rate_limiting_backoff_factor"
+    opts: dict = {}
+    _maybe_str(parser, opts_section, "download_directory", opts)
+    _maybe_str(parser, opts_section, "download_mode", opts)
+    _maybe_bool(parser, opts_section, "show_downloads", opts)
+    _maybe_bool(parser, opts_section, "show_skipped_downloads", opts)
+    _maybe_bool(parser, opts_section, "download_media_previews", opts)
+    _maybe_bool(parser, opts_section, "open_folder_when_finished", opts)
+    _maybe_bool(parser, opts_section, "separate_messages", opts)
+    _maybe_bool(parser, opts_section, "separate_previews", opts)
+    _maybe_bool(parser, opts_section, "separate_timeline", opts)
+    # Legacy spelling first; only one of the two should be in the INI.
+    if not _maybe_bool(
+        parser,
+        opts_section,
+        "utilise_duplicate_threshold",
+        opts,
+        dest_key="use_duplicate_threshold",
     ):
-        rate_limiting_backoff_factor = parser.getfloat(
-            opts_section, "rate_limiting_backoff_factor"
-        )
-    else:
-        rate_limiting_backoff_factor = 1.5
-    # ------------------------------------------------------------------
-    # [Logic]
-    # ------------------------------------------------------------------
-    logic_section = "Logic"
-    check_key_pattern = _get_str(
-        parser,
-        logic_section,
-        "check_key_pattern",
-        fallback=r"this\.checkKey_\s*=\s*[\"']([^\"']+)[\"']",
-    )
-    main_js_pattern = _get_str(
-        parser,
-        logic_section,
-        "main_js_pattern",
-        fallback=r"\ssrc\s*=\s*\"(main\..*?\.js)\"",
-    )
+        _maybe_bool(parser, opts_section, "use_duplicate_threshold", opts)
+    if not _maybe_bool(
+        parser, opts_section, "use_suffix", opts, dest_key="use_folder_suffix"
+    ):
+        _maybe_bool(parser, opts_section, "use_folder_suffix", opts)
+    _maybe_bool(parser, opts_section, "interactive", opts)
+    _maybe_bool(parser, opts_section, "prompt_on_exit", opts)
+    _maybe_int(parser, opts_section, "timeline_retries", opts)
+    _maybe_int(parser, opts_section, "timeline_delay_seconds", opts)
+    _maybe_str(parser, opts_section, "temp_folder", opts)
+    _maybe_bool(parser, opts_section, "use_pagination_duplication", opts)
+    _maybe_bool(parser, opts_section, "debug", opts)
+    _maybe_bool(parser, opts_section, "trace", opts)
+    _maybe_int(parser, opts_section, "api_max_retries", opts)
+    _maybe_bool(parser, opts_section, "rate_limiting_enabled", opts)
+    _maybe_bool(parser, opts_section, "rate_limiting_adaptive", opts)
+    _maybe_int(parser, opts_section, "rate_limiting_requests_per_minute", opts)
+    _maybe_int(parser, opts_section, "rate_limiting_burst_size", opts)
+    _maybe_int(parser, opts_section, "rate_limiting_retry_after_seconds", opts)
+    _maybe_int(parser, opts_section, "rate_limiting_max_backoff_seconds", opts)
+    _maybe_float(parser, opts_section, "rate_limiting_backoff_factor", opts)
+    if opts:
+        raw["options"] = opts
 
-    # ------------------------------------------------------------------
+    # [Postgres] — prefer dedicated section; legacy INIs put pg_* under [Options].
+    pg_section = "Postgres" if parser.has_section("Postgres") else opts_section
+    pg: dict = {}
+    _maybe_str(parser, pg_section, "pg_host", pg)
+    _maybe_int(parser, pg_section, "pg_port", pg)
+    _maybe_str(parser, pg_section, "pg_database", pg)
+    _maybe_str(parser, pg_section, "pg_user", pg)
+    # FANSLY_PG_PASSWORD env var is intentionally NOT consulted here — runtime
+    # override, not a disk value.
+    _maybe_str(parser, pg_section, "pg_password", pg)
+    _maybe_str(parser, pg_section, "pg_sslmode", pg)
+    _maybe_str(parser, pg_section, "pg_sslcert", pg)
+    _maybe_str(parser, pg_section, "pg_sslkey", pg)
+    _maybe_str(parser, pg_section, "pg_sslrootcert", pg)
+    _maybe_int(parser, pg_section, "pg_pool_size", pg)
+    _maybe_int(parser, pg_section, "pg_max_overflow", pg)
+    _maybe_int(parser, pg_section, "pg_pool_timeout", pg)
+    if pg:
+        raw["postgres"] = pg
+
     # [Cache]
-    # ------------------------------------------------------------------
-    cache_section = "Cache"
-    cache_device_id = _get_str(parser, cache_section, "device_id", fallback=None)
-    cache_device_id_timestamp_raw = _get_str(
-        parser, cache_section, "device_id_timestamp", fallback=None
-    )
-    cache_device_id_timestamp: int | None = None
-    if cache_device_id_timestamp_raw is not None:
-        try:
-            cache_device_id_timestamp = int(cache_device_id_timestamp_raw)
-        except (ValueError, TypeError):
-            cache_device_id_timestamp = None
+    cache: dict = {}
+    _maybe_str(parser, "Cache", "device_id", cache)
+    _maybe_int(parser, "Cache", "device_id_timestamp", cache)
+    if cache:
+        raw["cache"] = cache
 
-    # ------------------------------------------------------------------
-    # [Logging]
-    # ------------------------------------------------------------------
-    log_section = "Logging"
-    log_sqlalchemy = (
-        _get_str(parser, log_section, "sqlalchemy", fallback="INFO") or "INFO"
-    ).upper()
-    log_stash_console = (
-        _get_str(parser, log_section, "stash_console", fallback="INFO") or "INFO"
-    ).upper()
-    log_stash_file = (
-        _get_str(parser, log_section, "stash_file", fallback="INFO") or "INFO"
-    ).upper()
-    log_textio = (
-        _get_str(parser, log_section, "textio", fallback="INFO") or "INFO"
-    ).upper()
-    log_json = (
-        _get_str(parser, log_section, "json", fallback="INFO") or "INFO"
-    ).upper()
+    # [Logging] — log levels are uppercased post-extraction so legacy lowercase
+    # entries still pass schema validation.
+    log: dict = {}
+    for level_key in ("sqlalchemy", "stash_console", "stash_file", "textio", "json"):
+        if _maybe_str(parser, "Logging", level_key, log):
+            log[level_key] = log[level_key].upper()
+    if log:
+        raw["logging"] = log
 
-    # ------------------------------------------------------------------
-    # [StashContext] — optional section
-    # ------------------------------------------------------------------
-    stash_section = "StashContext"
-    stash_context: dict | None = None
-    if parser.has_section(stash_section):
-        stash_context = {
-            "scheme": _get_str(parser, stash_section, "scheme", fallback="http"),
-            "host": _get_str(parser, stash_section, "host", fallback="localhost"),
-            "port": _get_int(parser, stash_section, "port", fallback=9999),
-            "apikey": _get_str(parser, stash_section, "apikey", fallback="") or "",
-        }
+    # [Logic]
+    logic: dict = {}
+    _maybe_str(parser, "Logic", "check_key_pattern", logic)
+    _maybe_str(parser, "Logic", "main_js_pattern", logic)
+    if logic:
+        raw["logic"] = logic
 
-    # ------------------------------------------------------------------
-    # Assemble the schema dict — Pydantic validates on construction
-    # ------------------------------------------------------------------
-    raw: dict = {
-        "targeted_creator": {
-            "usernames": username_raw,
-            "use_following": use_following,
-            "use_following_with_pagination": use_following_with_pagination,
-        },
-        "my_account": {
-            "authorization_token": authorization_token,
-            "user_agent": user_agent,
-            "check_key": check_key,
-            "username": username if username else None,
-            "password": password if password else None,
-        },
-        "options": {
-            "download_directory": download_directory,
-            "download_mode": download_mode,
-            "show_downloads": show_downloads,
-            "show_skipped_downloads": show_skipped_downloads,
-            "download_media_previews": download_media_previews,
-            "open_folder_when_finished": open_folder_when_finished,
-            "separate_messages": separate_messages,
-            "separate_previews": separate_previews,
-            "separate_timeline": separate_timeline,
-            "use_duplicate_threshold": use_duplicate_threshold,
-            "use_pagination_duplication": use_pagination_duplication,
-            "use_folder_suffix": use_folder_suffix,
-            "interactive": interactive,
-            "prompt_on_exit": prompt_on_exit,
-            "debug": debug,
-            "trace": trace,
-            "timeline_retries": timeline_retries,
-            "timeline_delay_seconds": timeline_delay_seconds,
-            "api_max_retries": api_max_retries,
-            "rate_limiting_enabled": rate_limiting_enabled,
-            "rate_limiting_adaptive": rate_limiting_adaptive,
-            "rate_limiting_requests_per_minute": rate_limiting_requests_per_minute,
-            "rate_limiting_burst_size": rate_limiting_burst_size,
-            "rate_limiting_retry_after_seconds": rate_limiting_retry_after_seconds,
-            "rate_limiting_backoff_factor": rate_limiting_backoff_factor,
-            "rate_limiting_max_backoff_seconds": rate_limiting_max_backoff_seconds,
-            "temp_folder": temp_folder,
-        },
-        "postgres": {
-            "pg_host": pg_host,
-            "pg_port": pg_port,
-            "pg_database": pg_database,
-            "pg_user": pg_user,
-            "pg_password": pg_password_raw,
-            "pg_sslmode": pg_sslmode,
-            "pg_sslcert": pg_sslcert,
-            "pg_sslkey": pg_sslkey,
-            "pg_sslrootcert": pg_sslrootcert,
-            "pg_pool_size": pg_pool_size,
-            "pg_max_overflow": pg_max_overflow,
-            "pg_pool_timeout": pg_pool_timeout,
-        },
-        "cache": {
-            "device_id": cache_device_id,
-            "device_id_timestamp": cache_device_id_timestamp,
-        },
-        "logging": {
-            "sqlalchemy": log_sqlalchemy,
-            "stash_console": log_stash_console,
-            "stash_file": log_stash_file,
-            "textio": log_textio,
-            "json": log_json,
-        },
-        "stash_context": stash_context,
-        "logic": {
-            "check_key_pattern": check_key_pattern,
-            "main_js_pattern": main_js_pattern,
-        },
-    }
+    # [StashContext] — section-level optional. Only included if the [StashContext]
+    # block exists at all in the INI.
+    if parser.has_section("StashContext"):
+        sc: dict = {}
+        _maybe_str(parser, "StashContext", "scheme", sc)
+        _maybe_str(parser, "StashContext", "host", sc)
+        _maybe_int(parser, "StashContext", "port", sc)
+        _maybe_str(parser, "StashContext", "apikey", sc)
+        if sc:
+            raw["stash_context"] = sc
 
     return ConfigSchema.model_validate(raw)
 

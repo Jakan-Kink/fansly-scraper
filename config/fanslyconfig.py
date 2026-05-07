@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
@@ -18,12 +18,7 @@ from config.modes import DownloadMode
 from config.schema import (
     CacheSection,
     ConfigSchema,
-    LoggingSection,
-    MyAccountSection,
-    OptionsSection,
-    PostgresSection,
     StashContextSection,
-    TargetedCreatorSection,
 )
 
 
@@ -110,6 +105,11 @@ class FanslyConfig:
     use_duplicate_threshold: bool = False
     use_pagination_duplication: bool = False  # Check each page for duplicates
     use_folder_suffix: bool = True
+    # When False, ignore the creator_content_unchanged check in
+    # download/timeline.py and download/wall.py and force a full scan
+    # regardless of whether TimelineStats counts + wall structure match
+    # the DB. Hidden from YAML at default — see schema.OptionsSection.
+    respect_timeline_stats: bool = True
     # Show input prompts or sleep - for automation/scheduling purposes
     interactive: bool = True
     # Should there be a "Press <ENTER>" prompt at the very end of the program?
@@ -442,123 +442,151 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     # Re-use the existing schema if available so we don't lose monitoring/logic
     base = config._schema if config._schema is not None else ConfigSchema()
 
-    # For attributes that were ephemerally overridden (CLI flags), write the
-    # YAML-loaded value back instead of the runtime-overlayed one — so a
-    # per-run flag (--stash-only, --debug, --non-interactive, -u alice, ...)
-    # never silently pins a new YAML default. See FanslyConfig._ephemeral_overrides.
-    def _persist_option(name: str, runtime_value: Any) -> Any:
+    # In-place mutation pattern (replaces the prior wholesale section
+    # reconstruction). Pydantic v2 adds a field to ``model_fields_set`` on
+    # ANY assignment, so we only assign when the runtime value differs
+    # from the schema's current value AND the field is not in
+    # ``_ephemeral_overrides`` (CLI flags don't pin themselves into YAML).
+    # This is what lets ``model_dump(exclude_unset=True)`` in the dump
+    # path stay honest across save round-trips.
+    def _maybe_set(section: BaseModel, name: str, value: Any) -> None:
         if name in config._ephemeral_overrides:
-            return getattr(base.options, name)
-        return runtime_value
+            return
+        current = getattr(section, name, None)
+        if current != value:
+            setattr(section, name, value)
 
-    def _persist_targeted(name: str, runtime_value: Any) -> Any:
-        if name in config._ephemeral_overrides:
-            return getattr(base.targeted_creator, name)
-        return runtime_value
+    # targeted_creator
+    if "user_names" not in config._ephemeral_overrides:
+        target_usernames: list[str] | None = (
+            sorted(config.user_names) if config.user_names else None
+        )
+        _maybe_set(base.targeted_creator, "usernames", target_usernames)
+    _maybe_set(base.targeted_creator, "use_following", config.use_following)
+    # use_following_with_pagination intentionally NOT mutated — it was removed
+    # from the schema; it's a CLI-only macro toggling other flags at runtime.
 
-    # ``user_names`` (runtime attr) maps to ``usernames`` (schema attr).
-    if "user_names" in config._ephemeral_overrides:
-        usernames: list[str] = list(base.targeted_creator.usernames)
-    else:
-        usernames = sorted(config.user_names) if config.user_names else ["ReplaceMe"]
-
-    # Rebuild each section from config attributes
-    base.targeted_creator = TargetedCreatorSection(
-        usernames=usernames,
-        use_following=_persist_targeted("use_following", config.use_following),
-        use_following_with_pagination=base.targeted_creator.use_following_with_pagination,
+    # my_account
+    _maybe_set(base.my_account, "authorization_token", SecretStr(config.token or ""))
+    _maybe_set(base.my_account, "user_agent", config.user_agent or "ReplaceMe")
+    _maybe_set(
+        base.my_account, "check_key", config.check_key or "qybZy9-fyszis-bybxyf"
     )
-    base.my_account = MyAccountSection(
-        authorization_token=SecretStr(config.token or ""),
-        user_agent=config.user_agent or "ReplaceMe",
-        check_key=config.check_key or "qybZy9-fyszis-bybxyf",
-        username=config.username,
-        password=SecretStr(config.password) if config.password else None,
-    )
-    base.options = OptionsSection(
-        download_directory=str(config.download_directory or "Local_directory"),
-        download_mode=_persist_option("download_mode", config.download_mode),
-        show_downloads=_persist_option("show_downloads", config.show_downloads),
-        show_skipped_downloads=_persist_option(
-            "show_skipped_downloads", config.show_skipped_downloads
-        ),
-        download_media_previews=_persist_option(
-            "download_media_previews", config.download_media_previews
-        ),
-        open_folder_when_finished=_persist_option(
-            "open_folder_when_finished", config.open_folder_when_finished
-        ),
-        separate_messages=_persist_option(
-            "separate_messages", config.separate_messages
-        ),
-        separate_previews=_persist_option(
-            "separate_previews", config.separate_previews
-        ),
-        separate_timeline=_persist_option(
-            "separate_timeline", config.separate_timeline
-        ),
-        use_duplicate_threshold=_persist_option(
-            "use_duplicate_threshold", config.use_duplicate_threshold
-        ),
-        use_pagination_duplication=_persist_option(
-            "use_pagination_duplication", config.use_pagination_duplication
-        ),
-        use_folder_suffix=_persist_option(
-            "use_folder_suffix", config.use_folder_suffix
-        ),
-        interactive=_persist_option("interactive", config.interactive),
-        prompt_on_exit=_persist_option("prompt_on_exit", config.prompt_on_exit),
-        debug=_persist_option("debug", config.debug),
-        trace=config.trace,
-        timeline_retries=config.timeline_retries,
-        timeline_delay_seconds=config.timeline_delay_seconds,
-        api_max_retries=config.api_max_retries,
-        rate_limiting_enabled=config.rate_limiting_enabled,
-        rate_limiting_adaptive=config.rate_limiting_adaptive,
-        rate_limiting_requests_per_minute=config.rate_limiting_requests_per_minute,
-        rate_limiting_burst_size=config.rate_limiting_burst_size,
-        rate_limiting_retry_after_seconds=config.rate_limiting_retry_after_seconds,
-        rate_limiting_backoff_factor=config.rate_limiting_backoff_factor,
-        rate_limiting_max_backoff_seconds=config.rate_limiting_max_backoff_seconds,
-        temp_folder=str(config.temp_folder) if config.temp_folder is not None else None,
+    _maybe_set(base.my_account, "username", config.username)
+    _maybe_set(
+        base.my_account,
+        "password",
+        SecretStr(config.password) if config.password else None,
     )
 
+    # options
+    _maybe_set(
+        base.options,
+        "download_directory",
+        str(config.download_directory or "Local_directory"),
+    )
+    _maybe_set(base.options, "download_mode", config.download_mode)
+    _maybe_set(base.options, "show_downloads", config.show_downloads)
+    _maybe_set(base.options, "show_skipped_downloads", config.show_skipped_downloads)
+    _maybe_set(base.options, "download_media_previews", config.download_media_previews)
+    _maybe_set(
+        base.options, "open_folder_when_finished", config.open_folder_when_finished
+    )
+    _maybe_set(base.options, "separate_messages", config.separate_messages)
+    _maybe_set(base.options, "separate_previews", config.separate_previews)
+    _maybe_set(base.options, "separate_timeline", config.separate_timeline)
+    _maybe_set(base.options, "use_duplicate_threshold", config.use_duplicate_threshold)
+    _maybe_set(
+        base.options, "use_pagination_duplication", config.use_pagination_duplication
+    )
+    _maybe_set(base.options, "use_folder_suffix", config.use_folder_suffix)
+    _maybe_set(base.options, "respect_timeline_stats", config.respect_timeline_stats)
+    _maybe_set(base.options, "interactive", config.interactive)
+    _maybe_set(base.options, "prompt_on_exit", config.prompt_on_exit)
+    _maybe_set(base.options, "debug", config.debug)
+    _maybe_set(base.options, "trace", config.trace)
+    _maybe_set(base.options, "timeline_retries", config.timeline_retries)
+    _maybe_set(base.options, "timeline_delay_seconds", config.timeline_delay_seconds)
+    _maybe_set(base.options, "api_max_retries", config.api_max_retries)
+    _maybe_set(base.options, "rate_limiting_enabled", config.rate_limiting_enabled)
+    _maybe_set(base.options, "rate_limiting_adaptive", config.rate_limiting_adaptive)
+    _maybe_set(
+        base.options,
+        "rate_limiting_requests_per_minute",
+        config.rate_limiting_requests_per_minute,
+    )
+    _maybe_set(
+        base.options, "rate_limiting_burst_size", config.rate_limiting_burst_size
+    )
+    _maybe_set(
+        base.options,
+        "rate_limiting_retry_after_seconds",
+        config.rate_limiting_retry_after_seconds,
+    )
+    _maybe_set(
+        base.options,
+        "rate_limiting_backoff_factor",
+        config.rate_limiting_backoff_factor,
+    )
+    _maybe_set(
+        base.options,
+        "rate_limiting_max_backoff_seconds",
+        config.rate_limiting_max_backoff_seconds,
+    )
+    _maybe_set(
+        base.options,
+        "temp_folder",
+        str(config.temp_folder) if config.temp_folder is not None else None,
+    )
+
+    # postgres
     pg_password_secret: SecretStr | None = None
     if config.pg_password:
         pg_password_secret = SecretStr(config.pg_password)
-    base.postgres = PostgresSection(
-        pg_host=config.pg_host,
-        pg_port=config.pg_port,
-        pg_database=config.pg_database,
-        pg_user=config.pg_user,
-        pg_password=pg_password_secret,
-        pg_sslmode=config.pg_sslmode,
-        pg_sslcert=str(config.pg_sslcert) if config.pg_sslcert is not None else None,
-        pg_sslkey=str(config.pg_sslkey) if config.pg_sslkey is not None else None,
-        pg_sslrootcert=(
-            str(config.pg_sslrootcert) if config.pg_sslrootcert is not None else None
-        ),
-        pg_pool_size=config.pg_pool_size,
-        pg_max_overflow=config.pg_max_overflow,
-        pg_pool_timeout=config.pg_pool_timeout,
+    _maybe_set(base.postgres, "pg_host", config.pg_host)
+    _maybe_set(base.postgres, "pg_port", config.pg_port)
+    _maybe_set(base.postgres, "pg_database", config.pg_database)
+    _maybe_set(base.postgres, "pg_user", config.pg_user)
+    # FANSLY_PG_PASSWORD env var takes precedence at load time. Persist
+    # only when explicitly configured; the env-var path is per-process.
+    if "pg_password" not in config._ephemeral_overrides:
+        _maybe_set(base.postgres, "pg_password", pg_password_secret)
+    _maybe_set(base.postgres, "pg_sslmode", config.pg_sslmode)
+    _maybe_set(
+        base.postgres,
+        "pg_sslcert",
+        str(config.pg_sslcert) if config.pg_sslcert is not None else None,
     )
-
-    # Cache: read from config attributes (already updated before this call)
-    base.cache = CacheSection(
-        device_id=config.cached_device_id,
-        device_id_timestamp=config.cached_device_id_timestamp,
+    _maybe_set(
+        base.postgres,
+        "pg_sslkey",
+        str(config.pg_sslkey) if config.pg_sslkey is not None else None,
     )
+    _maybe_set(
+        base.postgres,
+        "pg_sslrootcert",
+        str(config.pg_sslrootcert) if config.pg_sslrootcert is not None else None,
+    )
+    _maybe_set(base.postgres, "pg_pool_size", config.pg_pool_size)
+    _maybe_set(base.postgres, "pg_max_overflow", config.pg_max_overflow)
+    _maybe_set(base.postgres, "pg_pool_timeout", config.pg_pool_timeout)
 
+    # cache (auto-instantiated via default_factory; mutate in place)
+    if base.cache is None:
+        base.cache = CacheSection()
+    _maybe_set(base.cache, "device_id", config.cached_device_id)
+    _maybe_set(base.cache, "device_id_timestamp", config.cached_device_id_timestamp)
+
+    # logging
     log = config.log_levels
-    base.logging = LoggingSection(
-        sqlalchemy=log.get("sqlalchemy", "INFO"),
-        stash_console=log.get("stash_console", "INFO"),
-        stash_file=log.get("stash_file", "INFO"),
-        textio=log.get("textio", "INFO"),
-        websocket=log.get("websocket", "INFO"),
-        json=log.get("json", "INFO"),
-    )
+    _maybe_set(base.logging, "sqlalchemy", log.get("sqlalchemy", "INFO"))
+    _maybe_set(base.logging, "stash_console", log.get("stash_console", "INFO"))
+    _maybe_set(base.logging, "stash_file", log.get("stash_file", "INFO"))
+    _maybe_set(base.logging, "textio", log.get("textio", "INFO"))
+    _maybe_set(base.logging, "websocket", log.get("websocket", "INFO"))
+    _maybe_set(base.logging, "json_level", log.get("json", "INFO"))
 
+    # stash_context: replace wholesale (Optional[Section]; None when unconfigured)
     base.stash_context = stash_section
 
     return base

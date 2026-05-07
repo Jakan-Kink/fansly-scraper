@@ -441,10 +441,12 @@ def test_load_yaml_empty_file_returns_defaults(tmp_path: Path) -> None:
 
     schema = ConfigSchema.load_yaml(empty_path)
 
-    # Should equal a default-constructed instance
+    # Should equal a default-constructed instance. Note: ``usernames``
+    # default is now None — fresh scaffold has no creators yet; CLI
+    # ``-u alice`` or hand-edited YAML populates it at runtime.
     assert schema.monitoring.daemon_mode is False
     assert schema.postgres.pg_host == "localhost"
-    assert schema.targeted_creator.usernames == ["replaceme"]
+    assert schema.targeted_creator.usernames is None
 
 
 # ---------------------------------------------------------------------------
@@ -453,9 +455,16 @@ def test_load_yaml_empty_file_returns_defaults(tmp_path: Path) -> None:
 
 
 def test_dump_yaml_string(tmp_path: Path) -> None:
-    """dump_yaml_string() returns valid YAML with section keys present."""
+    """dump_yaml_string() returns valid YAML with section keys present.
+
+    Cascade-up rule: a section appears in YAML only when it has at least
+    one always-rendered leaf or one explicitly-set field. ``monitoring``
+    has no always-leaves and no fields set here → it is intentionally
+    omitted. Setting ``daemon_mode`` brings the section back.
+    """
     schema = ConfigSchema()
     schema.options.timeline_retries = 7
+    schema.monitoring.daemon_mode = True
 
     yaml_str = schema.dump_yaml_string()
 
