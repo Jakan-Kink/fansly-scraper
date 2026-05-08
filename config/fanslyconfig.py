@@ -193,6 +193,7 @@ class FanslyConfig:
     # StashContext accepts a port:int, so we don't need to stringify it.
     stash_context_conn: dict[str, Any] | None = None
     stash_mapped_path: Path | None = None
+    stash_override_dldir_w_mapped: bool = False
 
     # Logging
     log_levels: dict[str, str] = field(
@@ -437,6 +438,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
             mapped_path=str(config.stash_mapped_path)
             if config.stash_mapped_path is not None
             else None,
+            override_dldir_w_mapped=config.stash_override_dldir_w_mapped,
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

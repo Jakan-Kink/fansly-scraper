@@ -165,16 +165,23 @@ class TestImageIndexing:
 
 
 class TestPreloadCreatorMedia:
-    """Test _preload_creator_media edge cases (lines 163-219)."""
+    """Test _preload_creator_media edge cases."""
 
     @pytest.mark.asyncio
-    async def test_no_base_path_skips(self, respx_stash_processor):
-        """No base_path set → early return with debug log (lines 173-175)."""
+    async def test_preload_preconditions(self, respx_stash_processor):
+        """Both passes are no-ops without their preconditions.
+
+        - _preload_creator_media early-returns when base_path AND creator_id missing.
+        - _preload_creator_media_by_code is a no-op without creator_id.
+        """
         respx_stash_processor.state.base_path = None
+        respx_stash_processor.state.creator_id = None
 
         await respx_stash_processor._preload_creator_media()
+        assert len(respx_stash_processor._scene_code_index) == 0
+        assert len(respx_stash_processor._image_code_index) == 0
 
-        # Should be a no-op — index should be empty
+        await respx_stash_processor._preload_creator_media_by_code()
         assert len(respx_stash_processor._scene_code_index) == 0
         assert len(respx_stash_processor._image_code_index) == 0
 

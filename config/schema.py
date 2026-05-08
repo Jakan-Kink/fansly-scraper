@@ -295,6 +295,24 @@ class StashContextSection(_BaseSection):
     port: int = 9999
     apikey: str = ""
     mapped_path: str | None = None
+    override_dldir_w_mapped: bool = False
+
+    @model_validator(mode="after")
+    def _override_requires_mapped_path(self) -> StashContextSection:
+        """override_dldir_w_mapped only has meaning when mapped_path is set.
+
+        Without a mapped_path, the override has nothing to widen the path
+        filter to — the flag would silently no-op. Reject at load time so
+        the user fixes one knob, not chases a behavior that never engages.
+        """
+        if self.override_dldir_w_mapped and self.mapped_path is None:
+            raise ValueError(
+                "stash_context.override_dldir_w_mapped=true requires "
+                "stash_context.mapped_path to be set. Either set mapped_path "
+                "to your Stash-visible fansly root, or set "
+                "override_dldir_w_mapped=false."
+            )
+        return self
 
 
 class MonitoringSection(_BaseSection):

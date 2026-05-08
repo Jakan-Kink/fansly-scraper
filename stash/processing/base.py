@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import traceback
 import warnings
 from collections import defaultdict
@@ -29,7 +30,7 @@ from stash_graphql_client.types import (
     is_set,
 )
 
-from metadata import Account, Database
+from metadata import Account, Database, Media, get_store
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
@@ -142,47 +143,22 @@ class StashProcessingBase(StashProcessingProtocol):
             self.store.set_ttl(entity_type, None)
 
     async def _preload_creator_media(self) -> None:
-        """Preload Galleries, Images, and Scenes for current creator into identity map.
+        """Preload Scenes/Images for the current creator into the code indexes.
 
-        Uses self.state.base_path as path filter to load only this creator's media.
-        Dramatically speeds up subsequent lookups by avoiding per-item GraphQL queries.
-
-        Also builds media code indexes for O(1) lookups by media_id extracted from
-        filenames. Pattern from pyofscraperstash: preload per-performer, build index,
-        invalidate after processing.
+        Runs path-scoped then code-scoped passes; both feed the same indexes,
+        each is a no-op when its precondition is missing.
         """
-        if not self.state.base_path:
-            logger.debug("No base_path set, skipping creator media preload")
+        if not self.state.base_path and self.state.creator_id is None:
+            logger.debug(
+                "No base_path and no creator_id, skipping creator media preload"
+            )
             return
-
-        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
-        logger.info(f"Preloading creator media from: {path_filter}")
 
         self._scene_code_index.clear()
         self._image_code_index.clear()
 
-        try:
-            scene_count = 0
-            async for scene in self.store.find_iter(
-                Scene, query_batch=500, path__contains=path_filter
-            ):
-                scene_count += 1
-                self._index_scene_files(scene)
-            logger.info(f"Preloaded {scene_count} scenes")
-
-            image_count = 0
-            async for image in self.store.find_iter(
-                Image, query_batch=500, path__contains=path_filter
-            ):
-                image_count += 1
-                self._index_image_files(image)
-            logger.info(f"Preloaded {image_count} images")
-
-            # Galleries have no file path — looked up by code on demand.
-            # Preloading all galleries pulls in scene references via the fragment.
-
-        except Exception as e:
-            logger.warning(f"Failed to preload creator media (continuing anyway): {e}")
+        await self._preload_creator_media_by_path()
+        await self._preload_creator_media_by_code()
 
         logger.info(
             f"Built media code indexes: {len(self._scene_code_index)} scene codes, "
@@ -193,6 +169,82 @@ class StashProcessingBase(StashProcessingProtocol):
         logger.info(
             f"Cache after creator preload: {stats.total_entries} entries "
             f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
+        )
+
+    async def _preload_creator_media_by_path(self) -> None:
+        """Path-scoped preload pass — queries Stash by translated base_path."""
+        if not self.state.base_path:
+            return
+
+        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
+        logger.info(f"Path-scoped preload from: {path_filter}")
+
+        try:
+            scene_count = 0
+            async for scene in self.store.find_iter(
+                Scene, query_batch=500, path__contains=path_filter
+            ):
+                scene_count += 1
+                self._index_scene_files(scene)
+
+            image_count = 0
+            async for image in self.store.find_iter(
+                Image, query_batch=500, path__contains=path_filter
+            ):
+                image_count += 1
+                self._index_image_files(image)
+
+            logger.info(
+                f"Path-scoped preload: {scene_count} scenes, {image_count} images"
+            )
+        except Exception as e:
+            logger.warning(f"Path-scoped preload failed (continuing anyway): {e}")
+
+    async def _preload_creator_media_by_code(self) -> None:
+        """Code-scoped preload pass — queries Stash by media-ID regex."""
+        if self.state.creator_id is None:
+            return
+
+        try:
+            media_rows = await get_store().find(Media, accountId=self.state.creator_id)
+        except Exception as e:
+            logger.warning(f"Code-scoped preload: failed to load media IDs: {e}")
+            return
+
+        codes = [str(m.id) for m in media_rows if getattr(m, "id", None)]
+        if not codes:
+            return
+
+        scenes_before = len(self._scene_code_index)
+        images_before = len(self._image_code_index)
+
+        chunk_size = 20
+        chunks = [codes[i : i + chunk_size] for i in range(0, len(codes), chunk_size)]
+
+        logger.info(
+            f"Code-scoped preload: searching for {len(codes)} media IDs "
+            f"in {len(chunks)} chunks"
+        )
+
+        for chunk in chunks:
+            regex = "|".join(re.escape(c) for c in chunk)
+            try:
+                async for scene in self.store.find_iter(
+                    Scene, query_batch=500, path__regex=regex
+                ):
+                    self._index_scene_files(scene)
+                async for image in self.store.find_iter(
+                    Image, query_batch=500, path__regex=regex
+                ):
+                    self._index_image_files(image)
+            except Exception as e:
+                logger.warning(f"Code-scoped preload chunk failed (continuing): {e}")
+
+        added_scenes = len(self._scene_code_index) - scenes_before
+        added_images = len(self._image_code_index) - images_before
+        logger.info(
+            f"Code-scoped preload added {added_scenes} new scene codes, "
+            f"{added_images} new image codes"
         )
 
     def _index_scene_files(self, scene: Scene) -> None:

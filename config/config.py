@@ -314,6 +314,9 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         }
         if schema.stash_context.mapped_path is not None:
             config.stash_mapped_path = Path(schema.stash_context.mapped_path)
+        config.stash_override_dldir_w_mapped = (
+            schema.stash_context.override_dldir_w_mapped
+        )
 
 
 def _handle_config_error(e: Exception) -> None:

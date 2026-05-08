@@ -15,6 +15,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### [TESTING-HOTFIX] Stash matching for non-aligned library layouts
+
+Targets the failure mode where a user copies the scraper's downloads to a
+separate Stash host and reorganises the files into a different folder
+structure (e.g. split by media type into `Videos/<studio>/` and
+`Photos/<studio>/`), so the per-creator subfolder name the scraper expects
+(`<creator>_fansly/`) never appears in any of the Stash file paths. With
+the previous behaviour, `--stash-only` runs created Galleries from the DB
+but couldn't link Scenes/Images to them — `path__contains=<base_path>`
+returned zero matches, the code index stayed empty, and the per-batch
+fallback regex re-anchored to the same failing `base_path`.
+
+#### Added
+
+- `stash_context.override_dldir_w_mapped` config field. When `true`,
+  `get_stash_path()` returns `mapped_path` directly and ignores the
+  per-creator subfolder structure — path filters scope to the entire
+  fansly-managed area in Stash. Pydantic validator rejects the config
+  at load time if the flag is set without `mapped_path`.
+- Code-scoped preload pass (`_preload_creator_media_by_code`). Pulls the
+  creator's `Media.id` values from the local Postgres DB, queries Stash
+  by `path__regex=<chunked codes>`, and feeds the same code indexes the
+  path-scoped pass populates. Path-independent backstop for layouts
+  that don't share a prefix with `download_directory`.
+- Three-tier anchor in `_create_targeted_regex_pattern`: per-creator
+  `base_path` (default), `mapped_path` (when scoped=False with mapping
+  set), or code-only (no mapping). The lazy per-batch fallback now
+  scopes regex queries to `mapped_path.*(codes)` instead of going
+  library-wide when mapping is configured.
+
+#### Changed
+
+- `_preload_creator_media` runs path-scoped then code-scoped passes
+  feeding the same `_scene_code_index` / `_image_code_index`. Each pass
+  is a no-op without its precondition (`base_path` for path-scoped,
+  `creator_id` + DB media rows for code-scoped). Defense-in-depth:
+  layouts that match either pass populate the index; downstream
+  `find_scenes_by_media_codes` / `find_images_by_media_codes` lookups
+  are unchanged.
+- `get_stash_path()` resolution ladder:
+  override + mapped_path → `str(mapped_path)`;
+  mapped_path only → prefix substitution (existing 0.13.3 behaviour);
+  neither → unchanged local path.
+
 ## [0.13.3] - 2026-05-04
 
 ### Added
