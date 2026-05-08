@@ -48,13 +48,27 @@
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#unreleased">Unreleased</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#testing-hotfix-stash-matching-for-non-aligned-library-layouts">[TESTING-HOTFIX] Stash matching for non-aligned library layouts</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#added">Added</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#changed">Changed</a>
+    </li>
+        </ul>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#0133-2026-05-04">0.13.3 - 2026-05-04</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#performance">Performance</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
     </li>
@@ -66,9 +80,9 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#0131-2026-04-23">0.13.1 - 2026-04-23</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_3">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
     </li>
@@ -76,9 +90,9 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#0130-2026-04-22">0.13.0 - 2026-04-22</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_3">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_4">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_3">Changed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
     </li>
@@ -188,8 +202,62 @@ in the project's original prose-style format. The v0.13.0 entry is
 mirrored here in Keep-a-Changelog form and is the canonical structure
 for all subsequent releases.</p>
 </blockquote>
-<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="testing-hotfix-stash-matching-for-non-aligned-library-layouts">[TESTING-HOTFIX] Stash matching for non-aligned library layouts<a class="headerlink" href="#testing-hotfix-stash-matching-for-non-aligned-library-layouts" title="Permanent link">&para;</a></h3>
+<p>Targets the failure mode where a user copies the scraper's downloads to a
+separate Stash host and reorganises the files into a different folder
+structure (e.g. split by media type into <code>Videos/&lt;studio&gt;/</code> and
+<code>Photos/&lt;studio&gt;/</code>), so the per-creator subfolder name the scraper expects
+(<code>&lt;creator&gt;_fansly/</code>) never appears in any of the Stash file paths. With
+the previous behaviour, <code>--stash-only</code> runs created Galleries from the DB
+but couldn't link Scenes/Images to them — <code>path__contains=&lt;base_path&gt;</code>
+returned zero matches, the code index stayed empty, and the per-batch
+fallback regex re-anchored to the same failing <code>base_path</code>.</p>
+<h4 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>stash_context.override_dldir_w_mapped</code> config field. When <code>true</code>,
+  <code>get_stash_path()</code> returns <code>mapped_path</code> directly and ignores the
+  per-creator subfolder structure — path filters scope to the entire
+  fansly-managed area in Stash. Pydantic validator rejects the config
+  at load time if the flag is set without <code>mapped_path</code>.</li>
+<li><code>stash_context.require_stash_only_mode</code> config field. When <code>true</code>,
+  Stash integration only engages on <code>--stash-only</code> runs; regular
+  download modes skip every Stash code path even when <code>stash_context</code>
+  is populated. Lets users with a separate Stash host keep credentials
+  in config without engaging Stash on every run.</li>
+<li><code>FanslyConfig.stash_active</code> property — single decision point for
+  "should Stash run this iteration." Replaces the bare
+  <code>stash_context_conn is not None</code> check at the post-download
+  StashProcessing call site.</li>
+<li>Code-scoped preload pass (<code>_preload_creator_media_by_code</code>) as a
+  conditional fallback. Pulls the creator's <code>Media.id</code> values from the
+  local Postgres DB and queries Stash by <code>path__regex=&lt;chunked codes&gt;</code>.
+  Runs only when path-scoped preload indexed nothing — aligned layouts
+  pay no extra Stash queries, non-aligned layouts (Stash directory
+  structure doesn't share a prefix with <code>download_directory</code>) recover
+  coverage via media-ID regex search.</li>
+<li>Three-tier anchor in <code>_create_targeted_regex_pattern</code>: per-creator
+  <code>base_path</code> (default), <code>mapped_path</code> (when scoped=False with mapping
+  set), or code-only (no mapping). The lazy per-batch fallback now
+  scopes regex queries to <code>mapped_path.*(codes)</code> instead of going
+  library-wide when mapping is configured.</li>
+</ul>
+<h4 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>_preload_creator_media</code> runs path-scoped first, code-scoped only
+  when path-scoped indexed nothing. Both feed the same
+  <code>_scene_code_index</code> / <code>_image_code_index</code>; downstream
+  <code>find_scenes_by_media_codes</code> / <code>find_images_by_media_codes</code> lookups
+  are unchanged. Each pass is a no-op without its precondition
+  (<code>base_path</code> for path-scoped, <code>creator_id</code> + DB media rows for
+  code-scoped).</li>
+<li><code>get_stash_path()</code> resolution ladder:
+  override + mapped_path → <code>str(mapped_path)</code>;
+  mapped_path only → prefix substitution (existing 0.13.3 behaviour);
+  neither → unchanged local path.</li>
+</ul>
+<h2 id="0133-2026-05-04"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3">0.13.3</a> - 2026-05-04<a class="headerlink" href="#0133-2026-05-04" title="Permanent link">&para;</a></h2>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>stash_context.mapped_path</code> config field: translates the local
   <code>download_directory</code> prefix to the path the Stash container sees,
@@ -209,7 +277,7 @@ for all subsequent releases.</p>
   never executed). Stash connection settings are config-file only;
   <code>--stash-only</code> (a mode flag, not a connection setting) is retained.</li>
 </ul>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>WebSocket transport now runs on its own dedicated thread with a private
   asyncio loop (<code>FanslyWebSocket.start_in_thread()</code> / <code>stop_thread()</code>).
@@ -228,7 +296,7 @@ for all subsequent releases.</p>
   asyncpg / Alembic records to the db sink, <code>stash_graphql_client.*</code> to
   the stash sink, and <code>py.warnings</code> records routed by origin file path.</li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Eliminated WebSocket reconnect death-spiral.</strong> The ping_worker
   previously shared the main asyncio loop with downloads, GraphQL
@@ -264,6 +332,66 @@ for all subsequent releases.</p>
   <code>stash/processing/base.py</code> imports and catches <code>StashCapabilityError</code>,
   which only exists in SGC ≥ 0.12.2; the older floor allowed installs to
   resolve to a version missing that symbol.</li>
+</ul>
+<h3 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>30-creator daemon pass: ~70 min → ~12 min (6× speedup); peak RSS:
+  9 GB → ~2.4 GB.</strong> Cumulative effect of the entries below.</li>
+<li>FanslyObject <code>_snapshot</code> now uses <code>PrivateAttr(default=None)</code> with
+  initialization in <code>model_post_init</code>, rather than
+  <code>default_factory=dict</code>. Pydantic 2.13's <code>init_private_attributes</code>
+  calls <code>inspect.signature</code> on every <code>default_factory</code> per instance to
+  decide whether the factory takes a validated-data argument; for
+  C-implemented built-ins (<code>dict</code>) that lookup falls into
+  <code>inspect._signature_fromstr</code> (~50 KB allocation per call, not cached
+  upstream). At identity-map preload scale (~682K FanslyObject
+  constructions across all model types) this dominated per-instance
+  cost. Mirrors <code>stash-graphql-client@c701c4606</code> (the upstream sibling
+  fix that ships for SGC-side entities).</li>
+<li>18 mutable list field defaults converted from <code>= []</code> to
+  <code>Field(default_factory=list)</code>. Pydantic 2 deep-copies mutable field
+  defaults per instance to prevent shared state; <code>Field(default_factory=
+  list)</code> calls the factory directly without going through <code>copy.
+  deepcopy</code>. Eliminates ~106 MB of allocator churn (memo dicts,
+  <code>_keep_alive</code> table, dispatch walks) per startup preload — confirmed
+  by memray attribution dropping from 119 MB to 13 MB through the
+  <code>copy.py</code> subtree.</li>
+<li><code>PostgresEntityStore._type_index: dict[type, set[int]]</code> secondary
+  index. Per-type iteration paths (<code>filter</code>, <code>find</code> cache-first,
+  <code>find_one</code>, <code>count</code>, <code>find_iter</code>, <code>invalidate_type</code>, <code>cache_stats</code>)
+  now run in O(this type) instead of O(<code>_cache</code>). Mirrors MMsD
+  <code>postgres_entity_store.py:333</code> / SGC <code>store.py</code> <code>_type_index</code>.
+  Maintained alongside <code>_cache</code> in <code>cache_instance</code> / <code>invalidate*</code>.</li>
+<li>Monotonic-clock TTL with per-type override:
+  <code>PostgresEntityStore(default_ttl=...)</code> constructor argument and
+  <code>store.set_ttl(model_type, ttl)</code> per-type setter. <code>_is_expired</code> uses
+  <code>time.monotonic()</code> (immune to wall-clock changes). Daemon poll
+  cadences span 30s (stories) to 10min (FYP), so per-type granularity
+  matters; <code>get_from_cache</code> evicts and returns <code>None</code> once an entry's
+  TTL has elapsed.</li>
+<li><code>cache_stats()</code> rewritten to walk <code>_type_index</code> (O(types)) instead of
+  scanning <code>_cache</code> (O(N)); now also exposes the existing <code>_stats</code>
+  hit/miss counters in the same payload.</li>
+<li>Singular <code>belongs_to</code> relationships go tri-state — <code>UNSET</code> /
+  <code>None</code> / object — using SGC's <code>UnsetType</code> sentinel imported from
+  <code>stash_graphql_client.types.unset</code>. <code>__setattr__</code> distinguishes the
+  three states; cache hits link the relationship, cache misses leave
+  <code>UNSET</code> so consumers use <code>is_set()</code> to distinguish "not yet loaded"
+  from "explicitly cleared". <code>_autolink_relationships(obj)</code> runs after
+  <code>model_validate</code> to resolve <code>UNSET</code> → cached object after DB-load,
+  preventing <code>to_db_dict</code>'s FK-derivation loop from clobbering FK
+  columns to NULL.</li>
+<li>Stash creator-media indexes (<code>_scene_code_index</code>,
+  <code>_image_code_index</code>) now store entity IDs rather than full Pydantic
+  refs. Storing full objects pinned them past <code>invalidate_type</code>, so the
+  per-creator heap drop was deferred to end-of-stash. <code>find_*_by_media_
+  codes</code> rehydrates via <code>store.get_many</code> (cache-first, batched DB-fetch
+  for misses).</li>
+<li>Per-creator stash invalidation list extended to include <code>VideoFile</code>
+  and <code>ImageFile</code> leaves. <code>Scene</code>/<code>Image</code> preload via the GraphQL
+  fragment caches the file-leaf children as separate identity-map
+  entries; orphaning them across creators leaked ~3.9k objects per pass
+  on a typical fan with ~3k images and ~800 scenes.</li>
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
@@ -352,12 +480,12 @@ for all subsequent releases.</p>
 <h2 id="0131-2026-04-23"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1">0.13.1</a> - 2026-04-23<a class="headerlink" href="#0131-2026-04-23" title="Permanent link">&para;</a></h2>
 <p>Patch release fixing two issues reported on Windows + Python 3.14, plus
 rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
-<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>docs/reference/request-signing.md</code> — reverse-engineered notes on Fansly's
   request-signing scheme.</li>
 </ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Dependency</strong>: added <code>filelock ^3.29.0</code> as a direct runtime dep, replacing
   POSIX-only <code>fcntl</code> usage in the <code>config.ini → config.yaml</code> migration lock
@@ -385,7 +513,7 @@ rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
 <p>First release under the Keep-a-Changelog format. Flagship feature: the
 post-batch monitoring daemon. Also rolls up every notable change landed
 since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
-<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Post-batch monitoring daemon</strong> (<code>--daemon</code> / <code>-d</code> / <code>--monitor</code>) — continuous
   WebSocket-driven event dispatch for new posts, stories, PPV messages,
@@ -427,7 +555,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
 <li><code>download/messages.py::download_messages_for_group</code> — daemon entry point that downloads a DM group by id, resolving creator identity from the group. Batch-path <code>download_messages</code> unchanged.</li>
 <li><code>DownloadMessagesForGroup.sender_id</code> — optional field carrying the WS <code>senderId</code> so the runner can pre-populate creator identity.</li>
 </ul>
-<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Dependency floor</strong>: <code>stash-graphql-client</code> bumped from <code>&gt;=0.11.0</code> to
   <code>&gt;=0.12.0</code>, unlocking batched GraphQL mutations (<code>save_batch</code>,
