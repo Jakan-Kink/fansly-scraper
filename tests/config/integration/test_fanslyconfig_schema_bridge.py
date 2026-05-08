@@ -115,6 +115,10 @@ def test_round_trip_save_and_reload(
     fresh_config.log_levels["json"] = "WARNING"
     fresh_config._save_config()
 
+    yaml_text = yaml_path.read_text(encoding="utf-8")
+    assert "\n  json: WARNING\n" in yaml_text or "\n  json: 'WARNING'\n" in yaml_text
+    assert "json_level:" not in yaml_text
+
     # Reload into a completely fresh config
     second_config = FanslyConfig(program_version="0.13.0")
     load_config(second_config)
@@ -125,6 +129,14 @@ def test_round_trip_save_and_reload(
     assert second_config.timeline_retries == 7
     assert second_config.separate_previews is True
     assert second_config.log_levels["json"] == "WARNING"
+
+    legacy_yaml = yaml_text.replace("json: WARNING", "json_level: WARNING").replace(
+        "json: 'WARNING'", "json_level: 'WARNING'"
+    )
+    yaml_path.write_text(legacy_yaml, encoding="utf-8")
+    third_config = FanslyConfig(program_version="0.13.0")
+    load_config(third_config)
+    assert third_config.log_levels["json"] == "WARNING"
 
 
 # ---------------------------------------------------------------------------

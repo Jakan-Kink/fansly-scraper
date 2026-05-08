@@ -1,6 +1,7 @@
 """Tests for helpers/checkkey.py — checkKey extraction, validation, nvm setup."""
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +17,7 @@ from helpers.checkkey import (
     extract_checkkey_from_js,
     guess_check_key,
 )
+from tests.fixtures.api import dump_fansly_calls
 
 
 # ── _setup_nvm_environment ──────────────────────────────────────────────
@@ -125,6 +127,36 @@ class TestSetupNvmEnvironment:
         monkeypatch.delenv("NODE_PATH", raising=False)
         _setup_nvm_environment()
         # NODE_PATH should not be set (no node_modules dir)
+
+    def test_nvmrc_missing_uses_latest_version(self, tmp_path, monkeypatch):
+        """Lines 55-61: nvmrc not readable → fall back to sorted-latest version dir."""
+        # Real .nvmrc lives at project root (hardcoded); patch its exists() to deny.
+        nvm_dir = tmp_path / ".nvm"
+        # Two versions; sorted reverse → v22 wins.
+        (nvm_dir / "versions" / "node" / "v18.0.0" / "bin").mkdir(parents=True)
+        v_latest = nvm_dir / "versions" / "node" / "v22.0.0" / "bin"
+        v_latest.mkdir(parents=True)
+        (nvm_dir / "versions" / "node" / "v22.0.0" / "lib" / "node_modules").mkdir(
+            parents=True
+        )
+
+        monkeypatch.setenv("NVM_DIR", str(nvm_dir))
+        original_path = os.environ.get("PATH", "")
+        monkeypatch.setenv("PATH", "/usr/bin")
+
+        real_exists = Path.exists
+
+        def selective_exists(self):
+            if self.name == ".nvmrc":
+                return False
+            return real_exists(self)
+
+        monkeypatch.setattr(Path, "exists", selective_exists)
+        _setup_nvm_environment()
+        # Latest version's bin should be prepended to PATH.
+        assert str(v_latest) in os.environ["PATH"]
+        # Restore PATH after monkeypatch teardown — keeps other tests isolated.
+        monkeypatch.setenv("PATH", original_path)
 
 
 # ── _extract_expression_at_position ─────────────────────────────────────
@@ -673,95 +705,127 @@ class TestExtractCheckkeyAstFallback:
 # ── guess_check_key ─────────────────────────────────────────────────────
 
 
+@patch(
+    "helpers.checkkey._shutdown_js_bridge"
+)  # ~7s of thread joins skew coverage; real teardown lives in TestJsBridgeShutdown
 class TestGuessCheckKey:
-    """HTTP boundary: respx. JS boundary: patch extract_checkkey_from_js."""
+    """HTTP boundary: respx_fansly_api. JS boundary: patch extract_checkkey_from_js."""
 
-    def test_success_full_flow(self):
-        """Lines 629-700: homepage → find main.js → download → extract."""
+    def test_success_full_flow(self, mock_shutdown, respx_fansly_api):
+        """Homepage → find main.js → download → extract → return."""
         html = '<script src="main.abc123.js"></script>'
         js_content = 'this.checkKey_ = "test";'
 
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=[httpx.Response(200, text=html)]
-            )
-            respx.get("https://fansly.com/main.abc123.js").mock(
-                side_effect=[httpx.Response(200, text=js_content)]
-            )
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=[httpx.Response(200, text=html)]
+        )
+        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+            side_effect=[httpx.Response(200, text=js_content)]
+        )
+        try:
             with patch(
                 "helpers.checkkey.extract_checkkey_from_js",
                 return_value="oybZy8-fySzis-bubayf",
             ):
                 result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_success_full_flow")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
+        assert mainjs_route.called
 
-    def test_homepage_non_200(self):
-        """Lines 649-653: homepage returns non-200 → default key."""
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=[httpx.Response(503, text="down")]
-            )
+    def test_homepage_non_200(self, mock_shutdown, respx_fansly_api):
+        """Homepage returns non-200 → default key."""
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=[httpx.Response(503, text="down")]
+        )
+        try:
             result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_homepage_non_200")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
 
-    def test_no_main_js_in_html(self):
-        """Lines 665-667: main.js URL not found in HTML → default key."""
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=[httpx.Response(200, text="<html>no scripts</html>")]
-            )
+    def test_no_main_js_in_html(self, mock_shutdown, respx_fansly_api):
+        """main.js URL not found in HTML → default key."""
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=[httpx.Response(200, text="<html>no scripts</html>")]
+        )
+        try:
             result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_no_main_js_in_html")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
 
-    def test_main_js_non_200(self):
-        """Lines 682-686: main.js download fails → default key."""
+    def test_main_js_non_200(self, mock_shutdown, respx_fansly_api):
+        """Lines 784-788: main.js download fails → default key."""
         html = '<script src="main.abc123.js"></script>'
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=[httpx.Response(200, text=html)]
-            )
-            respx.get("https://fansly.com/main.abc123.js").mock(
-                side_effect=[httpx.Response(404, text="not found")]
-            )
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=[httpx.Response(200, text=html)]
+        )
+        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+            side_effect=[httpx.Response(404, text="not found")]
+        )
+        try:
             result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_main_js_non_200")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
+        assert mainjs_route.called
 
-    def test_extraction_returns_none(self):
-        """Lines 702-705: extraction fails → default key."""
+    def test_extraction_returns_none(self, mock_shutdown, respx_fansly_api):
+        """Lines 800-807: extraction returns None → fall back to default."""
         html = '<script src="main.abc123.js"></script>'
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=[httpx.Response(200, text=html)]
-            )
-            respx.get("https://fansly.com/main.abc123.js").mock(
-                side_effect=[httpx.Response(200, text="var x;")]
-            )
-            with patch("helpers.checkkey.extract_checkkey_from_js", return_value=None):
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=[httpx.Response(200, text=html)]
+        )
+        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+            side_effect=[httpx.Response(200, text="var x;")]
+        )
+        try:
+            with patch(
+                "helpers.checkkey.extract_checkkey_from_js", return_value=None
+            ) as extract_mock:
                 result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_extraction_returns_none")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
+        assert mainjs_route.called
+        assert extract_mock.called
 
-    def test_network_error(self):
-        """Lines 707-709: httpx.RequestError → default key."""
-        with respx.mock:
-            respx.get("https://fansly.com").mock(
-                side_effect=httpx.ConnectError("connection refused")
-            )
+    def test_network_error(self, mock_shutdown, respx_fansly_api):
+        """httpx.RequestError → default key."""
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+        try:
             result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_network_error")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
 
-    def test_unexpected_exception(self):
-        """Lines 711-713: unexpected error → default key."""
-        with respx.mock:
-            respx.get("https://fansly.com").mock(side_effect=RuntimeError("boom"))
+    def test_unexpected_exception(self, mock_shutdown, respx_fansly_api):
+        """Unexpected error → default key."""
+        homepage_route = respx.get("https://fansly.com/").mock(
+            side_effect=RuntimeError("boom")
+        )
+        try:
             result = guess_check_key("Mozilla/5.0")
+        finally:
+            dump_fansly_calls(respx.calls, label="test_unexpected_exception")
 
         assert result == "oybZy8-fySzis-bubayf"
+        assert homepage_route.called
 
 
 # ── JS bridge shutdown ─────────────────────────────────────────────────

@@ -1,5 +1,4 @@
 import os
-from configparser import ConfigParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -8,7 +7,6 @@ from loguru import logger
 
 from config.config import (
     _handle_config_error,
-    copy_old_config_values,
     load_config,
     parse_items_from_line,
     sanitize_creator_names,
@@ -251,76 +249,6 @@ device_id_timestamp = 123456789
     assert config.cached_device_id_timestamp == 123456789
 
 
-def test_copy_old_config_values(temp_config_dir):
-    old_config_path = temp_config_dir / "old_config.ini"
-    new_config_path = temp_config_dir / "config.ini"
-
-    # Create old config with some values
-    with old_config_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = old_token
-User_Agent = old_agent
-Check_Key = old_key
-
-[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = /old/path
-temp_folder = /old/temp
-db_sync_commits = 100
-"""
-        )
-
-    # Create new config with different values
-    with new_config_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = new_token
-User_Agent = new_agent
-Check_Key = new_key
-
-[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = /new/path
-temp_folder = /new/temp
-db_sync_commits = 200
-"""
-        )
-
-    # Change to temp_dir so copy_old_config_values can find the files
-    original_cwd = Path.cwd()
-    os.chdir(temp_config_dir)
-    try:
-        copy_old_config_values()
-
-        # Read the new config and verify values were copied
-        config = ConfigParser(interpolation=None)
-        config.read(new_config_path)
-
-        assert config.get("MyAccount", "Authorization_Token") == "old_token"
-        assert config.get("MyAccount", "User_Agent") == "old_agent"
-        assert config.get("MyAccount", "Check_Key") == "old_key"
-        assert config.get("Options", "download_directory") == "/old/path"
-        assert config.get("Options", "temp_folder") == "/old/temp"
-        assert config.get("Options", "db_sync_commits") == "100"
-    finally:
-        os.chdir(original_cwd)
-
-
-def test_copy_old_config_no_files(temp_config_dir):
-    # Change to temp_dir where no config files exist
-    original_cwd = Path.cwd()
-    os.chdir(temp_config_dir)
-    try:
-        copy_old_config_values()  # Should do nothing and not raise
-    finally:
-        os.chdir(original_cwd)
-
-
 def test_token_scrambling(config):
     # Test unscrambling a scrambled token
     scrambled = "abcdefghijklmnopqrstuvwxyzfNs"  # 26 chars + "fNs"
@@ -450,90 +378,6 @@ temp_folder =
 
     load_config(config)
     assert config.temp_folder is None
-
-
-# -- copy_old_config_values: section/option mismatch branches --
-
-
-def test_copy_old_config_skips_section_not_in_new(temp_config_dir):
-    """Old config has a section the new config doesn't → skip it (line 111)."""
-    old_path = temp_config_dir / "old_config.ini"
-    new_path = temp_config_dir / "config.ini"
-
-    with old_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = old_tok
-
-[ExtraSection]
-some_key = some_value
-"""
-        )
-    with new_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = new_tok
-"""
-        )
-
-    copy_old_config_values()
-
-    result = ConfigParser(interpolation=None)
-    result.read(new_path)
-    assert result.get("MyAccount", "Authorization_Token") == "old_tok"
-    assert not result.has_section("ExtraSection")
-
-
-def test_copy_old_config_skips_option_not_in_new(temp_config_dir):
-    """Old config has an option the new config doesn't → skip it (line 115)."""
-    old_path = temp_config_dir / "old_config.ini"
-    new_path = temp_config_dir / "config.ini"
-
-    with old_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = old_tok
-Extra_Option = extra_value
-"""
-        )
-    with new_path.open("w") as f:
-        f.write(
-            """[MyAccount]
-Authorization_Token = new_tok
-"""
-        )
-
-    copy_old_config_values()
-
-    result = ConfigParser(interpolation=None)
-    result.read(new_path)
-    assert result.get("MyAccount", "Authorization_Token") == "old_tok"
-    assert not result.has_option("MyAccount", "Extra_Option")
-
-
-def test_copy_old_config_skips_version(temp_config_dir):
-    """version key in [Other] section is never overwritten (line 121)."""
-    old_path = temp_config_dir / "old_config.ini"
-    new_path = temp_config_dir / "config.ini"
-
-    with old_path.open("w") as f:
-        f.write(
-            """[Other]
-version = 0.9.0
-"""
-        )
-    with new_path.open("w") as f:
-        f.write(
-            """[Other]
-version = 1.0.0
-"""
-        )
-
-    copy_old_config_values()
-
-    result = ConfigParser(interpolation=None)
-    result.read(new_path)
-    assert result.get("Other", "version") == "1.0.0"
 
 
 # -- SSL path handling in _handle_postgresql_options --

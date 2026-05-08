@@ -194,6 +194,8 @@ class FanslyConfig:
     # StashContext accepts a port:int, so we don't need to stringify it.
     stash_context_conn: dict[str, Any] | None = None
     stash_mapped_path: Path | None = None
+    stash_override_dldir_w_mapped: bool = False
+    stash_require_stash_only_mode: bool = False
 
     # Logging
     log_levels: dict[str, str] = field(
@@ -370,6 +372,21 @@ class FanslyConfig:
 
     # endregion
 
+    @property
+    def stash_active(self) -> bool:
+        """Whether Stash integration should engage for the current run.
+
+        True iff a Stash connection is configured AND, if
+        ``stash_require_stash_only_mode`` is set, the current download mode
+        is ``STASH_ONLY``. Lets users with a separate-host Stash setup
+        keep credentials in config without engaging Stash on every run.
+        """
+        if self.stash_context_conn is None:
+            return False
+        if self.stash_require_stash_only_mode:
+            return self.download_mode == DownloadMode.STASH_ONLY
+        return True
+
     def get_stash_context(self) -> StashContext:
         """Get Stash context.
 
@@ -431,6 +448,8 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
             mapped_path=str(config.stash_mapped_path)
             if config.stash_mapped_path is not None
             else None,
+            override_dldir_w_mapped=config.stash_override_dldir_w_mapped,
+            require_stash_only_mode=config.stash_require_stash_only_mode,
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

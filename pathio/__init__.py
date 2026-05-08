@@ -6,10 +6,8 @@ This module provides centralized path handling for:
 3. Consistent application of path-related config settings
 """
 
-from typing import Any
-
 from .pathio import (
-    delete_temporary_pyinstaller_files,
+    ask_correct_dir,
     get_creator_base_path,
     get_creator_metadata_path,
     get_media_save_path,
@@ -19,24 +17,12 @@ from .pathio import (
 from .types import PathConfig
 
 
-# ask_correct_dir is lazy-loaded via __getattr__ to avoid requiring tkinter
-
 __all__ = [
     "PathConfig",
     "ask_correct_dir",
-    "delete_temporary_pyinstaller_files",
     "get_creator_base_path",
     "get_creator_metadata_path",
     "get_media_save_path",
     "get_stash_path",
     "set_create_directory_for_download",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    """Lazy-load ask_correct_dir to avoid requiring optional tkinter dependency."""
-    if name == "ask_correct_dir":
-        from .pathio import ask_correct_dir  # noqa: PLC0415
-
-        return ask_correct_dir
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

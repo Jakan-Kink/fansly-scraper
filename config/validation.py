@@ -1,6 +1,7 @@
 """Configuration Validation"""
 
 # import re
+import asyncio
 import importlib.util
 from pathlib import Path
 from time import sleep
@@ -224,7 +225,11 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
 
                     while True:
                         user_input_acc_verify = (
-                            input(f"{19 * ' '}► Type either 'Yes' or 'No': ")
+                            (
+                                await asyncio.to_thread(
+                                    input, f"{19 * ' '}► Type either 'Yes' or 'No': "
+                                )
+                            )
                             .strip()
                             .lower()
                         )
@@ -481,18 +486,15 @@ def validate_adjust_download_directory(config: FanslyConfig) -> None:
         textio_logger.warning(
             f"The custom base download directory file path '{config.download_directory}' seems to be invalid!"
             f"\n{20 * ' '}Please change it to a correct file path, for example: 'C:\\MyFanslyDownloads'"
-            f"\n{20 * ' '}An Explorer window to help you set the correct path will open soon!"
-            f"\n{20 * ' '}You may right-click inside the Explorer to create a new folder."
-            f"\n{20 * ' '}Select a folder and it will be used as the default download directory."
+            f"\n{20 * ' '}You'll be prompted shortly to enter a valid path."
+            f"\n{20 * ' '}Tab key offers directory completion; ~ expands to your home folder."
         )
 
         sleep(10)  # give user time to realise instructions were given
 
-        config.download_directory = (
-            ask_correct_dir()
-        )  # ask user to select correct path using tkinters explorer dialog
+        config.download_directory = ask_correct_dir()
 
-        # save the config permanently into config.ini
+        # save the config permanently
         save_config_or_raise(config)
 
 
@@ -545,9 +547,7 @@ def validate_adjust_download_mode(
                 done = True
 
 
-async def validate_adjust_config(
-    config: FanslyConfig, download_mode_set: bool
-) -> None:
+async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) -> None:
     """Validates all input values from `config.ini`
     and corrects them if possible.
 

@@ -4,69 +4,32 @@ Two distinct concerns under test:
 
 * **Chunking** (tests 1-2): ``_process_media_batch_by_mimetype`` splits
   ``media_list`` into chunks of ``max_batch_size = 20`` before delegating
-  to ``_process_batch_internal``. Verified by TrueSpy on the inner method
-  per the canonical pattern at
-  ``tests/stash/processing/integration/test_message_processing.py:173-238``.
+  to ``_process_batch_internal``. Verified by TrueSpy on the inner method.
 * **Routing** (tests 3-5): ``_process_batch_internal`` groups media by
   ``stash_id`` vs path-based, then groups path media by image vs scene
-  mimetype. Verified by patching the EntityStore leaves
-  (``store.get_many`` / ``store.find_iter``, both rule-compliant external
-  lib leaves per CLAUDE.md) to inject organized fakes, which causes
-  ``_update_stash_metadata`` to take its production short-circuit at
-  ``stash/processing/mixins/media.py:472-486`` instead of issuing
-  GraphQL update mutations.
+  mimetype. Verified at the project's documented HTTP boundary via
+  ``respx`` — the GraphQL operation that fires (``findImages`` vs
+  ``findScenes``) is the routing signal; result-list contents prove
+  the routing landed media in the correct group.
 """
 
-from collections.abc import AsyncIterator
 from unittest.mock import patch
 
+import httpx
 import pytest
-from stash_graphql_client.types import Image, Scene, Studio
+import respx
+from stash_graphql_client.types import Studio
 
 from tests.fixtures.metadata.metadata_factories import MediaFactory
-from tests.fixtures.stash.stash_type_factories import (
-    ImageFileFactory,
-    VideoFileFactory,
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
+from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_find_images_result,
+    create_find_scenes_result,
+    create_graphql_response,
+    create_image_dict,
+    create_scene_dict,
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
-
-
-def _organized_image(stash_id: str | int, path: str | None = None) -> Image:
-    """Build an Image with ``organized=True`` so the metadata update short-circuits."""
-    return Image(
-        id=str(stash_id),
-        organized=True,
-        visual_files=[ImageFileFactory(path=path or f"/stash/{stash_id}.jpg")],
-    )
-
-
-def _organized_scene(stash_id: str | int, path: str | None = None) -> Scene:
-    """Build a Scene with ``organized=True`` so the metadata update short-circuits."""
-    return Scene(
-        id=str(stash_id),
-        organized=True,
-        files=[VideoFileFactory(path=path or f"/stash/{stash_id}.mp4")],
-    )
-
-
-def _async_iter(items: list) -> AsyncIterator:
-    """Wrap a list as an async iterator (matches ``store.find_iter`` shape)."""
-
-    async def _gen():
-        for item in items:
-            yield item
-
-    return _gen()
-
-
-async def _empty_list():
-    """Async helper returning an empty list (for ``store.get_many`` stand-in)."""
-    return []
-
-
-@pytest.fixture
-def fake_studio():
-    return Studio(id="9999", name="test_user (Fansly)")
 
 
 class TestBatchProcessing:
@@ -74,7 +37,7 @@ class TestBatchProcessing:
 
     @pytest.mark.asyncio
     async def test_process_media_batch_small(
-        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """``_process_media_batch_by_mimetype`` does not split when batch <= 20."""
         media_list = [
@@ -88,14 +51,20 @@ class TestBatchProcessing:
             for i in range(5)
         ]
 
-        # Pre-set studio (production short-circuit; see _process_batch_internal:996-998).
-        respx_stash_processor._studio = fake_studio
-        # store.get_many is the external-lib leaf called by _find_stash_files_by_id;
-        # returning [] is sufficient — the chunking math under test is upstream.
-        monkeypatch.setattr(
-            respx_stash_processor.store,
-            "get_many",
-            lambda *_args, **_kwargs: _empty_list(),
+        respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
+
+        # 5 items in 1 chunk → 1 findImages call. Empty result is fine; the
+        # chunking math under test is observed via the spy.
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImages",
+                        create_find_images_result(count=0, images=[]),
+                    ),
+                ),
+            ]
         )
 
         captured_chunks = []
@@ -107,18 +76,20 @@ class TestBatchProcessing:
             )
             return await original_process_batch(media_list, item, account)
 
-        with patch.object(
-            respx_stash_processor,
-            "_process_batch_internal",
-            side_effect=spy_process_batch,
-        ):
-            result = await respx_stash_processor._process_media_batch_by_mimetype(
-                media_list=media_list,
-                item=mock_item,
-                account=mock_account,
-            )
+        try:
+            with patch.object(
+                respx_stash_processor,
+                "_process_batch_internal",
+                side_effect=spy_process_batch,
+            ):
+                result = await respx_stash_processor._process_media_batch_by_mimetype(
+                    media_list=media_list,
+                    item=mock_item,
+                    account=mock_account,
+                )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_media_batch_small")
 
-        # Single delegated call carrying all 5 items.
         assert len(captured_chunks) == 1
         assert captured_chunks[0]["size"] == 5
         assert "images" in result
@@ -126,7 +97,7 @@ class TestBatchProcessing:
 
     @pytest.mark.asyncio
     async def test_process_media_batch_large(
-        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """``_process_media_batch_by_mimetype`` splits 45 items into 20+20+5."""
         media_list = [
@@ -140,11 +111,19 @@ class TestBatchProcessing:
             for i in range(45)
         ]
 
-        respx_stash_processor._studio = fake_studio
-        monkeypatch.setattr(
-            respx_stash_processor.store,
-            "get_many",
-            lambda *_args, **_kwargs: _empty_list(),
+        respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
+
+        # 45 items split into 3 outer chunks (20+20+5) → 3 findImages calls.
+        empty_images = create_graphql_response(
+            "findImages",
+            create_find_images_result(count=0, images=[]),
+        )
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(200, json=empty_images),
+                httpx.Response(200, json=empty_images),
+                httpx.Response(200, json=empty_images),
+            ]
         )
 
         captured_chunks = []
@@ -154,25 +133,27 @@ class TestBatchProcessing:
             captured_chunks.append({"size": len(media_list)})
             return await original_process_batch(media_list, item, account)
 
-        with patch.object(
-            respx_stash_processor,
-            "_process_batch_internal",
-            side_effect=spy_process_batch,
-        ):
-            await respx_stash_processor._process_media_batch_by_mimetype(
-                media_list=media_list,
-                item=mock_item,
-                account=mock_account,
-            )
+        try:
+            with patch.object(
+                respx_stash_processor,
+                "_process_batch_internal",
+                side_effect=spy_process_batch,
+            ):
+                await respx_stash_processor._process_media_batch_by_mimetype(
+                    media_list=media_list,
+                    item=mock_item,
+                    account=mock_account,
+                )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_media_batch_large")
 
-        # Chunk sizes match max_batch_size=20 split of 45 items.
         assert [c["size"] for c in captured_chunks] == [20, 20, 5]
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_stash_ids(
-        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
+        self, respx_stash_processor, mock_item, mock_account
     ):
-        """Media with ``stash_id`` route through ``store.get_many`` once per type."""
+        """Image media with ``stash_id`` route through per-id findImage calls."""
         media_list = [
             MediaFactory.build(
                 id=snowflake_id(),
@@ -184,38 +165,56 @@ class TestBatchProcessing:
             for i in range(3)
         ]
 
-        respx_stash_processor._studio = fake_studio
+        respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
-        captured_get_many = []
-
-        async def fake_get_many(entity_type, ids):
-            captured_get_many.append(
-                {"entity_type": entity_type.__name__, "ids": list(ids)}
-            )
-            return [_organized_image(stash_id=i) for i in ids]
-
-        monkeypatch.setattr(respx_stash_processor.store, "get_many", fake_get_many)
-
-        result = await respx_stash_processor._process_batch_internal(
-            media_list=media_list,
-            item=mock_item,
-            account=mock_account,
+        # SGC's get_many → _execute_find_by_ids loops per id calling find_by_id,
+        # which sends findImage(id:) (singular) and reads result["findImage"].
+        # IDs must be numeric/UUID4 (StashObject validator); "file-..." rejected.
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImage",
+                        create_image_dict(
+                            id=str(40000 + i),
+                            organized=True,
+                            visual_files=[
+                                {
+                                    "__typename": "ImageFile",
+                                    "id": str(99000 + i),
+                                    "path": f"/stash/{40000 + i}.jpg",
+                                }
+                            ],
+                        ),
+                    ),
+                )
+                for i in range(3)
+            ]
         )
 
-        # Single Image-typed lookup carrying all 3 stash_ids.
-        assert len(captured_get_many) == 1
-        assert captured_get_many[0]["entity_type"] == "Image"
-        assert len(captured_get_many[0]["ids"]) == 3
+        try:
+            result = await respx_stash_processor._process_batch_internal(
+                media_list=media_list,
+                item=mock_item,
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_process_batch_internal_with_stash_ids"
+            )
 
-        # All 3 organized Images flowed into result.
+        # 3 findImage calls — one per stash_id.
+        assert graphql_route.call_count == 3
+        # Routing landed all 3 images in result["images"], none in result["scenes"].
         assert len(result["images"]) == 3
         assert len(result["scenes"]) == 0
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_paths(
-        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
+        self, respx_stash_processor, mock_item, mock_account
     ):
-        """Media without ``stash_id`` route through ``store.find_iter`` for path lookup."""
+        """Image media without ``stash_id`` route through a path-based findImages call."""
         media_list = []
         for _ in range(3):
             media = MediaFactory.build(
@@ -228,41 +227,54 @@ class TestBatchProcessing:
             media.variants = set()
             media_list.append(media)
 
-        respx_stash_processor._studio = fake_studio
+        respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
-        captured_find_iter = []
-
-        def fake_find_iter(entity_type, **filters):
-            captured_find_iter.append(
-                {"entity_type": entity_type.__name__, "filters": filters}
+        # ImageFile id must be numeric/UUID4 per StashObject validator.
+        organized_images = [
+            create_image_dict(
+                id=str(media.id),
+                organized=True,
+                visual_files=[
+                    {
+                        "__typename": "ImageFile",
+                        "id": str(snowflake_id()),
+                        "path": f"/stash/{media.id}.jpg",
+                    }
+                ],
             )
-            return _async_iter(
-                [
-                    _organized_image(
-                        stash_id=str(media.id), path=f"/stash/{media.id}.jpg"
-                    )
-                    for media in media_list
-                ]
-            )
-
-        monkeypatch.setattr(respx_stash_processor.store, "find_iter", fake_find_iter)
-
-        result = await respx_stash_processor._process_batch_internal(
-            media_list=media_list,
-            item=mock_item,
-            account=mock_account,
+            for media in media_list
+        ]
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImages",
+                        create_find_images_result(count=3, images=organized_images),
+                    ),
+                ),
+            ]
         )
 
-        # find_iter called for Image lookup (path-regex fallback path).
-        assert len(captured_find_iter) == 1
-        assert captured_find_iter[0]["entity_type"] == "Image"
+        try:
+            result = await respx_stash_processor._process_batch_internal(
+                media_list=media_list,
+                item=mock_item,
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_process_batch_internal_with_paths"
+            )
 
+        # Single findImages call → routing fired the Image-type path lookup once.
+        assert graphql_route.call_count == 1
         assert len(result["images"]) == 3
         assert len(result["scenes"]) == 0
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_mixed_mimetype(
-        self, respx_stash_processor, mock_item, mock_account, fake_studio, monkeypatch
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Mixed image+video media route to result['images'] and result['scenes']."""
         media_list = []
@@ -288,36 +300,71 @@ class TestBatchProcessing:
         image_ids = [m.id for m in media_list[:2]]
         scene_ids = [m.id for m in media_list[2:]]
 
-        respx_stash_processor._studio = fake_studio
+        respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
-        def fake_find_iter(entity_type, **filters):
-            if entity_type is Image:
-                return _async_iter(
-                    [
-                        _organized_image(
-                            stash_id=str(media_id), path=f"/stash/{media_id}.jpg"
-                        )
-                        for media_id in image_ids
-                    ]
-                )
-            return _async_iter(
-                [
-                    _organized_scene(
-                        stash_id=str(media_id), path=f"/stash/{media_id}.mp4"
-                    )
-                    for media_id in scene_ids
-                ]
+        # ImageFile/VideoFile ids must be numeric/UUID4 per StashObject validator.
+        organized_images = [
+            create_image_dict(
+                id=str(media_id),
+                organized=True,
+                visual_files=[
+                    {
+                        "__typename": "ImageFile",
+                        "id": str(snowflake_id()),
+                        "path": f"/stash/{media_id}.jpg",
+                    }
+                ],
             )
-
-        monkeypatch.setattr(respx_stash_processor.store, "find_iter", fake_find_iter)
-
-        result = await respx_stash_processor._process_batch_internal(
-            media_list=media_list,
-            item=mock_item,
-            account=mock_account,
+            for media_id in image_ids
+        ]
+        organized_scenes = [
+            create_scene_dict(
+                id=str(media_id),
+                title=f"Scene {media_id}",
+                organized=True,
+                files=[
+                    {
+                        "__typename": "VideoFile",
+                        "id": str(snowflake_id()),
+                        "path": f"/stash/{media_id}.mp4",
+                    }
+                ],
+            )
+            for media_id in scene_ids
+        ]
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findImages",
+                        create_find_images_result(count=2, images=organized_images),
+                    ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findScenes",
+                        create_find_scenes_result(count=2, scenes=organized_scenes),
+                    ),
+                ),
+            ]
         )
 
-        # Routing: images and scenes land in their respective result lists.
+        try:
+            result = await respx_stash_processor._process_batch_internal(
+                media_list=media_list,
+                item=mock_item,
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_process_batch_internal_mixed_mimetype"
+            )
+
+        # Two GraphQL calls — one for images, one for scenes — landing each in
+        # the correct result group.
+        assert graphql_route.call_count == 2
         assert len(result["images"]) == 2
         assert len(result["scenes"]) == 2
 

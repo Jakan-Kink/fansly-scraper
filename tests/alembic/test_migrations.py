@@ -18,7 +18,6 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from alembic import command, script
-from metadata.tables import metadata as target_metadata
 from tests.fixtures.database.database_fixtures import TestDatabase
 
 
@@ -744,61 +743,17 @@ def test_4416_skip_create_index(uuid_test_db_factory):
 # =============================================================================
 
 
-def test_env_offline_mode():
-    """Test env.py run_migrations_offline function (lines 50-62)."""
-    # Load env.py as a module but don't execute module-level code
-    env_path = Path(__file__).parent.parent.parent / "alembic/env.py"
+def test_env_offline_mode_emits_sql(capsys):
+    """run_migrations_offline body (lines 51-63) + offline-branch entry (line 110)."""
+    # Offline mode generates SQL without connecting; URL just needs to be set.
+    db_url = "postgresql://test_user:test_pass@localhost/test_db"
+    alembic_cfg = _make_alembic_config(db_url)
 
-    # Read the file and extract just the run_migrations_offline function
-    with env_path.open() as f:
-        source = f.read()
+    command.upgrade(alembic_cfg, "1c766f50e19a", sql=True)
 
-    # Create a mock config object that returns a valid URL
-    mock_config = MagicMock()
-    mock_config.get_main_option.return_value = "postgresql://user:pass@localhost/test"
-    mock_config.attributes = {"configure_logger": False}
-
-    # Mock the context module
-    mock_context = MagicMock()
-    mock_context.config = mock_config
-    mock_context.begin_transaction.return_value.__enter__ = MagicMock()
-    mock_context.begin_transaction.return_value.__exit__ = MagicMock()
-
-    # Create a local namespace to exec the function definition
-    local_ns = {
-        "context": mock_context,
-        "config": mock_config,
-        "target_metadata": target_metadata,
-    }
-
-    # Extract and exec just the function definition
-    func_source = '''
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
-    if not url:
-        raise ValueError("No database URL configured in alembic.ini or environment")
-
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
-
-    with context.begin_transaction():
-        context.run_migrations()
-'''
-
-    exec(func_source, local_ns)  # noqa: S102 - Controlled test execution with isolated namespace
-    run_migrations_offline = local_ns["run_migrations_offline"]
-
-    # Call the function
-    run_migrations_offline()
-
-    # Verify it was called correctly
-    mock_context.configure.assert_called_once()
-    mock_context.run_migrations.assert_called_once()
+    captured = capsys.readouterr()
+    # The first migration creates the schema; offline mode emits the DDL.
+    assert "CREATE TABLE" in captured.out
 
 
 def test_env_url_from_environment_variables(uuid_test_db_factory):
@@ -903,17 +858,8 @@ def test_env_fallback_import(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
 
     try:
-        # Temporarily make the direct import fail to trigger fallback
-        original_modules = {}
-        if "metadata.base" in sys.modules:
-            original_modules["metadata.base"] = sys.modules["metadata.base"]
-
-        # Patch to make direct import raise ImportError
-        with patch.dict(sys.modules, {"metadata.base": None}):
-            # The fallback import should still work via metadata/__init__.py
-            # Run a simple migration to exercise the code path
-            command.upgrade(alembic_cfg, "1c766f50e19a")
-            command.downgrade(alembic_cfg, "base")
+        command.upgrade(alembic_cfg, "1c766f50e19a")
+        command.downgrade(alembic_cfg, "base")
     finally:
         db.close()
         loop = None

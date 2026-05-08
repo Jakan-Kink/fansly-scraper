@@ -723,7 +723,7 @@ class FanslyApi:
 
     # region WebSocket Communication
 
-    async def get_active_session_async(self) -> str:
+    async def get_active_session(self) -> str:
         """Get active session ID and start persistent WebSocket connection.
 
         This replaces the old one-time WebSocket connection with a persistent
@@ -788,10 +788,6 @@ class FanslyApi:
                 "WebSocket session established: {}", self._websocket_client.session_id
             )
             return self._websocket_client.session_id
-
-    async def get_active_session(self) -> str:
-        """Get active session ID asynchronously."""
-        return await self.get_active_session_async()
 
     # region
 

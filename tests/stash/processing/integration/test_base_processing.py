@@ -563,16 +563,10 @@ class TestPreloadIntegration:
             # Ensure base_path is set (real_stash_processor fixture sets it)
             assert real_stash_processor.state.base_path is not None
 
+            # Real iteration over Docker Stash — verifies the method runs
+            # end-to-end without exception. Index population depends on
+            # stash file naming and isn't asserted here.
             await real_stash_processor._preload_creator_media()
-
-            # At least one of the indexes should be populated
-            # (Docker Stash has scenes and/or images)
-            total_indexed = len(real_stash_processor._scene_code_index) + len(
-                real_stash_processor._image_code_index
-            )
-            # May be 0 if Docker Stash files don't have _id_ in filenames,
-            # but the iteration (lines 189-190, 197-198) still ran
-            assert total_indexed >= 0
 
     @pytest.mark.asyncio
     async def test_preload_creator_media_exception(
@@ -580,18 +574,20 @@ class TestPreloadIntegration:
     ):
         """_preload_creator_media catches exceptions raised during iteration.
 
-        Patch the external-lib leaf (`store.find_iter`) to raise — this
-        is the actual entry point production iterates over at base.py:179.
-        The production ``except Exception`` at base.py:197-198 catches the
-        error and logs a warning rather than letting it propagate.
+        Patches the gql session ``execute`` directly. respx is unsuitable
+        here because this is an integration test — respx would intercept
+        the surrounding ``stash_cleanup_tracker``'s real-Stash teardown
+        calls. The production ``except Exception`` at base.py:197-198
+        catches the error and logs a warning rather than letting it
+        propagate.
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
             assert real_stash_processor.state.base_path is not None
 
             with patch.object(
-                real_stash_processor.store,
-                "find_iter",
-                side_effect=RuntimeError("indexing failed"),
+                real_stash_processor.context.client._session,
+                "execute",
+                side_effect=RuntimeError("simulated GraphQL failure"),
             ):
                 # Should not raise — exception caught at base.py:197-198
                 await real_stash_processor._preload_creator_media()

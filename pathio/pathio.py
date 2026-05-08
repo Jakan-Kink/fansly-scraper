@@ -7,24 +7,11 @@ It handles:
 3. Consistent application of path-related config settings
 """
 
-import contextlib
-import os
 import sys
-import time
 from pathlib import Path
 
-
-# Optional GUI dependency
-try:
-    from tkinter import Tk, filedialog
-
-    TKINTER_AVAILABLE = (
-        True  # pragma: no cover — module-level import runs before coverage starts
-    )
-except ImportError:
-    TKINTER_AVAILABLE = False
-    Tk = None  # type: ignore[assignment,misc]
-    filedialog = None  # type: ignore[assignment]
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import PathCompleter
 
 from config.logging import textio_logger
 from download.downloadstate import DownloadState
@@ -34,57 +21,40 @@ from metadata.models import Media
 from .types import PathConfig
 
 
-# if the users custom provided filepath is invalid; a tkinter dialog will open during runtime, asking to adjust download path
 def ask_correct_dir() -> Path:
-    # Try GUI dialog if tkinter is available
-    if TKINTER_AVAILABLE:
-        root = Tk()
-        root.withdraw()
+    """Prompt the user (TTY-only) for a valid download directory.
 
-        while True:
-            directory_name = filedialog.askdirectory()
-
-            if Path(directory_name).is_dir():
-                textio_logger.opt(depth=1).log(
-                    "INFO", f"Folder path chosen: {directory_name}"
-                )
-                return Path(directory_name)
-
-            textio_logger.opt(depth=1).log(
-                "ERROR",
-                "<red>[5]</red> You did not choose a valid folder. Please try again!",
-            )
-
-    # Fallback to text-based input if interactive
-    if sys.stdin and sys.stdin.isatty():
-        textio_logger.opt(depth=1).log(
-            "INFO", "tkinter not available - using text-based input"
+    Uses prompt_toolkit so the user gets path completion, ~/expansion, and
+    arrow-key history. Non-interactive runs raise RuntimeError so the caller
+    can surface a clear "fix config.yaml" error instead of hanging.
+    """
+    if not (sys.stdin and sys.stdin.isatty()):
+        raise RuntimeError(
+            "Invalid download directory and unable to prompt for correction. "
+            "Please fix the download_directory in config.yaml."
         )
 
-        while True:
-            try:
-                directory_name = input("Enter valid download directory path: ").strip()
-                path = Path(directory_name)
-
-                if path.is_dir():
-                    textio_logger.opt(depth=1).log(
-                        "INFO", f"Folder path chosen: {directory_name}"
-                    )
-                    return path
-
-                textio_logger.opt(depth=1).log(
-                    "ERROR",
-                    "<red>[5]</red> You did not choose a valid folder. Please try again!",
-                )
-            except (KeyboardInterrupt, EOFError):
-                textio_logger.opt(depth=1).log("ERROR", "Directory selection cancelled")
-                raise
-
-    # Not interactive - raise error
-    raise RuntimeError(
-        "Invalid download directory and unable to prompt for correction. "
-        "Please fix the download_directory in config.ini or install tkinter for GUI dialogs."
+    session: PromptSession[str] = PromptSession(
+        completer=PathCompleter(only_directories=True, expanduser=True),
     )
+    while True:
+        try:
+            directory_name = session.prompt(
+                "Enter valid download directory path: "
+            ).strip()
+        except (KeyboardInterrupt, EOFError):
+            textio_logger.opt(depth=1).log("ERROR", "Directory selection cancelled")
+            raise
+
+        path = Path(directory_name).expanduser()
+        if path.is_dir():
+            textio_logger.opt(depth=1).log("INFO", f"Folder path chosen: {path}")
+            return path
+
+        textio_logger.opt(depth=1).log(
+            "ERROR",
+            "<red>[5]</red> You did not choose a valid folder. Please try again!",
+        )
 
 
 def set_create_directory_for_download(config: PathConfig, state: DownloadState) -> Path:
@@ -192,6 +162,10 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     scraper, this replaces the download_directory prefix with stash_mapped_path.
     Falls back to str(local_path) when no mapping is configured.
 
+    - override + mapped_path → ``str(mapped_path)`` (local_path ignored).
+    - mapped_path only → prefix-substitute ``download_directory`` → ``mapped_path``.
+    - neither → ``str(local_path)`` unchanged.
+
     Args:
         local_path: The local Path object to translate.
         config: The program configuration.
@@ -199,6 +173,9 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     Returns:
         String path in Stash's coordinate system.
     """
+    if config.stash_override_dldir_w_mapped and config.stash_mapped_path is not None:
+        return str(config.stash_mapped_path)
+
     local_str = str(local_path)
     if config.stash_mapped_path is not None and config.download_directory is not None:
         local_prefix = str(config.download_directory)
@@ -251,34 +228,3 @@ def get_media_save_path(
     # Create full path
     save_path = save_dir / media_item.get_file_name(for_preview=media_item.is_preview)
     return save_dir, save_path
-
-
-def delete_temporary_pyinstaller_files() -> None:
-    """Delete old files from the PyInstaller temporary folder.
-
-    Files older than an hour will be deleted.
-    """
-    try:
-        base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
-
-    except Exception:
-        return
-
-    temp_dir = Path(base_path).parent
-    current_time = time.time()
-
-    for folder in temp_dir.iterdir():
-        with contextlib.suppress(Exception):
-            if (
-                folder.name.startswith("_MEI")
-                and folder.is_dir()
-                and (current_time - folder.stat().st_ctime) > 3600
-            ):
-                for root, dirs, files in os.walk(folder, topdown=False):
-                    for file in files:
-                        Path(root).joinpath(file).unlink()
-
-                    for ind_dir in dirs:
-                        Path(root).joinpath(ind_dir).rmdir()
-
-                folder.rmdir()

@@ -35,16 +35,9 @@ def mock_stash_tag():
 
 @pytest.mark.asyncio
 async def test_process_hashtags_to_tags_empty(respx_stash_processor):
-    """Test processing an empty list of hashtags."""
-    # Note: respx_stash_processor already has respx.mock wrapper
-    respx.post("http://localhost:9999/graphql").mock(
-        side_effect=[httpx.Response(200, json={"data": {}})]
-    )
+    """Empty input short-circuits at tag.py:93 before any HTTP call."""
+    tags = await respx_stash_processor._process_hashtags_to_tags([])
 
-    hashtags = []
-    tags = await respx_stash_processor._process_hashtags_to_tags(hashtags)
-
-    # Verify no tags were returned
     assert tags == []
 
 

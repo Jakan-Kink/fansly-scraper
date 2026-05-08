@@ -2,7 +2,6 @@
 
 import configparser
 import os
-from configparser import ConfigParser
 from pathlib import Path
 
 from config.fanslyconfig import FanslyConfig
@@ -84,47 +83,6 @@ def username_has_valid_chars(name: str) -> bool:
     )
 
     return not invalid_chars
-
-
-def copy_old_config_values() -> None:
-    """Copies configuration values from an old configuration file to
-    a new one.
-
-    Only sections/values existing in the new configuration will be adjusted.
-
-    The hardcoded file names are from `old_config.ini` to `config.ini`.
-    """
-    current_directory = Path.cwd()
-    old_config_path = current_directory / "old_config.ini"
-    new_config_path = current_directory / "config.ini"
-
-    if old_config_path.is_file() and new_config_path.is_file():
-        old_config = ConfigParser(interpolation=None)
-        old_config.read(old_config_path)
-
-        new_config = ConfigParser(interpolation=None)
-        new_config.read(new_config_path)
-
-        # iterate over each section in the old config
-        for section in old_config.sections():
-            # check if the section exists in the new config
-            if new_config.has_section(section):
-                # iterate over each option in the section
-                for option in old_config.options(section):
-                    # check if the option exists in the new config
-                    if new_config.has_option(section, option):
-                        # get the value from the old config and set it in the new config
-                        value = old_config.get(section, option)
-
-                        # skip overwriting the version value
-                        if section == "Other" and option == "version":
-                            continue
-
-                        new_config.set(section, option, value)
-
-        # save the updated new config
-        with Path(new_config_path).open("w") as config_file:
-            new_config.write(config_file)
 
 
 def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> None:
@@ -319,6 +277,12 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         }
         if schema.stash_context.mapped_path is not None:
             config.stash_mapped_path = Path(schema.stash_context.mapped_path)
+        config.stash_override_dldir_w_mapped = (
+            schema.stash_context.override_dldir_w_mapped
+        )
+        config.stash_require_stash_only_mode = (
+            schema.stash_context.require_stash_only_mode
+        )
 
 
 def _handle_config_error(e: Exception) -> None:

@@ -62,7 +62,6 @@ faulthandler.enable(file=sys.stderr, all_threads=True)
 # of them (config.*, anything that touches loguru) evaluate the
 # ``TESTING`` env at runtime via paths that can be triggered at
 # fixture-collection time.
-import psutil  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from loguru import logger  # noqa: E402
@@ -642,99 +641,6 @@ def test_downloads_dir(tmp_path):
 
 
 # ============================================================================
-# Performance Fixtures (consolidated from tests/performance/conftest.py)
-# ============================================================================
-
-
-@pytest.fixture(scope="session")
-def performance_log_dir():
-    """Create a directory for performance test logs."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
-
-
-@pytest.fixture(scope="session")
-def performance_threshold():
-    """Define performance thresholds for tests."""
-    return {
-        "max_memory_mb": 512,
-        "max_cpu_percent": 80,
-        "max_response_time": 2.0,
-        "max_download_time": 30.0,
-    }
-
-
-@pytest.fixture
-def performance_tracker(performance_log_dir, request):
-    """Fixture to track and log performance metrics."""
-
-    @contextmanager
-    def track_performance():
-        start_time = perf_counter()
-        process = psutil.Process()
-        start_memory = process.memory_info().rss / 1024 / 1024
-
-        metrics = {
-            "start_time": time(),
-            "start_memory": start_memory,
-            "max_memory": start_memory,
-            "max_cpu": 0.0,
-            "duration": 0.0,
-            "memory_change": 0.0,
-            "end_memory": start_memory,
-            "end_time": time(),
-        }
-
-        try:
-            yield metrics
-        finally:
-            end_time = perf_counter()
-            end_memory = process.memory_info().rss / 1024 / 1024
-
-            metrics["duration"] = end_time - start_time
-            metrics["memory_change"] = end_memory - start_memory
-            metrics["end_memory"] = end_memory
-            metrics["end_time"] = time()
-            metrics["max_memory"] = max(metrics["max_memory"], end_memory)
-
-    class PerformanceContextManager:
-        def __init__(self, operation_name: str):
-            self.operation_name = operation_name
-            self.log_file = (
-                performance_log_dir / f"{request.node.name}_{operation_name}.log"
-            )
-            self.metrics = None
-            self.perf_context = None
-
-        def __enter__(self):
-            self.perf_context = track_performance()
-            self.metrics = self.perf_context.__enter__()
-            return self.metrics
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            result = self.perf_context.__exit__(exc_type, exc_val, exc_tb)
-
-            with self.log_file.open("a") as f:
-                f.write(f"Performance metrics for {self.operation_name}:\n")
-                f.write(f"Duration: {self.metrics['duration']:.3f} seconds\n")
-                f.write(f"Memory change: {self.metrics['memory_change']:.2f} MB\n")
-                f.write(f"Max memory: {self.metrics['max_memory']:.2f} MB\n")
-                f.write(f"Max CPU: {self.metrics['max_cpu']:.1f}%\n")
-                f.write("-" * 50 + "\n")
-
-            return result
-
-        # Add async context manager support
-        async def __aenter__(self):
-            return self.__enter__()
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return self.__exit__(exc_type, exc_val, exc_tb)
-
-    return PerformanceContextManager
-
-
-# ============================================================================
 # Exports
 # ============================================================================
 
@@ -742,9 +648,6 @@ __all__ = [
     "clean_model_data",
     "cleanup_tasks",
     "mock_download_state",
-    "performance_log_dir",
-    "performance_threshold",
-    "performance_tracker",
     "sample_account",
     "sample_message",
     "sample_post",

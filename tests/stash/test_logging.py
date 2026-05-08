@@ -5,25 +5,7 @@ This module tests the logging utilities and error handling in stash logging.
 
 from unittest.mock import MagicMock, patch
 
-from stash.logging import client_logger, debug_print, processing_logger
-
-
-class TestLoggers:
-    """Test logger instances."""
-
-    def test_client_logger_exists(self) -> None:
-        """Test that client_logger is properly initialized."""
-        assert client_logger is not None
-        # Verify it's a loguru logger
-        assert hasattr(client_logger, "debug")
-        assert hasattr(client_logger, "info")
-
-    def test_processing_logger_exists(self) -> None:
-        """Test that processing_logger is properly initialized."""
-        assert processing_logger is not None
-        # Verify it's a loguru logger
-        assert hasattr(processing_logger, "debug")
-        assert hasattr(processing_logger, "info")
+from stash.logging import debug_print
 
 
 class TestDebugPrint:

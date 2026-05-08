@@ -26,17 +26,10 @@ class TestTagMethods:
     """Test tag-related methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    async def test_process_hashtags_to_tags(
-        self, factory_async_session, session, respx_stash_processor
-    ):
+    async def test_process_hashtags_to_tags(self, respx_stash_processor):
         """Test _process_hashtags_to_tags method."""
-        # Note: respx_stash_processor already has respx.mock wrapper
-        # Create real Hashtag objects
-        hashtag1 = HashtagFactory(id=1001, value="test_tag")
-        hashtag2 = HashtagFactory(id=1002, value="new_tag")
-
-        factory_async_session.commit()
-
+        hashtag1 = HashtagFactory.build(id=1001, value="test_tag")
+        hashtag2 = HashtagFactory.build(id=1002, value="new_tag")
         hashtags = [hashtag1, hashtag2]
 
         # Create responses
@@ -85,18 +78,13 @@ class TestTagMethods:
         assert hasattr(tags[1], "id")
 
     @pytest.mark.asyncio
-    async def test_process_hashtags_to_tags_already_exists(
-        self, factory_async_session, session, respx_stash_processor
-    ):
+    async def test_process_hashtags_to_tags_already_exists(self, respx_stash_processor):
         """Test _process_hashtags_to_tags when tag already exists.
 
         The client now handles "already exists" errors internally and returns
         the existing tag, so we just verify the tag is returned correctly.
         """
-        # Note: respx_stash_processor already has respx.mock wrapper
-        # Create real Hashtag object
-        hashtag1 = HashtagFactory(id=1001, value="test_tag")
-        factory_async_session.commit()
+        hashtag1 = HashtagFactory.build(id=1001, value="test_tag")
 
         # Create responses
         empty_result = create_find_tags_result(count=0, tags=[])
@@ -135,14 +123,9 @@ class TestTagMethods:
         assert hasattr(tags[0], "id")
 
     @pytest.mark.asyncio
-    async def test_process_hashtags_to_tags_error(
-        self, factory_async_session, session, respx_stash_processor
-    ):
+    async def test_process_hashtags_to_tags_error(self, respx_stash_processor):
         """Test _process_hashtags_to_tags with other errors."""
-        # Note: respx_stash_processor already has respx.mock wrapper
-        # Create real Hashtag object
-        hashtag1 = HashtagFactory(id=1001, value="test_tag")
-        factory_async_session.commit()
+        hashtag1 = HashtagFactory.build(id=1001, value="test_tag")
 
         # Create responses
         empty_result = create_find_tags_result(count=0, tags=[])

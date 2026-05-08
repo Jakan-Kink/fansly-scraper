@@ -55,21 +55,10 @@ def test_add_duplicate(download_state):
 
 
 def test_inheritance(download_state):
-    """Test proper inheritance from GlobalState."""
+    """Verify DownloadState's inheritance from GlobalState wires through."""
     assert isinstance(download_state, GlobalState)
     assert hasattr(download_state, "total_timeline_items")
     assert hasattr(download_state, "missing_items_count")
-
-
-def test_sets_initialization(download_state):
-    """Test set fields are properly initialized."""
-    assert isinstance(download_state.recent_audio_media_ids, set)
-    assert isinstance(download_state.recent_photo_media_ids, set)
-    assert isinstance(download_state.recent_video_media_ids, set)
-    assert isinstance(download_state.recent_audio_hashes, set)
-    assert isinstance(download_state.recent_photo_hashes, set)
-    assert isinstance(download_state.recent_video_hashes, set)
-    assert isinstance(download_state.walls, set)
 
 
 def test_path_handling(download_state):

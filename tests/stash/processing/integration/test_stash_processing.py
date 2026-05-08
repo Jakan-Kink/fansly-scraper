@@ -120,7 +120,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_performer(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker
+        self, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _find_existing_performer method with real account.
 
@@ -141,12 +141,10 @@ class TestStashProcessingIntegration:
             )
             cleanup["performers"].append(created_performer.id)
 
-            # Create a real account with the performer's stash_id
-            account = AccountFactory(
+            account = AccountFactory.build(
                 username="performer_user_integration_test",
                 stash_id=int(created_performer.id),
             )
-            factory_session.commit()
 
             # Test finding by stash_id - should find the performer we just created
             performer = await real_stash_processor._find_existing_performer(account)
@@ -158,7 +156,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_username(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker
+        self, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _find_existing_performer finds by username when no stash_id.
 
@@ -184,11 +182,9 @@ class TestStashProcessingIntegration:
             # unsaved UUID object instead of the server-created numeric-id object.
             real_stash_processor.context.store.invalidate_all()
 
-            # Create a real account WITHOUT stash_id (to force username lookup)
-            account = AccountFactory(
+            account = AccountFactory.build(
                 username="new_performer_by_username_test", stash_id=None
             )
-            factory_session.commit()
 
             # Test finding by username - should find the performer by name
             performer = await real_stash_processor._find_existing_performer(account)
@@ -200,7 +196,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_studio(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker
+        self, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _find_existing_studio method with real account when studio exists.
 
@@ -243,9 +239,7 @@ class TestStashProcessingIntegration:
             # numeric-id object, and may return the wrong one.
             real_stash_processor.context.store.invalidate_all()
 
-            # Create a real account with matching username
-            account = AccountFactory(username="studio_exists_test")
-            factory_session.commit()
+            account = AccountFactory.build(username="studio_exists_test")
 
             # Test finding existing studio - should find the one we just created
             studio = await real_stash_processor._find_existing_studio(account)
@@ -257,7 +251,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_studio_creates_new(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker
+        self, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _find_existing_studio creates new studio when not found.
 
@@ -269,8 +263,7 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Create a real account with unique username to ensure studio doesn't exist
             unique_id = int(time.time() * 1000) % 1000000  # Last 6 digits of timestamp
-            account = AccountFactory(username=f"new_studio_creator_{unique_id}")
-            factory_session.commit()
+            account = AccountFactory.build(username=f"new_studio_creator_{unique_id}")
 
             # Capture GraphQL calls while making real API calls
             with capture_graphql_calls(real_stash_processor.context.client) as calls:
@@ -352,7 +345,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker
+        self, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _update_performer_avatar when account has no avatar.
 
@@ -361,9 +354,7 @@ class TestStashProcessingIntegration:
         async with stash_cleanup_tracker(
             real_stash_processor.context.client
         ) as cleanup:
-            # Create a real account WITHOUT avatar (no Media associated)
-            account = AccountFactory(username="no_avatar_user_test")
-            factory_session.commit()
+            account = AccountFactory.build(username="no_avatar_user_test")
 
             # Create a real performer in Stash
             test_performer = Performer(

@@ -229,7 +229,7 @@ async def _download_file(config: FanslyConfig, url: str, output_file: BinaryIO) 
             raise DownloadError(
                 f"Download failed due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{body.decode('utf-8')} [13]"
+                f"| content: \n{body.decode('utf-8', errors='replace')} [13]"
             )
 
         async for chunk in response.aiter_bytes(chunk_size=1_048_576):
@@ -300,7 +300,7 @@ async def _download_regular_file(
             raise DownloadError(
                 f"Download failed on filename {media.get_file_name()} due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{body.decode('utf-8')} [13]"
+                f"| content: \n{body.decode('utf-8', errors='replace')} [13]"
             )
     finally:
         if response is not None:

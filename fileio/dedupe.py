@@ -120,39 +120,6 @@ async def file_exists_in_download_path(
     return False
 
 
-async def verify_file_existence(
-    base_path: Path,
-    filenames: list[str],
-) -> dict[str, bool]:
-    """Verify existence of multiple files at once.
-
-    Args:
-        base_path: Base directory to search in
-        filenames: List of filenames to check
-
-    Returns:
-        Dict mapping filenames to existence booleans
-    """
-
-    async def check_file(filename: str) -> tuple[str, bool]:
-        # First try direct path lookup
-        direct_path = base_path / filename
-        if await asyncio.to_thread(direct_path.is_file):
-            return filename, True
-
-        # If not found directly, try rglob
-        found = False
-        for found_file in await safe_rglob(base_path, filename):
-            if await asyncio.to_thread(found_file.is_file):
-                found = True
-                break
-        return filename, found
-
-    # Run all checks concurrently
-    results = await asyncio.gather(*(check_file(f) for f in filenames))
-    return dict(results)
-
-
 # Function to calculate file hash in a separate process
 def calculate_file_hash(
     file_info: tuple[Path, str],

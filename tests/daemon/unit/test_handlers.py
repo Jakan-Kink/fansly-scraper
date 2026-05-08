@@ -135,6 +135,14 @@ _HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
         MarkMessagesDeleted(message_ids=(900_000_000_001, 900_000_000_002)),
         id="message_deleted_ids_list",
     ),
+    # Mixed coercible/uncoercible ids — bad ones skipped (covers handlers.py 259→257).
+    pytest.param(
+        5,
+        10,
+        {"message": {"ids": ["not-a-number", "900000000003"]}},
+        MarkMessagesDeleted(message_ids=(900_000_000_003,)),
+        id="message_deleted_ids_skip_uncoercible",
+    ),
     # svc=5 type=10 — single id + deletedAt (the shape Fansly emits in practice)
     pytest.param(
         5,
@@ -275,6 +283,8 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
     pytest.param(
         5, 10, {"message": {"ids": "not-a-list"}}, id="message_deleted_ids_not_a_list"
     ),
+    # Defensive: message itself is not a dict (covers handlers.py:250).
+    pytest.param(5, 10, {"message": "not-a-dict"}, id="message_deleted_not_a_dict"),
     pytest.param(99, 99, {"foo": "bar"}, id="unknown_svc_unknown_type"),
     pytest.param(
         5,

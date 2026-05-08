@@ -27,7 +27,7 @@ from download.media import (
     download_media,
 )
 from download.types import DownloadType
-from errors import DuplicateCountError, M3U8Error
+from errors import DownloadError, DuplicateCountError, M3U8Error
 from metadata.models import Account, Media
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -122,9 +122,7 @@ class TestDownloadFunctions:
     """
 
     @pytest.mark.asyncio
-    async def test_download_file_success(
-        self, respx_fansly_api, mock_config, tmp_path
-    ):
+    async def test_download_file_success(self, respx_fansly_api, mock_config, tmp_path):
         """Lines 222-239: 200 → writes chunks to file."""
         url = "https://cdn.fansly.com/content/img.jpg"
         cdn_route = respx.get(
@@ -178,6 +176,48 @@ class TestDownloadFunctions:
         assert len(cdn_route.calls) == 2
         assert "photo.jpg" in str(cdn_route.calls[0].request.url)
         assert "no_ts.jpg" in str(cdn_route.calls[1].request.url)
+
+    def test_download_file_non_200_raises(
+        self, respx_fansly_api, mock_config, tmp_path
+    ):
+        """Line 228: non-200 status from CDN → DownloadError."""
+        url = "https://cdn.fansly.com/content/missing.jpg"
+        cdn_route = respx.get(url__startswith=url).mock(
+            side_effect=[httpx.Response(404, content=b"not found")]
+        )
+
+        out = tmp_path / "out.jpg"
+        try:
+            with out.open("wb") as f, pytest.raises(DownloadError) as excinfo:
+                _download_file(mock_config, url, f)
+        finally:
+            dump_fansly_calls(cdn_route.calls, "test_download_file_non_200_raises")
+
+        assert "404" in str(excinfo.value)
+
+    def test_download_regular_file_non_200_raises(
+        self, respx_fansly_api, mock_config, tmp_path
+    ):
+        """Line 285: non-200 status from CDN → DownloadError."""
+        # 404 is not in the Retry status_forcelist (only 418/429/5xx),
+        # so a single response is enough — no retry budget to satisfy.
+        cdn_route = respx.get(
+            url__startswith="https://cdn.fansly.com/content/missing.jpg"
+        ).mock(side_effect=[httpx.Response(404, content=b"not found")])
+
+        media = _make_media(snowflake_id())
+        media.download_url = "https://cdn.fansly.com/content/missing.jpg"
+        save = tmp_path / "missing.jpg"
+
+        try:
+            with pytest.raises(DownloadError) as excinfo:
+                _download_regular_file(mock_config, media, save)
+        finally:
+            dump_fansly_calls(
+                cdn_route.calls, "test_download_regular_file_non_200_raises"
+            )
+
+        assert "404" in str(excinfo.value)
 
 
 # ── _download_m3u8_file ─────────────────────────────────────────────────

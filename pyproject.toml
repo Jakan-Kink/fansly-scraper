@@ -1,6 +1,6 @@
 [project]
 name = "fansly-scraper"
-version = "0.13.3"
+version = "0.13.4"
 description = "Easy-to-use fansly.com content scraping tool. Enjoy your Fansly content offline anytime, anywhere in the highest possible content resolution! Fully customizable to download in bulk or single: photos, videos & audio from the timeline, messages, collection & single posts."
 authors = [
     {name ="prof79"},
@@ -55,6 +55,7 @@ stash-graphql-client = ">=0.12.5"
 av = ">=17.0.0,<18.0.0"
 ruamel-yaml = ">=0.19.1,<0.20.0"
 filelock = ">=3.29.0,<4.0.0"
+prompt-toolkit = ">=3.0.52,<4.0.0"
 
 
 [tool.poetry.group.browser-auth]
@@ -68,7 +69,6 @@ plyvel-ci = ">=1.5"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-pyinstaller = ">=6.11.1"
 memory-profiler = ">=0.61.0"
 pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
@@ -91,6 +91,9 @@ types-m3u8 = ">=6.0.0.20250708"
 types-psutil = ">=7.0.0.20250401"
 types-tqdm = ">=4.67.0.20241221"
 
+[tool.poetry.group.test]
+optional = true
+
 [tool.poetry.group.test.dependencies]
 pytest = ">=8.3"
 pytest-cov = ">=6.0.0"
@@ -100,7 +103,6 @@ pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
 pytest-xdist = ">=3.6.1"
 coverage = {extras = ["toml"], version = ">=7.8,<8.0"}
-psutil = ">=7.0.0"
 pytest-loguru = ">=0.4.0"
 factory-boy = ">=3.3.3"
 pytest-rerunfailures = ">=16.1"
@@ -312,13 +314,8 @@ filterwarnings = [
     "ignore::pluggy.PluggyTeardownRaisedWarning",
 ]
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
-    "functional: marks tests as functional tests",
-    "performance: marks tests as performance tests",
-    "full_workflow: marks tests that run the complete workflow",
-    "comprehensive: marks tests that check for comprehensive coverage",
     "empty_db: opt out of the pg_template_db fast path; get a bare empty database (Alembic walk tests)",
     "xdist_group(name): pin a test to a worker group (used with --dist=loadgroup) so tests sharing fragile state run serially on one worker",
 ]
@@ -343,7 +340,7 @@ omit = [
 ]
 command_line = "-m pytest discover -s tests/"
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["thread", "multiprocessing"]
 disable_warnings = [
     "no-data-collected",
     "module-not-imported",

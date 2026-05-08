@@ -559,8 +559,7 @@ class TestFanslyApi:
     @pytest.mark.asyncio
     @respx.mock
     async def test_setup_session_error(self, fansly_api):
-        """Test setup_session handles errors - mocks HTTP at edge"""
-        # Mock HTTP response failure at edge (OPTIONS + GET)
+        """setup_session wraps an HTTP-layer auth failure as RuntimeError."""
         respx.options(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200)]
         )

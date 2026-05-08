@@ -2,7 +2,7 @@
 
 """Fansly Downloader NG"""
 
-__version__ = "0.13.3"
+__version__ = "0.13.4"
 
 import asyncio
 import atexit
@@ -76,7 +76,6 @@ from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
-from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_continue,
     json_output,
@@ -289,8 +288,6 @@ async def main(config: FanslyConfig) -> int:
     set_window_title(f"Fansly Downloader NG v{config.program_version}")
 
     print_logo()
-
-    delete_temporary_pyinstaller_files()
 
     # --generate-config short-circuits before any config load so it works
     # without an existing config.yaml (its whole point is bootstrapping one).
@@ -507,9 +504,9 @@ async def main(config: FanslyConfig) -> int:
                                 config.interactive,
                             )
 
-                        if config.stash_context_conn is not None:
+                        if config.stash_active:
                             # isort: off
-                            # Conditional on stash_context_conn — avoid eager-
+                            # Conditional on stash_active — avoid eager-
                             # importing stash deps when integration is disabled.
                             from stash import StashProcessing  # noqa: PLC0415 # Deferred import since only used in stash context
 

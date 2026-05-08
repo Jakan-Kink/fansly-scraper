@@ -911,11 +911,7 @@ async def test_bundle(
 
 @pytest.fixture
 def mock_account():
-    """Create a lightweight mock Account for unit tests (no database).
-
-    Uses AccountFactory.build() to create a real Account SQLAlchemy object
-    without requiring database persistence. Perfect for unit tests that need
-    Account objects but don't need database operations.
+    """Create an in-memory Account Pydantic model for unit tests (no database).
 
     Returns:
         Account: A built (not persisted) Account instance
@@ -984,20 +980,14 @@ def factory_session(test_database_sync: Database):
 
 @pytest_asyncio.fixture
 async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession):
-    """Configure FactoryBoy factories for use with async sessions.
+    """Legacy SQLAlchemy session for FactoryBoy factories.
 
-    This fixture solves the session attachment conflict when using factories
-    in async tests. It creates a sync session from the same engine as the
-    async session, configures factories to use it, and commits changes so
-    they're visible to the async session.
-
-    Usage:
-        async def test_something(factory_async_session, session):
-            # Create objects with factories
-            account = AccountFactory(username="test")
-            # Objects are committed and available in async session
-            result = await session.execute(select(Account).where(Account.username == "test"))
-            found = result.scalar_one()
+    The runtime metadata layer now uses Pydantic + asyncpg
+    ``PostgresEntityStore``; SQLAlchemy is only used by Alembic
+    migrations. FactoryBoy factories inherit from ``factory.Factory``
+    (not ``SQLAlchemyModelFactory``), so the session attached here is
+    not consulted by ``Factory()`` calls. Prefer ``Factory.build(...)``
+    or ``await entity_store.save(...)`` in new tests.
 
     Args:
         test_engine: The async test engine

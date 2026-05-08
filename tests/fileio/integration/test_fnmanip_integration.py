@@ -10,10 +10,7 @@ from PIL import Image
 
 from errors.mp4 import InvalidMP4Error
 from fileio.fnmanip import (
-    extract_hash_from_filename,
     extract_media_id,
-    extract_old_hash0_from_filename,
-    extract_old_hash1_from_filename,
     get_hash_for_image,
     get_hash_for_other_content,
 )
@@ -96,26 +93,6 @@ class TestExtractorsIntegration:
             extract_media_id("2023-04-15_at_09-30_UTC_preview_id_1234567.jpg")
             == 1234567
         )
-
-    def test_hash_extractors_with_real_filenames(self):
-        """Test hash extractors with some typical real-world filenames."""
-        # Create test filenames
-        filename1 = "2023-04-15_at_09-30_UTC_hash_abcdef123456.jpg"
-        filename2 = "2023-04-15_at_09-30_UTC_hash1_abcdef123456.jpg"
-        filename3 = "2023-04-15_at_09-30_UTC_hash2_abcdef123456.jpg"
-
-        # Test hash extractors
-        assert extract_old_hash0_from_filename(filename1) == "abcdef123456"
-        assert extract_old_hash0_from_filename(filename2) is None
-        assert extract_old_hash0_from_filename(filename3) is None
-
-        assert extract_old_hash1_from_filename(filename1) is None
-        assert extract_old_hash1_from_filename(filename2) == "abcdef123456"
-        assert extract_old_hash1_from_filename(filename3) is None
-
-        assert extract_hash_from_filename(filename1) is None
-        assert extract_hash_from_filename(filename2) is None
-        assert extract_hash_from_filename(filename3) == "abcdef123456"
 
 
 class TestImageHashIntegration:

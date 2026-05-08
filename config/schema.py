@@ -328,6 +328,14 @@ class LoggingSection(_BaseSection):
     websocket: str = "INFO"
     json_level: str = Field("INFO", alias="json", serialization_alias="json")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_json_level_to_alias(cls, data: Any) -> Any:
+        """Accept legacy ``json_level:`` written by buggy save code as ``json:``."""
+        if isinstance(data, dict) and "json_level" in data and "json" not in data:
+            data["json"] = data.pop("json_level")
+        return data
+
 
 class StashContextSection(_BaseSection):
     """Stash media server connection settings.
@@ -348,6 +356,25 @@ class StashContextSection(_BaseSection):
     port: int = Field(default=9999, json_schema_extra=_ALWAYS)
     apikey: str = Field(default="", json_schema_extra=_ALWAYS)
     mapped_path: str | None = None
+    override_dldir_w_mapped: bool = False
+    require_stash_only_mode: bool = False
+
+    @model_validator(mode="after")
+    def _override_requires_mapped_path(self) -> StashContextSection:
+        """override_dldir_w_mapped only has meaning when mapped_path is set.
+
+        Without a mapped_path, the override has nothing to widen the path
+        filter to — the flag would silently no-op. Reject at load time so
+        the user fixes one knob, not chases a behavior that never engages.
+        """
+        if self.override_dldir_w_mapped and self.mapped_path is None:
+            raise ValueError(
+                "stash_context.override_dldir_w_mapped=true requires "
+                "stash_context.mapped_path to be set. Either set mapped_path "
+                "to your Stash-visible fansly root, or set "
+                "override_dldir_w_mapped=false."
+            )
+        return self
 
 
 class MonitoringSection(_BaseSection):
@@ -571,9 +598,11 @@ def _section_to_map(section: BaseModel, existing: CommentedMap | None) -> Commen
         if field_name not in fields_set and not _is_always(info):
             continue
         raw_attr = getattr(section, field_name)
-        # Resolve serialization aliases (e.g., LoggingSection.json_level → "json")
+        # Match `model_dump(by_alias=True)`'s key priority so YAML round-trips.
         out_key = (
-            info.serialization_alias if info and info.serialization_alias else field_name
+            (info.serialization_alias or info.alias or field_name)
+            if info
+            else field_name
         )
         raw_value = _python_to_yaml_value(field_value, raw_attr)
         target[out_key] = raw_value
