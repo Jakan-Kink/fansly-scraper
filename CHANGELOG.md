@@ -15,60 +15,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### [TESTING-HOTFIX] Stash matching for non-aligned library layouts
+## [0.13.4] - 2026-05-08
 
-Targets the failure mode where a user copies the scraper's downloads to a
-separate Stash host and reorganises the files into a different folder
-structure (e.g. split by media type into `Videos/<studio>/` and
-`Photos/<studio>/`), so the per-creator subfolder name the scraper expects
-(`<creator>_fansly/`) never appears in any of the Stash file paths. With
-the previous behaviour, `--stash-only` runs created Galleries from the DB
-but couldn't link Scenes/Images to them — `path__contains=<base_path>`
-returned zero matches, the code index stayed empty, and the per-batch
-fallback regex re-anchored to the same failing `base_path`.
+Stash integration enhancements for non-aligned library layouts and
+separate-host workflows, a streaming-response error-handling fix, and
+test-suite housekeeping that retires unused packaging dependencies.
 
-#### Added
+### Added
 
 - `stash_context.override_dldir_w_mapped` config field. When `true`,
   `get_stash_path()` returns `mapped_path` directly and ignores the
   per-creator subfolder structure — path filters scope to the entire
-  fansly-managed area in Stash. Pydantic validator rejects the config
-  at load time if the flag is set without `mapped_path`.
+  fansly-managed area in Stash. Targets users who copy scraper
+  downloads to a separate Stash host and reorganise the files into a
+  different folder structure (e.g. split by media type into
+  `Videos/<studio>/` and `Photos/<studio>/`), so the per-creator
+  subfolder name the scraper expects (`<creator>_fansly/`) never
+  appears in any Stash file path. Pydantic validator rejects the flag
+  at config load when `mapped_path` is unset.
 - `stash_context.require_stash_only_mode` config field. When `true`,
   Stash integration only engages on `--stash-only` runs; regular
-  download modes skip every Stash code path even when `stash_context`
-  is populated. Lets users with a separate Stash host keep credentials
-  in config without engaging Stash on every run.
+  download modes (NORMAL, TIMELINE, MESSAGES, WALL, SINGLE, STORIES,
+  COLLECTION) skip every Stash code path even when `stash_context`
+  is populated. Workflow: scrape locally, copy files to the Stash host
+  manually, then run `--stash-only` to attribute metadata.
 - `FanslyConfig.stash_active` property — single decision point for
   "should Stash run this iteration." Replaces the bare
   `stash_context_conn is not None` check at the post-download
   StashProcessing call site.
-- Code-scoped preload pass (`_preload_creator_media_by_code`) as a
-  conditional fallback. Pulls the creator's `Media.id` values from the
-  local Postgres DB and queries Stash by `path__regex=<chunked codes>`.
-  Runs only when path-scoped preload indexed nothing — aligned layouts
-  pay no extra Stash queries, non-aligned layouts (Stash directory
-  structure doesn't share a prefix with `download_directory`) recover
-  coverage via media-ID regex search.
 - Three-tier anchor in `_create_targeted_regex_pattern`: per-creator
   `base_path` (default), `mapped_path` (when scoped=False with mapping
   set), or code-only (no mapping). The lazy per-batch fallback now
   scopes regex queries to `mapped_path.*(codes)` instead of going
   library-wide when mapping is configured.
+- `prompt-toolkit` runtime dependency. The interactive
+  download-directory prompt in `pathio` now offers tab-completion,
+  `~`-expansion, and inline path validation.
 
-#### Changed
+### Changed
 
-- `_preload_creator_media` runs path-scoped first, code-scoped only
-  when path-scoped indexed nothing. Both feed the same
-  `_scene_code_index` / `_image_code_index`; downstream
-  `find_scenes_by_media_codes` / `find_images_by_media_codes` lookups
-  are unchanged. Each pass is a no-op without its precondition
-  (`base_path` for path-scoped, `creator_id` + DB media rows for
-  code-scoped).
+- `_section_to_map` (YAML save) now uses `model_dump(by_alias=True)`
+  with an alias-to-attribute lookup so aliased fields write their
+  YAML key on save instead of the Python attribute name. Previously
+  `LoggingSection.json_level` was dumped as `json_level: ...` which
+  the loader rejected on next start (`extra_forbidden`) — config
+  files written by 0.13.3 would fail to reload.
+- `LoggingSection` gained a `mode="before"` validator that remaps
+  legacy `json_level:` keys to the canonical `json:` alias before
+  the `extra="forbid"` rejection fires, so configs broken by the
+  prior save bug keep loading.
 - `get_stash_path()` resolution ladder:
   override + mapped_path → `str(mapped_path)`;
   mapped_path only → prefix substitution (existing 0.13.3 behaviour);
   neither → unchanged local path.
+- Stash file indexers (`_index_scene_files` / `_index_image_files`)
+  now use `fileio.normalize.get_id_from_filename` for media-ID and
+  preview-ID extraction instead of hand-rolled `_id_` / `_preview_id_`
+  parsing. Single regex pass; `is_preview` is now available as a
+  side-channel signal for downstream tagging work.
+
+### Fixed
+
+- Every non-200 download response was raising `httpx.ResponseNotRead`
+  instead of the intended `DownloadError`. `_download_file` and
+  `_download_regular_file` request `stream=True` from
+  `get_with_ngsw`, then on the non-200 branch tried to format an
+  error with `response.content.decode('utf-8')` — httpx forbids
+  reading `.content` on a streaming response without a prior
+  `.read()`. Fixed to call `response.read().decode("utf-8",
+  errors="replace")` first, so the actual server status and body now
+  surface in error logs for failed downloads.
+- `mapped_path` resolution edge case in the by-code regex fallback.
+
+### Removed
+
+- `pyinstaller` dev dependency. The packaging build was abandoned
+  upstream and the dead-test audit flagged the harness code as
+  untested-and-unreachable.
+- `psutil` test dependency (typing stub `types-psutil` retained for
+  type-checking).
 
 ## [0.13.3] - 2026-05-04
 
@@ -431,7 +456,8 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...HEAD
+[0.13.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3
 [0.13.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0
