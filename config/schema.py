@@ -279,6 +279,14 @@ class LoggingSection(_BaseSection):
     websocket: str = "INFO"
     json_level: str = Field("INFO", alias="json", serialization_alias="json")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_json_level_to_alias(cls, data: Any) -> Any:
+        """Accept legacy ``json_level:`` written by buggy save code as ``json:``."""
+        if isinstance(data, dict) and "json_level" in data and "json" not in data:
+            data["json"] = data.pop("json_level")
+        return data
+
 
 class StashContextSection(_BaseSection):
     """Stash media server connection settings.
@@ -296,6 +304,7 @@ class StashContextSection(_BaseSection):
     apikey: str = ""
     mapped_path: str | None = None
     override_dldir_w_mapped: bool = False
+    require_stash_only_mode: bool = False
 
     @model_validator(mode="after")
     def _override_requires_mapped_path(self) -> StashContextSection:
@@ -488,9 +497,16 @@ def _section_to_map(section: BaseModel, existing: CommentedMap | None) -> Commen
     target: CommentedMap = (
         existing if isinstance(existing, CommentedMap) else CommentedMap()
     )
-    for field_name, field_value in section.model_dump(mode="python").items():
-        raw_value = _python_to_yaml_value(field_value, getattr(section, field_name))
-        target[field_name] = raw_value
+    alias_to_attr = {
+        (f.serialization_alias or f.alias or name): name
+        for name, f in section.__class__.model_fields.items()
+    }
+    for yaml_key, dump_value in section.model_dump(
+        mode="python", by_alias=True
+    ).items():
+        attr_name = alias_to_attr.get(yaml_key, yaml_key)
+        raw_value = _python_to_yaml_value(dump_value, getattr(section, attr_name))
+        target[yaml_key] = raw_value
     return target
 
 

@@ -34,6 +34,15 @@ fallback regex re-anchored to the same failing `base_path`.
   per-creator subfolder structure — path filters scope to the entire
   fansly-managed area in Stash. Pydantic validator rejects the config
   at load time if the flag is set without `mapped_path`.
+- `stash_context.require_stash_only_mode` config field. When `true`,
+  Stash integration only engages on `--stash-only` runs; regular
+  download modes skip every Stash code path even when `stash_context`
+  is populated. Lets users with a separate Stash host keep credentials
+  in config without engaging Stash on every run.
+- `FanslyConfig.stash_active` property — single decision point for
+  "should Stash run this iteration." Replaces the bare
+  `stash_context_conn is not None` check at the post-download
+  StashProcessing call site.
 - Code-scoped preload pass (`_preload_creator_media_by_code`) as a
   conditional fallback. Pulls the creator's `Media.id` values from the
   local Postgres DB and queries Stash by `path__regex=<chunked codes>`.
