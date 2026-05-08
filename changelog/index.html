@@ -47,14 +47,16 @@
                 <li class="toctree-l1 current"><a class="reference internal current" href="#">Changelog</a>
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#unreleased">Unreleased</a>
-        <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#testing-hotfix-stash-matching-for-non-aligned-library-layouts">[TESTING-HOTFIX] Stash matching for non-aligned library layouts</a>
-        <ul>
-    <li class="toctree-l4"><a class="reference internal" href="#added">Added</a>
     </li>
-    <li class="toctree-l4"><a class="reference internal" href="#changed">Changed</a>
+    <li class="toctree-l2"><a class="reference internal" href="#0134-2026-05-08">0.13.4 - 2026-05-08</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added">Added</a>
     </li>
-        </ul>
+    <li class="toctree-l3"><a class="reference internal" href="#changed">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
     </li>
         </ul>
     </li>
@@ -62,7 +64,7 @@
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#removed_1">Removed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
     </li>
@@ -70,9 +72,9 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#performance">Performance</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#removed_1">Removed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#removed_2">Removed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#internal">Internal</a>
     </li>
@@ -84,7 +86,7 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
     </li>
         </ul>
     </li>
@@ -94,11 +96,11 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#changed_3">Changed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_3">Fixed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#deprecated">Deprecated</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#removed_2">Removed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#removed_3">Removed</a>
     </li>
         </ul>
     </li>
@@ -202,59 +204,84 @@ in the project's original prose-style format. The v0.13.0 entry is
 mirrored here in Keep-a-Changelog form and is the canonical structure
 for all subsequent releases.</p>
 </blockquote>
-<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
-<h3 id="testing-hotfix-stash-matching-for-non-aligned-library-layouts">[TESTING-HOTFIX] Stash matching for non-aligned library layouts<a class="headerlink" href="#testing-hotfix-stash-matching-for-non-aligned-library-layouts" title="Permanent link">&para;</a></h3>
-<p>Targets the failure mode where a user copies the scraper's downloads to a
-separate Stash host and reorganises the files into a different folder
-structure (e.g. split by media type into <code>Videos/&lt;studio&gt;/</code> and
-<code>Photos/&lt;studio&gt;/</code>), so the per-creator subfolder name the scraper expects
-(<code>&lt;creator&gt;_fansly/</code>) never appears in any of the Stash file paths. With
-the previous behaviour, <code>--stash-only</code> runs created Galleries from the DB
-but couldn't link Scenes/Images to them — <code>path__contains=&lt;base_path&gt;</code>
-returned zero matches, the code index stayed empty, and the per-batch
-fallback regex re-anchored to the same failing <code>base_path</code>.</p>
-<h4 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h4>
+<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="0134-2026-05-08"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4">0.13.4</a> - 2026-05-08<a class="headerlink" href="#0134-2026-05-08" title="Permanent link">&para;</a></h2>
+<p>Stash integration enhancements for non-aligned library layouts and
+separate-host workflows, a streaming-response error-handling fix, and
+test-suite housekeeping that retires unused packaging dependencies.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>stash_context.override_dldir_w_mapped</code> config field. When <code>true</code>,
   <code>get_stash_path()</code> returns <code>mapped_path</code> directly and ignores the
   per-creator subfolder structure — path filters scope to the entire
-  fansly-managed area in Stash. Pydantic validator rejects the config
-  at load time if the flag is set without <code>mapped_path</code>.</li>
+  fansly-managed area in Stash. Targets users who copy scraper
+  downloads to a separate Stash host and reorganise the files into a
+  different folder structure (e.g. split by media type into
+  <code>Videos/&lt;studio&gt;/</code> and <code>Photos/&lt;studio&gt;/</code>), so the per-creator
+  subfolder name the scraper expects (<code>&lt;creator&gt;_fansly/</code>) never
+  appears in any Stash file path. Pydantic validator rejects the flag
+  at config load when <code>mapped_path</code> is unset.</li>
 <li><code>stash_context.require_stash_only_mode</code> config field. When <code>true</code>,
   Stash integration only engages on <code>--stash-only</code> runs; regular
-  download modes skip every Stash code path even when <code>stash_context</code>
-  is populated. Lets users with a separate Stash host keep credentials
-  in config without engaging Stash on every run.</li>
+  download modes (NORMAL, TIMELINE, MESSAGES, WALL, SINGLE, STORIES,
+  COLLECTION) skip every Stash code path even when <code>stash_context</code>
+  is populated. Workflow: scrape locally, copy files to the Stash host
+  manually, then run <code>--stash-only</code> to attribute metadata.</li>
 <li><code>FanslyConfig.stash_active</code> property — single decision point for
   "should Stash run this iteration." Replaces the bare
   <code>stash_context_conn is not None</code> check at the post-download
   StashProcessing call site.</li>
-<li>Code-scoped preload pass (<code>_preload_creator_media_by_code</code>) as a
-  conditional fallback. Pulls the creator's <code>Media.id</code> values from the
-  local Postgres DB and queries Stash by <code>path__regex=&lt;chunked codes&gt;</code>.
-  Runs only when path-scoped preload indexed nothing — aligned layouts
-  pay no extra Stash queries, non-aligned layouts (Stash directory
-  structure doesn't share a prefix with <code>download_directory</code>) recover
-  coverage via media-ID regex search.</li>
 <li>Three-tier anchor in <code>_create_targeted_regex_pattern</code>: per-creator
   <code>base_path</code> (default), <code>mapped_path</code> (when scoped=False with mapping
   set), or code-only (no mapping). The lazy per-batch fallback now
   scopes regex queries to <code>mapped_path.*(codes)</code> instead of going
   library-wide when mapping is configured.</li>
+<li><code>prompt-toolkit</code> runtime dependency. The interactive
+  download-directory prompt in <code>pathio</code> now offers tab-completion,
+  <code>~</code>-expansion, and inline path validation.</li>
 </ul>
-<h4 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h4>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>_preload_creator_media</code> runs path-scoped first, code-scoped only
-  when path-scoped indexed nothing. Both feed the same
-  <code>_scene_code_index</code> / <code>_image_code_index</code>; downstream
-  <code>find_scenes_by_media_codes</code> / <code>find_images_by_media_codes</code> lookups
-  are unchanged. Each pass is a no-op without its precondition
-  (<code>base_path</code> for path-scoped, <code>creator_id</code> + DB media rows for
-  code-scoped).</li>
+<li><code>_section_to_map</code> (YAML save) now uses <code>model_dump(by_alias=True)</code>
+  with an alias-to-attribute lookup so aliased fields write their
+  YAML key on save instead of the Python attribute name. Previously
+  <code>LoggingSection.json_level</code> was dumped as <code>json_level: ...</code> which
+  the loader rejected on next start (<code>extra_forbidden</code>) — config
+  files written by 0.13.3 would fail to reload.</li>
+<li><code>LoggingSection</code> gained a <code>mode="before"</code> validator that remaps
+  legacy <code>json_level:</code> keys to the canonical <code>json:</code> alias before
+  the <code>extra="forbid"</code> rejection fires, so configs broken by the
+  prior save bug keep loading.</li>
 <li><code>get_stash_path()</code> resolution ladder:
   override + mapped_path → <code>str(mapped_path)</code>;
   mapped_path only → prefix substitution (existing 0.13.3 behaviour);
   neither → unchanged local path.</li>
+<li>Stash file indexers (<code>_index_scene_files</code> / <code>_index_image_files</code>)
+  now use <code>fileio.normalize.get_id_from_filename</code> for media-ID and
+  preview-ID extraction instead of hand-rolled <code>_id_</code> / <code>_preview_id_</code>
+  parsing. Single regex pass; <code>is_preview</code> is now available as a
+  side-channel signal for downstream tagging work.</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Every non-200 download response was raising <code>httpx.ResponseNotRead</code>
+  instead of the intended <code>DownloadError</code>. <code>_download_file</code> and
+  <code>_download_regular_file</code> request <code>stream=True</code> from
+  <code>get_with_ngsw</code>, then on the non-200 branch tried to format an
+  error with <code>response.content.decode('utf-8')</code> — httpx forbids
+  reading <code>.content</code> on a streaming response without a prior
+  <code>.read()</code>. Fixed to call <code>response.read().decode("utf-8",
+  errors="replace")</code> first, so the actual server status and body now
+  surface in error logs for failed downloads.</li>
+<li><code>mapped_path</code> resolution edge case in the by-code regex fallback.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>pyinstaller</code> dev dependency. The packaging build was abandoned
+  upstream and the dead-test audit flagged the harness code as
+  untested-and-unreachable.</li>
+<li><code>psutil</code> test dependency (typing stub <code>types-psutil</code> retained for
+  type-checking).</li>
 </ul>
 <h2 id="0133-2026-05-04"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3">0.13.3</a> - 2026-05-04<a class="headerlink" href="#0133-2026-05-04" title="Permanent link">&para;</a></h2>
 <h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
@@ -269,7 +296,7 @@ fallback regex re-anchored to the same failing <code>base_path</code>.</p>
   targeted regex fallback) now go through a new <code>get_stash_path()</code>
   helper in <code>pathio</code>.</li>
 </ul>
-<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<h3 id="removed_1">Removed<a class="headerlink" href="#removed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>--stash-scheme</code>, <code>--stash-host</code>, <code>--stash-port</code>, <code>--stash-apikey</code>
   CLI flags. These were silently broken (the application code was
@@ -393,7 +420,7 @@ fallback regex re-anchored to the same failing <code>base_path</code>.</p>
   entries; orphaning them across creators leaked ~3.9k objects per pass
   on a typical fan with ~3k images and ~800 scenes.</li>
 </ul>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>StashUnmappedFieldWarning</code> and other <code>warnings.warn()</code> output now
   reach loguru sinks.</strong> Two compound failures: <code>logger.patch()</code> was
@@ -447,7 +474,7 @@ fallback regex re-anchored to the same failing <code>base_path</code>.</p>
   UUID4 ID validator and the new <code>StashEntityStore.populate()</code> filter-
   query resolution hop that fires before mutations.</li>
 </ul>
-<h3 id="removed_1">Removed<a class="headerlink" href="#removed_1" title="Permanent link">&para;</a></h3>
+<h3 id="removed_2">Removed<a class="headerlink" href="#removed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>FanslyWebSocket.start_background()</code> / <code>stop()</code> / <code>_background_task</code>
   — replaced by the thread-based lifecycle (<code>start_in_thread()</code> /
@@ -493,7 +520,7 @@ rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
   (<code>fcntl.flock</code> on POSIX, <code>msvcrt.locking</code> on Windows).</li>
 <li><code>poetry.lock</code> and pre-commit hook versions refreshed.</li>
 </ul>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>#77</strong> — Unconditional <code>import fcntl</code> at <code>config/loader.py:28</code> crashed app
   startup on Windows (fcntl is POSIX-only). Swapped to
@@ -573,7 +600,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
   now <strong>Ready to Start</strong>, with the SGC v0.12 batch APIs identified as
   primary adoption targets</li>
 </ul>
-<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Rich Live display corruption from stdout prints — stable frame
   rendering under concurrent logging</li>
@@ -595,7 +622,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
 <li>Classic prose-style <code>ReleaseNotes.md</code> is frozen at v0.13.0. New
   releases are authored in this file (<code>CHANGELOG.md</code>) going forward.</li>
 </ul>
-<h3 id="removed_2">Removed<a class="headerlink" href="#removed_2" title="Permanent link">&para;</a></h3>
+<h3 id="removed_3">Removed<a class="headerlink" href="#removed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Retired settings</strong> (silently dropped from legacy configs — no
   runtime code branches on them):</li>

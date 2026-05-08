@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/testing/dead_tests_audit_2026-05-05/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>Dead tests audit 2026 05 05 - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Dead tests audit 2026 05 05";
+        var mkdocs_page_input_path = "testing/dead_tests_audit_2026-05-05.md";
+        var mkdocs_page_url = "/fansly-scraper/testing/dead_tests_audit_2026-05-05/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../configuration/config_options/">Config Options</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../reference/request-signing/">Request Signing</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Planning</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Dead tests audit 2026 05 05</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/testing/dead_tests_audit_2026-05-05.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h2 id="test-boundary-policy-refined-2026-05-06">Test-boundary policy (refined 2026-05-06)<a class="headerlink" href="#test-boundary-policy-refined-2026-05-06" title="Permanent link">&para;</a></h2>
+<p>The boundary you mock at depends on <strong>what you're testing</strong> AND <strong>what infrastructure
+you control</strong>. Two crossed axes:</p>
+<table>
+<thead>
+<tr>
+<th>Test target</th>
+<th>Allowed boundaries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Fansly API</strong> (HTTP) — ANY test mode</td>
+<td><strong><code>respx</code> ONLY.</strong> Never hit the real server. Risk: account suspension (cf. <code>feedback_api_safety.md</code> + <code>project_pyloyalfans_dead.md</code>).</td>
+</tr>
+<tr>
+<td><strong>Fansly WebSocket</strong> — ANY test mode</td>
+<td><strong><code>fake_ws</code> / <code>fake_websocket_session</code> fixture</strong> (<code>tests/fixtures/api/fake_websocket.py</code>). Same safety reason.</td>
+</tr>
+<tr>
+<td><strong>Stash unit / partial integration</strong> (<code>respx_stash_processor</code> fixture)</td>
+<td><strong><code>respx</code> at HTTP boundary</strong> is the canonical pattern. The fixture provides the respx mock context.</td>
+</tr>
+<tr>
+<td><strong>Stash full integration</strong> — happy path</td>
+<td><strong>Real Docker Stash</strong> (local infra you spin up + tear down via <code>stash_cleanup_tracker</code>).</td>
+</tr>
+<tr>
+<td><strong>Stash full integration</strong> — error path the server can't produce (e.g., asyncio cancellation, transport-level disconnect mid-flight)</td>
+<td><strong><code>gql.Client.execute</code> / <code>httpx</code></strong> — patch ONLY libraries external to ALL your projects.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The "external library" definition</strong>: external to ALL your projects, not just this
+one. SGC (<code>stash-graphql-client</code>) is one of your projects, so patching its <code>StashClient.execute</code>,
+its store methods, or any SGC internal is the WRONG boundary even in integration
+tests. The truly-external library underneath SGC is <code>gql</code> (and beneath that, <code>httpx</code>)
+— those are valid integration-test boundaries when respx is unsuitable.</p>
+<p><strong>Why respx is unsuitable in some integration tests</strong>: the <code>stash_cleanup_tracker</code>
+context manager makes real Docker Stash calls during teardown. respx, when active,
+intercepts ALL httpx requests and would route those teardown calls into the mock,
+breaking real cleanup. Hence integration tests must rely on real-server mode +
+optional gql-library patches scoped to single failure-injection moments.</p>
+<h2 id="cleanup-rule-exception-api-is-upstream-api-contract">Cleanup-rule exception: <code>api/</code> is upstream-API contract<a class="headerlink" href="#cleanup-rule-exception-api-is-upstream-api-contract" title="Permanent link">&para;</a></h2>
+<p><strong>Rule (added 2026-05-06)</strong>: methods in <code>api/fansly.py</code> and related upstream-API
+wrappers that have zero internal callers should NOT be deleted as "dead code."
+Those wrappers express the contract with the Fansly upstream API — they document
+which endpoints exist, even when no current downloader code uses them.</p>
+<p>The <code>zero callers = delete</code> pattern applies to:
+- Internal helpers (<code>copy_old_config_values</code>, <code>verify_file_existence</code>, hash extractors)
+- Name-shim wrappers (<code>get_active_session</code> 2-line forwarder around
+  <code>get_active_session_async</code> — both async, no semantic value)
+- Test infrastructure (<code>measure_time</code> decorator with no importers)</p>
+<p>The exception applies to:
+- <code>FanslyApi.&lt;method&gt;</code> wrappers around real upstream endpoints
+- Their tests (which guard wrapper-vs-upstream-API drift even with zero
+  internal callers)</p>
+<p>When auditing tests of <code>api/</code> methods in future passes, ask: "does this method
+express a contract with an external system, or is it internal logic?" If
+contract → keep. If logic → dead.</p>
+<h2 id="sweep-2-re-audit-findings-2026-05-06">Sweep 2 — re-audit findings (2026-05-06)<a class="headerlink" href="#sweep-2-re-audit-findings-2026-05-06" title="Permanent link">&para;</a></h2>
+<p>Second 20-agent run with lens-based partitioning (era-fossil framing, TDD-gone-wrong
+docstring smells, refined runtime-vs-Alembic SA distinction, boundary correction
+to respx/gql.Client.execute). Each agent was told to skip findings already in the
+sweep-1 sections below. Findings organized by era hypothesis.</p>
+<h3 id="pre-importlib-alembic-refactor-era">Pre-importlib alembic refactor era<a class="headerlink" href="#pre-importlib-alembic-refactor-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong><code>tests/alembic/test_env.py</code></strong> — entire file (7 tests) is dead.
+  Confirmed by Lens 14 + Lens 16. All tests use <code>patch("alembic.context")</code> AND
+  <code>patch.dict(sys.modules, {"metadata.base": MagicMock()})</code>. Both targets stale:
+  <code>metadata.base</code> doesn't exist; fully mocked <code>alembic.context</code> means real migration
+  machinery never runs. Intent already superseded by 4 standalone <code>test_env_*</code>
+  functions in <code>test_migrations.py:747-928</code> that drive <code>command.upgrade</code> against a real DB.
+  <strong>Recommendation: delete the entire file.</strong></p>
+</li>
+<li>
+<p><strong><code>tests/alembic/test_migrations.py:912</code></strong> — stale <code>patch.dict(sys.modules, {"metadata.base": None})</code>.
+  The patch is inert; surrounding <code>command.upgrade</code>/<code>command.downgrade</code> calls are real
+  and legitimate. Remove only the dead patch context.</p>
+</li>
+</ul>
+<h3 id="removed-auto-updater-era">Removed auto-updater era<a class="headerlink" href="#removed-auto-updater-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong><code>tests/config/unit/test_version.py</code></strong> — entire file (3 tests) tests
+  <code>config/version.py:get_project_version()</code> which has zero production callers.
+  Likely auto-updater-era version helper that never got wired up.
+  <strong>Recommendation: delete file + <code>config/version.py</code> production module.</strong></p>
+</li>
+<li>
+<p><strong><code>tests/core/unit/test_errors.py:39-40, 53-57</code></strong> (already in C section) —
+  <code>EXIT_ERROR</code>, <code>UPDATE_FAILED</code>, <code>UPDATE_MANUALLY</code>, <code>UPDATE_SUCCESS</code> tests +
+  the 4 production constants in <code>errors/__init__.py</code>'s <code>__all__</code>.</p>
+</li>
+</ul>
+<h3 id="hash-format-evolution-era">Hash-format evolution era<a class="headerlink" href="#hash-format-evolution-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Production extension to C5</strong>: <code>extract_hash_from_filename</code> (the <strong>current</strong> <code>_hash2_</code>
+  extractor in <code>fileio/fnmanip.py:48</code>) ALSO has zero production callers — production
+  inlines <code>re.compile(r"_hash2_([a-fA-F0-9]+)")</code> at <code>fileio/dedupe.py:611</code>.
+  All three <code>extract_*hash*_from_filename</code> functions are orphans.</li>
+<li><code>tests/fileio/unit/test_fnmanip.py:90-111</code> — extends C5 (test of orphan).</li>
+<li><strong>Recommendation: delete all three production extractors + their tests.</strong></li>
+</ul>
+<h3 id="sa-pydanticasyncpg-migration-era">SA → Pydantic+asyncpg migration era<a class="headerlink" href="#sa-pydanticasyncpg-migration-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Wrong-boundary patches replicated in <code>test_batch_processing.py</code></strong> (Lens 6) — same
+  pattern as A4 in <code>test_error_handlers.py</code>, mass-applied to 5 more sites:</li>
+<li><code>tests/stash/processing/unit/media_mixin/test_batch_processing.py:95, 144, 197, 248, 312</code>
+    — patches <code>respx_stash_processor.store, "get_many"</code> / <code>"find_iter"</code>.</li>
+<li><code>tests/stash/processing/integration/test_base_processing.py:591</code> — patches
+    <code>real_stash_processor.store, "find_iter"</code> with <code>RuntimeError</code>. The file's docstring
+    explicitly justifies the wrong boundary by quoting CLAUDE.md misreading
+    ("rule-compliant external lib leaves") — same error A4 fixed in test_error_handlers.py.</li>
+<li>
+<p><strong>Recommendation: re-fix all 6 sites to use respx (HTTP boundary) per A4 pattern.</strong></p>
+</li>
+<li>
+<p><strong>Factory-fixture mismatch — dead-fixture-params</strong> (Lens 10) — confirms 5 sites I
+  noted as adjacent during A3:</p>
+</li>
+<li><code>tests/stash/processing/integration/test_stash_processing.py:26, 44, 75, 105</code></li>
+<li><code>tests/stash/processing/integration/test_metadata_update_integration.py:31</code></li>
+<li>
+<p><strong>NEW</strong>: <code>tests/fixtures/stash/stash_integration_fixtures.py:585</code> — fixture
+    <code>message_media_generator</code> has dead <code>factory_session</code> param consumed by 12+ tests
+    that pull in expensive sync-engine setup for no reason.</p>
+</li>
+<li>
+<p><strong>Structurally cannot pass — extends C2</strong> (Lens 17): same 3 tests in
+  <code>test_stash_processing_integration.py</code> (already in C2). Adds detail that line 140's
+  <code>factory_async_session.refresh(account)</code> is a 3rd structural failure (FactoryHelper
+  has no <code>.refresh()</code>).</p>
+</li>
+</ul>
+<h3 id="wave-2-daemon-refactor-era">Wave-2 daemon refactor era<a class="headerlink" href="#wave-2-daemon-refactor-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>tests/stash/processing/unit/test_background_processing.py:276, 369, 482</code></strong> —
+  3 tests with 5-response respx side_effect lists where only 3 are consumed (the
+  <code>findGalleries</code> responses at indices 3-4 are dead because test accounts have no
+  posts/messages — <code>_run_worker_pool</code> exits with empty items). Trim 5→3 in each.</li>
+</ul>
+<h3 id="unfinished-retry-config-era">Unfinished retry-config era<a class="headerlink" href="#unfinished-retry-config-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>tests/fixtures/api/main_api_mocks.py:595-598</code></strong> — sets <code>config.wall_retries = 0</code>,
+  <code>config.messages_retries = 0</code>, <code>config.collection_retries = 0</code>, <code>config.single_retries = 0</code>.
+  None are fields on <code>FanslyConfig</code> — only <code>timeline_retries</code> was actually added.
+  Silent dynamic-attr writes; the fixture's "disable retry loops" intent never
+  took effect.
+  <strong>Recommendation: delete the 4 writes; OR add the fields to FanslyConfig if the
+  retry knobs are still wanted.</strong></li>
+</ul>
+<h3 id="pre-fixture-policy-era">Pre-fixture-policy era<a class="headerlink" href="#pre-fixture-policy-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>respx fixture violations</strong> (Lens 8 + 20) — ~70+ inline <code>with respx.mock:</code> /
+  <code>@respx.mock</code> violations across:</li>
+<li><code>tests/api/unit/test_fansly_api.py</code> (~19 sites)</li>
+<li><code>tests/api/unit/test_fansly_api_additional.py</code> (~14 sites)</li>
+<li><code>tests/api/unit/test_fansly_api_monitoring.py</code> (~4 sites)</li>
+<li><code>tests/api/unit/test_fansly_api_callback.py</code> (1 site)</li>
+<li><code>tests/download/unit/test_account.py</code> (~5 sites)</li>
+<li><code>tests/download/unit/test_account_coverage.py</code> (1 site)</li>
+<li><code>tests/metadata/integration/test_account_processing.py</code> (1 site)</li>
+<li><code>tests/daemon/unit/test_filters.py</code> (~14 sites)</li>
+<li><code>tests/daemon/unit/test_polling.py</code> (~17 sites)</li>
+<li><code>tests/daemon/unit/test_runner_wiring.py</code> (3 sites)</li>
+</ul>
+<p>Each registers OPTIONS with <code>side_effect=[httpx.Response(200)]</code> (single-shot)
+  instead of using the fixture's blanket <code>return_value=</code>. Per project policy
+  (<code>feedback_use_existing_respx_fixture.md</code>), <code>side_effect=[]</code> exhaustion is the
+  intentional tripwire for over-calling — if production fires N+1 preflights,
+  <code>StopIteration</code> is the test signal. The fixture's <code>return_value=</code> is the
+  <em>intentional exception</em> at fixture level for blanket coverage when call count
+  isn't being asserted.</p>
+<p>So these inline sites are <strong>rule-compliant</strong> for tests that want explicit
+  count assertions; the only critique is DRY (the fixture exists for tests that
+  <em>don't</em> care about preflight count and just want OPTIONS handled).</p>
+<p><strong>Daemon cluster blocker</strong>: <code>respx_fansly_api</code> requires <code>mock_config</code>; daemon tests
+  use <code>config_wired</code>. Either split the fixture into two layers or create
+  <code>respx_daemon_api</code>. Daemon tests would only benefit from the fixture if they
+  don't need explicit OPTIONS count assertions.</p>
+<h3 id="internal-mock-policy-violations-cross-era">Internal-mock policy violations (cross-era)<a class="headerlink" href="#internal-mock-policy-violations-cross-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong><code>tests/download/unit/test_account.py:650-774</code></strong> (Lens 7) — <code>TestGetFollowingAccounts</code>
+  (5 tests) patches <code>download.account._make_rate_limited_request</code>. The retry/sleep/
+  error logic in production <code>download/account.py:292</code> (entry delay, infinite 429-retry,
+  <code>ApiError</code> on non-429) is the actual interesting code; tests bypass it.
+  <strong>Recommendation: rewrite to use respx against the real Fansly API endpoints.</strong></p>
+</li>
+<li>
+<p>~~<strong><code>tests/helpers/unit/test_checkkey.py:355-403</code></strong> (Lens 7)~~
+  <strong>RECLASSIFIED 2026-05-06</strong>: legitimate Exception 2 case (parallel to C2 Issue 3).
+  The orchestrator <code>extract_checkkey_from_js</code> is a pure dispatcher over two
+  extractors with deep call trees (JSPyBridge → acorn parsing → walk →
+  eval_js). The extractors are independently covered by
+  <code>TestExtractCheckkeyRegex</code> (real JS + <code>eval_js</code> JSPyBridge-leaf patch) and
+  <code>TestExtractCheckkeyAstFallback</code> (mock acorn/walk at JSPyBridge boundary).
+  Mocking the two extractor functions in the orchestrator tests is the
+  pragmatic way to verify dispatch logic without re-running the extractor
+  code paths already covered elsewhere. NOT a dead-test cluster.</p>
+</li>
+</ul>
+<h3 id="tdd-gone-wrong-era">TDD-gone-wrong era<a class="headerlink" href="#tdd-gone-wrong-era" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>tests/config/functional/test_logging_functional.py:241</code></strong> (Lens 1) — comment
+  <code># Instead of actually writing huge files, let's mock the rotation</code> followed by
+  manually-created <code>fansly_downloader_ng.log</code> and <code>.log.1.gz</code> files via <code>open(..., "w")</code>.
+  Test asserts <code>len(log_files) &gt; 1</code> and <code>any(f.name.endswith(".gz"))</code> — both satisfied
+  by the test's own writes; loguru rotation logic never runs.</li>
+</ul>
+<h3 id="tautological-assertions-cross-era">Tautological assertions (cross-era)<a class="headerlink" href="#tautological-assertions-cross-era" title="Permanent link">&para;</a></h3>
+<p>15 HIGH cases across 8 files (Lens 3):</p>
+<ul>
+<li><code>tests/pathio/test_pathio.py:466</code> — literal <code>assert True</code></li>
+<li><code>tests/stash/processing/integration/test_base_processing.py:575</code> — <code>assert total_indexed &gt;= 0</code> (<code>len()</code> always ≥ 0)</li>
+<li><code>tests/stash/processing/unit/batch/test_worker_pool.py:41, 42, 46</code> — <code>isinstance(x, T)</code> / <code>x &gt; 0</code> on freshly-constructed objects with fixed types</li>
+<li><code>tests/download/unit/test_downloadstate.py:59, 60-61, 66-72</code> — isinstance/hasattr on inheritance-guaranteed members</li>
+<li><code>tests/metadata/unit/test_entity_store_sort.py:31</code> — <code>isinstance(StrEnum_member, str)</code> (always True by data model)</li>
+<li><code>tests/stash/processing/integration/test_stash_processing.py:37-39</code> — <code>hasattr</code> on instance methods</li>
+<li><code>tests/stash/test_logging.py:18-19, 25-26</code> — <code>hasattr</code> on loguru API contract</li>
+</ul>
+<h3 id="cascading-deletions-from-b1-housekeeping">Cascading deletions from B1 (housekeeping)<a class="headerlink" href="#cascading-deletions-from-b1-housekeeping" title="Permanent link">&para;</a></h3>
+<ul>
+<li>
+<p><strong><code>tests/conftest.py:65, 649-734, 745-747</code></strong> (Lens 19) — three orphaned performance
+  fixtures (<code>performance_log_dir</code>, <code>performance_threshold</code>, <code>performance_tracker</code>),
+  the <code>import psutil</code> that only <code>performance_tracker</code> uses, and 3 <code>__all__</code> entries.
+  All became dead when I deleted <code>test_download_performance.py</code> in B1.</p>
+</li>
+<li>
+<p><strong><code>pyproject.toml:312-318</code></strong> (Lens 19) — 5 marker registrations with 0 users:
+  <code>slow</code>, <code>functional</code>, <code>performance</code>, <code>full_workflow</code>, <code>comprehensive</code>.</p>
+</li>
+<li>
+<p><strong>Empty/residue directories</strong> (Lens 15):</p>
+</li>
+<li>4 truly empty placeholders: <code>tests/stash/client/</code>, <code>tests/stash/types/</code>,
+    <code>tests/stash/processing/unit/logs/</code>, <code>tests/stash/processing/integration/test_full_workflow/</code></li>
+<li>2 deletion residue (<code>__pycache__</code> only): <code>tests/performance/</code>, <code>tests/metadata/helpers/</code></li>
+<li>6 Nov-13-bulk scaffolded with only <code>__init__.py</code>:
+    <code>tests/{helpers,media,textio,core,pathio,utils}/integration/</code> — distinct era
+    "intent never materialized"</li>
+</ul>
+<h3 id="findings-that-did-not-extend-the-audit">Findings that DID NOT extend the audit<a class="headerlink" href="#findings-that-did-not-extend-the-audit" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Lens 2 (Self-ref stubs): zero new instances beyond B1</li>
+<li>Lens 5 (GraphQL key typos): confirmed existing 3, no new</li>
+<li>Lens 9 (SA Session at runtime): corroborates C2 only</li>
+<li>Lens 18 (Low-info empty assertions): zero findings — codebase is structurally
+  clean. Tests asserting <code>result == []</code> consistently pair with <code>route.call_count</code>
+  or other secondary disambiguation.</li>
+</ul>
+<h3 id="sweep-2-grand-totals">Sweep-2 grand totals<a class="headerlink" href="#sweep-2-grand-totals" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>New HIGH sites</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_env.py</code> entirely dead</td>
+<td>7 tests</td>
+</tr>
+<tr>
+<td><code>test_version.py</code> orphan version helper</td>
+<td>3 tests + 1 module</td>
+</tr>
+<tr>
+<td>Wrong-boundary replications (test_batch_processing + test_base_processing)</td>
+<td>6 sites</td>
+</tr>
+<tr>
+<td>Unconsumed respx responses (test_background_processing)</td>
+<td>3 sites</td>
+</tr>
+<tr>
+<td>TestGetFollowingAccounts internal mocks</td>
+<td>5 tests</td>
+</tr>
+<tr>
+<td>TestExtractCheckkeyFromJs internal mocks</td>
+<td>5 tests</td>
+</tr>
+<tr>
+<td>Tautological assertions</td>
+<td>15 sites</td>
+</tr>
+<tr>
+<td>Logging-rotation manually-staged-files</td>
+<td>1 site</td>
+</tr>
+<tr>
+<td><code>extract_hash_from_filename</code> orphan</td>
+<td>1 test + 1 production fn</td>
+</tr>
+<tr>
+<td>Dead-fixture-params (incl. <code>message_media_generator</code>)</td>
+<td>6 sites</td>
+</tr>
+<tr>
+<td>Dead retry-config writes in fixture</td>
+<td>4 writes</td>
+</tr>
+<tr>
+<td><strong>Subtotal new dead-test sites</strong></td>
+<td><strong>~56</strong></td>
+</tr>
+<tr>
+<td>Empty placeholder directories</td>
+<td>12 dirs</td>
+</tr>
+<tr>
+<td>Cascading orphans from B1</td>
+<td>3 fixtures + 1 import + 5 markers</td>
+</tr>
+</tbody>
+</table>
+<p>Adding sweep 2 to sweep 1: roughly <strong>~110 HIGH-confidence dead-test sites</strong> identified
+across the test tree, distributed across ~10 distinct infrastructure-shift eras.</p>
+<hr />
+<h2 id="sweep-1-original-audit-2026-05-05">Sweep 1 — original audit (2026-05-05)<a class="headerlink" href="#sweep-1-original-audit-2026-05-05" title="Permanent link">&para;</a></h2>
+<h2 id="work-landed-a-b">Work landed (A + B)<a class="headerlink" href="#work-landed-a-b" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>Files affected</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>B1</strong> Self-referential stubs</td>
+<td><code>tests/functional/test_download_workflow.py</code> (deleted), <code>tests/performance/test_download_performance.py</code> (deleted), <code>tests/download/unit/test_media_filtering.py</code> (partial)</td>
+<td>14 tests removed; preserved live <code>TestProcessDownloadAccessibleMedia</code></td>
+</tr>
+<tr>
+<td><strong>A1</strong> <code>copy_old_config_values</code> cluster</td>
+<td><code>tests/config/unit/test_config.py</code>, <code>config/config.py</code>, <code>config/__init__.py</code></td>
+<td>5 dead tests + production function deleted; orphan <code>ConfigParser</code> import cleaned up</td>
+</tr>
+<tr>
+<td><strong>A2</strong> <code>TestSessionBaseline</code> rewrite</td>
+<td><code>tests/daemon/unit/test_runner_wiring.py</code></td>
+<td>Verified no other test covers the semantic; rewrote both tests to drive <code>_process_timeline_candidate</code> end-to-end via monkeypatch at production binding sites; assertions now catch order-of-operations regressions in <code>daemon/runner.py:551-552</code></td>
+</tr>
+<tr>
+<td><strong>A3</strong> Factory-fixture mismatch</td>
+<td><code>test_tag_methods.py</code> (3), <code>test_stash_processing.py</code> (5), <code>test_metadata_update_integration.py</code> (6), <code>test_stash_processing_integration.py</code> (1), <code>tests/fixtures/database/database_fixtures.py</code> (docstring fixes)</td>
+<td>15 sites converted to <code>Factory.build(...)</code> pattern; dead <code>factory_session</code> / <code>factory_async_session</code> / <code>session_sync</code> fixture parameters removed; misleading <code>mock_account</code> and <code>factory_async_session</code> docstrings rewritten</td>
+</tr>
+<tr>
+<td><strong>A4</strong> <code>test_error_handlers.py</code> boundary fix</td>
+<td><code>tests/stash/processing/unit/media_mixin/test_error_handlers.py</code></td>
+<td>Two tests rewritten to patch at the documented <code>respx.post(...)</code> HTTP boundary with <code>httpx.ConnectError</code> (mirroring <code>test_find_stash_files_by_path_regex_fallback</code>'s working pattern) instead of patching SGC's internal <code>store.get_many</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="adjacent-findings-deferred-not-in-users-ab-scope">Adjacent findings deferred (not in user's A+B scope)<a class="headerlink" href="#adjacent-findings-deferred-not-in-users-ab-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>test_stash_processing.py</code></strong> has 4 more dead <code>factory_session</code> parameters (lines 26, 44, 75, 105 — all <code>test_initialization</code>, <code>test_find_account_by_*</code>) that the audit didn't flag because there's no <code>.commit()</code> call; the fixture is purely orphaned. Same root cause as A3.</li>
+<li><strong><code>test_metadata_update_integration.py:31</code></strong> has the same dead <code>factory_session</code> pattern in <code>test_update_image_metadata_with_studio_create</code>.</li>
+<li><strong><code>test_stash_processing_integration.py:91-143</code></strong> still has the C2-class issues (<code>session=</code> kwarg → <code>TypeError</code>, <code>.refresh()</code> on FactoryHelper → <code>AttributeError</code>); A4 only removed the empty <code>.commit()</code> line per user directive.</li>
+</ul>
+<h2 id="original-audit-follows">Original audit follows<a class="headerlink" href="#original-audit-follows" title="Permanent link">&para;</a></h2>
+<h1 id="dead-tests-audit-tests-to-100-branch">Dead-tests audit — <code>tests-to-100</code> branch<a class="headerlink" href="#dead-tests-audit-tests-to-100-branch" title="Permanent link">&para;</a></h1>
+<h2 id="method">Method<a class="headerlink" href="#method" title="Permanent link">&para;</a></h2>
+<p>20 overlapping cross-verification agents searched <code>tests/**/*.py</code> for tests
+that exercise dead/orphaned code. Each agent:</p>
+<ul>
+<li>Was given the same protocol: grep production for the patched/mocked name,
+  classify HIGH (zero matches) / MEDIUM (matches in unrelated path) / skip
+  LOW.</li>
+<li>Read-only — no edits, no <code>git stash</code>, no <code>pytest</code> runs.</li>
+<li>Output keyed by <code>(test_file:line)</code> for mechanical merge.</li>
+</ul>
+<p>Confidence reconciliation:</p>
+<ul>
+<li><strong>≥2 agents agree</strong> = real signal (confirmed cross-verification).</li>
+<li><strong>Single-agent HIGH</strong> = personal re-verification required before action.</li>
+</ul>
+<p>The 10-day-old <code>feedback_dead_patches_pass_for_wrong_reason.md</code> memory's
+canonical example (<code>tests/stash/processing/unit/media_mixin/test_error_handlers.py:45,62,234,261</code>
+patching <code>client.find_image</code> etc.) was confirmed FIXED by 5 independent
+agents — the cleanup landed before this audit.</p>
+<hr />
+<h2 id="a-2-agent-confirmed-findings">A. ≥2-agent confirmed findings<a class="headerlink" href="#a-2-agent-confirmed-findings" title="Permanent link">&para;</a></h2>
+<h3 id="a1-copy_old_config_values-cluster-5-dead-tests">A1. <code>copy_old_config_values()</code> cluster — 5 dead tests<a class="headerlink" href="#a1-copy_old_config_values-cluster-5-dead-tests" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>tests/config/unit/test_config.py</code>
+<strong>Lines:</strong> 254, 309/314, 458, 487, 514
+<strong>Confirmed by:</strong> Agent 7 (HIGH) + Agent 15 (MEDIUM via <code>db_sync_commits</code> cross-ref)</p>
+<p><code>copy_old_config_values()</code> is defined in <code>config/config.py:89</code>, exported via
+<code>config/__init__.py:52</code>, but has zero production callers. Operates on the
+<code>old_config.ini</code> → <code>config.ini</code> workflow that was doubly superseded — first
+by the <code>.ini</code> → <code>.yaml</code> migration, then by <code>old_config.ini</code> having no
+creation path. The <code>db_sync_commits</code> field referenced in the test fixtures
+is also in <code>_DROPPED_FIELDS</code> (doubly vacuous).</p>
+<p><strong>User direction:</strong> Delete the 5 tests AND delete <code>copy_old_config_values()</code>
+from production.</p>
+<hr />
+<h3 id="a2-testsessionbaseline-2-tests-testing-the-test-authors-own-helpers">A2. <code>TestSessionBaseline</code> — 2 tests testing the test author's own helpers<a class="headerlink" href="#a2-testsessionbaseline-2-tests-testing-the-test-authors-own-helpers" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>tests/daemon/unit/test_runner_wiring.py</code>
+<strong>Lines:</strong> 959 (<code>test_session_baseline_first_call_then_none</code>), 992 (<code>test_baseline_consumed_set_is_per_creator</code>)
+<strong>Confirmed by:</strong> Agent 1 (MEDIUM) + Agent 6 (HIGH)</p>
+<p>Test 1 creates <code>spy = AsyncMock(spec=should_process_creator)</code>, manually
+replays the baseline-consumption logic in the test body, then calls
+<code>spy(...)</code> directly. Production code never runs. Test 2 defines a local
+<code>_get_baseline(cid)</code> helper inside the test and asserts on it — a test of
+Python <code>set</code> semantics on test-author-written code. Cannot detect
+regressions in <code>daemon/runner.py:551-552</code>.</p>
+<p><strong>User direction:</strong> Re-write — but only after verifying no other test
+already covers the production logic at <code>daemon/runner.py:551-552</code>
+(<code>_process_timeline_candidate</code>'s baseline-consumption path).</p>
+<hr />
+<h3 id="a3-factory-fixture-mismatch-14-vacuous-tests-with-empty-database-commits">A3. Factory-fixture mismatch — 14 vacuous tests with empty database commits<a class="headerlink" href="#a3-factory-fixture-mismatch-14-vacuous-tests-with-empty-database-commits" title="Permanent link">&para;</a></h3>
+<p><strong>Files &amp; lines:</strong></p>
+<ul>
+<li><code>tests/stash/integration/test_stash_processing_integration.py:102</code></li>
+<li><code>tests/stash/processing/integration/test_stash_processing.py:149, 191, 248, 273, 366</code></li>
+<li><code>tests/stash/processing/integration/test_metadata_update_integration.py:135, 142, 207, 215, 223, 302</code></li>
+<li><code>tests/stash/processing/unit/gallery/test_tag_methods.py:38, 99, 145</code></li>
+</ul>
+<p><strong>Confirmed by:</strong> Agent 3 (MEDIUM, 3 tests) + Agent 18 (HIGH, expanded to 14 tests)</p>
+<p>Root cause: <code>BaseFactory</code> extends <code>factory.Factory</code> (NOT
+<code>factory.alchemy.SQLAlchemyModelFactory</code>). The <code>factory_session</code> /
+<code>factory_async_session</code> fixtures set <code>_meta.sqlalchemy_session = session</code> —
+but only <code>SQLAlchemyOptions</code> reads that attribute; on <code>factory.Factory</code>
+it's silently ignored. Every <code>factory_session.commit()</code> /
+<code>session_sync.commit()</code> / <code>factory_async_session.commit()</code> after
+<code>AccountFactory()</code> / <code>PostFactory()</code> / <code>HashtagFactory()</code> commits an
+<strong>empty transaction</strong>.</p>
+<p><strong>User clarification (2026-05-05, refined 2026-05-06):</strong> SA ORM was used
+extensively before the switch to native asyncpg via <code>PostgresEntityStore</code>.
+SA is <strong>still</strong> used — but only for Alembic migrations (<code>metadata/tables.py</code>
+schema + <code>alembic/versions/</code> revision files). At <strong>runtime</strong>, no SA
+Session is in scope; the read/write path is entirely Pydantic + asyncpg.
+So every "runtime" <code>session.commit()</code> / <code>session.execute(select(Foo))</code> /
+<code>MagicMock(spec=Session)</code> reference in test code is testing a layer that
+isn't there anymore. Tests in <code>tests/alembic/</code> that exercise SA patterns
+remain legitimate because Alembic itself runs against SA.</p>
+<p><strong>Side hazard — misleading docstrings:</strong></p>
+<ul>
+<li><code>tests/fixtures/database/database_fixtures.py:916, 994-1000</code> documents
+  <code>await session.execute(select(Account).where(...))</code> — would
+  <code>ArgumentError</code> at runtime because <code>Account</code> is now a Pydantic model
+  with no <code>__mapper__</code>.</li>
+</ul>
+<p><strong>Recommendation:</strong> Convert factory calls to <code>.build(...)</code>; remove the
+<code>factory_session</code> / <code>factory_async_session</code> / <code>session_sync</code> fixture
+parameters and the <code>commit()</code> calls; remove misleading docstrings.</p>
+<hr />
+<h3 id="a4-test_error_handlerspy-patch-boundary-still-wrong">A4. <code>test_error_handlers.py</code> patch boundary — STILL WRONG<a class="headerlink" href="#a4-test_error_handlerspy-patch-boundary-still-wrong" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>tests/stash/processing/unit/media_mixin/test_error_handlers.py</code>
+<strong>Confirmed by:</strong> 5 agents (1, 2, 4, 16, 17) — but agents endorsed the
+WRONG fix.</p>
+<p>The 10-day-old memory's specific dead patches at lines 45, 62, 234, 261
+(patching <code>client.find_image</code>, <code>client.find_scene</code>, etc.) are gone. The
+current tests patch <code>respx_stash_processor.context._store.get_many</code>.</p>
+<p><strong>User correction (2026-05-05):</strong> <code>store.get_many</code> is <strong>not</strong> the right
+boundary. <code>store</code> is internal to the stash-graphql-client (SGC) library;
+patching it bypasses SGC's real fetch behavior. The correct patch
+boundary is <strong>either</strong>:</p>
+<ol>
+<li><strong>respx HTTP mock</strong> — intercepts the HTTP POST that <code>gql.Client</code>
+   sends underneath SGC's <code>_session.execute()</code>.</li>
+<li><strong><code>gql.Client.execute()</code> patch</strong> — returns a Python dict matching the
+   GraphQL response shape; SGC then deserializes via real Pydantic
+   <code>model_validate</code>.</li>
+</ol>
+<p>Patching <code>store.get_many</code> skips both SGC's fetch logic AND the Pydantic
+deserialization layer. The production code path the test claims to cover
+is still not exercised end-to-end.</p>
+<p><strong>Recommendation:</strong> Re-rewrite the affected tests to use respx or
+<code>gql.Client.execute</code> instead of <code>store.get_many</code>.</p>
+<hr />
+<h2 id="b-single-agent-high-confidence-driver-verified">B. Single-agent HIGH-confidence (driver-verified)<a class="headerlink" href="#b-single-agent-high-confidence-driver-verified" title="Permanent link">&para;</a></h2>
+<h3 id="b1-self-referential-stub-pattern-14-tests-across-3-files">B1. Self-referential stub pattern — 14 tests across 3 files<a class="headerlink" href="#b1-self-referential-stub-pattern-14-tests-across-3-files" title="Permanent link">&para;</a></h3>
+<p>Verified by direct file reads (not just agent reports):</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Lines</th>
+<th>Test count</th>
+<th>Verification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tests/functional/test_download_workflow.py</code></td>
+<td>25-50 (stubs) + 3 tests</td>
+<td>3</td>
+<td>Comment at line 25 literally reads <code># Mock functions for testing - replace with actual imports when modules are implemented</code></td>
+</tr>
+<tr>
+<td><code>tests/performance/test_download_performance.py</code></td>
+<td>13-36 (stubs) + 3 tests</td>
+<td>3</td>
+<td>Identical pattern, identical comment</td>
+</tr>
+<tr>
+<td><code>tests/download/unit/test_media_filtering.py</code></td>
+<td><code>_filter_media</code> at 38-44, <code>TestMediaFilteringLogic</code> at 47+</td>
+<td>8</td>
+<td><code>_filter_media</code> defined locally with docstring <code>"""Apply the same filtering expression used by fetch_and_process_media."""</code> — a copy, not an import</td>
+</tr>
+</tbody>
+</table>
+<p>All 14 tests assert on locally-defined stubs/copies, not on production
+code. Cannot detect any production regression.</p>
+<p><strong>User direction:</strong> Delete all 14.</p>
+<p>The functional/performance files contain ONLY these tests and their
+stubs — entire files can be deleted. The <code>test_media_filtering.py</code> file
+also contains <code>TestProcessDownloadAccessibleMedia</code> (NOT dead per Agent 14)
+— delete only <code>_filter_media</code>, <code>_make_media</code>, and <code>TestMediaFilteringLogic</code>.</p>
+<hr />
+<h2 id="c-single-agent-high-confidence-driver-did-not-re-verify-user-to-triage">C. Single-agent HIGH-confidence — driver did NOT re-verify; user to triage<a class="headerlink" href="#c-single-agent-high-confidence-driver-did-not-re-verify-user-to-triage" title="Permanent link">&para;</a></h2>
+<p>These are real candidates per their reporting agent, but I haven't
+personally read the files to confirm. User confirms before action.</p>
+<h3 id="c1-api-tests-pass-for-the-wrong-reason-2-tests-agent-8">C1. API tests pass for the wrong reason — 2 tests (Agent 8)<a class="headerlink" href="#c1-api-tests-pass-for-the-wrong-reason-2-tests-agent-8" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/api/unit/test_fansly_api.py:568-585</code> (<code>test_setup_session_error</code>)
+  patches <code>websockets.client.connect</code> but HTTP 401 short-circuits before
+  websocket is reached.</li>
+<li><code>tests/api/unit/test_fansly_api_additional.py:175-193</code> (renamed
+  <code>test_get_active_session_error</code> after C1 rename action) — passes via
+  5-second timeout in <code>get_active_session()</code> (lines 574-577 polling for
+  <code>session_id</code>). Actual mechanism (traced 2026-05-06): patch IS effective
+  (<code>from websockets import client as ws_client</code> makes <code>ws_client</code> a
+  reference to the same module object); <code>await ws_client.connect(...)</code>
+  returns the AsyncMock; <code>recv()</code> returns <code>{"t":0,"d":"Error message"}</code>
+  — but type-0 is not the type-1 auth response that would populate
+  <code>session_id</code>, so <code>session_id</code> is never set; the WS thread loops
+  waiting for type-1 (which <code>return_value</code> keeps emitting type-0
+  forever); the main thread's 5-second poll timeout fires; the
+  RuntimeError's message matches the test's regex by coincidence.</li>
+</ul>
+<p>The mocked error message is <strong>irrelevant to the test passing</strong> —
+  returning an empty string would also hit the timeout. The test
+  predates the canonical <code>fake_ws</code> / <code>fake_websocket_session</code> fixture
+  (<code>tests/fixtures/api/fake_websocket.py</code>) which scripts proper type-1
+  auth responses. <strong>Recommendation</strong>: migrate to the fixture or rewrite
+  to mock <code>recv</code> to raise (would exercise the actual exception-catch
+  path at <code>api/websocket.py:583-589</code> and produce
+  <code>"WebSocket session setup failed: ..."</code> — the OTHER half of the
+  test's regex).</p>
+<p>(Earlier "return_value violation" framing was wrong — <code>return_value=</code>
+  is correct for <code>unittest.mock.patch</code> of an external library; the
+  no-<code>return_value</code> rule is specifically for respx routes where
+  exhaustion is the test's count tripwire.)</p>
+<p><strong>Adjacent finding (2026-05-06)</strong>: <code>api/fansly.py:596-598</code> defines
+<code>get_active_session()</code> as a 2-line async wrapper that just calls
+<code>get_active_session_async()</code>. Both are async; <code>_async</code> suffix carries
+no information. Only 1 production caller (<code>setup_session</code> at line 610);
+only 1 dedicated test (<code>test_get_active_session</code> — already MEDIUM in C1
+for testing trivial delegation via internal mock). <strong>Recommendation</strong>:
+rename <code>get_active_session_async</code> → <code>get_active_session</code>, delete the
+wrapper, delete the redundant delegation test.</p>
+<h3 id="c2-stash-processing-integration-tests-3-tests-agents-12-partial-18-user-triage-2026-05-06">C2. Stash-processing-integration tests — 3 tests (Agents 12 + partial 18); user triage 2026-05-06<a class="headerlink" href="#c2-stash-processing-integration-tests-3-tests-agents-12-partial-18-user-triage-2026-05-06" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/stash/integration/test_stash_processing_integration.py:25, 91, 147</code></li>
+<li>Issue 1 (line 91): pass <code>session=</code> kwarg the production signature
+  doesn't accept (<code>TypeError</code>). <strong>STILL DEAD</strong> — structural failure.</li>
+<li>Issue 2 (line 25): call <code>.assert_called_once()</code> on a real <code>StashContext</code>
+  (not a Mock) — <code>AttributeError</code>. <strong>STILL DEAD</strong> — structural failure.
+  Also: <code>test_full_creator_processing_flow</code> directly assigns 9 internal
+  AsyncMocks onto the processor instance instead of using
+  <code>patch.object(...)</code> context managers, mutating the instance for the
+  duration of the test (state-poisoning shape; works only because the
+  instance is test-scoped). Plus mocking 9 internal methods means the
+  test is mocked-out unit logic mislabeled as integration — <code>start_creator_processing</code>
+  orchestration switch is the only thing actually verified.</li>
+<li>Issue 3 (line 147, <code>test_safe_background_processing_integration</code>):
+  ~~mock <code>continue_stash_processing</code> internally — anti-pattern~~
+  <strong>RECLASSIFIED 2026-05-06</strong>: legitimate Exception 2 case per
+  <code>docs/testing/testing_requirements.md</code>. <code>_safe_background_processing</code>
+  exists specifically to catch <code>asyncio.CancelledError</code> and other
+  exceptions from a deep async task tree. Triggering <code>CancelledError</code>
+  through real integration is impractical (would require scripting
+  task-cancellation mid-flight). Mocking the input boundary
+  (<code>continue_stash_processing</code>) is the most surgical way to verify each
+  branch. This is NOT a dead test — it's a documented-exception unit
+  test of the wrapper's error-handling logic.</li>
+<li>All three lack <code>stash_cleanup_tracker</code> → <code>xfail(strict=True)</code> enforced
+  by <code>tests/conftest.py:243-256</code>. <strong>User confirmed</strong>: enforcement
+  catching them is the desired behavior.</li>
+</ul>
+<h3 id="c3-internal-mocks-of-forbidden-surfaces-2-tests-agent-14">C3. Internal mocks of forbidden surfaces — 2 tests (Agent 14)<a class="headerlink" href="#c3-internal-mocks-of-forbidden-surfaces-2-tests-agent-14" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/download/unit/test_media_download.py:104-148, 151-188</code>
+  mock both <code>process_media_info</code> AND <code>parse_media_info</code> (internal
+  functions). Branch policy: never mock internal functions.</li>
+</ul>
+<h3 id="c4-response-key-typo-dead-tests-3-tests-agent-16-line-numbers-re-verified-2026-05-06">C4. Response-key typo dead tests — 3 tests (Agent 16); line numbers re-verified 2026-05-06<a class="headerlink" href="#c4-response-key-typo-dead-tests-3-tests-agent-16-line-numbers-re-verified-2026-05-06" title="Permanent link">&para;</a></h3>
+<p>Three scene tests use <code>"FindScenes"</code> (capital F — the GraphQL <strong>operation name</strong>)
+in the response-key slot, but SGC reads the response by the lowercase
+<strong>field name</strong> <code>"findScenes"</code>. Mock fires; SGC sees count=0; <code>result == []</code>
+passes coincidentally.</p>
+<ul>
+<li><code>tests/stash/processing/unit/media_mixin/test_error_handlers.py:95</code>
+  (<code>test_find_stash_files_by_path_no_images</code>)</li>
+<li><code>tests/stash/processing/unit/media_mixin/test_error_handlers.py:178</code>
+  (<code>test_find_stash_files_by_path_scenes_not_found</code>)</li>
+<li><code>tests/stash/processing/unit/media_mixin/test_error_handlers.py:206</code>
+  (<code>test_find_stash_files_by_path_scene_processing_error</code>)</li>
+</ul>
+<p>(Earlier audit cited 110/192/218; those were pre-A4 line numbers — the A4
+boundary cleanup shortened the file by ~15 lines, shifting the affected
+sites. Image tests at lines 121/152 use <code>"findImages"</code> (lowercase, correct)
+and are NOT dead. The regex-fallback test at line 243 uses <code>"findScenes"</code>
+(lowercase, correct) and demonstrates the working pattern in the same file.)</p>
+<p><strong>Recommendation</strong>: replace <code>"FindScenes"</code> → <code>"findScenes"</code> in all three
+sites. Mechanical 3-line fix. The assertions will then actually exercise
+the production code path (SGC parses real findScenes data, returns count=0),
+instead of the current "passes coincidentally via key-mismatch default."</p>
+<h3 id="c5-legacy-hash-format-extractor-tests-2-tests-agent-10">C5. Legacy hash-format extractor tests — 2+ tests (Agent 10)<a class="headerlink" href="#c5-legacy-hash-format-extractor-tests-2-tests-agent-10" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/fileio/unit/test_fnmanip.py:40-88</code> tests
+  <code>extract_old_hash0_from_filename</code> and <code>extract_old_hash1_from_filename</code>
+  (zero production callers; superseded by <code>_hash2_</code> + DB column).</li>
+<li><code>tests/fileio/integration/test_fnmanip_integration.py:100-118</code> —
+  same pattern (MEDIUM).</li>
+</ul>
+<h3 id="c6-self-referential-dedup-test-1-test-agent-10">C6. Self-referential dedup test — 1 test (Agent 10)<a class="headerlink" href="#c6-self-referential-dedup-test-1-test-agent-10" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/fileio/test_dedupe.py:95-120</code> imports <code>verify_file_existence</code>
+  but never calls it; defines and tests inline <code>mock_verify_file_existence</code>.
+  Real function tested elsewhere at line 1240, so this is dead AND
+  redundant.</li>
+</ul>
+<h3 id="c7-tautological-concurrency-assertion-1-test-agent-13">C7. Tautological concurrency assertion — 1 test (Agent 13)<a class="headerlink" href="#c7-tautological-concurrency-assertion-1-test-agent-13" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/stash/processing/unit/batch/test_worker_pool.py:137-138</code>
+  <code>len(set(processing_started) - set(first_10_finished)) &gt; 0</code> is
+  mathematically always true regardless of execution order. Doesn't
+  actually test concurrency.</li>
+</ul>
+<h3 id="c8-registered-but-unconsumed-mock-1-test-agent-13">C8. Registered-but-unconsumed mock — 1 test (Agent 13)<a class="headerlink" href="#c8-registered-but-unconsumed-mock-1-test-agent-13" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/stash/processing/unit/tag_mixin/test_tag_processing.py:40-46</code>
+  registers a respx route, but <code>_process_hashtags_to_tags([])</code>
+  short-circuits on empty input before any HTTP call.</li>
+</ul>
+<h3 id="c9-dataclass-write-to-non-existent-field-1-test-fixture-agent-15">C9. Dataclass write to non-existent field — 1 test fixture (Agent 15)<a class="headerlink" href="#c9-dataclass-write-to-non-existent-field-1-test-fixture-agent-15" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/download/unit/test_account_coverage.py:30</code>
+  <code>config.separate_metadata = True</code> on a <code>FanslyConfig</code> dataclass that
+  no longer has this field. Python silently creates a dynamic attribute
+  (no <code>__slots__</code>); no production code reads it.</li>
+</ul>
+<h3 id="c10-stale-alembic-env-mock-7-patches-agent-11">C10. Stale alembic env mock — 7 patches (Agent 11)<a class="headerlink" href="#c10-stale-alembic-env-mock-7-patches-agent-11" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>tests/alembic/test_env.py:36, 71, 99, 135, 160, 182, 206</code> patches
+  <code>metadata.base</code> which doesn't exist in production. Current
+  <code>alembic/env.py</code> uses <code>importlib.util</code> from <code>metadata/tables.py</code>. The
+  mock is harmless on the surface but may shadow the real
+  <code>target_metadata</code> resolution path.</li>
+</ul>
+<hr />
+<h2 id="d-adjacent-findings-not-dead-test-but-worth-surfacing">D. Adjacent findings (not dead-test, but worth surfacing)<a class="headerlink" href="#d-adjacent-findings-not-dead-test-but-worth-surfacing" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>tests/metadata/integration/common.py:8</code></strong> — <code>measure_time</code> decorator
+  with zero callers; file imported by no test (Agent 11)</li>
+<li><strong><code>tests/metadata/helpers/</code></strong> — empty directory, only <code>__pycache__</code>
+  residue from a deleted <code>helpers/utils.py</code></li>
+<li><strong><code>tests/stash/client/</code>, <code>tests/stash/types/</code></strong> — empty placeholder
+  directories</li>
+<li><strong><code>tests/core/unit/test_errors.py:39-40, 53-57</code></strong> — <code>EXIT_ERROR</code>,
+  <code>UPDATE_FAILED</code>, <code>UPDATE_MANUALLY</code>, <code>UPDATE_SUCCESS</code> constants tested
+  but have zero production callers (likely vestigial from a removed
+  auto-updater) — MEDIUM confidence (Agent 5)</li>
+<li><strong>Misleading docstrings</strong> in <code>tests/fixtures/database/database_fixtures.py:916, 994-1000</code>
+  document broken example code that would raise at runtime (covered in A3)</li>
+</ul>
+<hr />
+<h2 id="tally">Tally<a class="headerlink" href="#tally" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>≥2-agent confirmed dead tests</td>
+<td>22 (5 + 2 + 14 + 1 cluster)</td>
+</tr>
+<tr>
+<td>Single-agent HIGH driver-verified</td>
+<td>14 (B1: self-referential stubs)</td>
+</tr>
+<tr>
+<td>Single-agent HIGH unverified by driver</td>
+<td>17 (C1-C10)</td>
+</tr>
+<tr>
+<td>MEDIUM-confidence</td>
+<td>~25</td>
+</tr>
+<tr>
+<td><strong>Total HIGH dead-test candidates</strong></td>
+<td><strong>~53</strong></td>
+</tr>
+</tbody>
+</table>
+<h2 id="reference-agent-assignment">Reference: agent assignment<a class="headerlink" href="#reference-agent-assignment" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>tests/daemon/unit/</td>
+</tr>
+<tr>
+<td>2</td>
+<td>tests/stash/processing/unit/content+gallery</td>
+</tr>
+<tr>
+<td>3</td>
+<td>tests/stash/processing/unit/{batch,tag_mixin,logs}</td>
+</tr>
+<tr>
+<td>4</td>
+<td>tests/stash/processing/ broad cross-check</td>
+</tr>
+<tr>
+<td>5</td>
+<td>tests/core/+functional/</td>
+</tr>
+<tr>
+<td>6</td>
+<td>tests/daemon/ broad cross-check</td>
+</tr>
+<tr>
+<td>7</td>
+<td>tests/config/+helpers/+media/</td>
+</tr>
+<tr>
+<td>8</td>
+<td>tests/api/</td>
+</tr>
+<tr>
+<td>9</td>
+<td>tests/daemon/integration/</td>
+</tr>
+<tr>
+<td>10</td>
+<td>tests/fileio/+textio/+pathio/+utils/</td>
+</tr>
+<tr>
+<td>11</td>
+<td>tests/metadata/integration/+helpers/, alembic/, performance/</td>
+</tr>
+<tr>
+<td>12</td>
+<td>tests/stash/{client,types,integration}/</td>
+</tr>
+<tr>
+<td>13</td>
+<td>tests/stash/processing/unit/batch+tag (alt)</td>
+</tr>
+<tr>
+<td>14</td>
+<td>tests/download/</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Cross-cutting: removed CLI flags / config fields</td>
+</tr>
+<tr>
+<td>16</td>
+<td>tests/stash/processing/unit/media_mixin/</td>
+</tr>
+<tr>
+<td>17</td>
+<td>Cross-cutting: dead client/store patches</td>
+</tr>
+<tr>
+<td>18</td>
+<td>Cross-cutting: legacy SQLAlchemy ORM patterns</td>
+</tr>
+<tr>
+<td>19</td>
+<td>Cross-cutting: removed/orphan import targets</td>
+</tr>
+<tr>
+<td>20</td>
+<td>(rolled into 15)</td>
+</tr>
+</tbody>
+</table>
+              
+            </div>
+          </div><footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
