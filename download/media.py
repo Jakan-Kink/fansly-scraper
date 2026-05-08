@@ -225,10 +225,13 @@ def _download_file(config: FanslyConfig, url: str, output_file: BinaryIO) -> Non
             add_fansly_headers=False,
         )
         if response.status_code != 200:
+            # stream=True defers body load; consume before accessing .content
+            # or httpx raises ResponseNotRead.
+            body = response.read().decode("utf-8", errors="replace")
             raise DownloadError(
                 f"Download failed due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{response.content.decode('utf-8')} [13]"
+                f"| content: \n{body} [13]"
             )
 
         for chunk in response.iter_bytes(chunk_size=1_048_576):
@@ -282,10 +285,13 @@ def _download_regular_file(
             if ts:
                 os.utime(file_save_path, (ts, ts))
         else:
+            # stream=True defers body load; consume before accessing .content
+            # or httpx raises ResponseNotRead.
+            body = response.read().decode("utf-8", errors="replace")
             raise DownloadError(
                 f"Download failed on filename {media.get_file_name()} due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{response.content.decode('utf-8')} [13]"
+                f"| content: \n{body} [13]"
             )
     finally:
         if response is not None:

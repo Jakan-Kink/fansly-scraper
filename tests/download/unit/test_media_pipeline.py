@@ -197,9 +197,11 @@ class TestDownloadFunctions:
         self, respx_fansly_api, mock_config, tmp_path
     ):
         """Line 285: non-200 status from CDN → DownloadError."""
+        # 404 is not in the Retry status_forcelist (only 418/429/5xx),
+        # so a single response is enough — no retry budget to satisfy.
         cdn_route = respx.get(
             url__startswith="https://cdn.fansly.com/content/missing.jpg"
-        ).mock(side_effect=[httpx.Response(503, content=b"unavailable")])
+        ).mock(side_effect=[httpx.Response(404, content=b"not found")])
 
         media = _make_media(snowflake_id())
         media.download_url = "https://cdn.fansly.com/content/missing.jpg"
@@ -213,7 +215,7 @@ class TestDownloadFunctions:
                 cdn_route.calls, "test_download_regular_file_non_200_raises"
             )
 
-        assert "503" in str(excinfo.value)
+        assert "404" in str(excinfo.value)
 
 
 # ── _download_m3u8_file ─────────────────────────────────────────────────
