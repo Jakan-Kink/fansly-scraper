@@ -5,6 +5,7 @@ from fileio.dedupe import dedupe_init
 from helpers.common import get_post_id_from_request, is_valid_post_id
 from metadata import process_timeline_posts
 from textio import input_enter_continue, print_error, print_info, print_warning
+from textio.prompts import aprompt_text
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .core import DownloadState
@@ -39,7 +40,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
         )
 
         while True:
-            requested_post = input(f"\n{17 * ' '}► Post Link or ID: ")  # noqa: ASYNC250 # intentional blocking input
+            requested_post = await aprompt_text(f"\n{17 * ' '}► Post Link or ID: ")
             post_id = get_post_id_from_request(requested_post)
 
             if is_valid_post_id(post_id):

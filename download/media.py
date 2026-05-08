@@ -77,7 +77,11 @@ async def fetch_and_process_media(
             # Select best variant for each item
             for info in media_infos:
                 try:
-                    all_media.append(parse_media_info(state, info, post_id))
+                    all_media.append(
+                        parse_media_info(
+                            state, info, post_id, interactive=config.interactive
+                        )
+                    )
                 except Exception:
                     print_error(
                         f"Unexpected error parsing "

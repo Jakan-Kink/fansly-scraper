@@ -20,6 +20,7 @@ from time import sleep
 from typing import Any
 
 from config.logging import json_logger, textio_logger
+from textio.prompts import wait_for_enter
 
 
 def json_output(level: int, log_type: str, message: str | dict[str, Any]) -> None:
@@ -123,7 +124,7 @@ def input_enter_close(interactive: bool) -> None:
     In non-interactive mode sleeps instead, then exits.
     """
     if interactive:
-        input("\nPress <ENTER> to close ...")
+        wait_for_enter("\nPress <ENTER> to close ...")
 
     else:
         print("\nExiting in 15 seconds ...")
@@ -137,7 +138,7 @@ def input_enter_continue(interactive: bool) -> None:
     In non-interactive mode sleeps instead.
     """
     if interactive:
-        input("\nPress <ENTER> to attempt to continue ...")
+        wait_for_enter("\nPress <ENTER> to attempt to continue ...")
     else:
         print("\nContinuing in 15 seconds ...")
         sleep(15)

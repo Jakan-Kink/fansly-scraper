@@ -11,6 +11,7 @@ from time import sleep
 import psutil
 
 from config.logging import textio_logger
+from textio.prompts import wait_for_enter
 
 
 # Optional dependency for browser auth
@@ -104,7 +105,7 @@ def get_token_from_firefox_db(
                 f"\n{19 * ' '}or it will be closed automatically after continuing.",
             )
 
-            input(f"\n{19 * ' '}► Press <ENTER> to continue! ")
+            wait_for_enter(f"\n{19 * ' '}► Press <ENTER> to continue! ")
 
             close_browser_by_name("firefox")
 
