@@ -235,8 +235,15 @@ class StashProcessingBase(StashProcessingProtocol):
             f"in {len(chunks)} chunks"
         )
 
+        mapped_path = self.config.stash_mapped_path
+
         for chunk in chunks:
-            regex = "|".join(re.escape(c) for c in chunk)
+            alternation = f"({'|'.join(re.escape(c) for c in chunk)})"
+            regex = (
+                f"{re.escape(str(mapped_path))}.*{alternation}"
+                if mapped_path is not None
+                else alternation
+            )
             try:
                 async for scene in self.store.find_iter(
                     Scene, query_batch=500, path__regex=regex
