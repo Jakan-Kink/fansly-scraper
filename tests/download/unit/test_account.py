@@ -436,7 +436,7 @@ class TestMakeRateLimitedRequest:
     async def test_successful_request(self):
         """Test successful API request."""
         # Mock request function
-        mock_request_func = MagicMock()
+        mock_request_func = AsyncMock()
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_request_func.return_value = mock_response
@@ -457,7 +457,7 @@ class TestMakeRateLimitedRequest:
     async def test_rate_limited_request(self):
         """Test handling rate limit (429) response."""
         # Mock request function
-        mock_request_func = MagicMock()
+        mock_request_func = AsyncMock()
 
         # Create httpx.Request for error construction
         request = httpx.Request("GET", "https://example.com")
@@ -496,7 +496,7 @@ class TestMakeRateLimitedRequest:
     async def test_non_rate_limit_error(self):
         """Test handling non-rate-limit HTTP error."""
         # Mock request function
-        mock_request_func = MagicMock()
+        mock_request_func = AsyncMock()
 
         # Create httpx.Request for error construction
         request = httpx.Request("GET", "https://example.com")

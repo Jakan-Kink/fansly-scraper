@@ -208,10 +208,10 @@ class TestFanslyApi:
         result = fansly_api.get_json_response_contents(mock_response)
         assert result == {"data": "test_data"}
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_client_user_name(self, fansly_api):
+    async def test_get_client_user_name(self, fansly_api):
         """Test get_client_user_name success path - mocks Fansly API at edge"""
-        # Mock the actual Fansly API endpoint (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -227,10 +227,11 @@ class TestFanslyApi:
             ]
         )
 
-        assert fansly_api.get_client_user_name() == "test_user"
+        assert await fansly_api.get_client_user_name() == "test_user"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_with_ngsw(self, fansly_api):
+    async def test_get_with_ngsw(self, fansly_api):
         """Test get_with_ngsw builds correct request - mocks HTTP at edge"""
         test_url = "https://api.test.com/endpoint"
         test_params = {"test": "param"}
@@ -239,7 +240,7 @@ class TestFanslyApi:
         options_route = respx.options(test_url).mock(side_effect=[httpx.Response(200)])
         get_route = respx.get(test_url).mock(side_effect=[httpx.Response(200)])
 
-        fansly_api.get_with_ngsw(
+        await fansly_api.get_with_ngsw(
             url=test_url, params=test_params, add_fansly_headers=True
         )
 
@@ -253,8 +254,9 @@ class TestFanslyApi:
         assert get_request.url.params["ngsw-bypass"] == "true"
         assert get_request.headers["Origin"] == "https://fansly.com"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_creator_account_info_single(self, fansly_api):
+    async def test_get_creator_account_info_single(self, fansly_api):
         """Test get_creator_account_info with single username - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account").mock(
@@ -264,15 +266,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_creator_account_info("test_creator")
+        await fansly_api.get_creator_account_info("test_creator")
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["usernames"] == "test_creator"
         assert request.url.params["ngsw-bypass"] == "true"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_creator_account_info_multiple(self, fansly_api):
+    async def test_get_creator_account_info_multiple(self, fansly_api):
         """Test get_creator_account_info with multiple usernames - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account").mock(
@@ -282,15 +285,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_creator_account_info(["creator1", "creator2"])
+        await fansly_api.get_creator_account_info(["creator1", "creator2"])
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["usernames"] == "creator1,creator2"
         assert request.url.params["ngsw-bypass"] == "true"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_account_info_by_id_single(self, fansly_api):
+    async def test_get_account_info_by_id_single(self, fansly_api):
         """Test get_account_info_by_id with single ID - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account").mock(
@@ -300,15 +304,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_account_info_by_id(123)
+        await fansly_api.get_account_info_by_id(123)
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["ids"] == "123"
         assert request.url.params["ngsw-bypass"] == "true"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_account_info_by_id_multiple(self, fansly_api):
+    async def test_get_account_info_by_id_multiple(self, fansly_api):
         """Test get_account_info_by_id with multiple IDs - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account").mock(
@@ -318,15 +323,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_account_info_by_id([123, 456])
+        await fansly_api.get_account_info_by_id([123, 456])
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["ids"] == "123,456"
         assert request.url.params["ngsw-bypass"] == "true"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_media_collections(self, fansly_api):
+    async def test_get_media_collections(self, fansly_api):
         """Test get_media_collections request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for media collections (OPTIONS + GET)
         respx.options(
@@ -338,15 +344,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_media_collections()
+        await fansly_api.get_media_collections()
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["limit"] == "9999"
         assert request.url.params["offset"] == "0"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_following_list(self, fansly_api):
+    async def test_get_following_list(self, fansly_api):
         """Test get_following_list with default parameters - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for following list (OPTIONS + GET)
         respx.options(
@@ -358,7 +365,7 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_following_list("user123")
+        await fansly_api.get_following_list("user123")
 
         assert route.called
         request = route.calls.last.request
@@ -367,8 +374,9 @@ class TestFanslyApi:
         assert request.url.params["before"] == "0"
         assert request.url.params["after"] == "0"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_following_list_with_params(self, fansly_api):
+    async def test_get_following_list_with_params(self, fansly_api):
         """Test get_following_list with custom parameters - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for following list (OPTIONS + GET)
         respx.options(
@@ -380,7 +388,7 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_following_list(
+        await fansly_api.get_following_list(
             "user123", limit=10, offset=5, before=1000, after=500
         )
 
@@ -391,8 +399,9 @@ class TestFanslyApi:
         assert request.url.params["before"] == "1000"
         assert request.url.params["after"] == "500"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_account_media(self, fansly_api):
+    async def test_get_account_media(self, fansly_api):
         """Test get_account_media request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account media (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/account/media").mock(
@@ -402,15 +411,16 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_account_media("media123,media456")
+        await fansly_api.get_account_media("media123,media456")
 
         assert route.called
         request = route.calls.last.request
         # The media IDs should be part of the parameters, not the URL
         assert request.url.params["ids"] == "media123,media456"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_post(self, fansly_api):
+    async def test_get_post(self, fansly_api):
         """Test get_post request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for post (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/post").mock(
@@ -420,14 +430,15 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_post("post123")
+        await fansly_api.get_post("post123")
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["ids"] == "post123"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_timeline(self, fansly_api):
+    async def test_get_timeline(self, fansly_api):
         """Test get_timeline request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for timeline (OPTIONS + GET)
         respx.options(
@@ -439,7 +450,7 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_timeline("creator123", "cursor123")
+        await fansly_api.get_timeline("creator123", "cursor123")
 
         assert route.called
         request = route.calls.last.request
@@ -448,8 +459,9 @@ class TestFanslyApi:
         assert request.url.params["wallId"] == ""
         assert request.url.params["contentSearch"] == ""
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_wall_posts(self, fansly_api):
+    async def test_get_wall_posts(self, fansly_api):
         """Test get_wall_posts request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for wall posts (OPTIONS + GET)
         respx.options(
@@ -461,7 +473,7 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
+        await fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
 
         assert route.called
         request = route.calls.last.request
@@ -470,8 +482,9 @@ class TestFanslyApi:
         assert request.url.params["wallId"] == "wall123"
         assert request.url.params["contentSearch"] == ""
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_group(self, fansly_api):
+    async def test_get_group(self, fansly_api):
         """Test get_group request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for messaging groups (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
@@ -481,12 +494,13 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        fansly_api.get_group()
+        await fansly_api.get_group()
 
         assert route.called
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_message(self, fansly_api):
+    async def test_get_message(self, fansly_api):
         """Test get_message request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for messages (OPTIONS + GET)
         respx.options("https://apiv3.fansly.com/api/v1/message").mock(
@@ -497,48 +511,27 @@ class TestFanslyApi:
         )
 
         test_params = {"param1": "value1"}
-        fansly_api.get_message(test_params)
+        await fansly_api.get_message(test_params)
 
         assert route.called
         request = route.calls.last.request
         assert request.url.params["param1"] == "value1"
         assert request.url.params["ngsw-bypass"] == "true"
 
-    @respx.mock
-    def test_get_device_id(self, fansly_api):
-        """Test get_device_id request - mocks HTTP at edge"""
-        # Mock the Fansly API endpoint for device ID (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
-            side_effect=[httpx.Response(200)]
-        )
-        respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": "true",
-                        "response": "test_device_id",
-                    },
-                )
-            ]
-        )
-
-        result = fansly_api.get_device_id()
-        assert result == "test_device_id"
-
-    def test_update_device_id_within_timeframe(self, fansly_api):
-        """Test update_device_id doesn't update if within time window"""
+    @pytest.mark.asyncio
+    async def test_update_device_id_within_timeframe(self, fansly_api):
+        """Test update_device_id is a no-op if within time window"""
         original_device_id = fansly_api.device_id
         current_ts = fansly_api.get_timestamp_ms()
         fansly_api.device_id_timestamp = current_ts
 
-        updated_id = fansly_api.update_device_id()
+        updated_id = await fansly_api.update_device_id()
         assert updated_id == original_device_id
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_update_device_id_expired(self, fansly_api):
-        """Test update_device_id updates when timestamp expired - mocks HTTP at edge"""
-        # Mock the Fansly API endpoint for device ID (OPTIONS + GET)
+    async def test_update_device_id_expired(self, fansly_api):
+        """Test update_device_id refetches when timestamp expired"""
         respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -554,14 +547,12 @@ class TestFanslyApi:
             ]
         )
 
-        # Set old timestamp
         fansly_api.device_id_timestamp = 0
 
-        # Mock callback
         mock_callback = MagicMock()
         fansly_api.on_device_updated = mock_callback
 
-        updated_id = fansly_api.update_device_id()
+        updated_id = await fansly_api.update_device_id()
         assert updated_id == "new_device_id"
         mock_callback.assert_called_once()
 

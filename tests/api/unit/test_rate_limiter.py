@@ -4,6 +4,7 @@ No external boundaries — pure logic with time-based state.
 Patches time.sleep to avoid real delays; time.time for deterministic timing.
 """
 
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -56,12 +57,15 @@ class TestAdaptiveBackoff:
         first success (250-256), second success → reduction (202-249).
         """
         rl = RateLimiter(_make_config())
+        rl.tokens = 5.0  # nonzero so the drain assertion is meaningful
 
-        # 429 → backoff activated
+        # 429 → backoff activated, bucket drained, refill paused
         rl._apply_adaptive_backoff(429)
         assert rl.consecutive_violations == 1
         assert rl.current_backoff_seconds == 30.0  # retry_after_seconds
         assert rl.rate_limit_violations == 1
+        assert rl.tokens == 0.0
+        assert rl.last_refill > time.time()  # last_refill is in the future
 
         # Second 429 → exponential backoff
         rl._apply_adaptive_backoff(429)

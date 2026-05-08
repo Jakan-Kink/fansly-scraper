@@ -567,7 +567,7 @@ class TestDownloadWallEdges:
         call_count = 0
         request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/wall")
 
-        def _raises_once(*_args, **_kwargs):
+        async def _raises_once(*_args, **_kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

@@ -33,7 +33,7 @@ import logging
 import platform as _platform
 import types
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -215,7 +215,8 @@ def test_validate_adjust_creator_name_interactive_retries_until_valid(monkeypatc
 # -- validate_adjust_token --------------------------------------------------
 
 
-def test_validate_adjust_token_skips_when_username_password_set(
+@pytest.mark.asyncio
+async def test_validate_adjust_token_skips_when_username_password_set(
     validation_config, caplog
 ):
     """When credentials are configured, token validation is skipped (lines 139-143).
@@ -231,7 +232,7 @@ def test_validate_adjust_token_skips_when_username_password_set(
     validation_config.password = "secret"
     validation_config.token = "short"  # would be invalid, but should be ignored
 
-    validate_adjust_token(validation_config)  # Must not raise.
+    await validate_adjust_token(validation_config)  # Must not raise.
 
     info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
     assert any("Username and password configured" in m for m in info_messages), (
@@ -239,8 +240,9 @@ def test_validate_adjust_token_skips_when_username_password_set(
     )
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec", side_effect=ImportError("no plyvel"))
-def test_validate_adjust_token_plyvel_import_error_raises_config_error(
+async def test_validate_adjust_token_plyvel_import_error_raises_config_error(
     _find_spec,  # noqa: PT019 — @patch decorator, not a fixture
     validation_config,
 ):
@@ -248,11 +250,12 @@ def test_validate_adjust_token_plyvel_import_error_raises_config_error(
     validation_config.token = "short"  # invalid (<50 chars)
 
     with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec", return_value=None)
-def test_validate_adjust_token_no_plyvel_invalid_token_raises(
+async def test_validate_adjust_token_no_plyvel_invalid_token_raises(
     _find_spec,  # noqa: PT019 — @patch decorator, not a fixture
     validation_config,
 ):
@@ -261,11 +264,12 @@ def test_validate_adjust_token_no_plyvel_invalid_token_raises(
     validation_config.interactive = False
 
     with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
+async def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
     mock_find_spec, validation_config
 ):
     """Interactive + invalid token + no browsers → open_get_started_url fires."""
@@ -277,13 +281,14 @@ def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
         patch("config.validation.open_get_started_url") as mock_open_url,
         pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     mock_open_url.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_plyvel_installed_no_account_raises(
+async def test_validate_adjust_token_plyvel_installed_no_account_raises(
     mock_find_spec, validation_config
 ):
     """Plyvel installed + empty browser list → raises with "not found" message."""
@@ -295,11 +300,12 @@ def test_validate_adjust_token_plyvel_installed_no_account_raises(
         patch("config.browser.get_browser_config_paths", return_value=[]),
         pytest.raises(ConfigError, match="not found in any of your browser"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_auto_links_in_non_interactive_mode(
+async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
     mock_find_spec, validation_config
 ):
     """Non-interactive + token found in browser → auto-linked (lines 242-258)."""
@@ -327,18 +333,19 @@ def test_validate_adjust_token_auto_links_in_non_interactive_mode(
             FanslyConfig,
             "get_api",
             return_value=types.SimpleNamespace(
-                get_client_user_name=lambda _token: "found_user"
+                get_client_user_name=AsyncMock(return_value="found_user")
             ),
         ),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     assert validation_config.token == valid_token
     assert validation_config.token_from_browser_name == "Chromium"
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_firefox_profile_branch(
+async def test_validate_adjust_token_firefox_profile_branch(
     mock_find_spec, validation_config
 ):
     """Firefox path uses ``get_token_from_firefox_profile`` (lines 208-214)."""
@@ -362,17 +369,18 @@ def test_validate_adjust_token_firefox_profile_branch(
             FanslyConfig,
             "get_api",
             return_value=types.SimpleNamespace(
-                get_client_user_name=lambda _token: "firefox_user"
+                get_client_user_name=AsyncMock(return_value="firefox_user")
             ),
         ),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     assert validation_config.token == firefox_token
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_user_accepts_link(
+async def test_validate_adjust_token_interactive_user_accepts_link(
     mock_find_spec, validation_config, monkeypatch
 ):
     """Interactive: token found → user types "yes" → token saved (lines 222-258)."""
@@ -402,18 +410,19 @@ def test_validate_adjust_token_interactive_user_accepts_link(
             FanslyConfig,
             "get_api",
             return_value=types.SimpleNamespace(
-                get_client_user_name=lambda _token: "found_user"
+                get_client_user_name=AsyncMock(return_value="found_user")
             ),
         ),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     assert validation_config.token == valid_token
     assert validation_config.token_from_browser_name == "Chromium"
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_user_rejects_link(
+async def test_validate_adjust_token_interactive_user_rejects_link(
     mock_find_spec, validation_config, monkeypatch
 ):
     """Interactive: token found but user says "no" → raises ConfigError."""
@@ -442,16 +451,17 @@ def test_validate_adjust_token_interactive_user_rejects_link(
             FanslyConfig,
             "get_api",
             return_value=types.SimpleNamespace(
-                get_client_user_name=lambda _token: "found_user"
+                get_client_user_name=AsyncMock(return_value="found_user")
             ),
         ),
         pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_leveldb_folder_no_token_continues_loop(
+async def test_validate_adjust_token_leveldb_folder_no_token_continues_loop(
     mock_find_spec, validation_config
 ):
     """Leveldb folder yields no token → inner ``if`` False; outer ``if all`` False.
@@ -480,11 +490,12 @@ def test_validate_adjust_token_leveldb_folder_no_token_continues_loop(
         ),
         pytest.raises(ConfigError, match="not found in any of your browser"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_empty_leveldb_folders_continues(
+async def test_validate_adjust_token_empty_leveldb_folders_continues(
     mock_find_spec, validation_config
 ):
     """``find_leveldb_folders`` returns empty → inner for-loop body skipped.
@@ -505,11 +516,12 @@ def test_validate_adjust_token_empty_leveldb_folders_continues(
         patch("config.browser.find_leveldb_folders", return_value=[]),
         pytest.raises(ConfigError, match="not found in any of your browser"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_firefox_no_token_continues(
+async def test_validate_adjust_token_firefox_no_token_continues(
     mock_find_spec, validation_config
 ):
     """Firefox profile yields no token → ``if browser_fansly_token`` False.
@@ -532,11 +544,12 @@ def test_validate_adjust_token_firefox_no_token_continues(
         ),
         pytest.raises(ConfigError, match="not found in any of your browser"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
+async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
     mock_find_spec, validation_config
 ):
     """Plyvel + interactive + no account found → ``open_get_started_url`` fires.
@@ -555,13 +568,14 @@ def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
         patch("config.validation.open_get_started_url") as mock_open_url,
         pytest.raises(ConfigError, match="not found in any of your browser"),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     mock_open_url.assert_called_once()
 
 
+@pytest.mark.asyncio
 @patch("importlib.util.find_spec")
-def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
+async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
     mock_find_spec, validation_config, monkeypatch
 ):
     """Interactive: user types garbage → prompt re-asks → accepts next valid input.
@@ -596,11 +610,11 @@ def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
             FanslyConfig,
             "get_api",
             return_value=types.SimpleNamespace(
-                get_client_user_name=lambda _token: "found_user"
+                get_client_user_name=AsyncMock(return_value="found_user")
             ),
         ),
     ):
-        validate_adjust_token(validation_config)
+        await validate_adjust_token(validation_config)
 
     # User eventually accepted, so token is saved.
     assert validation_config.token == "e" * 60
@@ -1021,7 +1035,10 @@ def test_validate_log_levels_debug_mode_forces_debug_everywhere(validation_confi
 # -- validate_adjust_config (orchestrator) ----------------------------------
 
 
-def test_validate_adjust_config_raises_when_creator_names_invalid(validation_config):
+@pytest.mark.asyncio
+async def test_validate_adjust_config_raises_when_creator_names_invalid(
+    validation_config,
+):
     """Orchestrator raises ConfigError when validate_creator_names returns False.
 
     Sets user_names to None so the real ``validate_creator_names`` returns
@@ -1030,10 +1047,11 @@ def test_validate_adjust_config_raises_when_creator_names_invalid(validation_con
     validation_config.user_names = None
 
     with pytest.raises(ConfigError, match="no valid creator name specified"):
-        validate_adjust_config(validation_config, download_mode_set=False)
+        await validate_adjust_config(validation_config, download_mode_set=False)
 
 
-def test_validate_adjust_config_runs_all_validators_end_to_end(
+@pytest.mark.asyncio
+async def test_validate_adjust_config_runs_all_validators_end_to_end(
     validation_config, caplog
 ):
     """Orchestrator invokes every sub-validator end-to-end with no internal mocks.
@@ -1047,7 +1065,7 @@ def test_validate_adjust_config_runs_all_validators_end_to_end(
     caplog.set_level(logging.INFO)
 
     # Everything's valid → no sub-validator should raise or do meaningful work.
-    validate_adjust_config(validation_config, download_mode_set=True)
+    await validate_adjust_config(validation_config, download_mode_set=True)
 
     # Smoke: we hit at least one informational log from any sub-validator.
     info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]

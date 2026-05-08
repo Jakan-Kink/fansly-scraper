@@ -74,8 +74,9 @@ def config_with_api(test_config, fansly_api_with_respx):
     return test_config
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_mark_stories_viewed_posts_once_per_story(config_with_api):
+async def test_mark_stories_viewed_posts_once_per_story(config_with_api):
     """Helper POSTs /mediastory/view once per saved story with the story id."""
     route = respx.post(
         url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
@@ -87,7 +88,7 @@ def test_mark_stories_viewed_posts_once_per_story(config_with_api):
     )
 
     try:
-        _mark_stories_viewed(
+        await _mark_stories_viewed(
             config_with_api,
             [_FakeStory(id=111), _FakeStory(id=222)],
         )
@@ -99,8 +100,9 @@ def test_mark_stories_viewed_posts_once_per_story(config_with_api):
     assert route.calls[1].request.read() == b'{"storyId":"222"}'
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_mark_stories_viewed_swallows_single_failure(config_with_api):
+async def test_mark_stories_viewed_swallows_single_failure(config_with_api):
     """One story failing with 500 must not prevent the others from being marked.
 
     ``api.mark_story_viewed`` uses ``http_session.post`` directly (no retry
@@ -120,7 +122,7 @@ def test_mark_stories_viewed_swallows_single_failure(config_with_api):
     )
 
     try:
-        _mark_stories_viewed(
+        await _mark_stories_viewed(
             config_with_api,
             [_FakeStory(id=111), _FakeStory(id=222), _FakeStory(id=333)],
         )
@@ -136,20 +138,22 @@ def test_mark_stories_viewed_swallows_single_failure(config_with_api):
     ]
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_mark_stories_viewed_empty_list_is_noop(config_with_api):
+async def test_mark_stories_viewed_empty_list_is_noop(config_with_api):
     """Passing an empty list does not hit the network."""
     route = respx.post(
         url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
     ).mock(side_effect=[httpx.Response(200)])
 
-    _mark_stories_viewed(config_with_api, [])
+    await _mark_stories_viewed(config_with_api, [])
 
     assert route.call_count == 0
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_mark_stories_viewed_swallows_post_exception(config_with_api):
+async def test_mark_stories_viewed_swallows_post_exception(config_with_api):
     """Connection-level exception from POST → caught + logged, others continue.
 
     Covers lines 106-107 (``except Exception as e: print_warning(...)``).
@@ -168,7 +172,7 @@ def test_mark_stories_viewed_swallows_post_exception(config_with_api):
     )
 
     try:
-        _mark_stories_viewed(
+        await _mark_stories_viewed(
             config_with_api,
             [_FakeStory(id=111), _FakeStory(id=222), _FakeStory(id=333)],
         )

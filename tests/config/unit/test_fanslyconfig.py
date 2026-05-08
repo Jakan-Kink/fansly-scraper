@@ -240,7 +240,8 @@ class TestGetApi:
         assert api1 is api2
         assert config._api is api1
 
-    def test_login_failure_wraps_in_runtime_error(
+    @pytest.mark.asyncio
+    async def test_login_failure_wraps_in_runtime_error(
         self, config, no_display, monkeypatch
     ):
         """When login() raises during the username/password flow → RuntimeError("Login failed: ...")."""
@@ -249,45 +250,54 @@ class TestGetApi:
         config.password = "mypass"
         config.token = "short"  # invalid → triggers login flow
 
-        # Patch FanslyApi.login at the class — preserves the real
-        # FanslyApi __init__ wiring; only the actual HTTP login call
-        # is replaced by an exception-raising stub.
-        def _failing_login(self, username, password):
+        async def _failing_login(self, username, password):
             raise RuntimeError("auth failed")
 
+        async def _noop_update_device_id(self):
+            return self.device_id or "stub"
+
         monkeypatch.setattr("api.fansly.FanslyApi.login", _failing_login)
+        monkeypatch.setattr(
+            "api.fansly.FanslyApi.update_device_id", _noop_update_device_id
+        )
 
         with pytest.raises(RuntimeError, match="Login failed"):
-            config.get_api()
+            await config.setup_api()
 
-    def test_login_success_persists_returned_token(
+    @pytest.mark.asyncio
+    async def test_login_success_persists_returned_token(
         self, config, no_display, monkeypatch
     ):
-        """Successful login → config.token is replaced + _save_config called.
-
-        Covers fanslyconfig.py:235-236 (the success branch of the
-        username/password login flow).
-        """
+        """Successful login replaces config.token and triggers _save_config."""
         config._api = None
         config.username = "myuser"
         config.password = "mypass"
-        config.token = "short"  # invalid → triggers login flow
+        config.token = "short"
 
-        # The fake login mutates the API's token attribute, mirroring
-        # what the real HTTP login does on success.
-        def _successful_login(self, username, password):
+        async def _successful_login(self, username, password):
             self.token = "newly_issued_token_long_enough_to_pass_validation_checks"
 
-        monkeypatch.setattr("api.fansly.FanslyApi.login", _successful_login)
+        async def _noop_update_device_id(self):
+            return self.device_id or "stub"
 
-        result = config.get_api()
+        async def _noop_setup_session(self):
+            self.session_id = "fake_session"
+            return True
+
+        monkeypatch.setattr("api.fansly.FanslyApi.login", _successful_login)
+        monkeypatch.setattr(
+            "api.fansly.FanslyApi.update_device_id", _noop_update_device_id
+        )
+        monkeypatch.setattr(
+            "api.fansly.FanslyApi.setup_session", _noop_setup_session
+        )
+
+        result = await config.setup_api()
 
         assert isinstance(result, FanslyApi)
         assert config.token == (
             "newly_issued_token_long_enough_to_pass_validation_checks"
         ), "Successful login must replace config.token with the API-returned value"
-        # _save_config should have written the YAML — config_path exists
-        # (fixture sets it via tmp_path).
         assert config.config_path.exists(), (
             "Successful login should trigger _save_config to persist the new token"
         )

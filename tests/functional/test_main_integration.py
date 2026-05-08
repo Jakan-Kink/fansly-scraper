@@ -1680,7 +1680,7 @@ async def test_main_raises_runtime_error_when_validation_leaves_state_unset(
     # Stub validate_adjust_config to a no-op — the defensive RuntimeError
     # at main():301 normally can't fire because validate_adjust_config
     # raises first. Skipping validation re-opens the invariant window.
-    def _noop_validate(config, download_mode_set):
+    async def _noop_validate(config, download_mode_set):
         return None
 
     monkeypatch.setattr("fansly_downloader_ng.validate_adjust_config", _noop_validate)

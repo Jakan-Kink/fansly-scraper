@@ -121,7 +121,10 @@ class TestDownloadFunctions:
     Uses one CDN route with ordered side_effect responses, asserts on route.calls.
     """
 
-    def test_download_file_success(self, respx_fansly_api, mock_config, tmp_path):
+    @pytest.mark.asyncio
+    async def test_download_file_success(
+        self, respx_fansly_api, mock_config, tmp_path
+    ):
         """Lines 222-239: 200 → writes chunks to file."""
         url = "https://cdn.fansly.com/content/img.jpg"
         cdn_route = respx.get(
@@ -131,14 +134,15 @@ class TestDownloadFunctions:
         out = tmp_path / "out.jpg"
         try:
             with out.open("wb") as f:
-                _download_file(mock_config, url, f)
+                await _download_file(mock_config, url, f)
         finally:
             dump_fansly_calls(cdn_route.calls, "test_download_file_success")
 
         assert out.read_bytes() == b"image bytes"
         assert len(cdn_route.calls) == 1
 
-    def test_download_regular_file_success_paths(
+    @pytest.mark.asyncio
+    async def test_download_regular_file_success_paths(
         self, respx_fansly_api, mock_config, tmp_path
     ):
         """Lines 258-285: 200 with timestamp → writes + utime; no timestamp → skips utime."""
@@ -154,7 +158,7 @@ class TestDownloadFunctions:
         media1.download_url = "https://cdn.fansly.com/content/photo.jpg"
         media1.createdAt = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         save1 = tmp_path / "photo.jpg"
-        _download_regular_file(mock_config, media1, save1)
+        await _download_regular_file(mock_config, media1, save1)
         assert save1.read_bytes() == b"photo"
 
         # Without timestamp
@@ -164,7 +168,7 @@ class TestDownloadFunctions:
         save2 = tmp_path / "no_ts.jpg"
 
         try:
-            _download_regular_file(mock_config, media2, save2)
+            await _download_regular_file(mock_config, media2, save2)
         finally:
             dump_fansly_calls(
                 cdn_route.calls, "test_download_regular_file_success_paths"

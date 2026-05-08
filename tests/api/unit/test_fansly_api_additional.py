@@ -16,15 +16,14 @@ from tests.fixtures.api.api_fixtures import dump_fansly_calls
 class TestFanslyApiAdditional:
     """Additional tests for FanslyApi class to increase coverage."""
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_account_media_response(self, fansly_api):
+    async def test_get_account_media_response(self, fansly_api):
         """Test get_account_media returns the response from get_with_ngsw"""
-        # Mock CORS OPTIONS request
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/account/media"
         ).mock(side_effect=[httpx.Response(200)])
 
-        # Mock HTTP response at the edge
         media_route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/account/media"
         ).mock(
@@ -32,7 +31,7 @@ class TestFanslyApiAdditional:
         )
 
         try:
-            result = fansly_api.get_account_media("media123")
+            result = await fansly_api.get_account_media("media123")
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(media_route.calls):
@@ -44,22 +43,20 @@ class TestFanslyApiAdditional:
         assert result.status_code == 200
         assert result.reason_phrase == "OK"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_account_media_validation_flow(self, fansly_api):
+    async def test_account_media_validation_flow(self, fansly_api):
         """Test validation flow for get_account_media when used with get_json_response_contents"""
-        # Mock CORS OPTIONS request
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/account/media"
         ).mock(side_effect=[httpx.Response(200)])
 
-        # Mock invalid API response at the edge
         validation_route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/account/media"
         ).mock(side_effect=[httpx.Response(200, json={"success": "false"})])
 
         try:
-            # First get the API response
-            response = fansly_api.get_account_media("media123")
+            response = await fansly_api.get_account_media("media123")
 
             # Then validate it - this would be done by consumers of the API
             with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
@@ -80,15 +77,14 @@ class TestFanslyApiAdditional:
         with pytest.raises(RuntimeError):
             fansly_api.get_json_response_contents(mock_response)
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_wall_posts_with_params(self, fansly_api):
+    async def test_get_wall_posts_with_params(self, fansly_api):
         """Test get_wall_posts with custom cursor"""
-        # Mock CORS OPTIONS request
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
         ).mock(side_effect=[httpx.Response(200)])
 
-        # Capture the request to verify parameters
         route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
         ).mock(
@@ -96,7 +92,7 @@ class TestFanslyApiAdditional:
         )
 
         try:
-            fansly_api.get_wall_posts("creator123", "wall456", "cursor789")
+            await fansly_api.get_wall_posts("creator123", "wall456", "cursor789")
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -112,15 +108,14 @@ class TestFanslyApiAdditional:
         assert params["after"] == "0"
         assert params["wallId"] == "wall456"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_wall_posts_default_cursor(self, fansly_api):
+    async def test_get_wall_posts_default_cursor(self, fansly_api):
         """Test get_wall_posts with default cursor"""
-        # Mock CORS OPTIONS request
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
         ).mock(side_effect=[httpx.Response(200)])
 
-        # Capture the request to verify parameters
         route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
         ).mock(
@@ -128,7 +123,7 @@ class TestFanslyApiAdditional:
         )
 
         try:
-            fansly_api.get_wall_posts("creator123", "wall456")
+            await fansly_api.get_wall_posts("creator123", "wall456")
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -143,15 +138,14 @@ class TestFanslyApiAdditional:
         assert params["before"] == "0"  # Default cursor
         assert params["wallId"] == "wall456"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_client_account_info_with_alternate_token(self, fansly_api):
+    async def test_get_client_account_info_with_alternate_token(self, fansly_api):
         """Test get_client_account_info with alternate token"""
-        # Mock CORS OPTIONS request
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/account/me"
         ).mock(side_effect=[httpx.Response(200)])
 
-        # Capture the request to verify headers
         route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/account/me"
         ).mock(
@@ -159,7 +153,7 @@ class TestFanslyApiAdditional:
         )
 
         try:
-            fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
+            await fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -192,24 +186,23 @@ class TestFanslyApiAdditional:
         ):
             await fansly_api.get_active_session_async()
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_with_ngsw_additional_parameters(self, fansly_api):
+    async def test_get_with_ngsw_additional_parameters(self, fansly_api):
         """Test get_with_ngsw handles additional parameters"""
         test_url = "https://api.test.com/endpoint?existing=param"
         test_params = {"test": "value", "another": "param"}
 
-        # Mock CORS OPTIONS request
         respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200)]
         )
 
-        # Capture the request to verify all parameters
         route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200, json={})]
         )
 
         try:
-            fansly_api.get_with_ngsw(url=test_url, params=test_params)
+            await fansly_api.get_with_ngsw(url=test_url, params=test_params)
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -228,24 +221,23 @@ class TestFanslyApiAdditional:
         assert params["test"] == "value"  # From additional params
         assert params["another"] == "param"  # From additional params
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_with_ngsw_with_cookies(self, fansly_api):
+    async def test_get_with_ngsw_with_cookies(self, fansly_api):
         """Test get_with_ngsw handles cookies"""
         test_url = "https://api.test.com/endpoint"
         test_cookies = {"cookie1": "value1", "cookie2": "value2"}
 
-        # Mock CORS OPTIONS request
         respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200)]
         )
 
-        # Capture the request to verify cookies
         route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200, json={})]
         )
 
         try:
-            fansly_api.get_with_ngsw(url=test_url, cookies=test_cookies)
+            await fansly_api.get_with_ngsw(url=test_url, cookies=test_cookies)
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -259,23 +251,22 @@ class TestFanslyApiAdditional:
         # httpx includes cookies in the request headers
         assert request.headers.get("cookie") is not None
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_get_with_ngsw_stream_mode(self, fansly_api):
+    async def test_get_with_ngsw_stream_mode(self, fansly_api):
         """Test get_with_ngsw with stream mode"""
         test_url = "https://api.test.com/endpoint"
 
-        # Mock CORS OPTIONS request
         respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200)]
         )
 
-        # Mock HTTP response for stream mode
         route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
             side_effect=[httpx.Response(200, content=b"stream data")]
         )
 
         try:
-            response = fansly_api.get_with_ngsw(url=test_url, stream=True)
+            response = await fansly_api.get_with_ngsw(url=test_url, stream=True)
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(route.calls):
@@ -341,16 +332,16 @@ class TestFanslyApiAdditional:
             mock_async.assert_called_once()
             assert result == "test_session"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_cors_options_request_includes_headers(self, fansly_api):
+    async def test_cors_options_request_includes_headers(self, fansly_api):
         """Test cors_options_request includes required headers"""
         test_url = "https://api.test.com/endpoint"
 
-        # Mock CORS OPTIONS request
         options_route = respx.options(test_url).mock(side_effect=[httpx.Response(200)])
 
         try:
-            fansly_api.cors_options_request(test_url)
+            await fansly_api.cors_options_request(test_url)
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(options_route.calls):
@@ -373,10 +364,10 @@ class TestFanslyApiAdditional:
             in request.headers["access-control-request-headers"]
         )
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_init_without_device_info(self):
-        """Test initialization without device ID and timestamp parameters."""
-        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
+    async def test_init_without_device_info(self):
+        """No device_id args → device_id stays None; first update_device_id() fetches."""
         respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -389,13 +380,16 @@ class TestFanslyApiAdditional:
             ]
         )
 
+        api = FanslyApi(
+            token="test_token",  # noqa: S106 # Test fixture token
+            user_agent="test_user_agent",
+            check_key="test_check_key",
+        )
+        assert api.device_id is None
+        assert not device_route.called
+
         try:
-            # Call the constructor without device_id and device_id_timestamp
-            api = FanslyApi(
-                token="test_token",  # noqa: S106 # Test fixture token
-                user_agent="test_user_agent",
-                check_key="test_check_key",
-            )
+            await api.update_device_id()
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(device_route.calls):
@@ -403,18 +397,15 @@ class TestFanslyApiAdditional:
                 print(f"--request: {call.request}")
                 print(f"--response: {call.response}")
 
-        # Verify the device ID endpoint was called
         assert device_route.called
-
-        # Verify the device ID was fetched
         assert api.device_id == "new_device_id"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_init_without_device_id_but_with_timestamp(self):
-        """Test initialization with only timestamp but no device ID."""
+    async def test_init_without_device_id_but_with_timestamp(self):
+        """timestamp without device_id → device_id stays None until lazy fetch."""
         custom_timestamp = 123456789
 
-        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
         respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -427,33 +418,31 @@ class TestFanslyApiAdditional:
             ]
         )
 
+        api = FanslyApi(
+            token="test_token",  # noqa: S106 # Test fixture token
+            user_agent="test_user_agent",
+            check_key="test_check_key",
+            device_id_timestamp=custom_timestamp,
+        )
+        assert api.device_id is None
+        assert not device_route.called
+
         try:
-            # Call the constructor with device_id_timestamp but without device_id
-            api = FanslyApi(
-                token="test_token",  # noqa: S106 # Test fixture token
-                user_agent="test_user_agent",
-                check_key="test_check_key",
-                device_id_timestamp=custom_timestamp,
-            )
+            await api.update_device_id()
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(device_route.calls):
                 print(f"Call {index}")
-                print(f"--request: {call.request}")
-                print(f"--response: {call.response}")
 
-        # Verify the device ID endpoint was called (since device_id wasn't provided)
         assert device_route.called
-
-        # Verify the device ID was fetched
         assert api.device_id == "fetched_device_id"
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_init_with_device_id_but_without_timestamp(self):
-        """Test initialization with only device ID but no timestamp."""
+    async def test_init_with_device_id_but_without_timestamp(self):
+        """device_id without timestamp → device_id stays None until lazy fetch."""
         custom_device_id = "custom_device_id"
 
-        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
         respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
             side_effect=[httpx.Response(200)]
         )
@@ -466,25 +455,23 @@ class TestFanslyApiAdditional:
             ]
         )
 
+        api = FanslyApi(
+            token="test_token",  # noqa: S106 # Test fixture token
+            user_agent="test_user_agent",
+            check_key="test_check_key",
+            device_id=custom_device_id,
+        )
+        assert api.device_id is None
+        assert not device_route.called
+
         try:
-            # Call the constructor with device_id but without device_id_timestamp
-            api = FanslyApi(
-                token="test_token",  # noqa: S106 # Test fixture token
-                user_agent="test_user_agent",
-                check_key="test_check_key",
-                device_id=custom_device_id,
-            )
+            await api.update_device_id()
         finally:
             print("****RESPX Call Debugging****")
             for index, call in enumerate(device_route.calls):
                 print(f"Call {index}")
-                print(f"--request: {call.request}")
-                print(f"--response: {call.response}")
 
-        # Verify the device ID endpoint was called (since timestamp wasn't provided)
         assert device_route.called
-
-        # Verify the device ID was updated
         assert api.device_id == "updated_device_id"
 
 
@@ -503,18 +490,13 @@ class TestValidateJsonResponse:
         with pytest.raises(RuntimeError, match="Web request failed"):
             fansly_api.validate_json_response(response)
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_418_teapot_retried(self, fansly_api):
-        """HTTP 418 is in the retry status codes list — verifies retry logic.
-
-        The Fansly API uses 418 as a custom error code that triggers retries.
-        get_with_ngsw should retry on 418 and eventually succeed.
-        """
-        # CORS OPTIONS
+    async def test_418_teapot_retried(self, fansly_api):
+        """HTTP 418 is in the retry status codes list — verifies retry logic."""
         respx.options(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
             side_effect=[httpx.Response(200)]
         )
-        # First call returns 418, retry returns success
         route = respx.get(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
             side_effect=[
                 httpx.Response(418),
@@ -526,7 +508,9 @@ class TestValidateJsonResponse:
         )
 
         try:
-            response = fansly_api.get_with_ngsw("https://apiv3.fansly.com/api/v1/test")
+            response = await fansly_api.get_with_ngsw(
+                "https://apiv3.fansly.com/api/v1/test"
+            )
             assert response.status_code == 200
         finally:
             dump_fansly_calls(route.calls)
@@ -621,9 +605,10 @@ class TestWebSocketHandlers:
 class TestGetClientUserName:
     """Cover get_client_user_name edge case (line 965)."""
 
+    @pytest.mark.asyncio
     @respx.mock
-    def test_empty_username_returns_none(self, fansly_api):
-        """Empty username in API response returns None (line 965)."""
+    async def test_empty_username_returns_none(self, fansly_api):
+        """Empty username in API response returns None."""
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/account/me"
         ).mock(side_effect=[httpx.Response(200)])
@@ -643,7 +628,7 @@ class TestGetClientUserName:
             ]
         )
         try:
-            result = fansly_api.get_client_user_name()
+            result = await fansly_api.get_client_user_name()
             assert result is None
         finally:
             dump_fansly_calls(route.calls)
