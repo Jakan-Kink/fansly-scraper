@@ -34,11 +34,13 @@ fallback regex re-anchored to the same failing `base_path`.
   per-creator subfolder structure — path filters scope to the entire
   fansly-managed area in Stash. Pydantic validator rejects the config
   at load time if the flag is set without `mapped_path`.
-- Code-scoped preload pass (`_preload_creator_media_by_code`). Pulls the
-  creator's `Media.id` values from the local Postgres DB, queries Stash
-  by `path__regex=<chunked codes>`, and feeds the same code indexes the
-  path-scoped pass populates. Path-independent backstop for layouts
-  that don't share a prefix with `download_directory`.
+- Code-scoped preload pass (`_preload_creator_media_by_code`) as a
+  conditional fallback. Pulls the creator's `Media.id` values from the
+  local Postgres DB and queries Stash by `path__regex=<chunked codes>`.
+  Runs only when path-scoped preload indexed nothing — aligned layouts
+  pay no extra Stash queries, non-aligned layouts (Stash directory
+  structure doesn't share a prefix with `download_directory`) recover
+  coverage via media-ID regex search.
 - Three-tier anchor in `_create_targeted_regex_pattern`: per-creator
   `base_path` (default), `mapped_path` (when scoped=False with mapping
   set), or code-only (no mapping). The lazy per-batch fallback now
@@ -47,13 +49,13 @@ fallback regex re-anchored to the same failing `base_path`.
 
 #### Changed
 
-- `_preload_creator_media` runs path-scoped then code-scoped passes
-  feeding the same `_scene_code_index` / `_image_code_index`. Each pass
-  is a no-op without its precondition (`base_path` for path-scoped,
-  `creator_id` + DB media rows for code-scoped). Defense-in-depth:
-  layouts that match either pass populate the index; downstream
+- `_preload_creator_media` runs path-scoped first, code-scoped only
+  when path-scoped indexed nothing. Both feed the same
+  `_scene_code_index` / `_image_code_index`; downstream
   `find_scenes_by_media_codes` / `find_images_by_media_codes` lookups
-  are unchanged.
+  are unchanged. Each pass is a no-op without its precondition
+  (`base_path` for path-scoped, `creator_id` + DB media rows for
+  code-scoped).
 - `get_stash_path()` resolution ladder:
   override + mapped_path → `str(mapped_path)`;
   mapped_path only → prefix substitution (existing 0.13.3 behaviour);

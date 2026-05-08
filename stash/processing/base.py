@@ -145,8 +145,12 @@ class StashProcessingBase(StashProcessingProtocol):
     async def _preload_creator_media(self) -> None:
         """Preload Scenes/Images for the current creator into the code indexes.
 
-        Runs path-scoped then code-scoped passes; both feed the same indexes,
-        each is a no-op when its precondition is missing.
+        Runs path-scoped first; code-scoped runs only as a fallback when the
+        path-scoped pass indexes nothing. For aligned layouts (the path
+        filter matches), this avoids ~N/20 redundant Stash regex queries per
+        creator. For non-aligned layouts (Stash directory structure differs
+        from the scraper's), code-scoped recovers coverage by querying
+        Stash by media-ID regex using IDs from the local Postgres DB.
         """
         if not self.state.base_path and self.state.creator_id is None:
             logger.debug(
@@ -158,7 +162,12 @@ class StashProcessingBase(StashProcessingProtocol):
         self._image_code_index.clear()
 
         await self._preload_creator_media_by_path()
-        await self._preload_creator_media_by_code()
+
+        if not self._scene_code_index and not self._image_code_index:
+            logger.info(
+                "Path-scoped preload indexed nothing — running code-scoped fallback"
+            )
+            await self._preload_creator_media_by_code()
 
         logger.info(
             f"Built media code indexes: {len(self._scene_code_index)} scene codes, "
