@@ -148,7 +148,8 @@ def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) 
                     match = re.search(r"Windows NT ([\d.]+)", user_agent)
                     if match:
                         os_version = match.group(1)
-                        if os_version in user_agent:
+                        # Plain capture — group(1) is always a substring of user_agent.
+                        if os_version in user_agent:  # pragma: no cover
                             return user_agent
 
         elif os_name == "Darwin":  # macOS
@@ -166,7 +167,8 @@ def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) 
                     match = re.search(r"Linux ([\d.]+)", user_agent)
                     if match:
                         os_version = match.group(1)
-                        if os_version in user_agent:
+                        # Plain capture — group(1) is always a substring of user_agent.
+                        if os_version in user_agent:  # pragma: no cover
                             return user_agent
 
     except Exception:

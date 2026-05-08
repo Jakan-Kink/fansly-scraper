@@ -153,7 +153,7 @@ class TestBatchProcessing:
     async def test_process_batch_internal_with_stash_ids(
         self, respx_stash_processor, mock_item, mock_account
     ):
-        """Image media with ``stash_id`` route through a single findImages call."""
+        """Image media with ``stash_id`` route through per-id findImage calls."""
         media_list = [
             MediaFactory.build(
                 id=snowflake_id(),
@@ -167,29 +167,29 @@ class TestBatchProcessing:
 
         respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
-        organized_images = [
-            create_image_dict(
-                id=str(40000 + i),
-                organized=True,
-                visual_files=[
-                    {
-                        "__typename": "ImageFile",
-                        "id": f"file-{i}",
-                        "path": f"/stash/{40000 + i}.jpg",
-                    }
-                ],
-            )
-            for i in range(3)
-        ]
+        # SGC's get_many → _execute_find_by_ids loops per id calling find_by_id,
+        # which sends findImage(id:) (singular) and reads result["findImage"].
+        # IDs must be numeric/UUID4 (StashObject validator); "file-..." rejected.
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
                     json=create_graphql_response(
-                        "findImages",
-                        create_find_images_result(count=3, images=organized_images),
+                        "findImage",
+                        create_image_dict(
+                            id=str(40000 + i),
+                            organized=True,
+                            visual_files=[
+                                {
+                                    "__typename": "ImageFile",
+                                    "id": str(99000 + i),
+                                    "path": f"/stash/{40000 + i}.jpg",
+                                }
+                            ],
+                        ),
                     ),
-                ),
+                )
+                for i in range(3)
             ]
         )
 
@@ -204,8 +204,8 @@ class TestBatchProcessing:
                 graphql_route.calls, "test_process_batch_internal_with_stash_ids"
             )
 
-        # Single GraphQL call → routing produced exactly one Image-type lookup.
-        assert graphql_route.call_count == 1
+        # 3 findImage calls — one per stash_id.
+        assert graphql_route.call_count == 3
         # Routing landed all 3 images in result["images"], none in result["scenes"].
         assert len(result["images"]) == 3
         assert len(result["scenes"]) == 0
@@ -229,6 +229,7 @@ class TestBatchProcessing:
 
         respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
+        # ImageFile id must be numeric/UUID4 per StashObject validator.
         organized_images = [
             create_image_dict(
                 id=str(media.id),
@@ -236,7 +237,7 @@ class TestBatchProcessing:
                 visual_files=[
                     {
                         "__typename": "ImageFile",
-                        "id": f"file-{media.id}",
+                        "id": str(snowflake_id()),
                         "path": f"/stash/{media.id}.jpg",
                     }
                 ],
@@ -301,6 +302,7 @@ class TestBatchProcessing:
 
         respx_stash_processor._studio = Studio(id="9999", name="test_user (Fansly)")
 
+        # ImageFile/VideoFile ids must be numeric/UUID4 per StashObject validator.
         organized_images = [
             create_image_dict(
                 id=str(media_id),
@@ -308,7 +310,7 @@ class TestBatchProcessing:
                 visual_files=[
                     {
                         "__typename": "ImageFile",
-                        "id": f"file-{media_id}",
+                        "id": str(snowflake_id()),
                         "path": f"/stash/{media_id}.jpg",
                     }
                 ],
@@ -323,7 +325,7 @@ class TestBatchProcessing:
                 files=[
                     {
                         "__typename": "VideoFile",
-                        "id": f"file-{media_id}",
+                        "id": str(snowflake_id()),
                         "path": f"/stash/{media_id}.mp4",
                     }
                 ],

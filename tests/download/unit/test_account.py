@@ -799,20 +799,22 @@ class TestGetFollowingAccounts:
 
         respx.options(
             url__startswith="https://apiv3.fansly.com/api/v1/account/123456/following"
-        ).mock(side_effect=[httpx.Response(200)])
+        ).mock(side_effect=[httpx.Response(200)] * 4)
+        # httpx_retries.Retry(total=3) → 4 attempts max (1 initial + 3 retries).
         following_route = respx.get(
             url__startswith="https://apiv3.fansly.com/api/v1/account/123456/following"
-        ).mock(side_effect=[httpx.ConnectError("Connection error")])
+        ).mock(side_effect=[httpx.ConnectError("Connection error")] * 4)
 
         try:
-            with pytest.raises(ApiError) as excinfo:
+            # Patch time.sleep to skip httpx_retries' exponential backoff (0.5+1+2=3.5s).
+            with patch("time.sleep"), pytest.raises(ApiError) as excinfo:
                 await get_following_accounts(mock_config_with_api, state)
         finally:
             dump_fansly_calls(respx.calls, "test_get_following_accounts_request_error")
 
         assert "Error getting following list from Fansly API" in str(excinfo.value)
         assert "Connection error" in str(excinfo.value)
-        assert following_route.call_count == 1
+        assert following_route.call_count == 4
 
     @pytest.mark.asyncio
     @respx.mock

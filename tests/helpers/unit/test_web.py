@@ -282,6 +282,58 @@ class TestGuessUserAgent:
             result = guess_user_agent(user_agents, "Chrome", "default_ua")
             assert result == "default_ua"
 
+    def test_guess_user_agent_windows_no_nt_pattern(self):
+        """Windows UA matches host-substring guard but lacks 'Windows NT N' (149→146)."""
+        user_agents = [
+            "Mozilla/5.0 (Windows; en-US) Chrome/120.0.0.0",  # no NT version
+        ]
+        with patch("platform.system", return_value="Windows"):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
+            assert result == "default_ua_fallback"
+
+    def test_guess_user_agent_macos_no_version_pattern(self):
+        """macOS UA matches host-substring guard but lacks 'Mac OS X N' (158→155)."""
+        user_agents = [
+            "Mozilla/5.0 (Macintosh; en-US) Chrome/120.0.0.0",  # no Mac OS X version
+        ]
+        with patch("platform.system", return_value="Darwin"):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
+            assert result == "default_ua_fallback"
+
+    def test_guess_user_agent_unknown_os_falls_through(self):
+        """OS not in {Windows, Darwin, Linux} skips all branches (163→178)."""
+        user_agents = [
+            "Mozilla/5.0 (X11; FreeBSD) Chrome/120.0.0.0",
+        ]
+        with patch("platform.system", return_value="FreeBSD"):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
+            assert result == "default_ua_fallback"
+
+    def test_guess_user_agent_linux_empty_list(self):
+        """Linux + empty user_agents → for-loop body skipped (164→178)."""
+        with patch("platform.system", return_value="Linux"):
+            result = guess_user_agent([], "Chrome", "default_ua_fallback")
+            assert result == "default_ua_fallback"
+
+    def test_guess_user_agent_linux_first_ua_filtered(self):
+        """Linux loop continues past UAs missing browser or 'Linux' substring (165→164)."""
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; ...) Chrome/120.0.0.0",  # no Linux substring
+            "Mozilla/5.0 (X11; Linux 5.10) AppleWebKit/537.36 Chrome/120.0.0.0",  # match
+        ]
+        with patch("platform.system", return_value="Linux"):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua")
+            assert "Linux 5.10" in result
+
+    def test_guess_user_agent_linux_no_version_pattern(self):
+        """Linux UA matches host-substring guard but lacks 'Linux N' (167→164)."""
+        user_agents = [
+            "Mozilla/5.0 (X11; Linux) Chrome/120.0.0.0",  # no version after Linux
+        ]
+        with patch("platform.system", return_value="Linux"):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
+            assert result == "default_ua_fallback"
+
 
 class TestGetReleaseInfoFromGithub:
     """Tests for the get_release_info_from_github function."""

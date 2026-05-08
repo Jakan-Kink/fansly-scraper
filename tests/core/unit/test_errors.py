@@ -30,6 +30,7 @@ from errors import (
     StashError,
     StashGraphQLError,
     StashServerError,
+    StubNotImplementedError,
 )
 from errors.mp4 import InvalidMP4Error
 
@@ -279,3 +280,31 @@ class TestStashErrors:
 
         assert str(warning) == message
         assert isinstance(warning, UserWarning)
+
+
+class TestStubNotImplementedError:
+    """Test StubNotImplementedError message construction branches."""
+
+    def test_message_without_junction_table(self):
+        """No junction_table → branch at __init__ line 195 takes False."""
+
+        class FakeModel:
+            pass
+
+        err = StubNotImplementedError(FakeModel, 12345)
+        msg = str(err)
+        assert "No stub creator for FakeModel (id=12345)" in msg
+        assert "junction" not in msg
+        assert "Implement FakeModel.create_stub" in msg
+
+    def test_message_with_junction_table(self):
+        """junction_table set → branch True; covers errors/__init__.py:196."""
+
+        class FakeModel:
+            pass
+
+        err = StubNotImplementedError(FakeModel, 67890, junction_table="post_hashtags")
+        msg = str(err)
+        assert "No stub creator for FakeModel (id=67890)" in msg
+        assert "referenced by post_hashtags junction" in msg
+        assert "Implement FakeModel.create_stub" in msg

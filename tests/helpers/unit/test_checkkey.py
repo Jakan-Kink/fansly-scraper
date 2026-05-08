@@ -1,6 +1,7 @@
 """Tests for helpers/checkkey.py — checkKey extraction, validation, nvm setup."""
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -126,6 +127,36 @@ class TestSetupNvmEnvironment:
         monkeypatch.delenv("NODE_PATH", raising=False)
         _setup_nvm_environment()
         # NODE_PATH should not be set (no node_modules dir)
+
+    def test_nvmrc_missing_uses_latest_version(self, tmp_path, monkeypatch):
+        """Lines 55-61: nvmrc not readable → fall back to sorted-latest version dir."""
+        # Real .nvmrc lives at project root (hardcoded); patch its exists() to deny.
+        nvm_dir = tmp_path / ".nvm"
+        # Two versions; sorted reverse → v22 wins.
+        (nvm_dir / "versions" / "node" / "v18.0.0" / "bin").mkdir(parents=True)
+        v_latest = nvm_dir / "versions" / "node" / "v22.0.0" / "bin"
+        v_latest.mkdir(parents=True)
+        (nvm_dir / "versions" / "node" / "v22.0.0" / "lib" / "node_modules").mkdir(
+            parents=True
+        )
+
+        monkeypatch.setenv("NVM_DIR", str(nvm_dir))
+        original_path = os.environ.get("PATH", "")
+        monkeypatch.setenv("PATH", "/usr/bin")
+
+        real_exists = Path.exists
+
+        def selective_exists(self):
+            if self.name == ".nvmrc":
+                return False
+            return real_exists(self)
+
+        monkeypatch.setattr(Path, "exists", selective_exists)
+        _setup_nvm_environment()
+        # Latest version's bin should be prepended to PATH.
+        assert str(v_latest) in os.environ["PATH"]
+        # Restore PATH after monkeypatch teardown — keeps other tests isolated.
+        monkeypatch.setenv("PATH", original_path)
 
 
 # ── _extract_expression_at_position ─────────────────────────────────────
