@@ -8,6 +8,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from config.fanslyconfig import FanslyConfig
 from download.account import (
     _extract_account_data,
@@ -43,7 +44,7 @@ class TestExtractAccountDataKeyErrorNon401:
         We construct a response whose JSON will cause the real get_json_response_contents
         to raise KeyError by omitting the 'response' key.
         """
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request("GET", f"{FanslyApi.BASE_URL}account")
         # success=true but no 'response' key → KeyError in get_json_response_contents
         response = httpx.Response(
             status_code=200,
@@ -70,12 +71,12 @@ class TestGetAccountResponseNon200:
         state.creator_name = "testcreator"
 
         with respx.mock:
-            respx.options(
-                url__startswith="https://apiv3.fansly.com/api/v1/account"
-            ).mock(side_effect=[httpx.Response(200)])
-            route = respx.get(
-                url__startswith="https://apiv3.fansly.com/api/v1/account"
-            ).mock(side_effect=[httpx.Response(204, text="")])
+            respx.options(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+                side_effect=[httpx.Response(200)]
+            )
+            route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+                side_effect=[httpx.Response(204, text="")]
+            )
 
             try:
                 with pytest.raises(

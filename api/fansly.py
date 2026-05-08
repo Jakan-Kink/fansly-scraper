@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from ctypes import c_int32
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
 
 import httpx
@@ -27,6 +27,80 @@ if TYPE_CHECKING:
 
 
 class FanslyApi:
+    # ── URL constants ────────────────────────────────────────────────
+    # Source-of-truth for every Fansly host/path in the codebase. Tests
+    # import these and respx routes match against them, so any future host
+    # change (staging, version bump) is a single edit here. Endpoints with
+    # `{}` placeholders use ``.format(...)`` at call sites.
+    BASE_URL: ClassVar[str] = "https://apiv3.fansly.com/api/v1/"
+    FANSLY_HOST: ClassVar[str] = "https://fansly.com"
+    WS_URL: ClassVar[str] = "wss://wsv3.fansly.com"
+
+    # ── Endpoint templates (properties so BASE_URL can be overridden) ──
+    @property
+    def ACCOUNT_ME_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account/me"
+
+    @property
+    def ACCOUNT_BY_USERNAME_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account?usernames={{}}"
+
+    @property
+    def ACCOUNT_BY_ID_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account?ids={{}}"
+
+    @property
+    def ACCOUNT_MEDIA_ORDERS_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account/media/orders/"
+
+    @property
+    def FOLLOWING_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account/{{}}/following"
+
+    @property
+    def ACCOUNT_MEDIA_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}account/media?ids={{}}"
+
+    @property
+    def POST_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}post"
+
+    @property
+    def TIMELINE_NEW_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}timelinenew/{{}}"
+
+    @property
+    def TIMELINE_HOME_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}timeline/home"
+
+    @property
+    def MEDIA_STORIES_NEW_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}mediastoriesnew"
+
+    @property
+    def MEDIA_STORIES_FOLLOWING_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}mediastories/following"
+
+    @property
+    def MEDIA_STORY_VIEW_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}mediastory/view"
+
+    @property
+    def MESSAGING_GROUPS_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}messaging/groups"
+
+    @property
+    def MESSAGE_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}message"
+
+    @property
+    def DEVICE_ID_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}device/id"
+
+    @property
+    def LOGIN_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}login?ngsw-bypass=true"
+
     def __init__(
         self,
         token: str,
@@ -116,8 +190,8 @@ class FanslyApi:
         headers = {
             "Accept-Language": "en-US,en;q=0.9",
             "authorization": token,
-            "Origin": "https://fansly.com",
-            "Referer": "https://fansly.com/",
+            "Origin": self.FANSLY_HOST,
+            "Referer": f"{self.FANSLY_HOST}/",
             "User-Agent": self.user_agent,
         }
 
@@ -186,8 +260,8 @@ class FanslyApi:
             "Accept-Language": "en-US,en;q=0.9",
             "Access-Control-Request-Headers": "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id",
             "Access-Control-Request-Method": "GET",
-            "Origin": "https://fansly.com",
-            "Referer": "https://fansly.com/",
+            "Origin": self.FANSLY_HOST,
+            "Referer": f"{self.FANSLY_HOST}/",
             "User-Agent": self.user_agent,
         }
 
@@ -350,8 +424,8 @@ class FanslyApi:
             "Accept-Language": "en-US,en;q=0.9",
             "Access-Control-Request-Headers": "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id",
             "Access-Control-Request-Method": "GET",
-            "Origin": "https://fansly.com",
-            "Referer": "https://fansly.com/",
+            "Origin": self.FANSLY_HOST,
+            "Referer": f"{self.FANSLY_HOST}/",
             "User-Agent": self.user_agent,
         }
         sync.options(url, headers=cors_headers)
@@ -412,7 +486,7 @@ class FanslyApi:
         self, alternate_token: str | None = None
     ) -> httpx.Response:
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/account/me",
+            url=self.ACCOUNT_ME_ENDPOINT,
             alternate_token=alternate_token,
         )
 
@@ -430,7 +504,7 @@ class FanslyApi:
         if isinstance(creator_name, list):
             creator_name = ",".join(creator_name)
         return await self.get_with_ngsw(
-            url=f"https://apiv3.fansly.com/api/v1/account?usernames={creator_name}",
+            url=self.ACCOUNT_BY_USERNAME_ENDPOINT.format(creator_name),
         )
 
     async def get_account_info_by_id(
@@ -449,7 +523,7 @@ class FanslyApi:
         else:
             account_ids = str(account_ids)
         return await self.get_with_ngsw(
-            url=f"https://apiv3.fansly.com/api/v1/account?ids={account_ids}",
+            url=self.ACCOUNT_BY_ID_ENDPOINT.format(account_ids),
         )
 
     async def get_media_collections(self) -> httpx.Response:
@@ -459,7 +533,7 @@ class FanslyApi:
         }
 
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/account/media/orders/",
+            url=self.ACCOUNT_MEDIA_ORDERS_ENDPOINT,
             params=custom_params,
         )
 
@@ -491,7 +565,7 @@ class FanslyApi:
         }
 
         return await self.get_with_ngsw(
-            url=f"https://apiv3.fansly.com/api/v1/account/{user_id}/following",
+            url=self.FOLLOWING_ENDPOINT.format(user_id),
             params=params,
         )
 
@@ -505,7 +579,7 @@ class FanslyApi:
         :rtype: request.Response
         """
         return await self.get_with_ngsw(
-            f"https://apiv3.fansly.com/api/v1/account/media?ids={media_ids}",
+            self.ACCOUNT_MEDIA_ENDPOINT.format(media_ids),
         )
 
     async def get_post(self, post_id: str) -> httpx.Response:
@@ -514,7 +588,7 @@ class FanslyApi:
         }
 
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/post",
+            url=self.POST_ENDPOINT,
             params=custom_params,
         )
 
@@ -529,7 +603,7 @@ class FanslyApi:
         }
 
         return await self.get_with_ngsw(
-            url=f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}",
+            url=self.TIMELINE_NEW_ENDPOINT.format(creator_id),
             params=custom_params,
         )
 
@@ -554,7 +628,7 @@ class FanslyApi:
         }
 
         return await self.get_with_ngsw(
-            url=f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}",
+            url=self.TIMELINE_NEW_ENDPOINT.format(creator_id),
             params=custom_params,
         )
 
@@ -567,7 +641,7 @@ class FanslyApi:
             new content with a single fleet-wide call.
         """
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/timeline/home",
+            url=self.TIMELINE_HOME_ENDPOINT,
             params={"before": "0", "after": "0", "mode": "0"},
         )
 
@@ -581,7 +655,7 @@ class FanslyApi:
             Response containing mediaStories list and aggregationData.accountMedia
         """
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/mediastoriesnew",
+            url=self.MEDIA_STORIES_NEW_ENDPOINT,
             params={"accountId": str(account_id)},
         )
 
@@ -594,7 +668,7 @@ class FanslyApi:
             monitor to detect when hasActiveStories flips true.
         """
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/mediastories/following",
+            url=self.MEDIA_STORIES_FOLLOWING_ENDPOINT,
             params={"limit": "100", "offset": "0"},
         )
 
@@ -607,7 +681,7 @@ class FanslyApi:
         Returns:
             Response with storyId and accountId confirmation
         """
-        url = "https://apiv3.fansly.com/api/v1/mediastory/view"
+        url = self.MEDIA_STORY_VIEW_ENDPOINT
         self.update_client_timestamp()
         await self.cors_options_request(url)
         headers = self.get_http_headers(url=url, add_fansly_headers=True)
@@ -630,18 +704,18 @@ class FanslyApi:
 
     async def get_group(self) -> httpx.Response:
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/messaging/groups",
+            url=self.MESSAGING_GROUPS_ENDPOINT,
         )
 
     async def get_message(self, params: dict[str, str]) -> httpx.Response:
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/message",
+            url=self.MESSAGE_ENDPOINT,
             params=params,
         )
 
     async def get_device_id_info(self) -> httpx.Response:
         return await self.get_with_ngsw(
-            url="https://apiv3.fansly.com/api/v1/device/id",
+            url=self.DEVICE_ID_ENDPOINT,
             add_fansly_headers=False,
         )
 
@@ -777,7 +851,7 @@ class FanslyApi:
             else:
                 print("Login may have failed - check logs")
         """
-        login_url = "https://apiv3.fansly.com/api/v1/login?ngsw-bypass=true"
+        login_url = self.LOGIN_ENDPOINT
 
         # Update client timestamp before login
         self.update_client_timestamp()
@@ -794,8 +868,8 @@ class FanslyApi:
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "en-US,en;q=0.5",
             "Content-Type": "application/json",
-            "Referer": "https://fansly.com/",
-            "Origin": "https://fansly.com",
+            "Referer": f"{self.FANSLY_HOST}/",
+            "Origin": self.FANSLY_HOST,
             "User-Agent": self.user_agent,
             "DNT": "1",
             "Sec-GPC": "1",
@@ -1143,7 +1217,7 @@ class FanslyApi:
             if self.on_device_updated is not None:
                 self.on_device_updated()
 
-        assert self.device_id is not None
+        assert self.device_id is not None  # noqa: S101  # nosec B101  type narrowing for return
         return self.device_id
 
     def _handle_websocket_unauthorized(self) -> None:

@@ -4,9 +4,10 @@ No external boundaries — pure logic with time-based state.
 Patches time.sleep to avoid real delays; time.time for deterministic timing.
 """
 
+import asyncio
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -300,6 +301,46 @@ class TestWaitForRequest:
         rl.last_request_time = rl.last_refill  # recent request
 
         await rl.async_wait_for_request()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_async_waiters_serialize_at_floor_zero(self):
+        """Bug A regression guard: concurrent waiters serialize even when
+        learned_floor==0 (cold start). Without _next_allowed_at advancing by
+        token_refill_interval as a minimum, all waiters reserve target==now
+        and fire simultaneously — the original 429-flood pattern.
+        """
+        rl = RateLimiter(_make_config())  # learned_floor starts at 0
+        rl.tokens = 100.0  # ensure token loop never blocks
+        assert rl.learned_floor == 0.0
+        step = rl.token_refill_interval  # 1.0s for 60 rpm
+
+        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+            await asyncio.gather(*[rl.async_wait_for_request() for _ in range(5)])
+
+        # After 5 reservations, cursor should be ~5*step ahead of the start.
+        # Allow small slack for the time.time() drift across reservations.
+        elapsed_cursor = rl._next_allowed_at - time.time()
+        assert elapsed_cursor >= 4.5 * step, (
+            f"cursor advanced by {elapsed_cursor:.2f}s; expected ~{5 * step:.2f}s. "
+            "Cursor not advancing means concurrent waiters all reserved the same slot."
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_async_waiters_serialize_with_floor(self):
+        """Bug A primary case: with learned_floor>0, cursor advances by floor."""
+        rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0
+        rl.tokens = 100.0
+        rl.last_request_time = time.time()  # ensures floor is applied
+
+        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+            await asyncio.gather(*[rl.async_wait_for_request() for _ in range(3)])
+
+        # 3 callers, each spaced by max(floor=2.0, refill=1.0) = 2.0s
+        elapsed_cursor = rl._next_allowed_at - time.time()
+        assert elapsed_cursor >= 5.5, (
+            f"cursor at {elapsed_cursor:.2f}s; expected ~6.0s for 3 waiters at 2.0s spacing."
+        )
 
 
 class TestRecordResponse:

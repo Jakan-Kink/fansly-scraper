@@ -55,37 +55,9 @@ from config.validation import (
 from errors import ConfigError
 
 
-@pytest.fixture
-def validation_config(tmp_path):
-    """Return a real ``FanslyConfig`` configured for validation tests.
-
-    Replaces the old ``mock_config`` (``MagicMock(spec=FanslyConfig)``)
-    fixture. Every field starts at a known real value so the production
-    ``token_is_valid()`` / ``useragent_is_valid()`` methods return True
-    by default — tests that want the "invalid" branch of those checks
-    override the field explicitly (e.g., ``config.token = "short"``).
-
-    The ``config_path`` points at ``tmp_path / "config.yaml"`` so any
-    ``save_config_or_raise`` path runs real YAML I/O into a throwaway
-    directory — no mocks. Because asserted-on values like ``token`` and
-    ``user_agent`` round-trip through YAML and get re-loaded in some
-    validators, the size of the strings matches Fansly's real shape
-    (60-char token, Mozilla/5.0 UA).
-    """
-    config = FanslyConfig(program_version="0.13.0-test")
-    config.config_path = tmp_path / "config.yaml"
-    config.interactive = False
-    config.user_names = {"validuser1", "validuser2"}
-    # token_is_valid() requires len >= 50 and no "ReplaceMe".
-    config.token = "a" * 60
-    # useragent_is_valid() requires len >= 40 and no "ReplaceMe".
-    config.user_agent = "Mozilla/5.0 " + "A" * 60
-    config.check_key = "check-key-placeholder-123"
-    config.download_directory = Path.cwd()
-    config.download_mode = DownloadMode.TIMELINE
-    config.username = None
-    config.password = None
-    return config
+# validation_config fixture lives in tests/fixtures/config/ and flows through
+# tests/conftest.py via the wildcard import — single-source-of-truth per
+# project convention.
 
 
 # -- validate_creator_names -------------------------------------------------

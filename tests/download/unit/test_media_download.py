@@ -6,6 +6,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from download.downloadstate import DownloadState
 from download.media import (
     _update_media_type_stats,
@@ -115,7 +116,7 @@ class TestFetchAndProcessMedia:
             "access": True,
         }
 
-        respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -152,7 +153,7 @@ class TestFetchAndProcessMedia:
         mock_config.BATCH_SIZE = 50
         mock_config.interactive = False
 
-        respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
             side_effect=[
                 httpx.Response(
                     200,

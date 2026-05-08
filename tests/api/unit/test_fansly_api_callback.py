@@ -28,11 +28,11 @@ class TestFanslyApiCallback:
             on_device_updated=mock_callback,
         )
 
-        respx.options("https://apiv3.fansly.com/api/v1/device/id").mock(
+        respx.options(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[httpx.Response(200)]
         )
 
-        respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+        respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[
                 httpx.Response(
                     200,

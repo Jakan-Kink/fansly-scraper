@@ -55,8 +55,8 @@ class TestFanslyApi:
 
         assert headers["Accept-Language"] == "en-US,en;q=0.9"
         assert headers["authorization"] == "test_token"
-        assert headers["Origin"] == "https://fansly.com"
-        assert headers["Referer"] == "https://fansly.com/"
+        assert headers["Origin"] == FanslyApi.FANSLY_HOST
+        assert headers["Referer"] == f"{FanslyApi.FANSLY_HOST}/"
         assert headers["User-Agent"] == "test_user_agent"
 
     def test_get_common_headers_alternate_token(self, fansly_api):
@@ -147,10 +147,10 @@ class TestFanslyApi:
     async def test_setup_session(self, fansly_api):
         """Test setup_session success path - mocks HTTP at edge"""
         # Mock the account info HTTP endpoint at edge (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200)]
         )
-        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": {}})]
         )
 
@@ -212,10 +212,10 @@ class TestFanslyApi:
     @respx.mock
     async def test_get_client_user_name(self, fansly_api):
         """Test get_client_user_name success path - mocks Fansly API at edge"""
-        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200)]
         )
-        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -252,17 +252,17 @@ class TestFanslyApi:
         get_request = get_route.calls.last.request
         assert get_request.url.params["test"] == "param"
         assert get_request.url.params["ngsw-bypass"] == "true"
-        assert get_request.headers["Origin"] == "https://fansly.com"
+        assert get_request.headers["Origin"] == FanslyApi.FANSLY_HOST
 
     @pytest.mark.asyncio
     @respx.mock
     async def test_get_creator_account_info_single(self, fansly_api):
         """Test get_creator_account_info with single username - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -278,10 +278,10 @@ class TestFanslyApi:
     async def test_get_creator_account_info_multiple(self, fansly_api):
         """Test get_creator_account_info with multiple usernames - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -297,10 +297,10 @@ class TestFanslyApi:
     async def test_get_account_info_by_id_single(self, fansly_api):
         """Test get_account_info_by_id with single ID - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -316,10 +316,10 @@ class TestFanslyApi:
     async def test_get_account_info_by_id_multiple(self, fansly_api):
         """Test get_account_info_by_id with multiple IDs - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -404,10 +404,10 @@ class TestFanslyApi:
     async def test_get_account_media(self, fansly_api):
         """Test get_account_media request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for account media (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account/media").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account/media").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -423,10 +423,10 @@ class TestFanslyApi:
     async def test_get_post(self, fansly_api):
         """Test get_post request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for post (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/post").mock(
+        respx.options(f"{FanslyApi.BASE_URL}post").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/post").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}post").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -487,10 +487,10 @@ class TestFanslyApi:
     async def test_get_group(self, fansly_api):
         """Test get_group request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for messaging groups (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
+        respx.options(f"{FanslyApi.BASE_URL}messaging/groups").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -503,10 +503,10 @@ class TestFanslyApi:
     async def test_get_message(self, fansly_api):
         """Test get_message request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for messages (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/message").mock(
+        respx.options(f"{FanslyApi.BASE_URL}message").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get("https://apiv3.fansly.com/api/v1/message").mock(
+        route = respx.get(f"{FanslyApi.BASE_URL}message").mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
@@ -561,19 +561,25 @@ class TestFanslyApi:
     async def test_setup_session_error(self, fansly_api):
         """Test setup_session handles errors - mocks HTTP at edge"""
         # Mock HTTP response failure at edge (OPTIONS + GET)
-        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200)]
         )
-        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(401)]
         )
 
-        # Mock websocket to raise exception (this is OK - websockets are external boundary)
-        with patch("websockets.client.connect") as mock_ws:
-            mock_ws.side_effect = Exception("Connection failed")
+        # Mock get_websocket_class — production resolves the WS class via this
+        # accessor and never reaches websockets.client.connect directly.
+        # The 401 from /account/me will short-circuit before WS is even built,
+        # so a bare lambda that would raise IF called is sufficient evidence.
+        def _explode(**_kwargs):
+            raise RuntimeError("WS class should not be instantiated on 401")
 
-            with pytest.raises(RuntimeError, match="Error during session setup"):
-                await fansly_api.setup_session()
+        with (
+            patch("api.fansly.get_websocket_class", return_value=_explode),
+            pytest.raises(RuntimeError, match="Error during session setup"),
+        ):
+            await fansly_api.setup_session()
 
     def test_get_http_headers_with_session(self, fansly_api):
         """Test get_http_headers includes session ID when available"""

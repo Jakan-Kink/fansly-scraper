@@ -110,7 +110,7 @@ class FanslyWebSocket:
         on_rate_limited: Callable[[], Any] | None = None,
         monitor_events: bool = False,
         base_url: str | None = None,
-        http_client: httpx.Client | None = None,
+        http_client: httpx.AsyncClient | httpx.Client | None = None,
     ) -> None:
         """Initialize Fansly WebSocket client.
 

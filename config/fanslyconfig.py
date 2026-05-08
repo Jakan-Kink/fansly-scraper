@@ -41,6 +41,7 @@ class FanslyConfig:
     _api: FanslyApi | None = None
     _database: Database | None = None
     _stash: Any = None  # StashContext | None
+    _rate_limiter_display: Any = None  # RateLimiterDisplay | None
 
     # Command line flags
     use_following: bool = False
@@ -225,10 +226,11 @@ class FanslyConfig:
                 and self.check_key
                 and (self.token_is_valid() or has_login_credentials)
             ):
-                # Initialize rate limiter with visual display
+                # Initialize rate limiter with visual display.
+                # The display thread is NOT started here — get_api() must stay
+                # I/O-free. setup_api() starts it after bootstrap completes.
                 rate_limiter = RateLimiter(self)
                 self._rate_limiter_display = RateLimiterDisplay(rate_limiter)
-                self._rate_limiter_display.start()
 
                 # Use empty string if token is invalid (for login flow)
                 # Otherwise use the valid unscrambled token
@@ -253,6 +255,8 @@ class FanslyConfig:
     async def setup_api(self) -> FanslyApi:
         """Bootstrap device_id, login if needed, and set up the WebSocket session."""
         api = self.get_api()
+        if self._rate_limiter_display is not None:
+            self._rate_limiter_display.start()
         await api.update_device_id()
 
         has_login_credentials = self.username and self.password
@@ -459,9 +463,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     # my_account
     _maybe_set(base.my_account, "authorization_token", SecretStr(config.token or ""))
     _maybe_set(base.my_account, "user_agent", config.user_agent or "ReplaceMe")
-    _maybe_set(
-        base.my_account, "check_key", config.check_key or "qybZy9-fyszis-bybxyf"
-    )
+    _maybe_set(base.my_account, "check_key", config.check_key or "qybZy9-fyszis-bybxyf")
     _maybe_set(base.my_account, "username", config.username)
     _maybe_set(
         base.my_account,

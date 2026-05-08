@@ -206,8 +206,9 @@ class RateLimiter:
                     reduced_backoff = self.current_backoff_seconds / self.backoff_factor
                     self.current_backoff_seconds = max(minimum_backoff, reduced_backoff)
 
-                    # Reset backoff timer to enforce the new (reduced) backoff duration
-                    self.last_backoff_time = time.time()
+                    # last_backoff_time was already rolled to time.time() in the
+                    # outer success branch; the reduction path must not set it
+                    # again or the clamp below uses a stale window.
 
                     self.consecutive_violations = max(
                         0, self.consecutive_violations - 1
@@ -219,9 +220,7 @@ class RateLimiter:
                     new_backoff_end = (
                         self.last_backoff_time + self.current_backoff_seconds
                     )
-                    self._next_allowed_at = min(
-                        self._next_allowed_at, new_backoff_end
-                    )
+                    self._next_allowed_at = min(self._next_allowed_at, new_backoff_end)
 
                     # Check if we've reached the minimum threshold
                     if (
@@ -273,15 +272,15 @@ class RateLimiter:
         floor = self._calculate_minimum_floor()
         in_backoff = self._is_in_backoff()
         backoff_end = (
-            self.last_backoff_time + self.current_backoff_seconds
-            if in_backoff
-            else 0.0
+            self.last_backoff_time + self.current_backoff_seconds if in_backoff else 0.0
         )
 
         target = max(now, self._next_allowed_at, backoff_end)
         if floor > 0 and self.last_request_time > 0:
             target = max(target, self.last_request_time + floor)
-        self._next_allowed_at = target + floor
+        # Cursor must advance even when learned_floor == 0 (cold start) so
+        # concurrent waiters serialize at the bucket's natural refill rate.
+        self._next_allowed_at = target + max(floor, self.token_refill_interval)
 
         if in_backoff or target > now + 1e-3:
             self.blocked_requests += 1
@@ -325,9 +324,7 @@ class RateLimiter:
                 if not token_blocked_recorded:
                     self.blocked_requests += 1
                     token_blocked_recorded = True
-            logger.debug(
-                f"Token wait: {wait_for_token:.1f}s for next refill"
-            )
+            logger.debug(f"Token wait: {wait_for_token:.1f}s for next refill")
             time.sleep(wait_for_token)
 
         return time.time() - start_time
@@ -369,9 +366,7 @@ class RateLimiter:
                 if not token_blocked_recorded:
                     self.blocked_requests += 1
                     token_blocked_recorded = True
-            logger.debug(
-                f"Token wait: {wait_for_token:.1f}s for next refill"
-            )
+            logger.debug(f"Token wait: {wait_for_token:.1f}s for next refill")
             await asyncio.sleep(wait_for_token)
 
         return time.time() - start_time

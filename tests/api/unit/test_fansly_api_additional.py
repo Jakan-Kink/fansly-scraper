@@ -1,7 +1,7 @@
 """Additional unit tests for FanslyApi class to improve coverage"""
 
 import types
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -20,12 +20,12 @@ class TestFanslyApiAdditional:
     @respx.mock
     async def test_get_account_media_response(self, fansly_api):
         """Test get_account_media returns the response from get_with_ngsw"""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         media_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+            url__startswith=f"{FanslyApi.BASE_URL}account/media"
         ).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
         )
@@ -47,12 +47,12 @@ class TestFanslyApiAdditional:
     @respx.mock
     async def test_account_media_validation_flow(self, fansly_api):
         """Test validation flow for get_account_media when used with get_json_response_contents"""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         validation_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+            url__startswith=f"{FanslyApi.BASE_URL}account/media"
         ).mock(side_effect=[httpx.Response(200, json={"success": "false"})])
 
         try:
@@ -81,13 +81,11 @@ class TestFanslyApiAdditional:
     @respx.mock
     async def test_get_wall_posts_with_params(self, fansly_api):
         """Test get_wall_posts with custom cursor"""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}timelinenew").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
-        route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
-        ).mock(
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew").mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
@@ -112,13 +110,11 @@ class TestFanslyApiAdditional:
     @respx.mock
     async def test_get_wall_posts_default_cursor(self, fansly_api):
         """Test get_wall_posts with default cursor"""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}timelinenew").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
-        route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
-        ).mock(
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew").mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
@@ -142,13 +138,11 @@ class TestFanslyApiAdditional:
     @respx.mock
     async def test_get_client_account_info_with_alternate_token(self, fansly_api):
         """Test get_client_account_info with alternate token"""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
-        route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
-        ).mock(
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
         )
 
@@ -168,17 +162,26 @@ class TestFanslyApiAdditional:
 
     @pytest.mark.asyncio
     async def test_get_active_session_async_error(self, fansly_api):
-        """Test get_active_session_async handles WebSocket errors"""
-        # Create a mock websocket instance with proper async methods
+        """Test get_active_session_async handles WebSocket errors.
+
+        Production resolves the WS class via api.fansly.get_websocket_class
+        (subprocess gateway) and calls .start_in_thread(). We mock the class
+        so its instance raises on start_in_thread — the except handler then
+        wraps the failure as 'WebSocket session setup failed'.
+        """
         mock_ws_instance = AsyncMock()
-        mock_ws_instance.__aenter__.return_value = mock_ws_instance
+        mock_ws_instance.connected = False
+        mock_ws_instance.session_id = None
+        mock_ws_instance.start_in_thread = MagicMock(
+            side_effect=RuntimeError("Connection failed")
+        )
+        mock_ws_instance.stop_thread = AsyncMock()
 
-        # Return error response from WebSocket
-        mock_ws_instance.recv.return_value = '{"t":0,"d":"Error message"}'
-
-        # Mock the websocket connection
         with (
-            patch("websockets.client.connect", return_value=mock_ws_instance),
+            patch(
+                "api.fansly.get_websocket_class",
+                return_value=lambda **_kwargs: mock_ws_instance,
+            ),
             pytest.raises(
                 RuntimeError,
                 match=r"WebSocket (authentication failed|session setup failed)",
@@ -372,7 +375,7 @@ class TestFanslyApiAdditional:
             side_effect=[httpx.Response(200)]
         )
 
-        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+        device_route = respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[
                 httpx.Response(
                     200, json={"success": "true", "response": "new_device_id"}
@@ -391,11 +394,7 @@ class TestFanslyApiAdditional:
         try:
             await api.update_device_id()
         finally:
-            print("****RESPX Call Debugging****")
-            for index, call in enumerate(device_route.calls):
-                print(f"Call {index}")
-                print(f"--request: {call.request}")
-                print(f"--response: {call.response}")
+            dump_fansly_calls(device_route.calls, "test_update_device_id")
 
         assert device_route.called
         assert api.device_id == "new_device_id"
@@ -410,7 +409,7 @@ class TestFanslyApiAdditional:
             side_effect=[httpx.Response(200)]
         )
 
-        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+        device_route = respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[
                 httpx.Response(
                     200, json={"success": "true", "response": "fetched_device_id"}
@@ -430,9 +429,10 @@ class TestFanslyApiAdditional:
         try:
             await api.update_device_id()
         finally:
-            print("****RESPX Call Debugging****")
-            for index, call in enumerate(device_route.calls):
-                print(f"Call {index}")
+            dump_fansly_calls(
+                device_route.calls,
+                "test_init_without_device_id_but_with_timestamp",
+            )
 
         assert device_route.called
         assert api.device_id == "fetched_device_id"
@@ -447,7 +447,7 @@ class TestFanslyApiAdditional:
             side_effect=[httpx.Response(200)]
         )
 
-        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+        device_route = respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[
                 httpx.Response(
                     200, json={"success": "true", "response": "updated_device_id"}
@@ -467,9 +467,10 @@ class TestFanslyApiAdditional:
         try:
             await api.update_device_id()
         finally:
-            print("****RESPX Call Debugging****")
-            for index, call in enumerate(device_route.calls):
-                print(f"Call {index}")
+            dump_fansly_calls(
+                device_route.calls,
+                "test_init_with_device_id_but_without_timestamp",
+            )
 
         assert device_route.called
         assert api.device_id == "updated_device_id"
@@ -485,7 +486,7 @@ class TestValidateJsonResponse:
         raise_for_status() only raises for 4xx/5xx, so 204 passes through to
         the explicit != 200 check.
         """
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/test")
+        request = httpx.Request("GET", f"{FanslyApi.BASE_URL}test")
         response = httpx.Response(204, json={"success": "true"}, request=request)
         with pytest.raises(RuntimeError, match="Web request failed"):
             fansly_api.validate_json_response(response)
@@ -494,10 +495,10 @@ class TestValidateJsonResponse:
     @respx.mock
     async def test_418_teapot_retried(self, fansly_api):
         """HTTP 418 is in the retry status codes list — verifies retry logic."""
-        respx.options(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}test").mock(
             side_effect=[httpx.Response(200)]
         )
-        route = respx.get(url__startswith="https://apiv3.fansly.com/api/v1/test").mock(
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}test").mock(
             side_effect=[
                 httpx.Response(418),
                 httpx.Response(
@@ -508,9 +509,7 @@ class TestValidateJsonResponse:
         )
 
         try:
-            response = await fansly_api.get_with_ngsw(
-                "https://apiv3.fansly.com/api/v1/test"
-            )
+            response = await fansly_api.get_with_ngsw(f"{FanslyApi.BASE_URL}test")
             assert response.status_code == 200
         finally:
             dump_fansly_calls(route.calls)
@@ -609,12 +608,10 @@ class TestGetClientUserName:
     @respx.mock
     async def test_empty_username_returns_none(self, fansly_api):
         """Empty username in API response returns None."""
-        respx.options(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
-        ).mock(side_effect=[httpx.Response(200)])
-        route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/me"
-        ).mock(
+        respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
+            side_effect=[httpx.Response(200)]
+        )
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[
                 httpx.Response(
                     200,

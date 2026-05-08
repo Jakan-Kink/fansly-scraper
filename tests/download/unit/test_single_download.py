@@ -29,6 +29,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from download.downloadstate import DownloadState
 from download.single import download_single_post
 from download.types import DownloadType
@@ -111,9 +112,7 @@ class TestDownloadSinglePost:
         bundle_id = snowflake_id()
         am_entry = _account_media_payload(media_id, am_id, creator_id)
 
-        post_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/post"
-        ).mock(
+        post_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -147,7 +146,7 @@ class TestDownloadSinglePost:
         )
         # fetch_and_process_media → /api/v1/account/media?ids=<am_id>
         media_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media"
+            url__startswith=f"{FanslyApi.BASE_URL}account/media"
         ).mock(
             side_effect=[
                 httpx.Response(200, json={"success": True, "response": [am_entry]})
@@ -219,7 +218,7 @@ class TestDownloadSinglePost:
         am_id = snowflake_id()
         am_entry = _account_media_payload(media_id, am_id, creator_id)
 
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/post").mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -243,7 +242,7 @@ class TestDownloadSinglePost:
                 )
             ],
         )
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/media").mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
             side_effect=[
                 httpx.Response(200, json={"success": True, "response": [am_entry]})
             ]
@@ -295,7 +294,7 @@ class TestDownloadSinglePost:
         # before the Post can be persisted (FK posts_accountId_fkey).
         # Real API responses always include the post's author in
         # accounts[], so this matches production shape.
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/post").mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -341,9 +340,9 @@ class TestDownloadSinglePost:
         mock_config.post_id = "999"
         mock_config.interactive = False
 
-        post_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/post"
-        ).mock(side_effect=[httpx.Response(404, text="Not Found")])
+        post_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
+            side_effect=[httpx.Response(404, text="Not Found")]
+        )
 
         prompt_calls: list[bool] = []
         monkeypatch.setattr("download.single.input_enter_continue", prompt_calls.append)
@@ -404,9 +403,9 @@ class TestDownloadSinglePost:
         # Server returns 404 for the (real, valid) post ID — the test
         # verifies the loop EXITED with the valid ID, not the success
         # path itself.
-        post_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/post"
-        ).mock(side_effect=[httpx.Response(404, text="Not Found")])
+        post_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
+            side_effect=[httpx.Response(404, text="Not Found")]
+        )
 
         prompt_calls: list[bool] = []
         monkeypatch.setattr("download.single.input_enter_continue", prompt_calls.append)

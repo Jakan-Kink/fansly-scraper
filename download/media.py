@@ -260,20 +260,37 @@ async def _download_regular_file(
             file_size = int(response.headers.get("content-length", 0))
             disable_loading_bar = file_size < 20_000_000
 
-            with Progress(
-                text_column,
-                bar_column,
-                expand=True,
-                transient=True,
-                disable=disable_loading_bar,
-            ) as progress:
-                task_id = progress.add_task("", total=file_size)
+            # Stream into a sibling temp file so a mid-stream crash doesn't
+            # leave a partial file at file_save_path that dedupe later trusts.
+            tmp_kwargs: dict = {
+                "dir": str(file_save_path.parent),
+                "prefix": f".{file_save_path.name}.",
+                "suffix": ".part",
+                "delete": False,
+            }
+            tmp_path: Path | None = None
+            try:
+                with Progress(
+                    text_column,
+                    bar_column,
+                    expand=True,
+                    transient=True,
+                    disable=disable_loading_bar,
+                ) as progress:
+                    task_id = progress.add_task("", total=file_size)
 
-                with file_save_path.open("wb") as output_file:
-                    async for chunk in response.aiter_bytes(chunk_size=1_048_576):
-                        if chunk:
-                            output_file.write(chunk)
-                            progress.advance(task_id, len(chunk))
+                    with tempfile.NamedTemporaryFile(**tmp_kwargs) as temp_file:
+                        tmp_path = Path(temp_file.name)
+                        async for chunk in response.aiter_bytes(chunk_size=1_048_576):
+                            if chunk:
+                                temp_file.write(chunk)
+                                progress.advance(task_id, len(chunk))
+
+                shutil.move(str(tmp_path), str(file_save_path))
+                tmp_path = None  # ownership transferred
+            finally:
+                if tmp_path is not None and tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
 
             ts = media.created_at_timestamp
             if ts:

@@ -8,11 +8,12 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
 
-HOME_TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timeline/home"
-STORY_STATES_URL = "https://apiv3.fansly.com/api/v1/mediastories/following"
+HOME_TIMELINE_URL = f"{FanslyApi.BASE_URL}timeline/home"
+STORY_STATES_URL = f"{FanslyApi.BASE_URL}mediastories/following"
 
 
 class TestGetHomeTimeline:
@@ -77,9 +78,7 @@ class TestGetStoryStatesFollowing:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_story_states_following_hits_correct_url_and_params(
-        self, fansly_api
-    ):
+    async def test_story_states_following_hits_correct_url_and_params(self, fansly_api):
         """get_story_states_following sends GET to the following endpoint with correct params."""
         respx.options(url__startswith=STORY_STATES_URL).mock(
             side_effect=[httpx.Response(200)]

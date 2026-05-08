@@ -229,6 +229,9 @@ max-complexity = 14
     "ANN001",  # missing type annotation for function argument
     "ANN201",  # missing return type annotation
 ]
+"api/fansly.py" = [
+    "N802",    # uppercase property names signal URL constants/templates (BASE_URL + endpoint shapes)
+]
 "textio/logging.py" = [
     "N803",    # argument names match upstream logging.handlers API (maxBytes, backupCount)
 ]

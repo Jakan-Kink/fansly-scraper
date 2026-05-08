@@ -1,5 +1,6 @@
 """Unit tests for the account module."""
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,6 +8,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from config.modes import DownloadMode
 from download.account import (
     _extract_account_data,
@@ -20,6 +22,7 @@ from download.account import (
 from download.downloadstate import DownloadState
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
 from metadata import Account, TimelineStats, Wall
+from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils import snowflake_id
 
 
@@ -95,12 +98,12 @@ class TestGetAccountResponse:
         state.creator_name = None  # Client account
 
         # Mock CORS preflight OPTIONS request
-        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.options(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[httpx.Response(200)]
         )
 
         # Mock HTTP response at the edge (Fansly API endpoint)
-        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+        respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -124,13 +127,13 @@ class TestGetAccountResponse:
         state.creator_name = "testcreator"  # Creator account
 
         # Mock CORS preflight OPTIONS request
-        respx.options(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(f"{FanslyApi.BASE_URL}account?usernames=testcreator").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         # Mock HTTP response at the edge (Fansly API endpoint) - includes ngsw-bypass param
         respx.get(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+            f"{FanslyApi.BASE_URL}account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -155,13 +158,13 @@ class TestGetAccountResponse:
         state.creator_name = "testcreator"
 
         # Mock CORS preflight OPTIONS request
-        respx.options(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(f"{FanslyApi.BASE_URL}account?usernames=testcreator").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         # Mock HTTP response at the edge with error status - includes ngsw-bypass param
         respx.get(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+            f"{FanslyApi.BASE_URL}account?usernames=testcreator&ngsw-bypass=true"
         ).mock(side_effect=[httpx.Response(400, text="Bad Request")])
 
         # Should raise ApiError when HTTP returns 400 (wrapped HTTPStatusError)
@@ -545,12 +548,12 @@ class TestGetCreatorAccountInfo:
         mock_config_with_api.download_mode = DownloadMode.TIMELINE
 
         # Mock HTTP at the edge (OPTIONS preflight + GET)
-        respx.options(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(f"{FanslyApi.BASE_URL}account?usernames=testcreator").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         respx.get(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+            f"{FanslyApi.BASE_URL}account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -611,12 +614,12 @@ class TestGetCreatorAccountInfo:
         )
 
         # Mock HTTP — API returns same fetchedAt as pre-seeded DB value
-        respx.options(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
-        ).mock(side_effect=[httpx.Response(200)])
+        respx.options(f"{FanslyApi.BASE_URL}account?usernames=testcreator").mock(
+            side_effect=[httpx.Response(200)]
+        )
 
         respx.get(
-            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+            f"{FanslyApi.BASE_URL}account?usernames=testcreator&ngsw-bypass=true"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -647,226 +650,228 @@ class TestGetCreatorAccountInfo:
         assert state.fetched_timeline_duplication is True
 
 
-@patch("download.account._make_rate_limited_request")
 class TestGetFollowingAccounts:
-    """Tests for the get_following_accounts function."""
+    """Tests for the get_following_accounts function.
+
+    Drives HTTP via respx at the edge — no internal-layer mocks. The single
+    exception is test_get_following_accounts_request_error, which patches
+    _make_rate_limited_request to raise a connection-level httpx.HTTPError
+    (respx is transport-level and can't simulate that cleanly).
+
+    Each test uses ONE wide GET route over the API base with a SIZED
+    side_effect list — the list size is the contract: deviation surfaces as
+    StopIteration (overflow) or an unconsumed entry (undershoot, observable
+    in dump). Wrapping the call in try/finally + dump_fansly_calls preserves
+    diagnostic evidence even when the assertion or function raises.
+    """
+
+    _API_BASE = FanslyApi.BASE_URL
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_following_accounts_success(
-        self, mock_make_request, mock_config_with_api, entity_store
+        self, mock_config_with_api, entity_store
     ):
-        """Test successful retrieval of following accounts."""
         creator1_id = snowflake_id()
         creator2_id = snowflake_id()
 
         state = DownloadState()
         state.creator_id = snowflake_id()
 
-        request = httpx.Request("GET", "https://example.com")
-
-        # Mock following list response
-        following_list_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"accountId": str(creator1_id)},
-                    {"accountId": str(creator2_id)},
-                ],
-            },
-            request=request,
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
+        )
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"accountId": str(creator1_id)},
+                            {"accountId": str(creator2_id)},
+                        ],
+                    },
+                ),
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"id": str(creator1_id), "username": "creator1user"},
+                            {"id": str(creator2_id), "username": "creator2user"},
+                        ],
+                    },
+                ),
+            ]
         )
 
-        # Mock account details response
-        account_details_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"id": str(creator1_id), "username": "creator1user"},
-                    {"id": str(creator2_id), "username": "creator2user"},
-                ],
-            },
-            request=request,
-        )
-
-        mock_make_request.side_effect = [
-            following_list_response,
-            account_details_response,
-        ]
-
-        with patch("asyncio.sleep", AsyncMock()):
-            result = await get_following_accounts(mock_config_with_api, state)
+        try:
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(route.calls, "test_get_following_accounts_success")
 
         assert result == {"creator1user", "creator2user"}
-        assert mock_make_request.call_count == 2
-
-        # Accounts persisted to real store
         account1 = await entity_store.get(Account, creator1_id)
         assert account1 is not None
         assert account1.username == "creator1user"
 
     @pytest.mark.asyncio
-    async def test_get_following_accounts_empty(
-        self, mock_make_request, mock_config_with_api
-    ):
-        """Test handling empty following list."""
-        # Setup mocks
+    @respx.mock
+    async def test_get_following_accounts_empty(self, mock_config_with_api):
         state = DownloadState()
         state.creator_id = 123456
 
-        # Create httpx.Request for response construction
-        request = httpx.Request("GET", "https://example.com")
-
-        # Mock empty following list response
-        following_list_response = httpx.Response(
-            status_code=200, json={"success": "true", "response": []}, request=request
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
+        )
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(200, json={"success": "true", "response": []}),
+            ]
         )
 
-        # Configure _make_rate_limited_request to return our mock response
-        mock_make_request.return_value = following_list_response
+        try:
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(route.calls, "test_get_following_accounts_empty")
 
-        # Call function
-        result = await get_following_accounts(mock_config_with_api, state)
-
-        # Verify result - empty set
         assert result == set()
-        assert mock_make_request.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_get_following_accounts_no_client_id(
-        self, mock_make_request, mock_config_with_api
-    ):
-        """Test error when client ID is not set."""
-        # Setup mocks
+    async def test_get_following_accounts_no_client_id(self, mock_config_with_api):
         state = DownloadState()
-        state.creator_id = None  # No client ID
+        state.creator_id = None
 
-        # Call function - should raise RuntimeError
         with pytest.raises(RuntimeError) as excinfo:
             await get_following_accounts(mock_config_with_api, state)
 
         assert "client ID not set" in str(excinfo.value)
-        mock_make_request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_get_following_accounts_unauthorized(
-        self, mock_make_request, mock_config_with_api
-    ):
-        """Test handling unauthorized error."""
-        # Setup mocks
+    @respx.mock
+    async def test_get_following_accounts_unauthorized(self, mock_config_with_api):
         mock_config_with_api.token = "invalid_token"
         state = DownloadState()
         state.creator_id = 123456
 
-        # Create httpx.Request for error construction
-        request = httpx.Request("GET", "https://example.com")
-
-        # Mock unauthorized error
-        error_response = httpx.Response(
-            status_code=401, json={"error": "Unauthorized"}, request=request
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
+        )
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(401, json={"error": "Unauthorized"}),
+            ]
         )
 
-        # Make the request raise httpx.HTTPStatusError with this response
-        error = httpx.HTTPStatusError(
-            "Unauthorized", request=request, response=error_response
-        )
-        mock_make_request.side_effect = error
-
-        # Call function - should raise ApiAuthenticationError
-        with pytest.raises(ApiAuthenticationError) as excinfo:
-            await get_following_accounts(mock_config_with_api, state)
+        try:
+            with (
+                patch("asyncio.sleep", AsyncMock()),
+                pytest.raises(ApiAuthenticationError) as excinfo,
+            ):
+                await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(route.calls, "test_get_following_accounts_unauthorized")
 
         assert "API returned unauthorized while getting following list" in str(
             excinfo.value
         )
         assert "invalid_token" in str(excinfo.value)
-        mock_make_request.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_following_accounts_request_error(
-        self, mock_make_request, mock_config_with_api
-    ):
-        """Test handling general request error."""
-        # Setup mocks
+    async def test_get_following_accounts_request_error(self, mock_config_with_api):
+        """Connection-level httpx.HTTPError — patches _make_rate_limited_request.
+
+        Mirrors the precedent set by test_get_account_request_exception in
+        TestGetAccountResponse: respx is transport-level and can't simulate
+        connection failures cleanly, so the rate-limited wrapper is the
+        practical seam for this single case.
+        """
         state = DownloadState()
         state.creator_id = 123456
 
-        # Make the request raise httpx.HTTPError (without response attribute)
-        error = httpx.HTTPError("Connection error")
-        mock_make_request.side_effect = error
-
-        # Call function - should raise ApiError
-        with pytest.raises(ApiError) as excinfo:
+        with (
+            patch(
+                "download.account._make_rate_limited_request",
+                AsyncMock(side_effect=httpx.HTTPError("Connection error")),
+            ),
+            pytest.raises(ApiError) as excinfo,
+        ):
             await get_following_accounts(mock_config_with_api, state)
 
         assert "Error getting following list from Fansly API" in str(excinfo.value)
         assert "Connection error" in str(excinfo.value)
-        mock_make_request.assert_called_once()
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_following_accounts_pagination(
-        self, mock_make_request, mock_config_with_api, entity_store
+        self, mock_config_with_api, entity_store
     ):
-        """Test following list pagination."""
+        """Page 1 (50 items, full page → continue) + Page 2 (2 items, short → stop).
+
+        4 GETs in this exact order:
+          1. following list page 1
+          2. account details page 1 (50 ids)
+          3. following list page 2
+          4. account details page 2 (2 ids)
+
+        Sized side_effect=[r1, r2, r3, r4] — a 5th GET (any unintended retry
+        or duplicate poll) would StopIteration and surface in the dump.
+        """
         state = DownloadState()
         state.creator_id = snowflake_id()
 
-        request = httpx.Request("GET", "https://example.com")
-
-        # Generate stable snowflake IDs for 52 creators
         creator_ids = [snowflake_id() for _ in range(52)]
-
-        # Page 1: 50 items (triggers pagination since count == page_size)
         first_page_accounts = [{"accountId": str(cid)} for cid in creator_ids[:50]]
         first_page_details = [
             {"id": str(cid), "username": f"user_{cid}"} for cid in creator_ids[:50]
         ]
-
-        # Page 2: 2 items (count < page_size → stops)
         second_page_accounts = [{"accountId": str(cid)} for cid in creator_ids[50:]]
         second_page_details = [
             {"id": str(cid), "username": f"user_{cid}"} for cid in creator_ids[50:]
         ]
 
-        mock_make_request.side_effect = [
-            httpx.Response(
-                200,
-                json={"success": "true", "response": first_page_accounts},
-                request=request,
-            ),
-            httpx.Response(
-                200,
-                json={"success": "true", "response": first_page_details},
-                request=request,
-            ),
-            httpx.Response(
-                200,
-                json={"success": "true", "response": second_page_accounts},
-                request=request,
-            ),
-            httpx.Response(
-                200,
-                json={"success": "true", "response": second_page_details},
-                request=request,
-            ),
-        ]
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
+        )
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": first_page_accounts},
+                ),
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": first_page_details},
+                ),
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": second_page_accounts},
+                ),
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": second_page_details},
+                ),
+            ]
+        )
 
-        with patch("asyncio.sleep", AsyncMock()):
-            result = await get_following_accounts(mock_config_with_api, state)
+        try:
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(route.calls, "test_get_following_accounts_pagination")
 
         expected_usernames = {f"user_{cid}" for cid in creator_ids}
         assert result == expected_usernames
-        assert mock_make_request.call_count == 4
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_reverse_order_processes_accounts_in_reverse(
-        self, mock_make_request, mock_config_with_api, entity_store, caplog
+        self, mock_config_with_api, entity_store, caplog
     ):
-        """Lines 448-450: config.reverse_order=True → reverse list + log info."""
-        import logging as _logging
-
-        caplog.set_level(_logging.INFO)
+        caplog.set_level(logging.INFO)
         creator_a = snowflake_id()
         creator_b = snowflake_id()
         creator_c = snowflake_id()
@@ -876,43 +881,44 @@ class TestGetFollowingAccounts:
         state = DownloadState()
         state.creator_id = snowflake_id()
 
-        request = httpx.Request("GET", "https://example.com")
-        following_list_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"accountId": str(creator_a)},
-                    {"accountId": str(creator_b)},
-                    {"accountId": str(creator_c)},
-                ],
-            },
-            request=request,
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
         )
-        account_details_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"id": str(creator_a), "username": "alpha"},
-                    {"id": str(creator_b), "username": "bravo"},
-                    {"id": str(creator_c), "username": "charlie"},
-                ],
-            },
-            request=request,
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"accountId": str(creator_a)},
+                            {"accountId": str(creator_b)},
+                            {"accountId": str(creator_c)},
+                        ],
+                    },
+                ),
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"id": str(creator_a), "username": "alpha"},
+                            {"id": str(creator_b), "username": "bravo"},
+                            {"id": str(creator_c), "username": "charlie"},
+                        ],
+                    },
+                ),
+            ]
         )
 
-        mock_make_request.side_effect = [
-            following_list_response,
-            account_details_response,
-        ]
+        try:
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(
+                route.calls, "test_reverse_order_processes_accounts_in_reverse"
+            )
 
-        with patch("asyncio.sleep", AsyncMock()):
-            result = await get_following_accounts(mock_config_with_api, state)
-
-        # All three creators surfaced; the order isn't observable in the
-        # returned set, but the "Processing accounts in reverse order"
-        # info log proves the branch fired.
         assert result == {"alpha", "bravo", "charlie"}
         info_messages = [
             r.getMessage() for r in caplog.records if r.levelname == "INFO"
@@ -920,63 +926,58 @@ class TestGetFollowingAccounts:
         assert any("Processing accounts in reverse order" in m for m in info_messages)
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_per_account_exception_logged_loop_continues(
-        self, mock_make_request, mock_config_with_api, entity_store, caplog, monkeypatch
+        self, mock_config_with_api, entity_store, caplog, monkeypatch
     ):
-        """Lines 468-471: process_account_data raises mid-loop → log error + continue."""
-        import logging as _logging
-
-        caplog.set_level(_logging.ERROR)
+        caplog.set_level(logging.ERROR)
         creator_good = snowflake_id()
         creator_bad = snowflake_id()
 
         state = DownloadState()
         state.creator_id = snowflake_id()
 
-        request = httpx.Request("GET", "https://example.com")
-        following_list_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"accountId": str(creator_good)},
-                    {"accountId": str(creator_bad)},
-                ],
-            },
-            request=request,
+        respx.route(method="OPTIONS", url__startswith=self._API_BASE).mock(
+            side_effect=lambda _r: httpx.Response(200)
         )
-        account_details_response = httpx.Response(
-            status_code=200,
-            json={
-                "success": "true",
-                "response": [
-                    {"id": str(creator_good), "username": "goodguy"},
-                    {"id": str(creator_bad), "username": "badguy"},
-                ],
-            },
-            request=request,
+        route = respx.get(url__startswith=self._API_BASE).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"accountId": str(creator_good)},
+                            {"accountId": str(creator_bad)},
+                        ],
+                    },
+                ),
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": [
+                            {"id": str(creator_good), "username": "goodguy"},
+                            {"id": str(creator_bad), "username": "badguy"},
+                        ],
+                    },
+                ),
+            ]
         )
 
-        mock_make_request.side_effect = [
-            following_list_response,
-            account_details_response,
-        ]
-
-        # Monkeypatch process_account_data: raise for badguy's data.
-        # Match by username (not id) — the id field may go through int/str
-        # coercion somewhere upstream. Username is a stable string.
         async def _selective_raise(*, config, state, data):
             if data.get("username") == "badguy":
                 raise RuntimeError("simulated account-process failure")
 
         monkeypatch.setattr("download.account.process_account_data", _selective_raise)
 
-        with patch("asyncio.sleep", AsyncMock()):
-            result = await get_following_accounts(mock_config_with_api, state)
+        try:
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await get_following_accounts(mock_config_with_api, state)
+        finally:
+            dump_fansly_calls(
+                route.calls, "test_per_account_exception_logged_loop_continues"
+            )
 
-        # Loop continued past the failure — good account still in result,
-        # bad account excluded (its except-branch's continue prevented
-        # usernames.add). This behavior alone proves the except path fired:
-        # without it, the RuntimeError would propagate and fail the test.
         assert "goodguy" in result
         assert "badguy" not in result

@@ -44,6 +44,12 @@ from .api import (
     run_main_and_cleanup,
     ws_message,
 )
+from .config import (
+    no_display,
+    unit_config,
+    unit_config_path,
+    validation_config,
+)
 from .core import (
     FanslyConfigFactory,
     bypass_load_config,
@@ -87,6 +93,7 @@ from .database import (
 )
 from .download import (
     DownloadStateFactory,
+    FakeStory,
     GlobalStateFactory,
 )
 from .metadata import (
@@ -221,6 +228,13 @@ mod_core_fixtures = [
     "minimal_argv",
 ]
 
+mod_config_fixtures = [
+    "no_display",
+    "unit_config",
+    "unit_config_path",
+    "validation_config",
+]
+
 mod_daemon_fakes = [
     "RecordingSimulator",
     "StubSimulator",
@@ -228,6 +242,7 @@ mod_daemon_fakes = [
 
 mod_download_factories = [
     "DownloadStateFactory",
+    "FakeStory",
     "GlobalStateFactory",
 ]
 
@@ -452,6 +467,7 @@ mod_init = [
 __all__ = [  # noqa: PLE0604
     *mod_core_factories,
     *mod_core_fixtures,
+    *mod_config_fixtures,
     *mod_daemon_fakes,
     *mod_download_factories,
     *mod_api_fixtures,

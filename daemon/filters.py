@@ -96,9 +96,34 @@ async def should_process_creator(
 ) -> bool:
     """Return True if the creator should be processed this daemon tick.
 
-    Pinned posts are excluded — their ``createdAt`` is original publish time, not recent activity.
-    Returns True conservatively on API failure or first run (no state row).
-    Baseline priority: ``session_baseline`` > ``MonitorState.lastCheckedAt`` > None (first run).
+    Fetches up to MAX_FILTER_PAGES timeline pages for *creator_id* and checks
+    whether any non-pinned post is newer than the effective baseline. Pinned
+    posts are excluded because their ``createdAt`` reflects the original
+    publish time, not a recent activity signal.
+
+    Pagination stops as soon as a non-pinned post is found. If all pages within
+    the cap are pinned the creator is treated as pinned-heavy and skipped.
+
+    The effective baseline is resolved in priority order:
+    1. ``session_baseline`` kwarg when explicitly supplied by the caller.
+    2. ``MonitorState.lastCheckedAt`` from the database.
+    3. ``None`` -- treated as "first run", always process.
+
+    Args:
+        config: FanslyConfig instance with a wired ``_api`` (FanslyApi).
+        creator_id: Fansly account ID of the creator to check.
+        session_baseline: Optional caller-supplied override for the baseline.
+            When set, ``MonitorState.lastCheckedAt`` is ignored entirely.
+        prefetched_posts: Optional list of post dicts already fetched by the
+            caller (e.g. from a home-timeline poll). When supplied, this page
+            is used in place of the first API call. If all posts are pinned the
+            function falls through and paginates from the oldest prefetched id.
+
+    Returns:
+        True if the creator should be downloaded this tick.
+        False when the most recent non-pinned post's createdAt is at or before
+        the effective baseline, or when all pages within MAX_FILTER_PAGES are
+        pinned (no activity signal found).
     """
     store = get_store()
 
