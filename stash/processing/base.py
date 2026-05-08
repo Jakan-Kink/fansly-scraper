@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import re
 import traceback
 import warnings
 from collections import defaultdict
@@ -30,7 +29,8 @@ from stash_graphql_client.types import (
     is_set,
 )
 
-from metadata import Account, Database, Media, get_store
+from fileio.normalize import get_id_from_filename
+from metadata import Account, Database
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
@@ -143,31 +143,15 @@ class StashProcessingBase(StashProcessingProtocol):
             self.store.set_ttl(entity_type, None)
 
     async def _preload_creator_media(self) -> None:
-        """Preload Scenes/Images for the current creator into the code indexes.
-
-        Runs path-scoped first; code-scoped runs only as a fallback when the
-        path-scoped pass indexes nothing. For aligned layouts (the path
-        filter matches), this avoids ~N/20 redundant Stash regex queries per
-        creator. For non-aligned layouts (Stash directory structure differs
-        from the scraper's), code-scoped recovers coverage by querying
-        Stash by media-ID regex using IDs from the local Postgres DB.
-        """
-        if not self.state.base_path and self.state.creator_id is None:
-            logger.debug(
-                "No base_path and no creator_id, skipping creator media preload"
-            )
+        """Preload Scenes/Images for the current creator into the code indexes."""
+        if not self.state.base_path:
+            logger.debug("No base_path set, skipping creator media preload")
             return
 
         self._scene_code_index.clear()
         self._image_code_index.clear()
 
         await self._preload_creator_media_by_path()
-
-        if not self._scene_code_index and not self._image_code_index:
-            logger.info(
-                "Path-scoped preload indexed nothing — running code-scoped fallback"
-            )
-            await self._preload_creator_media_by_code()
 
         logger.info(
             f"Built media code indexes: {len(self._scene_code_index)} scene codes, "
@@ -209,75 +193,15 @@ class StashProcessingBase(StashProcessingProtocol):
         except Exception as e:
             logger.warning(f"Path-scoped preload failed (continuing anyway): {e}")
 
-    async def _preload_creator_media_by_code(self) -> None:
-        """Code-scoped preload pass — queries Stash by media-ID regex."""
-        if self.state.creator_id is None:
-            return
-
-        try:
-            media_rows = await get_store().find(Media, accountId=self.state.creator_id)
-        except Exception as e:
-            logger.warning(f"Code-scoped preload: failed to load media IDs: {e}")
-            return
-
-        codes = [str(m.id) for m in media_rows if getattr(m, "id", None)]
-        if not codes:
-            return
-
-        scenes_before = len(self._scene_code_index)
-        images_before = len(self._image_code_index)
-
-        chunk_size = 20
-        chunks = [codes[i : i + chunk_size] for i in range(0, len(codes), chunk_size)]
-
-        logger.info(
-            f"Code-scoped preload: searching for {len(codes)} media IDs "
-            f"in {len(chunks)} chunks"
-        )
-
-        mapped_path = self.config.stash_mapped_path
-
-        for chunk in chunks:
-            alternation = f"({'|'.join(re.escape(c) for c in chunk)})"
-            regex = (
-                f"{re.escape(str(mapped_path))}.*{alternation}"
-                if mapped_path is not None
-                else alternation
-            )
-            try:
-                async for scene in self.store.find_iter(
-                    Scene, query_batch=500, path__regex=regex
-                ):
-                    self._index_scene_files(scene)
-                async for image in self.store.find_iter(
-                    Image, query_batch=500, path__regex=regex
-                ):
-                    self._index_image_files(image)
-            except Exception as e:
-                logger.warning(f"Code-scoped preload chunk failed (continuing): {e}")
-
-        added_scenes = len(self._scene_code_index) - scenes_before
-        added_images = len(self._image_code_index) - images_before
-        logger.info(
-            f"Code-scoped preload added {added_scenes} new scene codes, "
-            f"{added_images} new image codes"
-        )
-
     def _index_scene_files(self, scene: Scene) -> None:
         """Index a scene's files by media code."""
         if not is_set(scene.files) or not scene.files:
             return
         for f in scene.files:
             if is_set(f.path) and f.path:
-                # Extract media_id from fansly filename pattern:
-                # {date}_at_{time}_UTC_id_{media_id}.{ext}
-                # OR: {date}_at_{time}_UTC_preview_id_{media_id}.{ext}
-                for marker in ("_id_", "_preview_id_"):
-                    if marker in f.path:
-                        after_marker = f.path.split(marker)[-1]
-                        media_code = after_marker.split(".")[0]
-                        if media_code:
-                            self._scene_code_index[media_code].append(scene.id)
+                media_id, _ = get_id_from_filename(f.path)
+                if media_id is not None:
+                    self._scene_code_index[str(media_id)].append(scene.id)
 
     def _index_image_files(self, image: Image) -> None:
         """Index an image's visual files by media code."""
@@ -285,12 +209,9 @@ class StashProcessingBase(StashProcessingProtocol):
             return
         for f in image.visual_files:
             if is_set(f.path) and f.path:
-                for marker in ("_id_", "_preview_id_"):
-                    if marker in f.path:
-                        after_marker = f.path.split(marker)[-1]
-                        media_code = after_marker.split(".")[0]
-                        if media_code:
-                            self._image_code_index[media_code].append(image.id)
+                media_id, _ = get_id_from_filename(f.path)
+                if media_id is not None:
+                    self._image_code_index[str(media_id)].append(image.id)
 
     async def find_scenes_by_media_codes(
         self, media_codes: list[str]
