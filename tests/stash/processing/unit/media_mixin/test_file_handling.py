@@ -1,5 +1,7 @@
 """Fixed tests for file handling methods in MediaProcessingMixin."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
@@ -128,29 +130,44 @@ class TestFileHandling:
         assert file == mock_video_file
 
     def test_create_targeted_regex_pattern(self, respx_stash_processor):
-        """Test _create_targeted_regex_pattern method.
+        """_create_targeted_regex_pattern: alternation + three-tier anchoring.
 
-        After ORM migration: Tests utility method that builds regex patterns
-        for Django-style path__regex filtering (replaces nested OR conditions).
+        Covers single/multi-ID alternation, base_path anchor (scoped=True),
+        mapped_path anchor (scoped=False + mapped_path set), and code-only
+        fallback (scoped=False + no mapped_path).
         """
-        # Test with single ID
-        media_ids = ["123456"]
-        result = respx_stash_processor._create_targeted_regex_pattern(media_ids)
+        respx_stash_processor.state.base_path = Path(
+            "/home/user/scraper/creator_fansly"
+        )
+        respx_stash_processor.config.stash_mapped_path = Path("/data/Media")
 
-        # Should return regex pattern string
-        assert isinstance(result, str)
-        assert "123456" in result
+        single = respx_stash_processor._create_targeted_regex_pattern(["123456"])
+        assert isinstance(single, str)
+        assert "123456" in single
 
-        # Test with multiple IDs - should be OR'ed in regex
-        media_ids = ["123456", "789012"]
-        result = respx_stash_processor._create_targeted_regex_pattern(media_ids)
+        multi = respx_stash_processor._create_targeted_regex_pattern(
+            ["123456", "789012"]
+        )
+        assert "123456" in multi
+        assert "789012" in multi
+        assert "|" in multi
 
-        # Should contain both IDs in regex pattern
-        assert isinstance(result, str)
-        assert "123456" in result
-        assert "789012" in result
-        # Regex OR pattern uses pipe
-        assert "|" in result
+        scoped = respx_stash_processor._create_targeted_regex_pattern(
+            ["abc"], scoped_to_base_path=True
+        )
+        mapped = respx_stash_processor._create_targeted_regex_pattern(
+            ["abc"], scoped_to_base_path=False
+        )
+        assert "creator_fansly" in scoped
+        assert "creator_fansly" not in mapped
+        assert "/data/Media" in mapped
+        assert mapped.endswith("(abc)")
+
+        respx_stash_processor.config.stash_mapped_path = None
+        unscoped = respx_stash_processor._create_targeted_regex_pattern(
+            ["abc"], scoped_to_base_path=False
+        )
+        assert unscoped == "(abc)"
 
     @pytest.mark.asyncio
     async def test_find_stash_files_by_id(self, respx_stash_processor):

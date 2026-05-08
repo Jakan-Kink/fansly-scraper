@@ -15,6 +15,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### [TESTING-HOTFIX] Stash matching for non-aligned library layouts
+
+Targets the failure mode where a user copies the scraper's downloads to a
+separate Stash host and reorganises the files into a different folder
+structure (e.g. split by media type into `Videos/<studio>/` and
+`Photos/<studio>/`), so the per-creator subfolder name the scraper expects
+(`<creator>_fansly/`) never appears in any of the Stash file paths. With
+the previous behaviour, `--stash-only` runs created Galleries from the DB
+but couldn't link Scenes/Images to them — `path__contains=<base_path>`
+returned zero matches, the code index stayed empty, and the per-batch
+fallback regex re-anchored to the same failing `base_path`.
+
+#### Added
+
+- `stash_context.override_dldir_w_mapped` config field. When `true`,
+  `get_stash_path()` returns `mapped_path` directly and ignores the
+  per-creator subfolder structure — path filters scope to the entire
+  fansly-managed area in Stash. Pydantic validator rejects the config
+  at load time if the flag is set without `mapped_path`.
+- `stash_context.require_stash_only_mode` config field. When `true`,
+  Stash integration only engages on `--stash-only` runs; regular
+  download modes skip every Stash code path even when `stash_context`
+  is populated. Lets users with a separate Stash host keep credentials
+  in config without engaging Stash on every run.
+- `FanslyConfig.stash_active` property — single decision point for
+  "should Stash run this iteration." Replaces the bare
+  `stash_context_conn is not None` check at the post-download
+  StashProcessing call site.
+- Code-scoped preload pass (`_preload_creator_media_by_code`) as a
+  conditional fallback. Pulls the creator's `Media.id` values from the
+  local Postgres DB and queries Stash by `path__regex=<chunked codes>`.
+  Runs only when path-scoped preload indexed nothing — aligned layouts
+  pay no extra Stash queries, non-aligned layouts (Stash directory
+  structure doesn't share a prefix with `download_directory`) recover
+  coverage via media-ID regex search.
+- Three-tier anchor in `_create_targeted_regex_pattern`: per-creator
+  `base_path` (default), `mapped_path` (when scoped=False with mapping
+  set), or code-only (no mapping). The lazy per-batch fallback now
+  scopes regex queries to `mapped_path.*(codes)` instead of going
+  library-wide when mapping is configured.
+
+#### Changed
+
+- `_preload_creator_media` runs path-scoped first, code-scoped only
+  when path-scoped indexed nothing. Both feed the same
+  `_scene_code_index` / `_image_code_index`; downstream
+  `find_scenes_by_media_codes` / `find_images_by_media_codes` lookups
+  are unchanged. Each pass is a no-op without its precondition
+  (`base_path` for path-scoped, `creator_id` + DB media rows for
+  code-scoped).
+- `get_stash_path()` resolution ladder:
+  override + mapped_path → `str(mapped_path)`;
+  mapped_path only → prefix substitution (existing 0.13.3 behaviour);
+  neither → unchanged local path.
+
 ## [0.13.3] - 2026-05-04
 
 ### Added

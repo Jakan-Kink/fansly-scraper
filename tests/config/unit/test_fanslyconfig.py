@@ -398,6 +398,24 @@ class TestStashContextWiring:
         with pytest.raises(RuntimeError, match="No StashContext connection data"):
             config.get_stash_context()
 
+    def test_stash_active_gate(self, config):
+        """stash_active: configured + (no restriction OR mode matches)."""
+        config.stash_context_conn = None
+        config.stash_require_stash_only_mode = False
+        assert config.stash_active is False
+
+        config.stash_context_conn = {"scheme": "http", "host": "x", "port": "9999"}
+        config.stash_require_stash_only_mode = False
+        config.download_mode = DownloadMode.NORMAL
+        assert config.stash_active is True
+
+        config.stash_require_stash_only_mode = True
+        config.download_mode = DownloadMode.NORMAL
+        assert config.stash_active is False
+
+        config.download_mode = DownloadMode.STASH_ONLY
+        assert config.stash_active is True
+
     def test_get_stash_context_builds_real_instance(self, config):
         """Real StashContext is constructed and cached on _stash."""
         config._stash = None

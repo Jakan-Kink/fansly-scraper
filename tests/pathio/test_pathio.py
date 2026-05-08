@@ -30,6 +30,7 @@ class MockPathConfig:
         separate_previews=True,
         use_folder_suffix=True,
         stash_mapped_path=None,
+        stash_override_dldir_w_mapped=False,
     ):
         self.download_directory = download_directory
         self.separate_messages = separate_messages
@@ -37,6 +38,7 @@ class MockPathConfig:
         self.separate_previews = separate_previews
         self.use_folder_suffix = use_folder_suffix
         self.stash_mapped_path = stash_mapped_path
+        self.stash_override_dldir_w_mapped = stash_override_dldir_w_mapped
 
 
 @pytest.fixture

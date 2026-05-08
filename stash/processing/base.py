@@ -29,6 +29,7 @@ from stash_graphql_client.types import (
     is_set,
 )
 
+from fileio.normalize import get_id_from_filename
 from metadata import Account, Database
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
@@ -142,47 +143,15 @@ class StashProcessingBase(StashProcessingProtocol):
             self.store.set_ttl(entity_type, None)
 
     async def _preload_creator_media(self) -> None:
-        """Preload Galleries, Images, and Scenes for current creator into identity map.
-
-        Uses self.state.base_path as path filter to load only this creator's media.
-        Dramatically speeds up subsequent lookups by avoiding per-item GraphQL queries.
-
-        Also builds media code indexes for O(1) lookups by media_id extracted from
-        filenames. Pattern from pyofscraperstash: preload per-performer, build index,
-        invalidate after processing.
-        """
+        """Preload Scenes/Images for the current creator into the code indexes."""
         if not self.state.base_path:
             logger.debug("No base_path set, skipping creator media preload")
             return
 
-        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
-        logger.info(f"Preloading creator media from: {path_filter}")
-
         self._scene_code_index.clear()
         self._image_code_index.clear()
 
-        try:
-            scene_count = 0
-            async for scene in self.store.find_iter(
-                Scene, query_batch=500, path__contains=path_filter
-            ):
-                scene_count += 1
-                self._index_scene_files(scene)
-            logger.info(f"Preloaded {scene_count} scenes")
-
-            image_count = 0
-            async for image in self.store.find_iter(
-                Image, query_batch=500, path__contains=path_filter
-            ):
-                image_count += 1
-                self._index_image_files(image)
-            logger.info(f"Preloaded {image_count} images")
-
-            # Galleries have no file path — looked up by code on demand.
-            # Preloading all galleries pulls in scene references via the fragment.
-
-        except Exception as e:
-            logger.warning(f"Failed to preload creator media (continuing anyway): {e}")
+        await self._preload_creator_media_by_path()
 
         logger.info(
             f"Built media code indexes: {len(self._scene_code_index)} scene codes, "
@@ -195,21 +164,44 @@ class StashProcessingBase(StashProcessingProtocol):
             f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
         )
 
+    async def _preload_creator_media_by_path(self) -> None:
+        """Path-scoped preload pass — queries Stash by translated base_path."""
+        if not self.state.base_path:
+            return
+
+        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
+        logger.info(f"Path-scoped preload from: {path_filter}")
+
+        try:
+            scene_count = 0
+            async for scene in self.store.find_iter(
+                Scene, query_batch=500, path__contains=path_filter
+            ):
+                scene_count += 1
+                self._index_scene_files(scene)
+
+            image_count = 0
+            async for image in self.store.find_iter(
+                Image, query_batch=500, path__contains=path_filter
+            ):
+                image_count += 1
+                self._index_image_files(image)
+
+            logger.info(
+                f"Path-scoped preload: {scene_count} scenes, {image_count} images"
+            )
+        except Exception as e:
+            logger.warning(f"Path-scoped preload failed (continuing anyway): {e}")
+
     def _index_scene_files(self, scene: Scene) -> None:
         """Index a scene's files by media code."""
         if not is_set(scene.files) or not scene.files:
             return
         for f in scene.files:
             if is_set(f.path) and f.path:
-                # Extract media_id from fansly filename pattern:
-                # {date}_at_{time}_UTC_id_{media_id}.{ext}
-                # OR: {date}_at_{time}_UTC_preview_id_{media_id}.{ext}
-                for marker in ("_id_", "_preview_id_"):
-                    if marker in f.path:
-                        after_marker = f.path.split(marker)[-1]
-                        media_code = after_marker.split(".")[0]
-                        if media_code:
-                            self._scene_code_index[media_code].append(scene.id)
+                media_id, _ = get_id_from_filename(f.path)
+                if media_id is not None:
+                    self._scene_code_index[str(media_id)].append(scene.id)
 
     def _index_image_files(self, image: Image) -> None:
         """Index an image's visual files by media code."""
@@ -217,12 +209,9 @@ class StashProcessingBase(StashProcessingProtocol):
             return
         for f in image.visual_files:
             if is_set(f.path) and f.path:
-                for marker in ("_id_", "_preview_id_"):
-                    if marker in f.path:
-                        after_marker = f.path.split(marker)[-1]
-                        media_code = after_marker.split(".")[0]
-                        if media_code:
-                            self._image_code_index[media_code].append(image.id)
+                media_id, _ = get_id_from_filename(f.path)
+                if media_id is not None:
+                    self._image_code_index[str(media_id)].append(image.id)
 
     async def find_scenes_by_media_codes(
         self, media_codes: list[str]

@@ -100,33 +100,49 @@ class MediaProcessingMixin(StashProcessingProtocol):
     def _create_targeted_regex_pattern(
         self,
         media_ids: Sequence[str],
+        scoped_to_base_path: bool = True,
     ) -> str:
         """Create targeted regex pattern for path filtering.
 
-        Pattern 5: Replaces 40-line nested OR construction with simple regex.
-        Uses base_path for precision: /creator/path/.*(code1|code2|code3)
+        Three anchor levels, narrowest to broadest:
+
+        - ``scoped_to_base_path=True`` (default) and base_path set:
+          anchor to the per-creator translated base path —
+          ``/base/path/.*(code1|code2|code3)``.
+        - ``scoped_to_base_path=False`` and ``stash_mapped_path`` set:
+          anchor to the user's fansly-area root in Stash —
+          ``/mapped/root/.*(code1|code2|code3)``. Catches creators whose
+          per-creator subfolders aren't aligned with the scraper's layout
+          (split by media type, renamed per-studio, etc.) while still
+          excluding unrelated content elsewhere in the library.
+        - ``scoped_to_base_path=False`` and no ``mapped_path``:
+          return code-only ``(code1|code2|code3)`` — library-wide search.
 
         Args:
             media_ids: List of media IDs to search for
+            scoped_to_base_path: If True, anchor narrowly to base_path. If
+                False, anchor to mapped_path when set, else code-only.
 
         Returns:
             Regex pattern string for Django-style path__regex filter
         """
-        # Escape codes for regex safety
         escaped_codes = [re.escape(code) for code in media_ids]
+        alternation = f"({'|'.join(escaped_codes)})"
 
-        # Build targeted regex with base path if available
         if (
-            hasattr(self, "state")
+            scoped_to_base_path
+            and hasattr(self, "state")
             and hasattr(self.state, "base_path")
             and self.state.base_path
         ):
             base_path_str = get_stash_path(self.state.base_path, self.config)
-            # Match: /base/path/.*(code1|code2|code3)
-            return f"{re.escape(base_path_str)}.*({'|'.join(escaped_codes)})"
+            return f"{re.escape(base_path_str)}.*{alternation}"
 
-        # Fallback: match any of the codes without path constraint
-        return "|".join(escaped_codes)
+        mapped_path = getattr(self.config, "stash_mapped_path", None)
+        if mapped_path is not None:
+            return f"{re.escape(str(mapped_path))}.*{alternation}"
+
+        return alternation
 
     async def _find_stash_files_by_id(
         self,
@@ -346,18 +362,21 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 )
             return found
 
-        # Fallback: index is empty (no preload), use regex GraphQL search
+        # Fallback: index is empty (no preload, or preload's path filter
+        # matched nothing — e.g. Stash library uses a different folder
+        # structure than the scraper). Use a path-INDEPENDENT regex so we
+        # don't re-introduce the constraint that emptied the index.
         logger.debug("Media code index empty, falling back to regex search")
 
         # Maximum batch size to prevent SQL parser stack overflow
         max_batch_size = 20
 
-        # Fallback: GraphQL path search via find_iter()
-        # Process images in batches
         if image_ids:
             image_id_batches = self._chunk_list(image_ids, max_batch_size)
             for batch_index, batch_ids in enumerate(image_id_batches):
-                regex_pattern = self._create_targeted_regex_pattern(batch_ids)
+                regex_pattern = self._create_targeted_regex_pattern(
+                    batch_ids, scoped_to_base_path=False
+                )
                 try:
                     async for image in self.store.find_iter(
                         Image,
@@ -375,9 +394,10 @@ class MediaProcessingMixin(StashProcessingProtocol):
                         }
                     )
 
-        # Process scenes using targeted regex with find_iter
         if scene_ids:
-            regex_pattern = self._create_targeted_regex_pattern(scene_ids)
+            regex_pattern = self._create_targeted_regex_pattern(
+                scene_ids, scoped_to_base_path=False
+            )
             try:
                 async for scene in self.store.find_iter(
                     Scene,
@@ -391,7 +411,9 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 )
                 scene_id_batches = self._chunk_list(scene_ids, max_batch_size)
                 for batch_index, batch_ids in enumerate(scene_id_batches):
-                    batch_regex = self._create_targeted_regex_pattern(batch_ids)
+                    batch_regex = self._create_targeted_regex_pattern(
+                        batch_ids, scoped_to_base_path=False
+                    )
                     try:
                         async for scene in self.store.find_iter(
                             Scene,

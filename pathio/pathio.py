@@ -162,6 +162,10 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     scraper, this replaces the download_directory prefix with stash_mapped_path.
     Falls back to str(local_path) when no mapping is configured.
 
+    - override + mapped_path → ``str(mapped_path)`` (local_path ignored).
+    - mapped_path only → prefix-substitute ``download_directory`` → ``mapped_path``.
+    - neither → ``str(local_path)`` unchanged.
+
     Args:
         local_path: The local Path object to translate.
         config: The program configuration.
@@ -169,6 +173,9 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     Returns:
         String path in Stash's coordinate system.
     """
+    if config.stash_override_dldir_w_mapped and config.stash_mapped_path is not None:
+        return str(config.stash_mapped_path)
+
     local_str = str(local_path)
     if config.stash_mapped_path is not None and config.download_directory is not None:
         local_prefix = str(config.download_directory)

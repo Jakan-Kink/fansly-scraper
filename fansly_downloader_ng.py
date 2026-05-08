@@ -488,9 +488,9 @@ async def main(config: FanslyConfig) -> int:
                                 config.interactive,
                             )
 
-                        if config.stash_context_conn is not None:
+                        if config.stash_active:
                             # isort: off
-                            # Conditional on stash_context_conn — avoid eager-
+                            # Conditional on stash_active — avoid eager-
                             # importing stash deps when integration is disabled.
                             from stash import StashProcessing  # noqa: PLC0415 # Deferred import since only used in stash context
 
