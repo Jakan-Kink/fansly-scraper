@@ -53,7 +53,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
                 17,
             )
 
-    post_response = config.get_api().get_post(post_id)
+    post_response = await config.get_api().get_post(post_id)
 
     if post_response.status_code == 200:
         # From: "accounts"

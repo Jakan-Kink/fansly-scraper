@@ -140,7 +140,7 @@ async def download_timeline(
             if state.creator_id is None or timeline_cursor is None:
                 raise RuntimeError("Creator name or timeline cursor should not be None")
 
-            timeline_response = config.get_api().get_timeline(
+            timeline_response = await config.get_api().get_timeline(
                 state.creator_id, str(timeline_cursor)
             )
 

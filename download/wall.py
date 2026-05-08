@@ -158,7 +158,7 @@ async def download_wall(
             if state.creator_id is None:
                 raise RuntimeError("Creator ID should not be None")
 
-            wall_response = config.get_api().get_wall_posts(
+            wall_response = await config.get_api().get_wall_posts(
                 state.creator_id, wall_id, str(before_cursor)
             )
 

@@ -68,7 +68,7 @@ async def fetch_and_process_media(
         for ids in batch_list(media_ids, config.BATCH_SIZE):
             media_ids_str = ",".join(str(mid) for mid in ids)
 
-            response = api.get_account_media(media_ids_str)
+            response = await api.get_account_media(media_ids_str)
             media_infos = api.get_json_response_contents(response)
 
             # Persist Media + AccountMedia via Pydantic pipeline
@@ -177,7 +177,7 @@ async def _verify_temp_download(
             url = media.preview_url if is_preview else media.download_url
             mimetype = media.preview_mimetype if is_preview else media.mimetype
 
-            _download_file(config, url, temp_file)
+            await _download_file(config, url, temp_file)
 
         hash_func = (
             get_hash_for_image if "image" in mimetype else get_hash_for_other_content
@@ -215,32 +215,33 @@ async def _verify_temp_download(
     return False
 
 
-def _download_file(config: FanslyConfig, url: str, output_file: BinaryIO) -> None:
+async def _download_file(config: FanslyConfig, url: str, output_file: BinaryIO) -> None:
     """Download file from URL to output file."""
     response = None
     try:
-        response = config.get_api().get_with_ngsw(
+        response = await config.get_api().get_with_ngsw(
             url=url,
             stream=True,
             add_fansly_headers=False,
         )
         if response.status_code != 200:
+            body = await response.aread()
             raise DownloadError(
                 f"Download failed due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{response.content.decode('utf-8')} [13]"
+                f"| content: \n{body.decode('utf-8')} [13]"
             )
 
-        for chunk in response.iter_bytes(chunk_size=1_048_576):
+        async for chunk in response.aiter_bytes(chunk_size=1_048_576):
             if chunk:
                 output_file.write(chunk)
         output_file.flush()
     finally:
         if response is not None:
-            response.close()
+            await response.aclose()
 
 
-def _download_regular_file(
+async def _download_regular_file(
     config: FanslyConfig,
     media: Media,
     file_save_path: Path,
@@ -248,7 +249,7 @@ def _download_regular_file(
     """Download a regular media file with progress bar."""
     response = None
     try:
-        response = config.get_api().get_with_ngsw(
+        response = await config.get_api().get_with_ngsw(
             url=media.download_url,
             stream=True,
             add_fansly_headers=False,
@@ -259,37 +260,34 @@ def _download_regular_file(
             file_size = int(response.headers.get("content-length", 0))
             disable_loading_bar = file_size < 20_000_000
 
-            progress = Progress(
+            with Progress(
                 text_column,
                 bar_column,
                 expand=True,
                 transient=True,
                 disable=disable_loading_bar,
-            )
-            task_id = progress.add_task("", total=file_size)
-            progress.start()
+            ) as progress:
+                task_id = progress.add_task("", total=file_size)
 
-            with file_save_path.open("wb") as output_file:
-                for chunk in response.iter_bytes(chunk_size=1_048_576):
-                    if chunk:
-                        output_file.write(chunk)
-                        progress.advance(task_id, len(chunk))
-
-            progress.refresh()
-            progress.stop()
+                with file_save_path.open("wb") as output_file:
+                    async for chunk in response.aiter_bytes(chunk_size=1_048_576):
+                        if chunk:
+                            output_file.write(chunk)
+                            progress.advance(task_id, len(chunk))
 
             ts = media.created_at_timestamp
             if ts:
                 os.utime(file_save_path, (ts, ts))
         else:
+            body = await response.aread()
             raise DownloadError(
                 f"Download failed on filename {media.get_file_name()} due to an "
                 f"error --> status_code: {response.status_code} "
-                f"| content: \n{response.content.decode('utf-8')} [13]"
+                f"| content: \n{body.decode('utf-8')} [13]"
             )
     finally:
         if response is not None:
-            response.close()
+            await response.aclose()
 
 
 async def _download_m3u8_file(
@@ -468,7 +466,7 @@ async def download_media(
                             continue
                         # _download_m3u8_file already increments vid_count
                     else:
-                        _download_regular_file(config, media, file_save_path)
+                        await _download_regular_file(config, media, file_save_path)
 
                         if not await asyncio.to_thread(file_save_path.exists):
                             print_warning(

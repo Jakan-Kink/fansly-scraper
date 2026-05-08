@@ -129,7 +129,7 @@ def validate_adjust_creator_name(name: str, interactive: bool = False) -> str | 
             return None
 
 
-def validate_adjust_token(config: FanslyConfig) -> None:
+async def validate_adjust_token(config: FanslyConfig) -> None:
     """Validates the Fansly authorization token in the config
     and analyzes installed browsers to automatically find tokens.
 
@@ -198,7 +198,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                     )
 
                     if browser_fansly_token:
-                        fansly_account = config.get_api().get_client_user_name(
+                        fansly_account = await config.get_api().get_client_user_name(
                             browser_fansly_token
                         )
                         break  # exit the inner loop if a valid processed_token is found
@@ -208,7 +208,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                 browser_fansly_token = get_token_from_firefox_profile(browser_path)
 
                 if browser_fansly_token:
-                    fansly_account = config.get_api().get_client_user_name(
+                    fansly_account = await config.get_api().get_client_user_name(
                         browser_fansly_token
                     )
 
@@ -545,7 +545,9 @@ def validate_adjust_download_mode(
                 done = True
 
 
-def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) -> None:
+async def validate_adjust_config(
+    config: FanslyConfig, download_mode_set: bool
+) -> None:
     """Validates all input values from `config.ini`
     and corrects them if possible.
 
@@ -555,7 +557,7 @@ def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) -> Non
     if not validate_creator_names(config):
         raise ConfigError("Configuration error - no valid creator name specified.")
 
-    validate_adjust_token(config)
+    await validate_adjust_token(config)
 
     validate_adjust_user_agent(config)
 

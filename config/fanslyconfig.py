@@ -212,11 +212,7 @@ class FanslyConfig:
     # region Methods
 
     def get_api(self) -> FanslyApi:
-        """Get the API instance without session setup.
-
-        If username/password are configured, creates API with empty token for login.
-        Otherwise requires a valid token to be configured.
-        """
+        """Return the cached API instance, constructing it on first call. No I/O."""
         if self._api is None:
             token = self.get_unscrambled_token()
             user_agent = self.user_agent
@@ -249,33 +245,27 @@ class FanslyConfig:
                     config=self,
                 )
 
-                # If we have login credentials but no valid token, perform login
-                if has_login_credentials and not self.token_is_valid():
-                    try:
-                        self._api.login(self.username, self.password)  # type: ignore
-                        # Update config with the new token
-                        self.token = self._api.token
-                        self._save_config()
-                    except Exception as e:
-                        raise RuntimeError(f"Login failed: {e}")
-
         if self._api is None:
             raise RuntimeError("Failed to create API instance - check configuration")
 
         return self._api
 
     async def setup_api(self) -> FanslyApi:
-        """Set up the API instance including async session setup."""
+        """Bootstrap device_id, login if needed, and set up the WebSocket session."""
         api = self.get_api()
+        await api.update_device_id()
 
-        # Check if api is None before trying to access its attributes
-        if api is None:
-            raise RuntimeError("Token or user agent error creating Fansly API object.")
+        has_login_credentials = self.username and self.password
+        if has_login_credentials and not self.token_is_valid():
+            try:
+                await api.login(self.username, self.password)  # type: ignore
+                self.token = api.token
+                self._save_config()
+            except Exception as e:
+                raise RuntimeError(f"Login failed: {e}") from e
 
         if api.session_id == "null":
             await api.setup_session()
-
-            # Explicit save - on init of FanslyApi() self._api was None
             self._save_config()
 
         return api

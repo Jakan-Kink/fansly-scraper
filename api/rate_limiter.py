@@ -16,20 +16,9 @@ if TYPE_CHECKING:
 
 
 class RateLimiter:
-    """
-    Token bucket rate limiter with adaptive backoff support.
-
-    This implementation uses a token bucket algorithm to control request rates,
-    with support for burst traffic and adaptive rate limiting based on server responses.
-    """
+    """Token bucket rate limiter with adaptive backoff."""
 
     def __init__(self, config: "FanslyConfig") -> None:
-        """
-        Initialize the rate limiter.
-
-        Args:
-            config: Configuration instance containing rate limiting settings
-        """
         self.config = config
         self._lock = Lock()
 
@@ -69,6 +58,9 @@ class RateLimiter:
 
         # Learned persistent floor: ramps up quickly on 429s, decays slowly with sustained success
         self.learned_floor = 0.0
+
+        # Shared reservation cursor for serializing concurrent waiters.
+        self._next_allowed_at = 0.0
 
         # Statistics
         self.total_requests = 0
@@ -180,6 +172,11 @@ class RateLimiter:
             self.last_backoff_time = time.time()
             self.adaptive_adjustments += 1
 
+            # Mirror server bucket depletion: drain locally and skip refill
+            # until backoff lifts (_refill_tokens treats future last_refill as no-op).
+            self.tokens = 0.0
+            self.last_refill = self.last_backoff_time + self.current_backoff_seconds
+
             # Log with additional context about consecutive violations
             at_max = self.current_backoff_seconds >= self.max_backoff_seconds
             logger.warning(
@@ -214,6 +211,16 @@ class RateLimiter:
 
                     self.consecutive_violations = max(
                         0, self.consecutive_violations - 1
+                    )
+
+                    # Clamp reservation cursor to the new (smaller) backoff window
+                    # so future reservations don't inherit stale targets from the
+                    # larger pre-reduction window.
+                    new_backoff_end = (
+                        self.last_backoff_time + self.current_backoff_seconds
+                    )
+                    self._next_allowed_at = min(
+                        self._next_allowed_at, new_backoff_end
                     )
 
                     # Check if we've reached the minimum threshold
@@ -255,171 +262,122 @@ class RateLimiter:
                         f"Current backoff: {self.current_backoff_seconds:.1f}s"
                     )
 
+    def _reserve_slot(self) -> tuple[float, float, bool]:
+        """Reserve the next allowed request slot. Caller must hold self._lock.
+
+        Returns (target_time, floor, in_backoff).
+        """
+        self.total_requests += 1
+
+        now = time.time()
+        floor = self._calculate_minimum_floor()
+        in_backoff = self._is_in_backoff()
+        backoff_end = (
+            self.last_backoff_time + self.current_backoff_seconds
+            if in_backoff
+            else 0.0
+        )
+
+        target = max(now, self._next_allowed_at, backoff_end)
+        if floor > 0 and self.last_request_time > 0:
+            target = max(target, self.last_request_time + floor)
+        self._next_allowed_at = target + floor
+
+        if in_backoff or target > now + 1e-3:
+            self.blocked_requests += 1
+
+        return target, floor, in_backoff
+
     def wait_for_request(self) -> float:
-        """Wait for permission to make a request (synchronous version).
-
-        Calculates required wait times under the lock, then sleeps
-        *outside* the lock so that ``get_stats()`` (and therefore the
-        ``RateLimiterDisplay`` progress bar) can still read state while
-        this thread is sleeping.
-
-        Returns:
-            float: Time waited in seconds
-        """
+        """Wait for permission to make a request (synchronous). Returns time waited."""
         if not self.enabled:
             return 0.0
 
         start_time = time.time()
 
-        # Phase 1: calculate wait durations under lock
-        floor_wait = 0.0
-        backoff_wait = 0.0
-        needs_token_wait = False
-
         with self._lock:
-            self.total_requests += 1
+            target, floor, in_backoff = self._reserve_slot()
 
-            # Minimum floor enforcement
-            minimum_floor = self._calculate_minimum_floor()
-            if minimum_floor > 0 and self.last_request_time > 0:
-                time_since_last = time.time() - self.last_request_time
-                if time_since_last < minimum_floor:
-                    floor_wait = minimum_floor - time_since_last
-
-            # Backoff period
-            if self._is_in_backoff():
-                backoff_remaining = self.current_backoff_seconds - (
-                    time.time() - self.last_backoff_time
-                )
-                if backoff_remaining > 0:
-                    self.blocked_requests += 1
-                    backoff_wait = backoff_remaining
-
-            # Token availability
-            self._refill_tokens()
-            if self.tokens < 1.0:
-                needs_token_wait = True
-                self.blocked_requests += 1
-
-        # Phase 2: sleep outside the lock (display thread can poll stats)
-        if floor_wait > 0:
-            logger.debug(
-                f"Enforcing minimum floor: waiting {floor_wait:.1f}s "
-                f"(floor: {minimum_floor:.1f}s)"
-            )
-            time.sleep(floor_wait)
-
-        if backoff_wait > 0:
-            logger.debug(f"Backing off for {backoff_wait:.1f}s")
-            time.sleep(backoff_wait)
-
-        if needs_token_wait:
-            logger.debug(
-                f"Rate limit reached, waiting "
-                f"{self.token_refill_interval:.1f}s for next token"
-            )
-            time.sleep(self.token_refill_interval)
-
-        # Phase 3: re-acquire lock to consume token and record timing
-        with self._lock:
-            if needs_token_wait:
-                self._refill_tokens()
-
-            if self.tokens >= 1.0:
-                self.tokens -= 1.0
-
-            current_time = time.time()
-            self.request_history.append(current_time)
-            self.last_request_time = current_time
-
-        total_wait_time = time.time() - start_time
-        return total_wait_time
-
-    async def async_wait_for_request(self) -> float:
-        """
-        Wait for permission to make a request (async version).
-
-        Returns:
-            float: Time waited in seconds
-        """
-        if not self.enabled:
-            return 0.0
-
-        start_time = time.time()
-
-        # Calculate wait times in lock, sleep outside
-        floor_wait = 0.0
-        backoff_remaining = 0.0
-        needs_token_wait = False
-
-        with self._lock:
-            self.total_requests += 1
-
-            # Check minimum floor enforcement FIRST
-            minimum_floor = self._calculate_minimum_floor()
-            if minimum_floor > 0 and self.last_request_time > 0:
-                time_since_last = time.time() - self.last_request_time
-                if time_since_last < minimum_floor:
-                    floor_wait = minimum_floor - time_since_last
-
-            # Check if we're in a backoff period
-            if self._is_in_backoff():
-                backoff_remaining = self.current_backoff_seconds - (
-                    time.time() - self.last_backoff_time
-                )
-                if backoff_remaining > 0:
-                    self.blocked_requests += 1
-                    logger.debug(f"Backing off for {backoff_remaining:.1f}s")
-
-            # Refill tokens
-            self._refill_tokens()
-
-            # Check if we have tokens available
-            if self.tokens < 1.0:
-                needs_token_wait = True
-                self.blocked_requests += 1
+        sleep_for = target - time.time()
+        if sleep_for > 0:
+            if in_backoff:
                 logger.debug(
-                    f"Rate limit reached, waiting "
-                    f"{self.token_refill_interval:.1f}s for next token"
+                    f"Backing off until reservation: {sleep_for:.1f}s "
+                    f"(backoff window: {self.current_backoff_seconds:.1f}s)"
                 )
+            else:
+                logger.debug(
+                    f"Reservation wait: {sleep_for:.1f}s (floor: {floor:.1f}s)"
+                )
+            time.sleep(sleep_for)
 
-        # Async sleep for minimum floor enforcement FIRST
-        if floor_wait > 0:
-            logger.debug(
-                f"Enforcing minimum floor: waiting {floor_wait:.1f}s "
-                f"(floor: {minimum_floor:.1f}s)"
-            )
-            await asyncio.sleep(floor_wait)
-
-        # Async sleep for backoff outside the lock
-        if backoff_remaining > 0:
-            await asyncio.sleep(backoff_remaining)
-
-        # Async sleep for token wait outside the lock
-        if needs_token_wait:
-            await asyncio.sleep(self.token_refill_interval)
+        token_blocked_recorded = False
+        while True:
             with self._lock:
                 self._refill_tokens()
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    current_time = time.time()
+                    self.request_history.append(current_time)
+                    self.last_request_time = current_time
+                    break
+                wait_for_token = self.token_refill_interval
+                if not token_blocked_recorded:
+                    self.blocked_requests += 1
+                    token_blocked_recorded = True
+            logger.debug(
+                f"Token wait: {wait_for_token:.1f}s for next refill"
+            )
+            time.sleep(wait_for_token)
 
-        # Consume token and track timing
+        return time.time() - start_time
+
+    async def async_wait_for_request(self) -> float:
+        """Wait for permission to make a request (async). Returns time waited."""
+        if not self.enabled:
+            return 0.0
+
+        start_time = time.time()
+
         with self._lock:
-            if self.tokens >= 1.0:
-                self.tokens -= 1.0
-            current_time = time.time()
-            self.request_history.append(current_time)
-            self.last_request_time = current_time
+            target, floor, in_backoff = self._reserve_slot()
 
-        total_wait_time = time.time() - start_time
-        return total_wait_time
+        sleep_for = target - time.time()
+        if sleep_for > 0:
+            if in_backoff:
+                logger.debug(
+                    f"Backing off until reservation: {sleep_for:.1f}s "
+                    f"(backoff window: {self.current_backoff_seconds:.1f}s)"
+                )
+            else:
+                logger.debug(
+                    f"Reservation wait: {sleep_for:.1f}s (floor: {floor:.1f}s)"
+                )
+            await asyncio.sleep(sleep_for)
+
+        token_blocked_recorded = False
+        while True:
+            with self._lock:
+                self._refill_tokens()
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    current_time = time.time()
+                    self.request_history.append(current_time)
+                    self.last_request_time = current_time
+                    break
+                wait_for_token = self.token_refill_interval
+                if not token_blocked_recorded:
+                    self.blocked_requests += 1
+                    token_blocked_recorded = True
+            logger.debug(
+                f"Token wait: {wait_for_token:.1f}s for next refill"
+            )
+            await asyncio.sleep(wait_for_token)
+
+        return time.time() - start_time
 
     def record_response(self, status_code: int, response_time: float) -> None:
-        """
-        Record a response for adaptive rate limiting.
-
-        Args:
-            status_code: HTTP status code of the response
-            response_time: Time taken for the request in seconds
-        """
+        """Record a response for adaptive rate limiting."""
         if not self.enabled:
             return
 
@@ -451,12 +409,7 @@ class RateLimiter:
                 logger.debug(f"Slow response detected: {response_time:.2f}s")
 
     def get_stats(self) -> dict[str, Any]:
-        """
-        Get rate limiter statistics.
-
-        Returns:
-            dict: Statistics about rate limiter performance
-        """
+        """Get rate limiter statistics."""
         with self._lock:
             # Calculate recent request rate
             now = time.time()
@@ -507,12 +460,7 @@ class RateLimiter:
             logger.info("Rate limiter statistics reset")
 
     def update_config(self, config: "FanslyConfig") -> None:
-        """
-        Update rate limiter configuration.
-
-        Args:
-            config: New configuration instance
-        """
+        """Update rate limiter configuration."""
         with self._lock:
             old_enabled = self.enabled
             old_rate = self.requests_per_minute

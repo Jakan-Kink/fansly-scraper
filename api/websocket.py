@@ -219,9 +219,15 @@ class FanslyWebSocket:
         """
         if self.http_client is None:
             return dict(self.cookies)
-        # httpx.Cookies iteration yields Cookie objects via .jar —
-        # mirror the pattern api/fansly.py uses to build its snapshot.
-        return {c.name: c.value for c in self.http_client.cookies.jar}
+        # Snapshot under the jar's internal lock to avoid
+        # `RuntimeError: dictionary changed size during iteration`
+        # when the async loop mutates cookies concurrently.
+        jar = self.http_client.cookies.jar
+        try:
+            with jar._cookies_lock:  # type: ignore[attr-defined]
+                return {c.name: c.value for c in jar}
+        except AttributeError:
+            return {c.name: c.value for c in list(jar)}
 
     def _create_cookie_header(self) -> str:
         """Create Cookie header from the current cookie snapshot.

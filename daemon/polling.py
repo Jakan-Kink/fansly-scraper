@@ -56,7 +56,7 @@ async def poll_home_timeline(
         new_creator_ids is only those with at least one unknown post.
     """
     try:
-        response = config.get_api().get_home_timeline()
+        response = await config.get_api().get_home_timeline()
         data = config.get_api().get_json_response_contents(response)
     except httpx.HTTPError as exc:
         logger.warning("daemon.polling: home timeline API call failed — {}", exc)
@@ -103,7 +103,7 @@ async def poll_story_states(
         inactive/unknown to active. Empty list on API failure.
     """
     try:
-        response = config.get_api().get_story_states_following()
+        response = await config.get_api().get_story_states_following()
         states: list[dict] = config.get_api().get_json_response_contents(response)
     except httpx.HTTPError as exc:
         logger.warning("daemon.polling: story states API call failed — {}", exc)

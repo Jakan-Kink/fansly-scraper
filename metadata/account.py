@@ -124,7 +124,7 @@ async def _backfill_missing_account_media(
     try:
         api = config.get_api()
         media_ids_str = ",".join(str(mid) for mid in missing_ids)
-        response = api.get_account_media(media_ids_str)
+        response = await api.get_account_media(media_ids_str)
         media_infos = api.get_json_response_contents(response)
     except Exception:
         json_output(

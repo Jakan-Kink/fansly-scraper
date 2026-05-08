@@ -312,7 +312,7 @@ async def _make_rate_limited_request(
     await asyncio.sleep(0.2)
     while True:
         try:
-            response = request_func(*args, **kwargs)
+            response = await request_func(*args, **kwargs)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:

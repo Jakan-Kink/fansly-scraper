@@ -87,10 +87,11 @@ def _get_highest_quality_variant_url(
     """
     m3u8_base_url, m3u8_file_url = split_url(m3u8_url)
 
-    stream_response = config.get_api().get_with_ngsw(
+    stream_response = config.get_api().get_with_ngsw_sync(
         url=m3u8_file_url,
         cookies=cookies,
         add_fansly_headers=False,
+        bypass_rate_limit=True,
     )
 
     master_playlist = M3U8(content=stream_response.text, base_uri=m3u8_base_url)
@@ -129,10 +130,11 @@ def fetch_m3u8_segment_playlist(
 
     m3u8_base_url, m3u8_file_url = split_url(m3u8_url)
 
-    stream_response = config.get_api().get_with_ngsw(
+    stream_response = config.get_api().get_with_ngsw_sync(
         url=m3u8_file_url,
         cookies=cookies,
         add_fansly_headers=False,
+        bypass_rate_limit=True,
     )
 
     if stream_response.status_code != 200:
@@ -594,7 +596,7 @@ def _try_segment_download(
         """Download a single .ts segment."""
         segment_response = None
         try:
-            segment_response = config.get_api().get_with_ngsw(
+            segment_response = config.get_api().get_with_ngsw_sync(
                 url=segment_uri,
                 cookies=cookies,
                 stream=True,

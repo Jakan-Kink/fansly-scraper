@@ -43,14 +43,8 @@ class FanslyApi:
         self.rate_limiter = rate_limiter
         self.config = config
 
-        # httpx-retries Retry parameters:
-        # - total: max retry attempts (default 10)
-        # - backoff_factor: exponential backoff multiplier (default 0.0)
-        # - status_forcelist: HTTP status codes to retry (default [429, 502, 503, 504])
-        # - allowed_methods: HTTP methods that can be retried (default HEAD, GET, PUT, DELETE, OPTIONS, TRACE)
-        # When rate_limiter is provided, 429 is removed from status_forcelist —
-        # get_with_ngsw handles 429 retries itself using the RateLimiter's
-        # adaptive backoff.
+        # 429 excluded from forcelist when rate_limiter is active — get_with_ngsw
+        # retries via RateLimiter instead so adaptive backoff sees the violation.
         retry = Retry(
             total=3,
             backoff_factor=0.5,  # 0.5s base delay with exponential backoff: 0.5s, 1s, 2s
@@ -61,14 +55,23 @@ class FanslyApi:
             ),
         )
 
-        base_transport = httpx.HTTPTransport(http2=True)
-        retry_transport = RetryTransport(transport=base_transport, retry=retry)
+        # Shared cookie jar across async runtime client, sync segment client, and WS.
+        self._cookies = httpx.Cookies()
 
-        self.http_session = httpx.Client(
-            transport=retry_transport,
+        async_base_transport = httpx.AsyncHTTPTransport(http2=True)
+        async_retry_transport = RetryTransport(
+            transport=async_base_transport, retry=retry
+        )
+        self.http_session = httpx.AsyncClient(
+            transport=async_retry_transport,
             timeout=30.0,
             follow_redirects=True,
+            cookies=self._cookies,
         )
+
+        # Sync client for thread-pool callers — httpx.AsyncClient is not thread-safe across loops.
+        self._segment_retry = retry
+        self._segment_session: httpx.Client | None = None
 
         # Internal Fansly stuff
         self.check_key = check_key
@@ -83,14 +86,11 @@ class FanslyApi:
         if device_id is not None and device_id_timestamp is not None:
             self.device_id = device_id
             self.device_id_timestamp = device_id_timestamp
-
         else:
+            self.device_id = None
             self.device_id_timestamp = int(
                 datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp()
             )
-            self.update_device_id()
-
-        self.session_id = "null"
 
         self._websocket_client: FanslyWebSocket | None = None
 
@@ -163,7 +163,22 @@ class FanslyApi:
 
     # region HTTP Requests
 
-    def cors_options_request(self, url: str) -> None:
+    def _get_segment_session(self) -> httpx.Client:
+        """Lazy sync httpx client for m3u8 segment ThreadPoolExecutor."""
+        if self._segment_session is None:
+            sync_base_transport = httpx.HTTPTransport(http2=True)
+            sync_retry_transport = RetryTransport(
+                transport=sync_base_transport, retry=self._segment_retry
+            )
+            self._segment_session = httpx.Client(
+                transport=sync_retry_transport,
+                timeout=30.0,
+                follow_redirects=True,
+                cookies=self._cookies,
+            )
+        return self._segment_session
+
+    async def cors_options_request(self, url: str) -> None:
         """Performs an OPTIONS CORS request to Fansly servers."""
 
         headers = {
@@ -176,12 +191,46 @@ class FanslyApi:
             "User-Agent": self.user_agent,
         }
 
-        self.http_session.options(
+        await self.http_session.options(
             url,
             headers=headers,
         )
 
-    def get_with_ngsw(
+    def _summarize_request(
+        self,
+        file_url: str,
+        request_params: dict[str, str],
+        status_code: int,
+        response_time: float,
+        bypass_rate_limit: bool,
+    ) -> None:
+        """Log a one-line API request summary."""
+        parsed_url = urlparse(file_url)
+        parts = [p for p in parsed_url.path.split("/") if p and p not in ("api", "v1")]
+        while parts and parts[-1].isdigit():
+            parts.pop()
+        endpoint = "/".join(parts) if parts else "unknown"
+
+        _skip = {"ngsw-bypass", "fansly-client-id", "fansly-client-ts"}
+        param_parts = []
+        for k, v in request_params.items():
+            if k in _skip:
+                continue
+            sv = str(v)
+            if "," in sv and len(sv) > 40:
+                param_parts.append(f"{k}=<{sv.count(',') + 1} ids>")
+            elif len(sv) > 50:
+                param_parts.append(f"{k}={sv[:20]}…")
+            else:
+                param_parts.append(f"{k}={sv}")
+        param_str = f" [{', '.join(param_parts)}]" if param_parts else ""
+        bypassed_str = " [BYPASS]" if bypass_rate_limit else ""
+        logger.debug(
+            f"API Request: {endpoint} → HTTP {status_code} "
+            f"({response_time:.2f}s){bypassed_str}{param_str}"
+        )
+
+    async def get_with_ngsw(
         self,
         url: str,
         params: dict[str, str] = {},  # noqa: B006 - not mutated, only unpacked
@@ -191,12 +240,15 @@ class FanslyApi:
         alternate_token: str | None = None,
         bypass_rate_limit: bool = False,
     ) -> httpx.Response:
+        # Skipping when add_fansly_headers=False breaks recursion: get_device_id_info
+        # itself enters here with add_fansly_headers=False.
+        if add_fansly_headers and self.device_id is None:
+            await self.update_device_id()
+
         self.update_client_timestamp()
 
         default_params = self.get_ngsw_params()
-
         existing_params = get_flat_qs_dict(url)
-
         request_params = {
             **existing_params,
             **default_params,
@@ -209,7 +261,7 @@ class FanslyApi:
             alternate_token=alternate_token,
         )
 
-        self.cors_options_request(url)
+        await self.cors_options_request(url)
 
         (_, file_url) = split_url(url)
 
@@ -226,55 +278,30 @@ class FanslyApi:
         has_rate_limiter = self.rate_limiter is not None and not bypass_rate_limit
 
         for attempt in range(max_retries):
-            # Rate limiting before each attempt
             if has_rate_limiter:
-                self.rate_limiter.wait_for_request()
+                await self.rate_limiter.async_wait_for_request()
 
             start_time = time.time()
 
             if stream:
                 request = self.http_session.build_request("GET", **arguments)
-                response = self.http_session.send(request, stream=True)
+                response = await self.http_session.send(request, stream=True)
             else:
-                response = self.http_session.get(**arguments)
+                response = await self.http_session.get(**arguments)
 
             response_time = time.time() - start_time
 
-            # Extract meaningful endpoint name and params for logging
-            parsed_url = urlparse(file_url)
-            parts = [
-                p for p in parsed_url.path.split("/") if p and p not in ("api", "v1")
-            ]
-            while parts and parts[-1].isdigit():
-                parts.pop()
-            endpoint = "/".join(parts) if parts else "unknown"
-
-            # Summarize interesting params (skip ngsw/internal ones)
-            _skip = {"ngsw-bypass", "fansly-client-id", "fansly-client-ts"}
-            param_parts = []
-            for k, v in request_params.items():
-                if k in _skip:
-                    continue
-                sv = str(v)
-                if "," in sv and len(sv) > 40:
-                    param_parts.append(f"{k}=<{sv.count(',') + 1} ids>")
-                elif len(sv) > 50:
-                    param_parts.append(f"{k}={sv[:20]}…")
-                else:
-                    param_parts.append(f"{k}={sv}")
-            param_str = f" [{', '.join(param_parts)}]" if param_parts else ""
-
-            bypassed_str = " [BYPASS]" if bypass_rate_limit else ""
-            logger.debug(
-                f"API Request: {endpoint} → HTTP {response.status_code} "
-                f"({response_time:.2f}s){bypassed_str}{param_str}"
+            self._summarize_request(
+                file_url,
+                request_params,
+                response.status_code,
+                response_time,
+                bypass_rate_limit,
             )
 
-            # Record response for adaptive rate limiting
             if has_rate_limiter:
                 self.rate_limiter.record_response(response.status_code, response_time)
 
-            # Retry on 429 — rate limiter backoff will throttle the next attempt
             if (
                 response.status_code == 429
                 and has_rate_limiter
@@ -289,15 +316,109 @@ class FanslyApi:
 
         return response
 
-    def get_client_account_info(
+    def get_with_ngsw_sync(
+        self,
+        url: str,
+        params: dict[str, str] = {},  # noqa: B006 - not mutated, only unpacked
+        cookies: dict[str, str] = {},  # noqa: B006 - not mutated, only read
+        stream: bool = False,
+        add_fansly_headers: bool = True,
+        alternate_token: str | None = None,
+        bypass_rate_limit: bool = False,
+    ) -> httpx.Response:
+        """Sync variant for the m3u8 segment ThreadPoolExecutor."""
+        self.update_client_timestamp()
+
+        default_params = self.get_ngsw_params()
+        existing_params = get_flat_qs_dict(url)
+        request_params = {
+            **existing_params,
+            **default_params,
+            **params,
+        }
+
+        headers = self.get_http_headers(
+            url=url,
+            add_fansly_headers=add_fansly_headers,
+            alternate_token=alternate_token,
+        )
+
+        # CORS preflight (sync variant).
+        sync = self._get_segment_session()
+        cors_headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Access-Control-Request-Headers": "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id",
+            "Access-Control-Request-Method": "GET",
+            "Origin": "https://fansly.com",
+            "Referer": "https://fansly.com/",
+            "User-Agent": self.user_agent,
+        }
+        sync.options(url, headers=cors_headers)
+
+        (_, file_url) = split_url(url)
+
+        arguments = {
+            "url": file_url,
+            "params": request_params,
+            "headers": headers,
+        }
+        if len(cookies) > 0:
+            arguments["cookies"] = cookies
+
+        max_retries = self.config.api_max_retries if self.config else 1
+        has_rate_limiter = self.rate_limiter is not None and not bypass_rate_limit
+
+        for attempt in range(max_retries):
+            if has_rate_limiter:
+                self.rate_limiter.wait_for_request()
+
+            start_time = time.time()
+
+            if stream:
+                request = sync.build_request("GET", **arguments)
+                response = sync.send(request, stream=True)
+            else:
+                response = sync.get(**arguments)
+
+            response_time = time.time() - start_time
+
+            self._summarize_request(
+                file_url,
+                request_params,
+                response.status_code,
+                response_time,
+                bypass_rate_limit,
+            )
+
+            if has_rate_limiter:
+                self.rate_limiter.record_response(response.status_code, response_time)
+
+            if (
+                response.status_code == 429
+                and has_rate_limiter
+                and attempt < max_retries - 1
+            ):
+                logger.debug(
+                    f"Rate limited (429), retrying ({attempt + 1}/{max_retries})..."
+                )
+                continue
+
+            break
+
+        return response
+
+    async def get_client_account_info(
         self, alternate_token: str | None = None
     ) -> httpx.Response:
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/account/me",
             alternate_token=alternate_token,
         )
 
-    def get_creator_account_info(self, creator_name: str | list[str]) -> httpx.Response:
+    async def get_creator_account_info(
+        self, creator_name: str | list[str]
+    ) -> httpx.Response:
         """Get account info by username(s).
 
         Args:
@@ -308,11 +429,11 @@ class FanslyApi:
         """
         if isinstance(creator_name, list):
             creator_name = ",".join(creator_name)
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/account?usernames={creator_name}",
         )
 
-    def get_account_info_by_id(
+    async def get_account_info_by_id(
         self, account_ids: str | int | list[str | int]
     ) -> httpx.Response:
         """Get account info by ID(s).
@@ -327,22 +448,22 @@ class FanslyApi:
             account_ids = ",".join(str(account_id) for account_id in account_ids)
         else:
             account_ids = str(account_ids)
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/account?ids={account_ids}",
         )
 
-    def get_media_collections(self) -> httpx.Response:
+    async def get_media_collections(self) -> httpx.Response:
         custom_params = {
             "limit": "9999",
             "offset": "0",
         }
 
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/account/media/orders/",
             params=custom_params,
         )
 
-    def get_following_list(
+    async def get_following_list(
         self,
         user_id: str | int,
         limit: int = 425,
@@ -369,12 +490,12 @@ class FanslyApi:
             "offset": str(offset),
         }
 
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/account/{user_id}/following",
             params=params,
         )
 
-    def get_account_media(self, media_ids: str) -> httpx.Response:
+    async def get_account_media(self, media_ids: str) -> httpx.Response:
         """Retrieve account media by ID(s).
 
         :param media_ids: Media ID(s) separated by comma w/o spaces.
@@ -383,21 +504,21 @@ class FanslyApi:
         :return: A web request response
         :rtype: request.Response
         """
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             f"https://apiv3.fansly.com/api/v1/account/media?ids={media_ids}",
         )
 
-    def get_post(self, post_id: str) -> httpx.Response:
+    async def get_post(self, post_id: str) -> httpx.Response:
         custom_params = {
             "ids": post_id,
         }
 
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/post",
             params=custom_params,
         )
 
-    def get_timeline(
+    async def get_timeline(
         self, creator_id: int | str, timeline_cursor: str
     ) -> httpx.Response:
         custom_params = {
@@ -407,12 +528,12 @@ class FanslyApi:
             "contentSearch": "",
         }
 
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}",
             params=custom_params,
         )
 
-    def get_wall_posts(
+    async def get_wall_posts(
         self, creator_id: int | str, wall_id: int | str, before_cursor: str = "0"
     ) -> httpx.Response:
         """Get posts from a specific wall.
@@ -432,12 +553,12 @@ class FanslyApi:
             "contentSearch": "",
         }
 
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}",
             params=custom_params,
         )
 
-    def get_home_timeline(self) -> httpx.Response:
+    async def get_home_timeline(self) -> httpx.Response:
         """Fetch home timeline for all followed creators.
 
         Returns:
@@ -445,12 +566,12 @@ class FanslyApi:
             Used by the daemon monitor to detect which followed creators posted
             new content with a single fleet-wide call.
         """
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/timeline/home",
             params={"before": "0", "after": "0", "mode": "0"},
         )
 
-    def get_media_stories(self, account_id: int | str) -> httpx.Response:
+    async def get_media_stories(self, account_id: int | str) -> httpx.Response:
         """Fetch active media stories for a creator account.
 
         Args:
@@ -459,12 +580,12 @@ class FanslyApi:
         Returns:
             Response containing mediaStories list and aggregationData.accountMedia
         """
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/mediastoriesnew",
             params={"accountId": str(account_id)},
         )
 
-    def get_story_states_following(self) -> httpx.Response:
+    async def get_story_states_following(self) -> httpx.Response:
         """Fetch story states for all followed creators.
 
         Returns:
@@ -472,12 +593,12 @@ class FanslyApi:
             each with accountId and hasActiveStories. Used by the daemon
             monitor to detect when hasActiveStories flips true.
         """
-        return self.get_with_ngsw(
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/mediastories/following",
             params={"limit": "100", "offset": "0"},
         )
 
-    def mark_story_viewed(self, story_id: int | str) -> httpx.Response:
+    async def mark_story_viewed(self, story_id: int | str) -> httpx.Response:
         """Mark a story as viewed (POST /api/v1/mediastory/view).
 
         Args:
@@ -487,27 +608,39 @@ class FanslyApi:
             Response with storyId and accountId confirmation
         """
         url = "https://apiv3.fansly.com/api/v1/mediastory/view"
+        self.update_client_timestamp()
+        await self.cors_options_request(url)
         headers = self.get_http_headers(url=url, add_fansly_headers=True)
-        return self.http_session.post(
+
+        if self.rate_limiter is not None:
+            await self.rate_limiter.async_wait_for_request()
+
+        start_time = time.time()
+        response = await self.http_session.post(
             url,
             json={"storyId": str(story_id)},
             headers=headers,
             params=self.get_ngsw_params(),
         )
+        if self.rate_limiter is not None:
+            self.rate_limiter.record_response(
+                response.status_code, time.time() - start_time
+            )
+        return response
 
-    def get_group(self) -> httpx.Response:
-        return self.get_with_ngsw(
+    async def get_group(self) -> httpx.Response:
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/messaging/groups",
         )
 
-    def get_message(self, params: dict[str, str]) -> httpx.Response:
-        return self.get_with_ngsw(
+    async def get_message(self, params: dict[str, str]) -> httpx.Response:
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/message",
             params=params,
         )
 
-    def get_device_id_info(self) -> httpx.Response:
-        return self.get_with_ngsw(
+    async def get_device_id_info(self) -> httpx.Response:
+        return await self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/device/id",
             add_fansly_headers=False,
         )
@@ -541,11 +674,7 @@ class FanslyApi:
             await self._websocket_client.stop_thread()
             self._websocket_client = None
 
-        # Create new WebSocket client with shared cookie jar. Passing
-        # http_client= establishes bidirectional cookie sync: the WS
-        # reads live from self.http_session.cookies.jar on every
-        # connect/reconnect (HTTP → WS), and writes Set-Cookie values
-        # from the upgrade response back into the same jar (WS → HTTP).
+        # http_client= shares the cookie jar with HTTP for bidirectional rotation sync.
         logger.info("Starting persistent WebSocket connection for anti-detection")
 
         self._websocket_client = get_websocket_class(
@@ -556,21 +685,15 @@ class FanslyApi:
             token=self.token,
             user_agent=self.user_agent,
             http_client=self.http_session,
-            enable_logging=False,  # Set to True for debugging
+            enable_logging=False,
             on_unauthorized=self._handle_websocket_unauthorized,
             on_rate_limited=self._handle_websocket_rate_limited,
         )
 
         try:
-            # Start WebSocket on its own thread (connects and authenticates).
-            # Insulates ping/pong heartbeat from main-loop pressure.
             self._websocket_client.start_in_thread()
 
-            # Wait for authentication to complete. In-thread typically
-            # populates session_id within ~700ms (thread spawn + connect +
-            # auth handshake). The subprocess proxy adds Python interpreter
-            # cold-start on top — observed ~1.2s end-to-end on Linux spawn.
-            # 5s budget covers both paths and breaks early once authed.
+            # 5s budget covers both in-thread (~700ms) and subprocess (~1.2s) paths.
             for _ in range(50):
                 if self._websocket_client.session_id:
                     break
@@ -582,11 +705,10 @@ class FanslyApi:
                 )
         except Exception as e:
             logger.error("Failed to establish WebSocket session: {}", e)
-            # Clean up on failure
             if self._websocket_client:
                 await self._websocket_client.stop_thread()
                 self._websocket_client = None
-            raise RuntimeError(f"WebSocket session setup failed: {e}")
+            raise RuntimeError(f"WebSocket session setup failed: {e}") from e
         else:
             logger.info(
                 "WebSocket session established: {}", self._websocket_client.session_id
@@ -605,7 +727,7 @@ class FanslyApi:
         """Set up session asynchronously."""
         try:
             # Preflight auth - necessary for WebSocket request to succeed
-            _ = self.get_json_response_contents(self.get_client_account_info())
+            _ = self.get_json_response_contents(await self.get_client_account_info())
 
             session_id = await self.get_active_session()
 
@@ -616,7 +738,7 @@ class FanslyApi:
 
         return True
 
-    def login(self, username: str, password: str) -> dict[str, Any]:
+    async def login(self, username: str, password: str) -> dict[str, Any]:
         """Login to Fansly and obtain session token.
 
         This performs the login flow to obtain an authorization token and session cookie.
@@ -689,7 +811,7 @@ class FanslyApi:
         logger.info(f"Attempting login for user: {username}")
 
         try:
-            response = self.http_session.post(
+            response = await self.http_session.post(
                 login_url,
                 json=body,
                 headers=headers,
@@ -723,6 +845,11 @@ class FanslyApi:
             if not session_cookie:
                 raise RuntimeError("Login failed: No f-s-c session cookie in response")
 
+            # Explicitly mirror f-s-c into the shared jar so async runtime + sync
+            # segment client + WS all carry it without relying on httpx's
+            # response-cookie auto-merge behavior.
+            self._cookies.set("f-s-c", session_cookie, domain="fansly.com", path="/")
+
             # Extract session ID from cookie
             # Cookie format (base64): sessionId:1:1:hash
             try:
@@ -746,7 +873,9 @@ class FanslyApi:
 
             except Exception as e:
                 logger.error(f"Could not extract session ID from cookie: {e}")
-                raise RuntimeError(f"Login failed: Could not parse session cookie: {e}")
+                raise RuntimeError(
+                    f"Login failed: Could not parse session cookie: {e}"
+                ) from e
 
             # Authorization token format (base64) is sessionId:1:2:hash
             # (cookie is :1:1:hash). Located at response.response.session.token.
@@ -785,31 +914,12 @@ class FanslyApi:
                             break
 
             if not token_found:
-                logger.warning("Authorization token not found in response")
-                logger.warning(
-                    "This may be normal if DevTools shows 'No response data available'"
-                )
-                logger.warning(
-                    "You may need to manually set the token from a subsequent API request"
-                )
-                logger.warning(
-                    "Or the token might be provided through a different mechanism"
+                raise RuntimeError(
+                    "Login response did not contain an authorization token"
                 )
 
             logger.info(f"Login successful for user: {username}")
-
-            # Log status for debugging
-            if self.token:
-                logger.info("✓ Authorization token set")
-            else:
-                logger.warning(
-                    "✗ Authorization token NOT set - may need manual configuration"
-                )
-
-            if self.session_id and self.session_id != "null":
-                logger.info(f"✓ Session ID set: {self.session_id}")
-            else:
-                logger.warning("✗ Session ID NOT set")
+            logger.info(f"✓ Session ID set: {self.session_id}")
 
             return response_data  # noqa: TRY300 - already in success path, adding else would add unnecessary nesting
 
@@ -819,10 +929,10 @@ class FanslyApi:
                 logger.error(f"Response body: {e.response.text}")
             raise RuntimeError(
                 f"Login failed: {e.response.status_code} - {e.response.text if e.response else 'Unknown'}"
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Login failed with error: {e}")
-            raise RuntimeError(f"Login failed: {e}")
+            raise RuntimeError(f"Login failed: {e}") from e
 
     @staticmethod
     def get_timestamp_ms() -> int:
@@ -991,7 +1101,9 @@ class FanslyApi:
         json_data = response.json()["response"]
         return self.convert_ids_to_int(json_data)
 
-    def get_client_user_name(self, alternate_token: str | None = None) -> str | None:
+    async def get_client_user_name(
+        self, alternate_token: str | None = None
+    ) -> str | None:
         """Fetches user account information for a particular authorization token.
 
         :param alternate_token: An alternate authorization token string for
@@ -1003,7 +1115,9 @@ class FanslyApi:
         :return: The account user name or None.
         :rtype: str | None
         """
-        account_response = self.get_client_account_info(alternate_token=alternate_token)
+        account_response = await self.get_client_account_info(
+            alternate_token=alternate_token
+        )
 
         response_contents = self.get_json_response_contents(account_response)
 
@@ -1015,25 +1129,21 @@ class FanslyApi:
 
         return None
 
-    def get_device_id(self) -> str:
-        device_response = self.get_device_id_info()
-
-        return str(self.get_json_response_contents(device_response))
-
-    def update_device_id(self) -> str:
+    async def update_device_id(self) -> str:
+        """Bootstrap or refresh device_id when missing or stale (>180 min)."""
         offset_minutes = 180
-
         offset_ms = offset_minutes * 60 * 1000
-
         current_ts = self.get_timestamp_ms()
 
-        if current_ts > self.device_id_timestamp + offset_ms:
-            self.device_id = self.get_device_id()
+        if self.device_id is None or current_ts > self.device_id_timestamp + offset_ms:
+            response = await self.get_device_id_info()
+            self.device_id = str(self.get_json_response_contents(response))
             self.device_id_timestamp = current_ts
 
             if self.on_device_updated is not None:
                 self.on_device_updated()
 
+        assert self.device_id is not None
         return self.device_id
 
     def _handle_websocket_unauthorized(self) -> None:
@@ -1064,7 +1174,7 @@ class FanslyApi:
                 "Rate limiter not available - cannot apply adaptive backoff from WebSocket 429"
             )
 
-    async def close_websocket(self) -> None:
+    async def aclose(self) -> None:
         """Close the persistent WebSocket connection.
 
         This method should be called when the API instance is no longer needed
@@ -1079,17 +1189,29 @@ class FanslyApi:
             finally:
                 self._websocket_client = None
 
-    def __del__(self) -> None:
-        """Cleanup on instance destruction.
+        if self._segment_session is not None:
+            try:
+                self._segment_session.close()
+            except Exception as e:
+                logger.warning("Error closing segment session: {}", e)
+            finally:
+                self._segment_session = None
 
-        Note: This is a synchronous destructor, so we can't properly await
-        the async websocket cleanup. Users should call close_websocket() explicitly
-        for proper cleanup. This is just a best-effort cleanup.
-        """
+        try:
+            await self.http_session.aclose()
+        except Exception as e:
+            logger.warning("Error closing http session: {}", e)
+
+    async def close_websocket(self) -> None:
+        """Backwards-compatible alias for aclose()."""
+        await self.aclose()
+
+    def __del__(self) -> None:
+        """Best-effort warn on undisposed resources — call aclose() for clean teardown."""
         if self._websocket_client is not None:
             logger.warning(
                 "FanslyApi instance destroyed with active WebSocket - "
-                "call close_websocket() explicitly for proper cleanup"
+                "call aclose() explicitly for proper cleanup"
             )
 
     # region

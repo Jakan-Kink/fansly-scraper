@@ -247,7 +247,7 @@ async def load_client_account_into_db(
 
     try:
         api = config.get_api()
-        response = api.get_creator_account_info(creator_name=client_user_name)
+        response = await api.get_creator_account_info(creator_name=client_user_name)
         json_output(
             1,
             "main - client-account-data",
@@ -314,7 +314,7 @@ async def main(config: FanslyConfig) -> int:
         config, config.debug
     )  # Update logging with final config state
 
-    validate_adjust_config(config, download_mode_set)
+    await validate_adjust_config(config, download_mode_set)
 
     if config.user_names is None or config.download_mode == DownloadMode.NOTSET:
         raise RuntimeError(
@@ -353,7 +353,7 @@ async def main(config: FanslyConfig) -> int:
         f"({datetime.fromtimestamp(api.device_id_timestamp / 1000, tz=UTC)})"
     )
     print_info(f"Session ID: {api.session_id}")
-    client_user_name = api.get_client_user_name()
+    client_user_name = await api.get_client_user_name()
     print_info(f"User ID: {client_user_name}")
     if client_user_name is None or client_user_name == "":
         raise ConfigError("Could not retrieve client account user name from API")

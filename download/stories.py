@@ -52,7 +52,7 @@ async def download_stories(
     state.download_type = DownloadType.STORIES
 
     try:
-        response = config.get_api().get_media_stories(state.creator_id)
+        response = await config.get_api().get_media_stories(state.creator_id)
         response.raise_for_status()
 
         stories_response = config.get_api().get_json_response_contents(response)
@@ -87,13 +87,13 @@ async def download_stories(
         # affect the user's real Fansly UX by marking stories watched
         # in the background.
         if mark_viewed:
-            _mark_stories_viewed(config, saved_stories)
+            await _mark_stories_viewed(config, saved_stories)
 
     except Exception as e:
         print_warning(f"Error downloading stories: {e}")
 
 
-def _mark_stories_viewed(config: FanslyConfig, saved_stories: list) -> None:
+async def _mark_stories_viewed(config: FanslyConfig, saved_stories: list) -> None:
     """POST mediastory/view for each saved story, best-effort.
 
     Failures are logged and swallowed — marking a story viewed is not
@@ -102,6 +102,6 @@ def _mark_stories_viewed(config: FanslyConfig, saved_stories: list) -> None:
     api = config.get_api()
     for story in saved_stories:
         try:
-            api.mark_story_viewed(story.id)
+            await api.mark_story_viewed(story.id)
         except Exception as e:
             print_warning(f"Failed to mark story {story.id} as viewed: {e}")
