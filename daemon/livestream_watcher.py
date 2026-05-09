@@ -343,9 +343,16 @@ async def _record_stream(
     5. Clean up the temp segment directory on success.
     """
     output_path = _build_output_path(config, username, channel)
+    # Bump to _part2 / _part3 etc. if a prior reconnect already completed or
+    # crashed mid-mux for the same broadcast (same startedAt → same base name).
+    try:
+        segments_base = _get_segments_base(config)
+    except RuntimeError:
+        segments_base = output_path.parent  # fallback: no collision check
+    output_path = _unique_output_path(output_path, segments_base)
     # Segment dir lives in temp_folder (or <download_dir>/temp) so it does
     # not clutter the Livestreams output directory.
-    temp_dir = _get_segments_base(config) / f"{output_path.stem}_segments"
+    temp_dir = segments_base / f"{output_path.stem}_segments"
     temp_dir.mkdir(parents=True, exist_ok=True)
     # Sidecar so the salvage pass knows where to write the final MP4.
     (temp_dir / "output_path.txt").write_text(str(output_path), encoding="utf-8")
@@ -1298,6 +1305,31 @@ def _build_output_path(
     ts_str = ts.strftime("%Y%m%d_%H%M%S")
     filename = f"{username}_{ts_str}_live.mp4"
     return base_dir / filename
+
+
+def _unique_output_path(base: Path, segments_base: Path) -> Path:
+    """Return *base* if that slot is free, else the next available ``_part{n}`` variant.
+
+    A slot is considered taken when the output MP4 already exists with data
+    **or** when its temp segment dir is still on disk (a prior session that
+    crashed before muxing).  This prevents successful reconnects from
+    silently overwriting a previously completed recording of the same broadcast.
+    """
+
+    def _taken(path: Path) -> bool:
+        if path.exists() and path.stat().st_size > 0:
+            return True
+        temp = segments_base / f"{path.stem}_segments"
+        return temp.exists()
+
+    if not _taken(base):
+        return base
+    n = 2
+    while True:
+        candidate = base.with_name(f"{base.stem}_part{n}{base.suffix}")
+        if not _taken(candidate):
+            return candidate
+        n += 1
 
 
 def _get_livestreams_dir(config: FanslyConfig, username: str) -> Path:
