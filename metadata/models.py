@@ -1107,9 +1107,15 @@ class PinnedPost(FanslyRecord):
 
     @model_validator(mode="before")
     @classmethod
-    def _coerce_timestamp(cls, data: Any) -> Any:
-        if isinstance(data, dict) and isinstance(data.get("createdAt"), (int, float)):
-            data = {**data, "createdAt": _parse_timestamp(data["createdAt"])}
+    def _coerce_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if isinstance(data.get("createdAt"), (int, float)):
+                data = {**data, "createdAt": _parse_timestamp(data["createdAt"])}
+            if "pos" in data and not isinstance(data["pos"], int):
+                data = {
+                    **data,
+                    "pos": int(data["pos"]) if data["pos"] is not None else 0,
+                }
         return data
 
 
