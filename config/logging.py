@@ -21,9 +21,22 @@ import warnings as _warnings_module
 from pathlib import Path
 from typing import Any
 
+import regex as _regex
 from loguru import logger
 
 from errors import InvalidTraceLogError
+
+
+def _collapse_grapheme_clusters(text: str) -> str:
+    """Reduce every grapheme cluster to its base codepoint for console display.
+
+    tmux and many SSH terminals render compound-cluster modifiers (skin tones,
+    ZWJ, variation selectors) as independent wide glyphs, while Rich 15 correctly
+    measures each cluster as a single base-width unit. The mismatch causes log
+    lines to overflow. Replacing each cluster with its first codepoint gives a
+    string every terminal stack agrees on — no hardcoded modifier list needed.
+    """
+    return _regex.sub(r"\X", lambda m: m.group()[0], text)
 
 
 # Frames inside ``logging.__file__`` and ``warnings.__file__`` should be
@@ -429,8 +442,11 @@ def setup_handlers() -> None:
             # loguru re-parses the returned format string to strip tags even
             # with colorize=False; an embedded traceback frame name like
             # `<module>` would otherwise crash Colorizer.prepare_stripped_format.
+            # Collapse compound grapheme clusters to their base codepoint so
+            # tmux/SSH terminals (which render modifiers as full-width glyphs)
+            # and Rich agree on the physical line width.
             safe_msg = (
-                str(record["message"])
+                _collapse_grapheme_clusters(str(record["message"]))
                 .replace("{", "{{")
                 .replace("}", "}}")
                 .replace("<", r"\<")
