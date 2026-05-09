@@ -15,6 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-05-09
+
+Livestream recorder overwrite-protection on broadcast reconnects.
+
+### Added
+
+- `_unique_output_path` helper in `daemon/livestream_watcher.py`: when a
+  broadcast reconnect would produce the same output filename as a previously
+  completed (or crash-interrupted) session, the new recording is written to
+  `<stem>_part2.mp4`, `_part3.mp4`, etc. A slot is considered taken when the
+  MP4 already exists with data **or** when its temp segment dir is still on
+  disk from a prior crashed attempt.
+
+### Fixed
+
+- Livestream recorder silently overwrote the previous session's completed MP4
+  whenever a creator reconnected mid-broadcast. `_record_stream` now calls
+  `_unique_output_path` before creating the temp segment dir, ensuring each
+  reconnect session gets a distinct output file.
+
 ## [0.13.5] - 2026-05-09
 
 Async API migration, YAML config render-policy, interactive prompt refactor,
@@ -162,7 +182,7 @@ test-suite housekeeping that retires unused packaging dependencies.
   error with `response.content.decode('utf-8')` — httpx forbids
   reading `.content` on a streaming response without a prior
   `.read()`. Fixed to call `response.read().decode("utf-8",
-  errors="replace")` first, so the actual server status and body now
+errors="replace")` first, so the actual server status and body now
   surface in error logs for failed downloads.
 - `mapped_path` resolution edge case in the by-code regex fallback.
 
@@ -230,7 +250,7 @@ test-suite housekeeping that retires unused packaging dependencies.
   field (`--stash-only`, `--normal`, `--messages`, `--timeline`,
   `--collection`, `--single`, `--debug`, `-uf` / `-ufp`, `-u`, the nine
   negative-bool flags, the three positive-bool flags) is now marked as
-  an *ephemeral override* and cannot leak into the on-disk YAML. In
+  an _ephemeral override_ and cannot leak into the on-disk YAML. In
   particular, `--debug` no longer clobbers `debug: true` in YAML on every
   invocation that omits the flag, and `-u creator1,creator2` no longer
   overwrites a curated `user_names` list with the daemon's auto-fetched
@@ -270,8 +290,8 @@ test-suite housekeeping that retires unused packaging dependencies.
 - 18 mutable list field defaults converted from `= []` to
   `Field(default_factory=list)`. Pydantic 2 deep-copies mutable field
   defaults per instance to prevent shared state; `Field(default_factory=
-  list)` calls the factory directly without going through `copy.
-  deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts,
+list)` calls the factory directly without going through `copy.
+deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts,
   `_keep_alive` table, dispatch walks) per startup preload — confirmed
   by memray attribution dropping from 119 MB to 13 MB through the
   `copy.py` subtree.
@@ -304,7 +324,7 @@ test-suite housekeeping that retires unused packaging dependencies.
   `_image_code_index`) now store entity IDs rather than full Pydantic
   refs. Storing full objects pinned them past `invalidate_type`, so the
   per-creator heap drop was deferred to end-of-stash. `find_*_by_media_
-  codes` rehydrates via `store.get_many` (cache-first, batched DB-fetch
+codes` rehydrates via `store.get_many` (cache-first, batched DB-fetch
   for misses).
 - Per-creator stash invalidation list extended to include `VideoFile`
   and `ImageFile` leaves. `Scene`/`Image` preload via the GraphQL
@@ -332,7 +352,7 @@ test-suite housekeeping that retires unused packaging dependencies.
   messages in addition to `{`/`}`, so traceback frame names like
   `<module>`, `<listcomp>`, and `<genexpr>` no longer crash loguru's
   colorizer with `ValueError: Tag "<module>" does not correspond to any
-  known color directive`. Loguru re-parses callable formatter output to
+known color directive`. Loguru re-parses callable formatter output to
   strip tags even when `colorize=False`, so the escape is required
   regardless of sink color setting.
 - `stash/processing/base.py` now catches `StashCapabilityError` distinct
@@ -350,7 +370,7 @@ test-suite housekeeping that retires unused packaging dependencies.
   notices the subprocess died. Now joins all of them explicitly.
 - Three daemon worker-loop bugs surfaced and fixed during test reform:
   `_handle_full_creator_download` was calling `download_wall(config,
-  state)` without the required `wall_id`, `_refresh_following` was
+state)` without the required `wall_id`, `_refresh_following` was
   missing `get_creator_account_info`, and `_handle_timeline_only_item`
   was passing an empty `creator_name=""` downstream.
 - xdist worker shutdown no longer raises `SIGABRT` / `SIGSEGV` / `SIGBUS`.
@@ -428,7 +448,7 @@ rolling up incidental `fork-main` commits since v0.13.0.
   and the DB column to NULL-tolerant (Alembic migration
   `bb7006ec7c0e_make_media_locations_location_nullable`). Downstream readers
   at `media/media.py:27` already handled `None` via the `loc.raw_url or
-  loc.location` fallback.
+loc.location` fallback.
 
 ## [0.13.0] - 2026-04-22
 
@@ -535,7 +555,8 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...HEAD
+[0.13.6]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3
