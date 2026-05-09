@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import re
 import shutil
 import threading
@@ -50,7 +51,9 @@ import httpx
 import m3u8
 from av import AudioStream, VideoStream
 from loguru import logger
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from api.websocket import FanslyWebSocket
 from config.fanslyconfig import FanslyConfig
 from metadata.models import StreamChannel, StreamingInfo
 
@@ -73,6 +76,9 @@ _RETRY_DELAY_SECONDS = 15.0
 # Maximum number of times to retry opening the stream before giving up.
 _MAX_OPEN_RETRIES = 3
 
+# Seconds before reconnecting the chat WebSocket after a connection error.
+_CHAT_WS_RECONNECT_DELAY = 5.0
+
 # Regex for IVS EXT-X-PREFETCH hint lines.
 _PREFETCH_RE = re.compile(r"^#EXT-X-PREFETCH:(.+)$", re.MULTILINE)
 
@@ -83,8 +89,54 @@ _PREFETCH_RE = re.compile(r"^#EXT-X-PREFETCH:(.+)$", re.MULTILINE)
 _active_recordings: dict[int, tuple[asyncio.Task, asyncio.Event]] = {}
 _recordings_lock = threading.Lock()
 
+# Maps chatRoomId → ChatRecorder for active recordings.
+# The runner's WS handler calls route_ws_chat_message() to deliver real-time
+# chat events; the key is the integer chatRoomId from the WS payload.
+_chat_recorders: dict[int, ChatRecorder] = {}
+_chat_recorders_lock = threading.Lock()
+
+
+class ChatRecorder:
+    """Deduplicated JSONL sink for a single livestream chatroom.
+
+    Shared by both the REST-poll loop (``_poll_chat_loop``) and the real-time
+    WebSocket path (``route_ws_chat_message``).  Thread-safe dedup via
+    ``_seen_ids``; writes are serialised through an asyncio.Lock.
+    """
+
+    def __init__(self, chat_path: Path) -> None:
+        self.chat_path = chat_path
+        self._seen_ids: set[int | str] = set()
+        self._lock = asyncio.Lock()
+
+    async def ingest(self, message: dict) -> None:
+        """Write *message* to JSONL if not already seen."""
+        msg_id = message.get("id")
+        if msg_id is None:
+            return
+        async with self._lock:
+            if msg_id in self._seen_ids:
+                return
+            self._seen_ids.add(msg_id)
+        now = datetime.now(UTC).isoformat()
+        line = json.dumps({**message, "_recorded_at": now}, ensure_ascii=False) + "\n"
+        await asyncio.to_thread(_append_lines, self.chat_path, [line])
+
 
 # ── Public API ──────────────────────────────────────────────────────────────
+
+
+async def route_ws_chat_message(chat_room_id: int, message: dict) -> None:
+    """Forward a WebSocket chat message to the active ChatRecorder, if any.
+
+    Called by the daemon runner's ``_on_service_event`` when it receives a
+    SVC_CHAT (serviceId=46) type=10 event.  If no recording is active for
+    *chat_room_id*, the message is silently discarded.
+    """
+    with _chat_recorders_lock:
+        recorder = _chat_recorders.get(chat_room_id)
+    if recorder is not None:
+        await recorder.ingest(message)
 
 
 def start_livestream_watcher(
@@ -291,9 +343,20 @@ async def _record_stream(
     5. Clean up the temp segment directory on success.
     """
     output_path = _build_output_path(config, username, channel)
-    # Temp dir for .ts segments lives alongside the final MP4 with a dot prefix.
-    temp_dir = output_path.parent / f".{output_path.stem}_segments"
+    # Segment dir lives in temp_folder (or <download_dir>/temp) so it does
+    # not clutter the Livestreams output directory.
+    temp_dir = _get_segments_base(config) / f"{output_path.stem}_segments"
     temp_dir.mkdir(parents=True, exist_ok=True)
+    # Sidecar so the salvage pass knows where to write the final MP4.
+    (temp_dir / "output_path.txt").write_text(str(output_path), encoding="utf-8")
+
+    # Register a ChatRecorder now so WS events arriving before the poll
+    # loop starts are also captured.
+    recorder: ChatRecorder | None = None
+    if channel.chatRoomId is not None:
+        recorder = ChatRecorder(temp_dir / "chat.jsonl")
+        with _chat_recorders_lock:
+            _chat_recorders[channel.chatRoomId] = recorder
 
     log_prefix = f"[{username}]"
     logger.info(
@@ -355,6 +418,17 @@ async def _record_stream(
             _cs.set()
 
         monitor_task = asyncio.create_task(_forward_stops())
+        chat_task: asyncio.Task | None = None
+        if channel.chatRoomId is not None:
+            chat_task = asyncio.create_task(
+                _chat_ws_loop(
+                    config,
+                    channel.chatRoomId,
+                    recorder,
+                    combined_stop,
+                    log_prefix,
+                )
+            )
         try:
             segments, durations = await _poll_segments_loop(
                 variant_url,
@@ -366,6 +440,10 @@ async def _record_stream(
         finally:
             combined_stop.set()
             monitor_task.cancel()
+            if chat_task is not None:
+                chat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await chat_task
 
         if not segments:
             logger.warning(
@@ -389,6 +467,16 @@ async def _record_stream(
                 log_prefix,
                 output_path,
             )
+            # Promote chat log next to the MP4 before removing the temp dir.
+            chat_src = temp_dir / "chat.jsonl"
+            if chat_src.exists() and chat_src.stat().st_size > 0:
+                chat_dest = output_path.with_name(f"{output_path.stem}_chat.jsonl")
+                shutil.move(str(chat_src), chat_dest)
+                logger.info(
+                    "daemon.livestream_watcher: {} chat log → {}",
+                    log_prefix,
+                    chat_dest,
+                )
             shutil.rmtree(temp_dir, ignore_errors=True)
             break
 
@@ -413,6 +501,9 @@ async def _record_stream(
 
     with _recordings_lock:
         _active_recordings.pop(creator_id, None)
+    if channel.chatRoomId is not None:
+        with _chat_recorders_lock:
+            _chat_recorders.pop(channel.chatRoomId, None)
 
 
 async def _get_authenticated_playback_url(
@@ -511,6 +602,104 @@ def _resolve_variant_url(master_url: str) -> str | None:
         variant_url,
     )
     return variant_url
+
+
+def _append_lines(path: Path, lines: list[str]) -> None:
+    """Append *lines* to *path*, opening and closing the file in one operation."""
+    with path.open("a", encoding="utf-8") as fh:
+        fh.writelines(lines)
+
+
+async def _chat_ws_loop(
+    config: FanslyConfig,
+    chat_room_id: int,
+    recorder: ChatRecorder,
+    stop_event: asyncio.Event,
+    log_prefix: str,
+) -> None:
+    """Maintain a dedicated WebSocket connection for live chat capture.
+
+    Authenticates to ``wss://wsv3.fansly.com``, joins *chat_room_id* via
+    ``MSG_CHAT_ROOM`` (t=46001), then receives ``MSG_SERVICE_EVENT``
+    (t=10000) messages with ``serviceId=46, type=10`` and feeds each
+    ``chatRoomMessage`` payload into *recorder*.
+
+    Reconnects automatically on any error until *stop_event* fires.  The
+    main-WS ``route_ws_chat_message`` path remains active in parallel;
+    ``ChatRecorder``'s dedup prevents double-writes.
+
+    Runs until *stop_event* fires.
+    """
+    token = config.token or ""
+    user_agent = config.user_agent or ""
+
+    while not stop_event.is_set():
+        ws = FanslyWebSocket(
+            token=token,
+            user_agent=user_agent,
+            ping_timeout_enabled=False,
+        )
+
+        async def _on_service_event(data: dict | str) -> None:
+            try:
+                envelope = json.loads(data) if isinstance(data, str) else data
+                if envelope.get("serviceId") != 46:
+                    return
+                raw_event = envelope.get("event")
+                event = (
+                    json.loads(raw_event)
+                    if isinstance(raw_event, str)
+                    else (raw_event or {})
+                )
+                if event.get("type") != 10:
+                    return
+                chat_msg = event.get("chatRoomMessage")
+                if isinstance(chat_msg, dict):
+                    await recorder.ingest(chat_msg)
+            except Exception as exc:
+                logger.debug(
+                    "daemon.livestream_watcher: {} chat WS event error: {}",
+                    log_prefix,
+                    exc,
+                )
+
+        ws.register_handler(ws.MSG_SERVICE_EVENT, _on_service_event)
+
+        try:
+            await ws.connect()
+            await ws.join_chat_room(chat_room_id)
+            logger.info(
+                "daemon.livestream_watcher: {} chat WS connected | room={}",
+                log_prefix,
+                chat_room_id,
+            )
+
+            while not stop_event.is_set():
+                try:
+                    raw = await asyncio.wait_for(ws.websocket.recv(), timeout=5.0)
+                    await ws._handle_message(raw)
+                except TimeoutError:
+                    pass  # re-check stop_event
+
+        except (ConnectionClosed, WebSocketException, OSError) as exc:
+            logger.debug(
+                "daemon.livestream_watcher: {} chat WS connection error: {}",
+                log_prefix,
+                exc,
+            )
+            if not stop_event.is_set():
+                await asyncio.sleep(_CHAT_WS_RECONNECT_DELAY)
+        except Exception as exc:
+            logger.warning(
+                "daemon.livestream_watcher: {} chat WS unexpected error: {}",
+                log_prefix,
+                exc,
+            )
+            if not stop_event.is_set():
+                await asyncio.sleep(_CHAT_WS_RECONNECT_DELAY)
+        finally:
+            with contextlib.suppress(Exception):
+                await ws.disconnect()
 
 
 async def _poll_segments_loop(
@@ -680,24 +869,29 @@ async def _poll_segments_loop(
 async def _salvage_orphan_segments(config: FanslyConfig) -> None:
     """Mux ``.ts`` segment dirs left behind by prior aborted recordings.
 
-    At startup the watcher scans ``<download_dir>/*_fansly/Livestreams/`` for
-    any directories whose name matches ``.<stem>_segments``.  These are temp
-    dirs created by ``_record_stream`` that were not cleaned up because the
+    At startup the watcher scans ``_get_segments_base(config)`` for any
+    directories whose name ends with ``_segments``.  These are temp dirs
+    created by ``_record_stream`` that were not cleaned up because the
     process was killed or crashed before the mux step completed.
 
-    For each orphan found the segments are re-muxed using the same PID-based
-    approach as a live recording.  Segment durations default to 6 s
-    (IVS TARGETDURATION) since the original manifest is no longer available.
+    Each segment dir carries an ``output_path.txt`` sidecar written at
+    recording start that records the intended final MP4 path.  Dirs without
+    a sidecar are skipped (they belong to an older format or an unrelated
+    tool).
+
+    Segment durations default to 6 s (IVS TARGETDURATION) since the
+    original manifest is no longer available.
     """
-    if config.download_directory is None:
+    try:
+        segments_base = _get_segments_base(config)
+    except RuntimeError:
         return
 
-    root = Path(config.download_directory)
     orphan_dirs = await asyncio.to_thread(
         lambda: sorted(
             p
-            for p in root.glob("*_fansly/Livestreams/.*_segments")
-            if p.is_dir() and p.name.startswith(".") and p.name.endswith("_segments")
+            for p in (segments_base.iterdir() if segments_base.exists() else [])
+            if p.is_dir() and p.name.endswith("_segments")
         )
     )
 
@@ -710,14 +904,22 @@ async def _salvage_orphan_segments(config: FanslyConfig) -> None:
     )
 
     for orphan_dir in orphan_dirs:
-        # Reconstruct the original output stem by stripping the dot prefix and
-        # the "_segments" suffix, then append ".mp4".
-        stem = orphan_dir.name[1 : -len("_segments")]
-        output_path = orphan_dir.parent / f"{stem}.mp4"
+        stem = orphan_dir.name[: -len("_segments")]
         log_prefix = f"[salvage:{stem}]"
 
+        sidecar = orphan_dir / "output_path.txt"
+        if not sidecar.exists():
+            logger.debug(
+                "daemon.livestream_watcher: {} no output_path.txt sidecar — skipping",
+                log_prefix,
+            )
+            continue
+        output_path = Path(sidecar.read_text(encoding="utf-8").strip())
+
         # Already completed by a prior salvage run.
-        if output_path.exists() and output_path.stat().st_size > 0:
+        _exists = await asyncio.to_thread(output_path.exists)
+        _size = (await asyncio.to_thread(output_path.stat)).st_size if _exists else 0
+        if _exists and _size > 0:
             logger.info(
                 "daemon.livestream_watcher: {} output already exists — "
                 "removing orphan dir",
@@ -1107,3 +1309,17 @@ def _get_livestreams_dir(config: FanslyConfig, username: str) -> Path:
     livestreams_dir = creator_dir / "Livestreams"
     livestreams_dir.mkdir(parents=True, exist_ok=True)
     return livestreams_dir
+
+
+def _get_segments_base(config: FanslyConfig) -> Path:
+    """Return the directory where livestream segment dirs are written.
+
+    Uses ``config.temp_folder`` when set; falls back to
+    ``<download_directory>/temp`` so segments are always near the final
+    output without cluttering the Livestreams folder.
+    """
+    if config.temp_folder is not None:
+        return Path(config.temp_folder)
+    if config.download_directory is None:
+        raise RuntimeError("download_directory is not set in configuration.")
+    return Path(config.download_directory) / "temp"

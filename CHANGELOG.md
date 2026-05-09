@@ -15,6 +15,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-05-09
+
+Async API migration, YAML config render-policy, interactive prompt refactor,
+rate-limiter hardening, atomic downloads, URL centralization, livestream
+recording, and logging sink fix.
+
+### Added
+
+- `daemon/livestream_watcher.py` — long-running watcher task that polls
+  `GET /api/v1/streaming/followingstreams/online` and spawns a per-creator
+  recording task for every followed creator who is live.
+- IVS HLS recording via manual segment polling (`httpx` + `m3u8`): dedup by
+  `EXT-X-MEDIA-SEQUENCE` index, `EXT-X-PREFETCH` leading-edge hint collection,
+  and a 60 s `EXT-X-ENDLIST` grace period for transient creator pauses.
+- PID-based PyAV mux (`_mux_ivs_segments`): probes up to 5 segments to
+  identify stable audio/video PIDs, PTS-rebases packets across segment
+  boundaries, and writes a single MP4.
+- Orphan-segment salvage (`_salvage_orphan_segments`): on watcher startup,
+  re-muxes `.<stem>_segments` temp dirs left behind by a prior crash.
+- Three new `MonitoringSection` config fields: `livestream_recording_enabled`,
+  `livestream_poll_interval_seconds` (default 30),
+  `livestream_manifest_poll_interval_seconds` (default 3, range 1–15).
+- Six new Fansly API endpoints: `get_following_streams_online`,
+  `get_streaming_channel`, `get_chatroom_messages`, `get_chatrooms`,
+  `get_chatrooms_settings`, `post_chatroom_subalert`.
+- `StreamSession`, `StreamChannel`, `StreamingInfo` Pydantic models in
+  `metadata/models.py` for ephemeral livestream API payloads.
+- `textio/prompts.py` — new module centralizing all interactive user prompts;
+  all call sites migrated from inline `input()`/`ainput()` to the new helpers.
+- `FanslyApi.BASE_URL`, `FANSLY_HOST`, `WS_URL` class variables and 16 endpoint
+  `@property` templates centralizing every Fansly URL in one place.
+- `--show-config` and `--generate-config` CLI flags.
+- `config_schema` render-policy markers (`always` / `conditional`) so generated
+  scaffold configs include only operator-required fields.
+- `respect_timeline_stats` config field; nullable `usernames` field.
+- `cascade-up` semantics for section serialization in the YAML loader.
+- `tests/fixtures/config/config_fixtures.py`: `unit_config`, `unit_config_path`,
+  `no_display`, `validation_config` fixtures (distinct from the DB-backed `config`).
+- `tests/fixtures/download/story_factories.py`: `FakeStory` factory.
+- Rate limiter: asyncio.gather concurrency tests covering `floor=0` and `floor>0`
+  serialization invariants.
+
+### Changed
+
+- All `FanslyApi` HTTP methods migrated to `async`/`httpx.AsyncClient`; the
+  entire download pipeline is now fully async end-to-end.
+- `RateLimiterDisplay.start()` moved from `get_api()` to `setup_api()` so the
+  cached constructor remains I/O-free.
+- `textio/prompts.py` consolidates all prompts; `textio/textio.py` and call
+  sites simplified accordingly.
+- YAML loader refactored to preserve `model_fields_set` honesty and fix the
+  `_rebuild_schema_from_config` round-trip (mutates sections in place instead
+  of reconstructing them).
+- `config/fanslyconfig.py` section-model decomposition aligned with new
+  render-policy schema.
+- Regular downloads stream into a sibling `NamedTemporaryFile` and atomically
+  `shutil.move` to the target path — partial files no longer reach the dedup
+  hash store on interrupted downloads.
+- Unbound `logger.*` calls (no `.bind(logger=...)`) now route to the textio
+  console and file handlers instead of being silently dropped by all filters.
+- `api/websocket.py` `http_client` typed to accept `httpx.AsyncClient` in
+  production and `httpx.Client` on the legacy test path.
+- `daemon/filters.py` `should_process_creator` ported to async.
+
+### Fixed
+
+- Rate limiter Bug A residual: `_reserve_slot` cursor stalled at
+  `learned_floor=0` on cold start. Now advances by
+  `max(floor, token_refill_interval)` so concurrent waiters serialise even
+  before the floor warms up.
+- Rate limiter: removed redundant `last_backoff_time` double-write in the
+  success-reduction branch that was staling the cursor clamp.
+- Config INI loader: `model_fields_set` honesty preserved during migration so
+  fields touched only by defaults are not written to the output YAML.
+- `_rebuild_schema_from_config` round-trip: sections are now mutated in place
+  rather than reconstructed wholesale, fixing field-ordering regressions.
+- Logging grapheme-cluster collapse for supplementary-plane emoji and
+  VS16-modified codepoints that misaligned Rich column widths over SSH/tmux.
+
 ## [0.13.4] - 2026-05-08
 
 Stash integration enhancements for non-aligned library layouts and
@@ -456,7 +535,8 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...HEAD
+[0.13.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4
 [0.13.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3
 [0.13.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1

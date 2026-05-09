@@ -111,6 +111,7 @@ class FanslyWebSocket:
         monitor_events: bool = False,
         base_url: str | None = None,
         http_client: httpx.AsyncClient | httpx.Client | None = None,
+        ping_timeout_enabled: bool = True,
     ) -> None:
         """Initialize Fansly WebSocket client.
 
@@ -135,6 +136,10 @@ class FanslyWebSocket:
                 same jar (WS → HTTP direction), so the API and WS stay
                 in sync as Fansly rotates session/check-key cookies.
                 Pass ``None`` in tests to use the static ``cookies`` dict.
+            ping_timeout_enabled: When ``True`` (default), the ping loop
+                disconnects if no ``t=2`` response arrives within
+                1.2x ping_interval.  Set ``False`` for connections that
+                do not echo pings back (e.g. the dedicated chat WS).
         """
         self.token = token
         self.user_agent = user_agent
@@ -165,6 +170,7 @@ class FanslyWebSocket:
         self._max_reconnect_delay = 15.0  # JS: caps at 15000ms
         self._last_ping_response = 0.0  # JS: lastPingResponse_
         self._last_connection_reset = 0.0  # JS: lastConnectionReset_
+        self.ping_timeout_enabled = ping_timeout_enabled
 
         # Thread infrastructure: WS owns its own event loop so the spec-
         # mandated 1.2*pingInterval timeout (api/websocket.py ping_worker)
@@ -992,7 +998,8 @@ class FanslyWebSocket:
 
                         # JS: if now - lastPingResponse_ > pingTimeout_ → reset
                         if (
-                            now - self._last_ping_response > ping_timeout
+                            self.ping_timeout_enabled
+                            and now - self._last_ping_response > ping_timeout
                             and now - self._last_connection_reset > 15.0
                         ):
                             logger.warning(
@@ -1315,6 +1322,21 @@ class FanslyWebSocket:
         await self.websocket.send(json.dumps(message))
 
         logger.debug("Sent WebSocket message - type: {}", message_type)
+
+    async def join_chat_room(self, chat_room_id: int | str) -> None:
+        """Join a livestream chat room (sends MSG_CHAT_ROOM / t=46001).
+
+        Subscribes to real-time chat events for *chat_room_id*.  Must be
+        called after a successful ``connect()``.
+
+        Args:
+            chat_room_id: The chat room ID to join (int or str).
+        """
+        await self.send_message(
+            self.MSG_CHAT_ROOM,
+            {"chatRoomId": str(chat_room_id)},
+        )
+        logger.debug("Joined chat room: {}", chat_room_id)
 
     async def __aenter__(self) -> FanslyWebSocket:
         """Async context manager entry — starts the WS thread."""

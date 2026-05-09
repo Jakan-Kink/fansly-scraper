@@ -66,6 +66,7 @@ from daemon.handlers import (
     dispatch_ws_event,
     has_handler,
 )
+from daemon.livestream_watcher import route_ws_chat_message
 from daemon.polling import poll_home_timeline, poll_story_states
 from daemon.simulator import ActivitySimulator
 from daemon.state import mark_creator_processed
@@ -1066,6 +1067,19 @@ def _make_ws_handler(
 
         # Let interrupt events wake the simulator even during hidden
         simulator.on_ws_event_during_hidden(service_id, event_type)
+
+        # SVC_CHAT (serviceId=46) type=10 — real-time chat message.
+        # Route to an active ChatRecorder if one exists for this room.
+        if service_id == 46 and event_type == 10:
+            chat_msg = inner.get("chatRoomMessage")
+            if isinstance(chat_msg, dict):
+                try:
+                    room_id = int(chat_msg["chatRoomId"])
+                except (KeyError, TypeError, ValueError):
+                    room_id = None
+                if room_id is not None:
+                    await route_ws_chat_message(room_id, chat_msg)
+            return
 
         item = dispatch_ws_event(service_id, event_type, inner)
         if item is None:
