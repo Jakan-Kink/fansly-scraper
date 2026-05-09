@@ -21,7 +21,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from websockets import client as ws_client
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import ConnectionClosedOK, WebSocketException
 
 from config.logging import websocket_logger as logger
 from helpers.timer import timing_jitter
@@ -329,11 +329,12 @@ class FanslyWebSocket:
             message_type = data.get("t")
             message_data = data.get("d")
 
-            logger.trace(
-                "Received WebSocket message - type: {}, data: {}",
-                message_type,
-                message_data,
-            )
+            if message_type != self.MSG_PING:
+                logger.debug(
+                    "Received WebSocket message - type: {}, data: {}",
+                    message_type,
+                    message_data,
+                )
 
             # Event monitor — categorized logging for protocol discovery
             if self.monitor_events:
@@ -1049,7 +1050,10 @@ class FanslyWebSocket:
                     logger.debug("WebSocket listen timeout - continuing")
                     continue
                 except WebSocketException as e:
-                    logger.error("WebSocket error in listen loop: {}", e)
+                    if isinstance(e, ConnectionClosedOK):
+                        logger.debug("WebSocket closed cleanly in listen loop: {}", e)
+                    else:
+                        logger.error("WebSocket error in listen loop: {}", e)
                     self.connected = False
                     break
 

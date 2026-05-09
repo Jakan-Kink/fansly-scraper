@@ -401,6 +401,10 @@ class MonitoringSection(_BaseSection):
     unrecoverable_error_timeout_seconds: int = 3600
     dashboard_enabled: bool = True
     websocket_subprocess: bool = False
+    heartbeat_interval_minutes: int = 15
+    livestream_recording_enabled: bool = True
+    livestream_poll_interval_seconds: int = 30
+    livestream_manifest_poll_interval_seconds: int = Field(default=3, ge=1, le=15)
 
     @field_validator("session_baseline", mode="before")
     @classmethod

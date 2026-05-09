@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC
 
 import pytest
 
@@ -638,7 +639,9 @@ class TestSimulatorTickLoopUnhideErrors:
         refresh_event = asyncio.Event()
         dashboard = _FastDashboard()
 
-        await _simulator_tick_loop(sim, stop_event, ws, refresh_event, dashboard)
+        await _simulator_tick_loop(
+            sim, stop_event, ws, refresh_event, _make_budget(), dashboard
+        )
 
         # The ws.stop_thread error was caught — refresh_event still set,
         # dashboard.set_ws_state(False) called.
@@ -665,11 +668,180 @@ class TestSimulatorTickLoopUnhideErrors:
         refresh_event = asyncio.Event()
         dashboard = _FastDashboard()
 
-        await _simulator_tick_loop(sim, stop_event, ws, refresh_event, dashboard)
+        await _simulator_tick_loop(
+            sim, stop_event, ws, refresh_event, _make_budget(), dashboard
+        )
 
         assert ws.stop_calls == 1
         assert ws.start_calls == 1
         assert True in dashboard.ws_states
+
+
+# ---------------------------------------------------------------------------
+# _simulator_tick_loop — Phase 1: budget.on_success() called on unhide
+# ---------------------------------------------------------------------------
+
+
+class TestSimulatorTickLoopBudgetReset:
+    """Phase 1: unhide calls budget.on_success() to prevent false
+    DaemonUnrecoverableError after long hidden periods."""
+
+    @pytest.mark.asyncio
+    async def test_unhide_resets_error_budget(self):
+        """Unhide transition resets budget.last_success_at to now."""
+        from datetime import datetime
+
+        sim = _make_simulator("hidden")
+        budget = _make_budget()
+        # Wind clock back to simulate 5 h of no API activity during hidden state.
+        budget.last_success_at = datetime(2020, 1, 1, tzinfo=UTC)
+
+        def _tick():
+            sim.state = "active"
+            stop_event.set()
+            return "unhide"
+
+        sim.tick = _tick  # type: ignore[method-assign]
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+
+        await _simulator_tick_loop(
+            sim, stop_event, FakeWS(), refresh_event, budget, _FastDashboard()
+        )
+
+        delta = (datetime.now(UTC) - budget.last_success_at).total_seconds()
+        assert delta < 5.0, "on_success() should have reset last_success_at to near-now"
+
+    @pytest.mark.asyncio
+    async def test_unhide_budget_reset_prevents_false_unrecoverable(self):
+        """After unhide, a soft error must NOT raise DaemonUnrecoverableError.
+
+        Without budget.on_success() the 5-h hidden gap exceeds the 1-h
+        timeout, so the first post-unhide error would fatally crash the daemon.
+        """
+        from datetime import datetime
+
+        sim = _make_simulator("hidden")
+        budget = _make_budget()  # 1-hour timeout
+        budget.last_success_at = datetime(2020, 1, 1, tzinfo=UTC)  # 5 h+ ago
+
+        def _tick():
+            sim.state = "active"
+            stop_event.set()
+            return "unhide"
+
+        sim.tick = _tick  # type: ignore[method-assign]
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+
+        await _simulator_tick_loop(
+            sim, stop_event, FakeWS(), refresh_event, budget, _FastDashboard()
+        )
+
+        # Clock was reset by on_success() — soft error must not raise.
+        budget.on_error(RuntimeError("soft error after unhide"))  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _simulator_tick_loop — Phase 3: 15-minute heartbeat in all states
+# ---------------------------------------------------------------------------
+
+
+class _FakeTime:
+    """Stub for the ``time`` module imported inside ``daemon.runner``."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def monotonic(self) -> float:
+        return self.value
+
+
+class TestSimulatorTickLoopHeartbeat:
+    """Phase 3: ws_logger DEBUG heartbeat fires every 15 min (900 s) in all states."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_emitted_when_interval_elapsed(self, monkeypatch, caplog):
+        """time.monotonic() returns a value 1000 s past epoch → interval elapsed → DEBUG log."""
+        caplog.set_level(logging.DEBUG)
+        monkeypatch.setattr("daemon.runner.time", _FakeTime(1000.0))
+
+        sim = _make_simulator("active")
+
+        def _tick():
+            stop_event.set()
+
+        sim.tick = _tick  # type: ignore[method-assign]
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+
+        await _simulator_tick_loop(
+            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+        )
+
+        assert any(
+            "WS alive" in r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+        ), "Heartbeat DEBUG log not found"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_not_emitted_before_interval(self, monkeypatch, caplog):
+        """time.monotonic() returns 0.1 s (< 900 s interval) → no heartbeat log."""
+        caplog.set_level(logging.DEBUG)
+        monkeypatch.setattr("daemon.runner.time", _FakeTime(0.1))
+
+        sim = _make_simulator("active")
+
+        def _tick():
+            stop_event.set()
+
+        sim.tick = _tick  # type: ignore[method-assign]
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+
+        await _simulator_tick_loop(
+            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+        )
+
+        assert not any(
+            "WS alive" in r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+        ), "Heartbeat should not fire before interval elapses"
+
+    @pytest.mark.parametrize("state", ["active", "idle", "hidden"])
+    @pytest.mark.asyncio
+    async def test_heartbeat_shows_state_for_all_states(
+        self, state: str, monkeypatch, caplog
+    ):
+        """Heartbeat includes the current simulator state — works in all three states."""
+        caplog.set_level(logging.DEBUG)
+        monkeypatch.setattr("daemon.runner.time", _FakeTime(1000.0))
+
+        sim = _make_simulator(state)
+
+        def _tick():
+            stop_event.set()
+
+        sim.tick = _tick  # type: ignore[method-assign]
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+
+        await _simulator_tick_loop(
+            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+        )
+
+        assert any(
+            f"state={state}" in r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG" and "WS alive" in r.getMessage()
+        ), f"Heartbeat did not mention state={state}"
 
 
 # ---------------------------------------------------------------------------

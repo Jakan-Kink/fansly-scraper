@@ -430,6 +430,7 @@ _NOOP_DESCRIPTIONS: dict[tuple[int, int], str] = {
     (2, 2): "media like (engagement signal, no download work)",
     (4, 1): "message delivered / sent acknowledgement",
     (4, 2): "message read-receipt acknowledgement",
+    (5, 22): "typing announce (real-time typing indicator, no action needed)",
 }
 
 

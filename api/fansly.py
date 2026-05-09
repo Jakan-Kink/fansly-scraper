@@ -82,6 +82,30 @@ class FanslyApi:
         return f"{self.BASE_URL}mediastories/following"
 
     @property
+    def STREAMING_FOLLOWING_ONLINE_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}streaming/followingstreams/online"
+
+    @property
+    def STREAMING_CHANNEL_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}streaming/channel/{{}}"
+
+    @property
+    def CHATROOM_MESSAGES_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}chatroom/messages"
+
+    @property
+    def CHATROOM_SUBALERT_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}chatroom/subalert"
+
+    @property
+    def CHATROOMS_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}chatrooms"
+
+    @property
+    def CHATROOMS_SETTINGS_ENDPOINT(self) -> str:
+        return f"{self.BASE_URL}chatrooms/settings"
+
+    @property
     def MEDIA_STORY_VIEW_ENDPOINT(self) -> str:
         return f"{self.BASE_URL}mediastory/view"
 
@@ -671,6 +695,115 @@ class FanslyApi:
             url=self.MEDIA_STORIES_FOLLOWING_ENDPOINT,
             params={"limit": "100", "offset": "0"},
         )
+
+    async def get_following_streams_online(self) -> httpx.Response:
+        """Fetch the list of followed creators who are currently live.
+
+        Returns:
+            Response with ``streams`` list and ``aggregationData.accounts``.
+            Each stream entry includes ``id``, ``channelId``, ``accountId``,
+            ``title``, ``status``, ``viewerCount``, ``startedAt``.
+            The accounts list includes full account data with
+            ``streaming.channel.playbackUrl``.
+        """
+        return await self.get_with_ngsw(
+            url=self.STREAMING_FOLLOWING_ONLINE_ENDPOINT,
+        )
+
+    async def get_streaming_channel(self, account_id: int | str) -> httpx.Response:
+        """Fetch a creator's streaming channel, including authenticated playback URL.
+
+        The returned ``stream.playbackUrl`` carries a short-lived JWT ``?token=``
+        query param required for IVS playback. Call this immediately before
+        starting a recording — the token expires within ~60 seconds.
+
+        Args:
+            account_id: The creator's account ID.
+
+        Returns:
+            Response with channel data including ``stream.playbackUrl`` (authenticated).
+        """
+        return await self.get_with_ngsw(
+            url=self.STREAMING_CHANNEL_ENDPOINT.format(account_id),
+        )
+
+    async def get_chatroom_messages(self, chat_room_id: int | str) -> httpx.Response:
+        """Fetch recent messages for a live chatroom.
+
+        Args:
+            chat_room_id: The chatroom ID (from ``channel.chatRoomId``).
+
+        Returns:
+            Response with ``messages`` list and ``aggregationData.accounts``.
+            Each message includes ``id``, ``senderId``, ``type``, ``content``,
+            ``createdAt``, ``username``, ``displayname``.
+        """
+        return await self.get_with_ngsw(
+            url=self.CHATROOM_MESSAGES_ENDPOINT,
+            params={"chatRoomId": str(chat_room_id)},
+        )
+
+    async def get_chatrooms(self, ids: list[int | str] | int | str) -> httpx.Response:
+        """Fetch chatroom metadata for one or more chatroom IDs.
+
+        Args:
+            ids: Single chatroom ID or list of chatroom IDs.
+
+        Returns:
+            Response with list of chatroom objects including ``permissions``,
+            ``activeGoals``, and ``access``.
+        """
+        if isinstance(ids, (int, str)):
+            ids = [ids]
+        return await self.get_with_ngsw(
+            url=self.CHATROOMS_ENDPOINT,
+            params={"ids": ",".join(str(i) for i in ids)},
+        )
+
+    async def get_chatrooms_settings(self) -> httpx.Response:
+        """Fetch the authenticated user's chatroom settings.
+
+        Returns:
+            Response with chatroom settings (may be null if not configured).
+        """
+        return await self.get_with_ngsw(
+            url=self.CHATROOMS_SETTINGS_ENDPOINT,
+        )
+
+    async def post_chatroom_subalert(self, payload: dict) -> httpx.Response:
+        """Acknowledge a subscription alert in a live chatroom (POST).
+
+        Called when the WebSocket dispatches a ``subalert`` event so the
+        server records that the client received the notification.
+
+        Args:
+            payload: JSON body forwarded verbatim to the endpoint.
+                Expected keys: ``chatRoomId``, ``senderId``, ``historyId``,
+                ``subscriberId``, ``subscriptionTierId``.
+
+        Returns:
+            Response confirming the alert was recorded.
+        """
+        url = self.CHATROOM_SUBALERT_ENDPOINT
+        self.update_client_timestamp()
+        await self.cors_options_request(url)
+        headers = self.get_http_headers(url=url, add_fansly_headers=True)
+
+        if self.rate_limiter is not None:
+            await self.rate_limiter.async_wait_for_request()
+
+        start_time = time.time()
+        response = await self.http_session.post(
+            url,
+            json=payload,
+            headers=headers,
+            params=self.get_ngsw_params(),
+        )
+        if self.rate_limiter is not None:
+            self.rate_limiter.record_response(
+                response.status_code, time.time() - start_time
+            )
+        return response
 
     async def mark_story_viewed(self, story_id: int | str) -> httpx.Response:
         """Mark a story as viewed (POST /api/v1/mediastory/view).

@@ -2037,6 +2037,84 @@ class Account(FanslyObject):
         return f"<Account {self.id}: {self.username}>"
 
 
+# ── Livestream types (no DB tables — ephemeral watcher data) ─────────────
+
+
+class StreamSession(BaseModel):
+    """Active stream session within a channel.
+
+    Parsed from ``streaming.channel.stream`` in followingstreams/online
+    or from /api/v1/streaming/channel/<accountId>.
+
+    Attributes:
+        id: Stream session ID (snowflake).
+        historyId: History record ID.
+        channelId: Parent channel ID.
+        accountId: Creator's account ID.
+        title: Broadcaster-set stream title.
+        status: Stream status (2 = live).
+        viewerCount: Current viewer count.
+        startedAt: When the broadcast began (datetime, auto-coerced from ms int).
+        playbackUrl: Authenticated HLS master URL (present on channel endpoint
+            response only; includes ``?token=`` JWT valid for ~60 s).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
+
+    id: SnowflakeId
+    historyId: SnowflakeId | None = None
+    channelId: SnowflakeId
+    accountId: SnowflakeId
+    title: str | None = None
+    status: int | None = None
+    viewerCount: int | None = None
+    startedAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    playbackUrl: str | None = None
+
+
+class StreamChannel(BaseModel):
+    """A creator's IVS streaming channel.
+
+    Parsed from ``streaming.channel`` in the followingstreams/online response
+    or directly from /api/v1/streaming/channel/<accountId>.
+
+    Attributes:
+        id: Channel ID (snowflake).
+        accountId: Creator's account ID.
+        playbackUrl: Unauthenticated IVS master URL (no ``?token=``).
+            Fetching this URL returns a master manifest whose *variant* URLs
+            carry ``?dna=`` tokens for segment auth.
+        chatRoomId: Chat room ID for livestream chat.
+        status: Channel status (2 = live).
+        stream: Active stream session (present when live).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
+
+    id: SnowflakeId
+    accountId: SnowflakeId
+    playbackUrl: str | None = None
+    chatRoomId: SnowflakeId | None = None
+    status: int | None = None
+    stream: StreamSession | None = None
+
+
+class StreamingInfo(BaseModel):
+    """Parsed ``streaming`` field from an account in followingstreams/online.
+
+    Attributes:
+        accountId: Creator's account ID.
+        enabled: Whether streaming is enabled for this account.
+        channel: Channel data (present when live).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
+
+    accountId: SnowflakeId
+    enabled: bool = False
+    channel: StreamChannel | None = None
+
+
 # ── Type Registry ────────────────────────────────────────────────────────
 # Maps type name strings (used in RelationshipMetadata.inverse_type) to classes.
 

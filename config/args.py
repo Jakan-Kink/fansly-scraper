@@ -949,6 +949,7 @@ def _handle_monitoring_settings(args: argparse.Namespace, config: FanslyConfig) 
 
     if getattr(args, "daemon_mode", False):
         config.daemon_mode = True
+        config.interactive = False
         overridden = True
 
     return overridden

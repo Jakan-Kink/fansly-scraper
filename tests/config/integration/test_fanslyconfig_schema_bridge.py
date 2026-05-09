@@ -526,6 +526,44 @@ def test_cli_daemon_flag_overrides_yaml_false(
     assert fresh_config.daemon_mode is True
 
 
+def test_yaml_daemon_mode_forces_interactive_false(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
+    """monitoring.daemon_mode: true in YAML forces config.interactive to False."""
+    yaml_path = config_dir / "config.yaml"
+
+    schema = ConfigSchema()
+    schema.monitoring.daemon_mode = True
+    schema.options.interactive = True
+    schema.dump_yaml(yaml_path)
+
+    load_config(fresh_config)
+
+    assert fresh_config.daemon_mode is True
+    assert fresh_config.interactive is False
+
+
+def test_cli_daemon_flag_forces_interactive_false(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
+    """CLI --daemon forces config.interactive=False regardless of YAML."""
+    yaml_path = config_dir / "config.yaml"
+
+    schema = ConfigSchema()
+    schema.monitoring.daemon_mode = False
+    schema.options.interactive = True
+    schema.dump_yaml(yaml_path)
+
+    load_config(fresh_config)
+    assert fresh_config.interactive is True  # YAML value loaded
+
+    cli_args = argparse.Namespace(full_pass=False, monitor_since=None, daemon_mode=True)
+    _handle_monitoring_settings(cli_args, fresh_config)
+
+    assert fresh_config.daemon_mode is True
+    assert fresh_config.interactive is False
+
+
 # ---------------------------------------------------------------------------
 # 14. unrecoverable_error_timeout_seconds: YAML value → config attribute
 # ---------------------------------------------------------------------------
@@ -561,6 +599,37 @@ def test_unrecoverable_error_timeout_default_survives_load(
     load_config(fresh_config)
 
     assert fresh_config.unrecoverable_error_timeout_seconds == 3600
+
+
+def test_heartbeat_interval_populated_from_schema(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
+    """config.monitoring_heartbeat_interval_minutes is populated from
+    schema.monitoring.heartbeat_interval_minutes after load_config()."""
+    yaml_path = config_dir / "config.yaml"
+
+    schema = ConfigSchema()
+    schema.monitoring.heartbeat_interval_minutes = 5
+    schema.dump_yaml(yaml_path)
+
+    load_config(fresh_config)
+
+    assert fresh_config.monitoring_heartbeat_interval_minutes == 5
+
+
+def test_heartbeat_interval_default_survives_load(
+    config_dir: Path, fresh_config: FanslyConfig
+) -> None:
+    """When heartbeat_interval_minutes is absent from YAML,
+    config attribute defaults to 15."""
+    yaml_path = config_dir / "config.yaml"
+
+    schema = ConfigSchema()
+    schema.dump_yaml(yaml_path)
+
+    load_config(fresh_config)
+
+    assert fresh_config.monitoring_heartbeat_interval_minutes == 15
 
 
 # ---------------------------------------------------------------------------

@@ -188,6 +188,20 @@ class FanslyConfig:
     monitoring_timeline_poll_idle_seconds: int = 600
     monitoring_story_poll_active_seconds: int = 30
     monitoring_story_poll_idle_seconds: int = 300
+    # Minutes between "WS alive" heartbeat log lines. Lets operators confirm
+    # the daemon is running during long hidden phases with no other activity.
+    # Loaded from schema.monitoring.heartbeat_interval_minutes.
+    monitoring_heartbeat_interval_minutes: int = 15
+    # Opt-out flag for livestream recording (silent until a followed creator
+    # goes live). Loaded from schema.monitoring.livestream_recording_enabled.
+    monitoring_livestream_recording_enabled: bool = True
+    # Seconds between followingstreams/online polls.
+    # Loaded from schema.monitoring.livestream_poll_interval_seconds.
+    monitoring_livestream_poll_interval_seconds: int = 30
+    # Seconds between IVS variant manifest re-fetches during live capture.
+    # IVS TARGETDURATION is 6 s; capped at 15 s (max ~2.5 segments per fetch).
+    # Loaded from schema.monitoring.livestream_manifest_poll_interval_seconds.
+    monitoring_livestream_manifest_poll_interval_seconds: int = 3
 
     # StashContext
     # Widened to dict[str, Any] so port:int coexists with the string-valued keys.

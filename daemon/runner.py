@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import json
 import signal
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -908,24 +909,39 @@ async def _simulator_tick_loop(
     stop_event: asyncio.Event,
     ws: Any,
     refresh_event: asyncio.Event,
+    budget: ErrorBudget,
     dashboard: DaemonDashboard | NullDashboard,
+    heartbeat_interval_minutes: int = 15,
 ) -> None:
     """Periodically advance the ActivitySimulator state machine.
 
     Logs state transitions so operators can observe daemon activity cadence.
-    On an ``"unhide"`` transition, attempts to reassert the WebSocket
-    connection before polling resumes, and triggers a following list refresh.
+    On an ``"unhide"`` transition, resets the ErrorBudget clock (the hidden
+    phase is intentional downtime, not an error gap), attempts to reassert the
+    WebSocket connection before polling resumes, and triggers a following list
+    refresh.
+
+    Emits a periodic heartbeat log at the configured interval regardless of
+    state so operators can confirm the daemon is alive during long hidden
+    windows.
 
     Args:
         simulator: ActivitySimulator to tick.
         stop_event: Set to stop the loop.
         ws: FanslyWebSocket instance (or compatible stub) for reconnection.
         refresh_event: Event to set on unhide to trigger following refresh.
+        budget: ErrorBudget to reset on unhide (prevents false unrecoverable
+            exits after a long hidden phase with no API calls).
         dashboard: Dashboard to drive the countdown bar and status line.
+        heartbeat_interval_minutes: Minutes between "WS alive" DEBUG heartbeat
+            log lines. Loaded from config.monitoring_heartbeat_interval_minutes.
     """
     # Seed the state line with the initial simulator state so the operator
     # doesn't see "initializing" for 30s until the first tick.
     dashboard.set_simulator_state(simulator.state)
+
+    _heartbeat_at: float = 0.0
+    _heartbeat_interval: float = heartbeat_interval_minutes * 60.0
 
     while not stop_event.is_set():
         await dashboard.wait_with_countdown(
@@ -938,6 +954,25 @@ async def _simulator_tick_loop(
         if stop_event.is_set():
             break
 
+        # Periodic heartbeat — confirms the daemon is alive in any state.
+        now = time.monotonic()
+        if now - _heartbeat_at >= _heartbeat_interval:
+            elapsed_min = (now - simulator.state_entered_at) / 60.0
+            state_duration = {
+                "active": simulator.active_duration,
+                "idle": simulator.idle_duration,
+                "hidden": simulator.hidden_duration,
+            }.get(simulator.state, 0.0)
+            remaining_min = max(0.0, state_duration / 60.0 - elapsed_min)
+            ws_logger.debug(
+                "daemon.runner: WS alive — state={} ({:.0f} min in state,"
+                " ~{:.0f} min remaining)",
+                simulator.state,
+                elapsed_min,
+                remaining_min,
+            )
+            _heartbeat_at = now
+
         dashboard.mark_active(TASK_SIMULATOR, "Simulator tick: advancing...")
         transition = simulator.tick()
         if transition is not None:
@@ -949,6 +984,10 @@ async def _simulator_tick_loop(
             dashboard.set_simulator_state(simulator.state)
 
         if transition == "unhide":
+            # Reset the error budget clock: the hidden phase is intentional
+            # downtime, not an error gap — without this the first soft error
+            # after unhide trips the budget and exits the daemon.
+            budget.on_success()
             refresh_event.set()
             try:
                 await ws.stop_thread()
@@ -1275,7 +1314,15 @@ async def _run_daemon_body(
         name="daemon-worker",
     )
     sim_tick_task = asyncio.create_task(
-        _simulator_tick_loop(simulator, stop_event, ws, refresh_event, dashboard),
+        _simulator_tick_loop(
+            simulator,
+            stop_event,
+            ws,
+            refresh_event,
+            budget,
+            dashboard,
+            config.monitoring_heartbeat_interval_minutes,
+        ),
         name="daemon-simulator-tick",
     )
     following_refresh_task = asyncio.create_task(

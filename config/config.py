@@ -242,6 +242,9 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     # daemon_mode: only populate from schema if not already enabled via CLI
     if not config.daemon_mode:
         config.daemon_mode = schema.monitoring.daemon_mode
+    # Daemon mode is non-interactive by definition — it runs unattended.
+    if config.daemon_mode:
+        config.interactive = False
     config.unrecoverable_error_timeout_seconds = (
         schema.monitoring.unrecoverable_error_timeout_seconds
     )
@@ -265,6 +268,18 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     )
     config.monitoring_story_poll_idle_seconds = (
         schema.monitoring.story_poll_idle_seconds
+    )
+    config.monitoring_heartbeat_interval_minutes = (
+        schema.monitoring.heartbeat_interval_minutes
+    )
+    config.monitoring_livestream_recording_enabled = (
+        schema.monitoring.livestream_recording_enabled
+    )
+    config.monitoring_livestream_poll_interval_seconds = (
+        schema.monitoring.livestream_poll_interval_seconds
+    )
+    config.monitoring_livestream_manifest_poll_interval_seconds = (
+        schema.monitoring.livestream_manifest_poll_interval_seconds
     )
 
     # --- StashContext (optional) ---

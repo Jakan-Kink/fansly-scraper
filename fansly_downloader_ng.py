@@ -37,6 +37,7 @@ from daemon.bootstrap import (
     drain_backfill,
     shutdown_bootstrap,
 )
+from daemon.livestream_watcher import start_livestream_watcher, stop_all_recordings
 from daemon.runner import run_daemon
 from download.core import (
     DownloadState,
@@ -342,6 +343,13 @@ async def main(config: FanslyConfig) -> int:
     # queue via drain_backfill(); if daemon_mode is on, the daemon reuses
     # the same queue/simulator/ws to continue processing live events.
     bootstrap: DaemonBootstrap = await bootstrap_daemon_ws(config)
+
+    # Start the livestream watcher immediately — before the batch download —
+    # so any creator who goes live during the initial sync is caught.
+    _watcher_stop = asyncio.Event()
+    _watcher_task: asyncio.Task | None = None
+    if config.monitoring_livestream_recording_enabled:
+        _watcher_task = start_livestream_watcher(config, _watcher_stop)
 
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
@@ -705,6 +713,13 @@ async def main(config: FanslyConfig) -> int:
         # keep growing. The WS itself is torn down by the normal
         # cleanup path via config._api.close_websocket().
         await shutdown_bootstrap(bootstrap)
+
+    # Stop the livestream watcher (and any active recordings) on exit.
+    if _watcher_task is not None:
+        _watcher_stop.set()
+        await stop_all_recordings()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(_watcher_task, timeout=5.0)
 
     return exit_code
 

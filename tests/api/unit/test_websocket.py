@@ -12,7 +12,7 @@ from contextlib import suppress
 from unittest.mock import patch
 
 import pytest
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.frames import Close
 
 from api.websocket import FanslyWebSocket
@@ -234,6 +234,36 @@ class TestHandleMessage:
         """Non-JSON message → JSONDecodeError caught."""
         ws = _make_ws()
         await ws._handle_message("not json at all")
+
+    @pytest.mark.asyncio
+    async def test_non_ping_message_logged_at_debug(self, caplog):
+        """Phase 4: non-ping messages (type != 2) are logged at DEBUG."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        await ws._handle_message(_auth_response())  # type 1
+
+        assert any(
+            "Received WebSocket message - type: 1" in r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ping_message_not_logged_at_debug(self, caplog):
+        """Phase 4: MSG_PING (type 2) is NOT logged — too noisy (every 20-25 s)."""
+        import logging
+
+        caplog.set_level(logging.DEBUG)
+        ws = _make_ws()
+        await ws._handle_message(_msg(2, '{"lastPing": 0}'))
+
+        assert not any(
+            "Received WebSocket message - type: 2" in r.getMessage()
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+        )
 
 
 class TestErrorEvent:
@@ -553,6 +583,33 @@ class TestListenLoop:
         ws.websocket = BrokenSocket()
         await ws._listen_loop()
         assert ws.connected is False
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_connection_closed_ok_logs_debug_not_error(self, caplog):
+        """Phase 2: ConnectionClosedOK (code 1000) does NOT produce an ERROR log.
+
+        An intentional WS close (code 1000) must not pollute logs with
+        the old false-error "WebSocket error in listen loop" message.
+        The loop must exit cleanly with connected=False.
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING)
+        ws = _make_ws()
+        ws.connected = True
+
+        class CleanCloseSocket(FakeSocket):
+            async def recv(self):
+                raise ConnectionClosedOK(Close(1000, "OK"), Close(1000, "OK"))
+
+        ws.websocket = CleanCloseSocket()
+        await ws._listen_loop()
+
+        assert ws.connected is False
+        # The old bug: ConnectionClosedOK was logged at ERROR with the generic
+        # "WebSocket error in listen loop" message. Verify that message is absent.
+        error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert not any("WebSocket error in listen loop" in m for m in error_msgs)
 
 
 class TestMaintainConnection:

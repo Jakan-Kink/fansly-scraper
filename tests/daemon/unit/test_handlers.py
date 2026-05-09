@@ -29,6 +29,7 @@ from daemon.handlers import (
     RedownloadCreatorMedia,
     WorkItem,
     dispatch_ws_event,
+    has_handler,
 )
 
 
@@ -277,6 +278,19 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
     # ── _NOOP_DESCRIPTIONS path (svc=4 events; routed through _handle_noop_events) ──
     pytest.param(4, 1, {"foo": "bar"}, id="noop_message_delivered_ack"),
     pytest.param(4, 2, {"foo": "bar"}, id="noop_message_read_receipt_ack"),
+    # Phase 5: svc=5 type=22 typing-announce — intentional noop (fires every 3-5 s)
+    pytest.param(
+        5,
+        22,
+        {
+            "typingAnnounceEvent": {
+                "accountId": "662653337954426880",
+                "groupId": "900850803147825152",
+                "lastAnnounce": 1778303361125,
+            }
+        },
+        id="noop_typing_announce",
+    ),
     # ── Empty / unknown events ──
     pytest.param(5, 10, {"message": {}}, id="message_deleted_empty_payload"),
     # Defensive: message.ids is not a list (the `if not isinstance(raw_ids, list)` guard)
@@ -441,3 +455,17 @@ def test_dispatch_never_emits_download_timeline_only(
     """
     result = dispatch_ws_event(svc, etype, event)
     assert not isinstance(result, DownloadTimelineOnly)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: has_handler() recognises (5, 22) typing-announce as handled
+# ---------------------------------------------------------------------------
+
+
+def test_has_handler_typing_announce() -> None:
+    """Phase 5: has_handler(5, 22) returns True.
+
+    Ensures the runner won't log “unknown/unhandled” for every typing-announce
+    event, which fires every 3-5 seconds and would flood the log.
+    """
+    assert has_handler(5, 22) is True

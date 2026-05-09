@@ -89,6 +89,9 @@ monitoring:
   timeline_poll_idle_seconds: 600
   story_poll_active_seconds: 30
   story_poll_idle_seconds: 300
+  # Minutes between "WS alive" heartbeat log lines (any state). Confirms the
+  # daemon is alive during long hidden windows. Default: 15.
+  heartbeat_interval_minutes: 15
 
 logic:
   # Regex patterns the check-key extractor uses against Fansly's main.js.

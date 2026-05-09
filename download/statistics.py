@@ -78,11 +78,6 @@ def print_statistics_helper(state: GlobalState, header: str, footer: str = "") -
         header: The header text to display
         footer: Optional footer text to display
     """
-    missing_message = ""
-
-    if state.missing_items_count() > 0:
-        missing_message = " (this may indicate a problem)"
-
     print_info(
         f"{header}"
         f"\n  Total timeline media: {state.total_timeline_pictures} pictures & {state.total_timeline_videos} videos (= {state.total_timeline_items()} items)"
@@ -90,7 +85,6 @@ def print_statistics_helper(state: GlobalState, header: str, footer: str = "") -
         f"\n  Total media (timeline & messages): {state.total_timeline_items() + state.total_message_items}"
         f"\n  Downloaded media: {state.pic_count} pictures & {state.vid_count} videos (= {state.total_downloaded_items()} items)"
         f"\n  Duplicates skipped: {state.duplicate_count}"
-        f"\n  Missing items: {state.missing_items_count()}{missing_message}"
         f"{footer}"
         f"\n{74 * ' '}═╝"
     )
