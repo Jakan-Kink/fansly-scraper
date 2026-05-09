@@ -385,15 +385,19 @@ def setup_handlers() -> None:
         {"enqueue": False} if os.getenv("TESTING") == "1" else {"enqueue": True}
     )
 
+    # Named sinks that own their own handlers — unbound records must NOT be
+    # double-routed into those handlers.  Any logger_type NOT in this set
+    # (including None for bare ``logger.*`` calls) falls through to textio.
+    _owned_sinks = {"db", "stash", "websocket", "trace", "json"}
+
     # 1. TextIO Console Handler with SQL filtering
     def textio_filter(record: Any) -> bool:
         """Filter for textio console handler - exclude SQL logs."""
         extra = record.get("extra", {})
         logger_type = extra.get("logger")
 
-        if logger_type == "textio":
-            return True
-        if logger_type == "db":
+        # Explicitly owned sinks stay out of the textio console.
+        if logger_type in _owned_sinks:
             return False
 
         # Unbound logs: suppress SQLAlchemy/asyncpg/alembic noise.
@@ -403,13 +407,10 @@ def setup_handlers() -> None:
         # and the early check above returns False. This guard catches
         # records that bypass InterceptHandler entirely.
         logger_name = record.get("name", "")
-        if (  # pragma: no cover
+        return not (  # pragma: no cover
             logger_name.startswith(("sqlalchemy.", "asyncpg"))
             or logger_name == "alembic.runtime.migration"
-        ):
-            return False
-
-        return logger_type == "textio"
+        )
 
     # Console handler routes through Rich's shared console to coordinate
     # with ProgressManager's Live display. Fallback is loud (see except).
@@ -496,7 +497,7 @@ def setup_handlers() -> None:
         textio_handler.write,
         format="[{time:YYYY-MM-DD HH:mm:ss.SSS}] [{level.name:<8}] {name}:{function}:{line} - {message}",
         level=get_log_level("textio", "INFO"),
-        filter=lambda record: record.get("extra", {}).get("logger") == "textio",
+        filter=lambda record: record.get("extra", {}).get("logger") not in _owned_sinks,
         backtrace=True,
         diagnose=True,
         **enqueue_args,
