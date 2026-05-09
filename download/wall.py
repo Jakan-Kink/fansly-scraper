@@ -246,7 +246,7 @@ async def download_wall(
                 "or the creator is not providing unlocked content.",
                 35,
             )
-            input_enter_continue(config.interactive)
+            await input_enter_continue(config.interactive)
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
@@ -258,4 +258,4 @@ async def download_wall(
                 f"Unexpected error during wall download: \n{traceback.format_exc()}",
                 36,
             )
-            input_enter_continue(config.interactive)
+            await input_enter_continue(config.interactive)

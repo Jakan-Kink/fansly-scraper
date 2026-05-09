@@ -150,7 +150,7 @@ async def process_download_accessible_media(
             f"Unexpected error during {state.download_type_str()} download: \n{traceback.format_exc()}",
             43,
         )
-        input_enter_continue(config.interactive)
+        await input_enter_continue(config.interactive)
 
     finally:
         config.DUPLICATE_THRESHOLD = original_duplicate_threshold

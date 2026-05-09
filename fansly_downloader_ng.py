@@ -536,7 +536,7 @@ async def main(config: FanslyConfig) -> int:
                 # Still continue if one creator failed
                 except ApiAccountInfoError as e:
                     print_error(str(e))
-                    input_enter_continue(config.interactive)
+                    await input_enter_continue(config.interactive)
                     exit_code = SOME_USERS_FAILED
 
                 # Advance creator progress regardless of success/failure

@@ -558,9 +558,10 @@ class TestDownloadWallEdges:
         await entity_store.save(Account(id=creator_id, username=f"wall_{creator_id}"))
 
         # Patch input_enter_continue to no-op (production sleeps 15s in non-interactive).
-        monkeypatch.setattr(
-            "download.wall.input_enter_continue", lambda _interactive: None
-        )
+        async def _noop(_interactive):
+            return None
+
+        monkeypatch.setattr("download.wall.input_enter_continue", _noop)
 
         # First call: raise. Second call: return empty wall (triggers attempts+=1 → loop exits).
         # httpx.Response needs a request= kwarg to support raise_for_status.
@@ -614,7 +615,7 @@ class TestDownloadWallEdges:
 
         # When the outer except calls input_enter_continue, restore creator_id
         # so the next loop iteration takes the empty-media path and exits.
-        def _restore_creator_id(_interactive):
+        async def _restore_creator_id(_interactive):
             state.creator_id = creator_id
 
         monkeypatch.setattr("download.wall.input_enter_continue", _restore_creator_id)

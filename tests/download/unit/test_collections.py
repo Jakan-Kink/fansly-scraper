@@ -140,7 +140,10 @@ class TestDownloadCollections:
         cdn_mock = AsyncMock(return_value=None)
         monkeypatch.setattr("download.common.download_media", cdn_mock)
         monkeypatch.setattr("download.media.download_media", cdn_mock)
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
         monkeypatch.setattr("download.media.input_enter_continue", _noop)
         monkeypatch.setattr("download.collections.input_enter_continue", _noop)
@@ -220,7 +223,10 @@ class TestDownloadCollections:
         cdn_mock = AsyncMock(return_value=None)
         monkeypatch.setattr("download.common.download_media", cdn_mock)
         monkeypatch.setattr("download.media.download_media", cdn_mock)
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
 
         state = DownloadState(creator_name="empty_collection_user")
@@ -259,7 +265,7 @@ class TestDownloadCollections:
         # input_enter_continue is invoked on the failure path; no-op it.
         prompt_calls: list[bool] = []
 
-        def _record_prompt(interactive: bool) -> None:
+        async def _record_prompt(interactive: bool) -> None:
             prompt_calls.append(interactive)
 
         monkeypatch.setattr("download.collections.input_enter_continue", _record_prompt)
@@ -321,7 +327,10 @@ class TestDownloadCollections:
         cdn_mock = AsyncMock(return_value=None)
         monkeypatch.setattr("download.common.download_media", cdn_mock)
         monkeypatch.setattr("download.media.download_media", cdn_mock)
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
 
         state = DownloadState(creator_name="no_dup_user")

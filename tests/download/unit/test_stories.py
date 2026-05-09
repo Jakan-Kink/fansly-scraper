@@ -330,7 +330,10 @@ async def test_download_stories_calls_mark_when_mark_viewed_true(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
@@ -406,7 +409,10 @@ async def test_download_stories_skips_mark_when_mark_viewed_false(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 

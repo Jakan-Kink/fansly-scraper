@@ -187,7 +187,7 @@ class TestFanslyApiAdditional:
                 match=r"WebSocket (authentication failed|session setup failed)",
             ),
         ):
-            await fansly_api.get_active_session_async()
+            await fansly_api.get_active_session()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -322,18 +322,6 @@ class TestFanslyApiAdditional:
         assert hash1 != hash2
         assert hash1 != hash3
         assert hash2 != hash3
-
-    @pytest.mark.asyncio
-    async def test_get_active_session(self, fansly_api):
-        """Test get_active_session calls get_active_session_async"""
-        with patch.object(
-            fansly_api,
-            "get_active_session_async",
-            new=AsyncMock(return_value="test_session"),
-        ) as mock_async:
-            result = await fansly_api.get_active_session()
-            mock_async.assert_called_once()
-            assert result == "test_session"
 
     @pytest.mark.asyncio
     @respx.mock

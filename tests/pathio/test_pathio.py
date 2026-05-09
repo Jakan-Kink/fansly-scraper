@@ -373,54 +373,56 @@ class TestPathIO:
         assert save_dir == collections_dir
         assert save_path == expected_path
 
-    def test_ask_correct_dir_valid(self, tmp_path):
+    async def test_ask_correct_dir_valid(self, tmp_path):
         """TTY + valid input: returns the parsed directory."""
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
         mock_session = mock.MagicMock()
-        mock_session.prompt.return_value = str(tmp_path)
+        mock_session.prompt_async = mock.AsyncMock(return_value=str(tmp_path))
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
             mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
         ):
-            result = ask_correct_dir()
+            result = await ask_correct_dir()
         assert result == tmp_path
 
-    def test_ask_correct_dir_invalid_then_valid(self, tmp_path):
+    async def test_ask_correct_dir_invalid_then_valid(self, tmp_path):
         """Invalid path on first prompt → loop → valid path on second."""
         valid_dir = tmp_path / "valid"
         valid_dir.mkdir()
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
         mock_session = mock.MagicMock()
-        mock_session.prompt.side_effect = ["/nonexistent", str(valid_dir)]
+        mock_session.prompt_async = mock.AsyncMock(
+            side_effect=["/nonexistent", str(valid_dir)]
+        )
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
             mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
         ):
-            result = ask_correct_dir()
+            result = await ask_correct_dir()
         assert result == valid_dir
 
-    def test_ask_correct_dir_keyboard_interrupt(self):
+    async def test_ask_correct_dir_keyboard_interrupt(self):
         """KeyboardInterrupt during prompt re-raises after logging."""
         mock_stdin = mock.MagicMock()
         mock_stdin.isatty.return_value = True
         mock_session = mock.MagicMock()
-        mock_session.prompt.side_effect = KeyboardInterrupt
+        mock_session.prompt_async = mock.AsyncMock(side_effect=KeyboardInterrupt)
         with (
             mock.patch("pathio.pathio.sys.stdin", mock_stdin),
             mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
             pytest.raises(KeyboardInterrupt),
         ):
-            ask_correct_dir()
+            await ask_correct_dir()
 
-    def test_ask_correct_dir_non_interactive_raises(self):
+    async def test_ask_correct_dir_non_interactive_raises(self):
         """No TTY → RuntimeError pointing at config.yaml."""
         with (
             mock.patch("pathio.pathio.sys.stdin", None),
             pytest.raises(RuntimeError, match="unable to prompt"),
         ):
-            ask_correct_dir()
+            await ask_correct_dir()
 
     def test_get_creator_base_path_no_download_dir(self):
         """Line 157: download_directory is None → RuntimeError."""

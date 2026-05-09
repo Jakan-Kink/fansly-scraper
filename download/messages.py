@@ -33,7 +33,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
             f"{groups_response.status_code}\n{groups_response.text}",
             31,
         )
-        input_enter_continue(config.interactive)
+        await input_enter_continue(config.interactive)
         return
 
     groups_data = config.get_api().get_json_response_contents(groups_response)

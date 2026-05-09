@@ -215,7 +215,10 @@ async def test_download_messages_success_full_real_pipeline(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
     monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -272,7 +275,9 @@ async def test_download_messages_no_group_for_creator_warns_and_exits(
         ]
     )
 
-    _noop = lambda _: None  # noqa: E731
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -298,7 +303,9 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
     state = DownloadState()
     state.creator_id = snowflake_id()
 
-    _noop = lambda _: None  # noqa: E731
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -346,7 +353,10 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
     state.creator_name = f"mfail_{creator_id}"
 
     monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -399,7 +409,10 @@ async def test_download_messages_for_group_with_creator_info_preset(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
     monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -588,7 +601,10 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     assert state.creator_name is None
 
     monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -743,7 +759,10 @@ async def test_download_messages_skipped_downloads_summary(
     monkeypatch.setattr("download.common.download_media", _count_as_duplicate)
     monkeypatch.setattr("download.media.download_media", _count_as_duplicate)
     monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)

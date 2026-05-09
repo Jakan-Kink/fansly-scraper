@@ -223,7 +223,7 @@ async def download_timeline(
                 \n or the creator is not providing unlocked content.",
                 35,
             )
-            input_enter_continue(config.interactive)
+            await input_enter_continue(config.interactive)
             if not config.interactive:
                 break
 
@@ -237,6 +237,6 @@ async def download_timeline(
                 f"Unexpected error during Timeline download: \n{traceback.format_exc()}",
                 36,
             )
-            input_enter_continue(config.interactive)
+            await input_enter_continue(config.interactive)
             if not config.interactive:
                 break

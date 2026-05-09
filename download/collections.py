@@ -60,4 +60,4 @@ async def download_collections(config: FanslyConfig, state: DownloadState) -> No
             f"{collections_response.status_code}\n{collections_response.text}",
             23,
         )
-        input_enter_continue(config.interactive)
+        await input_enter_continue(config.interactive)

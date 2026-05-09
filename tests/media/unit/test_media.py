@@ -265,7 +265,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.id == media.id
         assert result.mimetype == "video/mp4"  # Simplified
         assert result.is_preview is False
@@ -289,7 +289,7 @@ class TestParseMediaInfo:
         )
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.is_preview is True
         assert result.id == preview.id
 
@@ -308,7 +308,7 @@ class TestParseMediaInfo:
         )
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.is_preview is False
         assert result.id == main_media.id  # Uses main, not preview
 
@@ -340,7 +340,7 @@ class TestParseMediaInfo:
         }
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.id == mid
         assert result.download_url is not None
 
@@ -357,7 +357,7 @@ class TestParseMediaInfo:
         info["media"]["id"] = str(media.id)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.id == media.id
         assert result.default_normal_id == media.id
 
@@ -386,7 +386,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is not None
         assert "variant" in result.download_url
         assert result.download_id == variant.id
@@ -416,7 +416,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert "default_4k" in result.download_url
         assert result.download_id is None  # use_variant=False → no download_id
 
@@ -435,7 +435,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert "photo.jpeg" in result.download_url
 
     @pytest.mark.asyncio
@@ -455,7 +455,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, main_media, preview=preview)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is not None
         assert "preview" in result.download_url
 
@@ -484,7 +484,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, main_media, preview=preview)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is not None
         assert "preview_variant" in result.download_url
 
@@ -524,7 +524,7 @@ class TestParseMediaInfo:
         }
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is not None
 
     @pytest.mark.asyncio
@@ -542,7 +542,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, audio)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.file_extension == "mp3"  # audio/mp4 → audio/mp3, .mp4 → .mp3
 
     @pytest.mark.asyncio
@@ -560,7 +560,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, vid)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert str(result.id) in state.recent_video_media_ids
 
     @pytest.mark.asyncio
@@ -588,7 +588,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert str(variant.id) in state.recent_video_media_ids
 
     @pytest.mark.asyncio
@@ -608,7 +608,7 @@ class TestParseMediaInfo:
         state.creator_name = "test_creator"
 
         with patch("media.media.input", return_value=""):
-            result = parse_media_info(state, info, post_id="999")
+            result = await parse_media_info(state, info, post_id="999")
         assert result.download_url is not None
 
     @pytest.mark.asyncio
@@ -632,7 +632,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media, preview=preview)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.preview_id == preview.id
         assert result.preview_mimetype == "image/png"
         assert result.preview_url is not None
@@ -659,7 +659,7 @@ class TestParseMediaInfo:
         }
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.preview_mimetype == "image/jpeg"
         assert result.preview_url is None
 
@@ -674,7 +674,7 @@ class TestParseMediaInfo:
         info = _media_info_dict(acct_id, media)
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is None
         assert result.file_extension is None
 
@@ -697,5 +697,5 @@ class TestParseMediaInfo:
         }
         state = DownloadState()
 
-        result = parse_media_info(state, info)
+        result = await parse_media_info(state, info)
         assert result.download_url is None

@@ -537,7 +537,10 @@ class TestHandleTimelineOnlyItem:
         # Patch only the leaf timing/IO calls — same pattern as
         # tests/download/unit/test_timeline_download.py.
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
 
         item = DownloadTimelineOnly(creator_id=creator_id)
@@ -617,7 +620,10 @@ class TestHandleTimelineOnlyItem:
         ).mock(side_effect=[httpx.Response(200, json={"response": []})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
 
         item = DownloadTimelineOnly(creator_id=creator_id)
@@ -1094,7 +1100,10 @@ class TestFollowingRefresh:
         monkeypatch.setattr(
             "download.account.asyncio.sleep", AsyncMock(return_value=None)
         )
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
         monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -1148,7 +1157,10 @@ class TestFollowingRefresh:
         following_route = mount_empty_following_route(client_id)
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
         monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -1214,7 +1226,10 @@ class TestFollowingRefresh:
         monkeypatch.setattr(
             "download.account.asyncio.sleep", AsyncMock(return_value=None)
         )
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
 
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
@@ -1370,7 +1385,10 @@ class TestMarkViewedFalse:
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
         monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
@@ -1528,7 +1546,10 @@ class TestMarkViewedFalse:
         _noop_download = AsyncMock(return_value=None)
         monkeypatch.setattr("download.common.download_media", _noop_download)
         monkeypatch.setattr("download.media.download_media", _noop_download)
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.common.input_enter_continue", _noop)
         monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
@@ -1614,7 +1635,10 @@ class TestMarkViewedFalse:
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
         monkeypatch.setattr("download.wall.sleep", AsyncMock(return_value=None))
-        _noop = lambda _: None  # noqa: E731
+
+        async def _noop(_):
+            return None
+
         monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
         monkeypatch.setattr("download.messages.input_enter_continue", _noop)
         monkeypatch.setattr("download.wall.input_enter_continue", _noop)

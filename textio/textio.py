@@ -11,16 +11,16 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides the output functions.
 """
 
+import asyncio
 import json
 import platform
 import shutil
 import subprocess
 import sys
-from time import sleep
 from typing import Any
 
 from config.logging import json_logger, textio_logger
-from textio.prompts import wait_for_enter
+from textio.prompts import await_for_enter
 
 
 def json_output(level: int, log_type: str, message: str | dict[str, Any]) -> None:
@@ -119,29 +119,29 @@ def print_warning(message: str) -> None:
     textio_logger.opt(depth=1).log("WARNING", message)
 
 
-def input_enter_close(interactive: bool) -> None:
+async def input_enter_close(interactive: bool) -> None:
     """Asks user for <ENTER> to close and exits the program.
     In non-interactive mode sleeps instead, then exits.
     """
     if interactive:
-        wait_for_enter("\nPress <ENTER> to close ...")
+        await await_for_enter("\nPress <ENTER> to close ...")
 
     else:
         print("\nExiting in 15 seconds ...")
-        sleep(15)
+        await asyncio.sleep(15)
 
     sys.exit()
 
 
-def input_enter_continue(interactive: bool) -> None:
+async def input_enter_continue(interactive: bool) -> None:
     """Asks user for <ENTER> to continue.
     In non-interactive mode sleeps instead.
     """
     if interactive:
-        wait_for_enter("\nPress <ENTER> to attempt to continue ...")
+        await await_for_enter("\nPress <ENTER> to attempt to continue ...")
     else:
         print("\nContinuing in 15 seconds ...")
-        sleep(15)
+        await asyncio.sleep(15)
 
 
 # clear the terminal based on the operating system

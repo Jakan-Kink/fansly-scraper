@@ -15,7 +15,7 @@ from config.browser import (
 )
 
 
-class TestBrowserIntegration(unittest.TestCase):
+class TestBrowserIntegration(unittest.IsolatedAsyncioTestCase):
     """Integration tests for browser-related functionality."""
 
     def setUp(self):
@@ -63,14 +63,14 @@ class TestBrowserIntegration(unittest.TestCase):
         conn.commit()
         conn.close()
 
-    def test_get_token_from_firefox_profile_integration(self):
+    async def test_get_token_from_firefox_profile_integration(self):
         """Test getting token from a real Firefox profile structure."""
-        token = get_token_from_firefox_profile(str(self.firefox_profile))
+        token = await get_token_from_firefox_profile(str(self.firefox_profile))
         assert token == "test-fansly-token"
 
-    def test_get_token_from_firefox_db_integration(self):
+    async def test_get_token_from_firefox_db_integration(self):
         """Test getting token directly from SQLite database."""
-        token = get_token_from_firefox_db(str(self.db_path))
+        token = await get_token_from_firefox_db(str(self.db_path))
         assert token == "test-fansly-token"
 
     def test_find_leveldb_folders_integration(self):

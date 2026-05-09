@@ -9,7 +9,7 @@ from __future__ import annotations
 from config.logging import textio_logger
 from download.downloadstate import DownloadState
 from metadata.models import Media, get_store
-from textio.prompts import wait_for_enter
+from textio.prompts import await_for_enter
 
 
 def simplify_mimetype(mimetype: str) -> str:
@@ -76,7 +76,7 @@ def _build_m3u8_auth_url(variant: Media) -> str | None:
         return url
 
 
-def parse_media_info(
+async def parse_media_info(
     state: DownloadState,
     media_info: dict,
     post_id: str | None = None,
@@ -186,7 +186,7 @@ def parse_media_info(
                 f"& creator username: {state.creator_name}\n",
             )
             if interactive:
-                wait_for_enter("Press Enter to attempt continue downloading ...")
+                await await_for_enter("Press Enter to attempt continue downloading ...")
 
     # Set preview fields
     if "preview" in media_info:

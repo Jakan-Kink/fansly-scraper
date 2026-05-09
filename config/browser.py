@@ -11,7 +11,7 @@ from time import sleep
 import psutil
 
 from config.logging import textio_logger
-from textio.prompts import wait_for_enter
+from textio.prompts import await_for_enter
 
 
 # Optional dependency for browser auth
@@ -25,7 +25,7 @@ except ImportError:
 
 
 # Function to recursively search for "storage" folders and process SQLite files
-def get_token_from_firefox_profile(directory: str) -> str | None:
+async def get_token_from_firefox_profile(directory: str) -> str | None:
     """Gets a Fansly authorization token from a Firefox
     configuration directory.
 
@@ -41,7 +41,9 @@ def get_token_from_firefox_profile(directory: str) -> str | None:
             for file in files:
                 if file.endswith(".sqlite"):
                     sqlite_file = str(Path(root) / file)
-                    session_active_session = get_token_from_firefox_db(sqlite_file)
+                    session_active_session = await get_token_from_firefox_db(
+                        sqlite_file
+                    )
                     if session_active_session is not None:
                         return session_active_session
 
@@ -49,7 +51,7 @@ def get_token_from_firefox_profile(directory: str) -> str | None:
     return None
 
 
-def get_token_from_firefox_db(
+async def get_token_from_firefox_db(
     sqlite_file_name: str, interactive: bool = True
 ) -> str | None:
     """Fetches the Fansly token from the Firefox SQLite configuration
@@ -105,11 +107,11 @@ def get_token_from_firefox_db(
                 f"\n{19 * ' '}or it will be closed automatically after continuing.",
             )
 
-            wait_for_enter(f"\n{19 * ' '}► Press <ENTER> to continue! ")
+            await await_for_enter(f"\n{19 * ' '}► Press <ENTER> to continue! ")
 
             close_browser_by_name("firefox")
 
-            return get_token_from_firefox_db(
+            return await get_token_from_firefox_db(
                 sqlite_file_name, interactive
             )  # recursively restart function
 
@@ -280,7 +282,7 @@ def parse_browser_from_string(browser_name: str) -> str:
     return "Unknown"
 
 
-def get_auth_token_from_leveldb_folder(
+async def get_auth_token_from_leveldb_folder(
     leveldb_folder: str, interactive: bool = True
 ) -> str | None:
     """Gets a Fansly authorization token from a leveldb folder.
@@ -328,12 +330,12 @@ def get_auth_token_from_leveldb_folder(
             f"\n{19 * ' '}or it will be closed automatically after continuing.",
         )
 
-        input(f"\n{19 * ' '}► Press <ENTER> to continue! ")
+        await await_for_enter(f"\n{19 * ' '}► Press <ENTER> to continue! ")
 
         close_browser_by_name(used_browser)
 
         # recursively restart function
-        return get_auth_token_from_leveldb_folder(leveldb_folder, interactive)
+        return await get_auth_token_from_leveldb_folder(leveldb_folder, interactive)
 
     except Exception:
         return None

@@ -2,7 +2,7 @@
 
 import os
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -107,20 +107,20 @@ def test_get_browser_config_paths_linux(mock_expanduser, mock_platform):
 
 
 @patch("os.walk")
-def test_get_token_from_firefox_profile_no_storage(mock_walk):
+async def test_get_token_from_firefox_profile_no_storage(mock_walk):
     """Test getting token from Firefox profile when no storage folder exists."""
     mock_walk.return_value = [
         ("/path/to/firefox/profile", ["other"], ["file.txt"]),
     ]
 
-    result = get_token_from_firefox_profile("/path/to/firefox/profile")
+    result = await get_token_from_firefox_profile("/path/to/firefox/profile")
     assert result is None
 
 
 @patch("os.walk")
 @patch("os.path.join")
-@patch("config.browser.get_token_from_firefox_db")
-def test_get_token_from_firefox_profile_with_token(
+@patch("config.browser.get_token_from_firefox_db", new_callable=AsyncMock)
+async def test_get_token_from_firefox_profile_with_token(
     mock_get_token, mock_join, mock_walk
 ):
     """Test getting token from Firefox profile when token exists."""
@@ -130,14 +130,14 @@ def test_get_token_from_firefox_profile_with_token(
     mock_join.return_value = "/path/to/firefox/profile/storage/webappsstore.sqlite"
     mock_get_token.return_value = "test-token"
 
-    result = get_token_from_firefox_profile("/path/to/firefox/profile")
+    result = await get_token_from_firefox_profile("/path/to/firefox/profile")
     assert result == "test-token"
     mock_get_token.assert_called_once_with(
         "/path/to/firefox/profile/storage/webappsstore.sqlite"
     )
 
 
-def test_get_token_from_firefox_profile_deep_storage():
+async def test_get_token_from_firefox_profile_deep_storage():
     """Test getting token from Firefox profile with deeply nested storage folder."""
     mock_walk_results = [
         ("/root", ["folder1"], []),
@@ -150,17 +150,19 @@ def test_get_token_from_firefox_profile_deep_storage():
         with (
             patch("os.path.join", side_effect=os.path.join),
             patch(
-                "config.browser.get_token_from_firefox_db", return_value="test-token"
+                "config.browser.get_token_from_firefox_db",
+                new_callable=AsyncMock,
+                return_value="test-token",
             ) as mock_get_token,
         ):
-            result = get_token_from_firefox_profile("/root")
+            result = await get_token_from_firefox_profile("/root")
 
             assert result == "test-token"
             mock_get_token.assert_called_once()
             assert mock_walk.call_count == 1
 
 
-def test_get_token_from_firefox_profile_multiple_storage():
+async def test_get_token_from_firefox_profile_multiple_storage():
     """Test getting token from Firefox profile with multiple storage folders."""
     with patch("os.walk") as mock_walk:
         mock_walk.return_value = [
@@ -174,32 +176,36 @@ def test_get_token_from_firefox_profile_multiple_storage():
         with (
             patch("os.path.join", side_effect=os.path.join),
             patch(
-                "config.browser.get_token_from_firefox_db", side_effect=mock_get_token
+                "config.browser.get_token_from_firefox_db",
+                new_callable=AsyncMock,
+                side_effect=mock_get_token,
             ) as mock_get_token,
         ):
-            result = get_token_from_firefox_profile("/root")
+            result = await get_token_from_firefox_profile("/root")
 
             assert result == "test-token"
             # Should stop searching after finding token
             assert mock_get_token.call_count == 1
 
 
-def test_get_token_from_firefox_profile_no_sqlite():
+async def test_get_token_from_firefox_profile_no_sqlite():
     """Test getting token from Firefox profile with no SQLite files."""
     with patch("os.walk") as mock_walk:
         mock_walk.return_value = [
             ("/root/storage", [], ["other.txt", "data.json"]),
         ]
 
-        with patch("config.browser.get_token_from_firefox_db") as mock_get_token:
-            result = get_token_from_firefox_profile("/root")
+        with patch(
+            "config.browser.get_token_from_firefox_db", new_callable=AsyncMock
+        ) as mock_get_token:
+            result = await get_token_from_firefox_profile("/root")
 
             assert result is None
             mock_get_token.assert_not_called()
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_with_token(mock_connect):
+async def test_get_token_from_firefox_db_with_token(mock_connect):
     """Test extracting token from Firefox SQLite database when token exists."""
     mock_cursor = MagicMock()
     mock_cursor.fetchall.side_effect = [
@@ -219,12 +225,12 @@ def test_get_token_from_firefox_db_with_token(mock_connect):
     mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
     mock_connect.return_value = mock_conn
 
-    result = get_token_from_firefox_db("test.sqlite")
+    result = await get_token_from_firefox_db("test.sqlite")
     assert result == "test-token"
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_no_token(mock_connect):
+async def test_get_token_from_firefox_db_no_token(mock_connect):
     """Test extracting token from Firefox SQLite database when no token exists."""
     mock_cursor = MagicMock()
     mock_cursor.fetchall.side_effect = [
@@ -235,35 +241,35 @@ def test_get_token_from_firefox_db_no_token(mock_connect):
     mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
     mock_connect.return_value = mock_conn
 
-    result = get_token_from_firefox_db("test.sqlite")
+    result = await get_token_from_firefox_db("test.sqlite")
     assert result is None
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_utf8_decode_error(mock_connect):
+async def test_get_token_from_firefox_db_utf8_decode_error(mock_connect):
     """Test handling UTF-8 decode errors in Firefox SQLite database."""
     mock_connect.side_effect = sqlite3.OperationalError(
         "Could not decode to UTF-8 column 'value' with text"
     )
 
-    result = get_token_from_firefox_db("test.sqlite")
+    result = await get_token_from_firefox_db("test.sqlite")
     assert result is None
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_locked_non_interactive(mock_connect):
+async def test_get_token_from_firefox_db_locked_non_interactive(mock_connect):
     """Test handling locked database in non-interactive mode."""
     mock_connect.side_effect = sqlite3.Error("database is locked")
 
-    result = get_token_from_firefox_db("firefox.sqlite", interactive=False)
+    result = await get_token_from_firefox_db("firefox.sqlite", interactive=False)
     assert result is None
 
 
 @patch("sqlite3.connect")
-@patch("builtins.input", return_value="")
+@patch("config.browser.await_for_enter", new_callable=AsyncMock)
 @patch("config.browser.close_browser_by_name")
-def test_get_token_from_firefox_db_locked_interactive(
-    mock_close_browser, mock_input, mock_connect
+async def test_get_token_from_firefox_db_locked_interactive(
+    mock_close_browser, mock_await_enter, mock_connect
 ):
     """Test handling locked database in interactive mode."""
     mock_connect.side_effect = [
@@ -295,17 +301,17 @@ def test_get_token_from_firefox_db_locked_interactive(
         ),
     ]
 
-    result = get_token_from_firefox_db("firefox.sqlite", interactive=True)
+    result = await get_token_from_firefox_db("firefox.sqlite", interactive=True)
 
     assert result == "test-token"
     mock_close_browser.assert_called_once_with("firefox")
-    mock_input.assert_called_once()
+    mock_await_enter.assert_called_once()
 
 
 @patch("sqlite3.connect")
 @patch("config.browser.textio_logger")
 @patch("traceback.format_exc", return_value="Traceback: some other error")
-def test_get_token_from_firefox_db_other_sqlite_error(
+async def test_get_token_from_firefox_db_other_sqlite_error(
     mock_traceback,
     mock_logger,
     mock_connect,
@@ -313,7 +319,7 @@ def test_get_token_from_firefox_db_other_sqlite_error(
     """Test handling other SQLite errors."""
     mock_connect.side_effect = sqlite3.Error("some other error")
 
-    result = get_token_from_firefox_db("test.sqlite")
+    result = await get_token_from_firefox_db("test.sqlite")
 
     assert result is None
     mock_logger.error.assert_called_once_with(
@@ -322,11 +328,11 @@ def test_get_token_from_firefox_db_other_sqlite_error(
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_generic_exception(mock_connect):
+async def test_get_token_from_firefox_db_generic_exception(mock_connect):
     """Test handling generic exceptions."""
     mock_connect.side_effect = Exception("unexpected error")
 
-    result = get_token_from_firefox_db("test.sqlite")
+    result = await get_token_from_firefox_db("test.sqlite")
     assert result is None
 
 
@@ -394,13 +400,13 @@ def test_close_browser_by_name_no_process(mock_process_iter, mock_platform):
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
-def test_get_auth_token_from_leveldb_success(mock_db_class):
+async def test_get_auth_token_from_leveldb_success(mock_db_class):
     """Test successfully getting auth token from LevelDB."""
     mock_db = MagicMock()
     mock_db_class.return_value = mock_db
     mock_db.get.return_value = b'{"token":"test-token"}'
 
-    result = get_auth_token_from_leveldb_folder("test/path")
+    result = await get_auth_token_from_leveldb_folder("test/path")
 
     assert result == "test-token"
     mock_db.close.assert_called_once()
@@ -408,13 +414,13 @@ def test_get_auth_token_from_leveldb_success(mock_db_class):
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
-def test_get_auth_token_from_leveldb_no_token(mock_db_class):
+async def test_get_auth_token_from_leveldb_no_token(mock_db_class):
     """Test when no token is found in LevelDB."""
     mock_db = MagicMock()
     mock_db_class.return_value = mock_db
     mock_db.get.return_value = None
 
-    result = get_auth_token_from_leveldb_folder("test/path")
+    result = await get_auth_token_from_leveldb_folder("test/path")
 
     assert result is None
     mock_db.close.assert_called_once()
@@ -422,13 +428,13 @@ def test_get_auth_token_from_leveldb_no_token(mock_db_class):
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
-def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
+async def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
     """Test handling browser lock error in LevelDB access."""
     mock_db_class.side_effect = plyvel._plyvel.IOError(
         "Resource temporarily unavailable"
     )
 
-    result = get_auth_token_from_leveldb_folder("test/path", interactive=False)
+    result = await get_auth_token_from_leveldb_folder("test/path", interactive=False)
 
     assert result is None
 
@@ -437,7 +443,7 @@ def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
 @patch("plyvel.DB")
 @patch("builtins.input", return_value="")
 @patch("config.browser.close_browser_by_name")
-def test_get_auth_token_from_leveldb_interactive_browser_locked(
+async def test_get_auth_token_from_leveldb_interactive_browser_locked(
     mock_close_browser, mock_input, mock_db_class
 ):
     """Test interactive handling of browser lock error in LevelDB access."""
@@ -450,7 +456,7 @@ def test_get_auth_token_from_leveldb_interactive_browser_locked(
         ),
     ]
 
-    result = get_auth_token_from_leveldb_folder("test/path", interactive=True)
+    result = await get_auth_token_from_leveldb_folder("test/path", interactive=True)
 
     assert result == "test-token"
     mock_close_browser.assert_called_once()
@@ -459,11 +465,11 @@ def test_get_auth_token_from_leveldb_interactive_browser_locked(
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
-def test_get_auth_token_from_leveldb_generic_exception(mock_db_class):
+async def test_get_auth_token_from_leveldb_generic_exception(mock_db_class):
     """Generic exception during LevelDB access returns None (lines 338-339)."""
     mock_db_class.side_effect = RuntimeError("unexpected db error")
 
-    result = get_auth_token_from_leveldb_folder("test/path")
+    result = await get_auth_token_from_leveldb_folder("test/path")
 
     assert result is None
 

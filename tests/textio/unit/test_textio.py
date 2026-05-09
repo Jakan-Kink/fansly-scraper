@@ -1,6 +1,6 @@
 """Tests for textio/textio.py — console output, input prompts, terminal ops."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -42,25 +42,31 @@ class TestPrintFunctions:
 class TestInputFunctions:
     """Interactive input + sleep + sys.exit — patch at the edge."""
 
-    def test_input_enter_close_interactive(self):
-        """Lines 119-120, 126: interactive=True → input() then sys.exit()."""
-        with patch("textio.textio.input", return_value=""), pytest.raises(SystemExit):
-            input_enter_close(interactive=True)
+    async def test_input_enter_close_interactive(self):
+        """interactive=True → await await_for_enter() then sys.exit()."""
+        with (
+            patch("textio.textio.await_for_enter", new_callable=AsyncMock),
+            pytest.raises(SystemExit),
+        ):
+            await input_enter_close(interactive=True)
 
-    def test_input_enter_close_non_interactive(self):
-        """Lines 122-124, 126: interactive=False → sleep(15) then sys.exit()."""
-        with patch("textio.textio.sleep"), pytest.raises(SystemExit):
-            input_enter_close(interactive=False)
+    async def test_input_enter_close_non_interactive(self):
+        """interactive=False → await asyncio.sleep(15) then sys.exit()."""
+        with (
+            patch("textio.textio.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(SystemExit),
+        ):
+            await input_enter_close(interactive=False)
 
-    def test_input_enter_continue_interactive(self):
-        """Line 134: interactive=True → input()."""
-        with patch("textio.textio.input", return_value=""):
-            input_enter_continue(interactive=True)
+    async def test_input_enter_continue_interactive(self):
+        """interactive=True → await await_for_enter()."""
+        with patch("textio.textio.await_for_enter", new_callable=AsyncMock):
+            await input_enter_continue(interactive=True)
 
-    def test_input_enter_continue_non_interactive(self):
-        """Lines 136-137: interactive=False → sleep(15)."""
-        with patch("textio.textio.sleep"):
-            input_enter_continue(interactive=False)
+    async def test_input_enter_continue_non_interactive(self):
+        """interactive=False → await asyncio.sleep(15)."""
+        with patch("textio.textio.asyncio.sleep", new_callable=AsyncMock):
+            await input_enter_continue(interactive=False)
 
 
 class TestTerminalOps:

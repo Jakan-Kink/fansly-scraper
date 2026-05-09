@@ -262,7 +262,10 @@ async def test_download_timeline_success_full_real_pipeline(
     monkeypatch.setattr("download.media.download_media", _noop_download)
     # No wall-time pauses — timing_jitter wraps asyncio.sleep.
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _interactive: None  # noqa: E731
+
+    async def _noop(_interactive):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -329,10 +332,13 @@ async def test_download_timeline_empty_media_retries_and_exhausts(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
     # the source in textio to short-circuit the 15-second sleep fallback.
-    _noop = lambda _interactive: None  # noqa: E731
+    async def _noop(_interactive):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -425,7 +431,10 @@ async def test_download_timeline_key_error_on_malformed_response(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _interactive: None  # noqa: E731
+
+    async def _noop(_interactive):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -554,10 +563,13 @@ async def test_download_timeline_should_continue_false_breaks_loop(
     monkeypatch.setattr("download.common.download_media", _raise_duplicate_count)
     monkeypatch.setattr("download.media.download_media", _raise_duplicate_count)
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
     # the source in textio to short-circuit the 15-second sleep fallback.
-    _noop = lambda _interactive: None  # noqa: E731
+    async def _noop(_interactive):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -642,7 +654,10 @@ async def test_download_timeline_debug_mode_prints_timeline_object(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -752,7 +767,10 @@ async def test_download_timeline_batch_duplicate_prints_skipped_count(
         "download.media.download_media", _fake_download_that_counts_duplicate
     )
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -791,7 +809,10 @@ async def test_download_timeline_generic_exception_logs_and_breaks(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -869,7 +890,10 @@ async def test_download_timeline_cursor_index_error_breaks_cleanly(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -958,7 +982,10 @@ async def test_download_timeline_cursor_advance_generic_exception_wraps_as_api_e
         raise RuntimeError("simulated sleep failure")
 
     monkeypatch.setattr("download.timeline.sleep", _raising_sleep)
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -1032,7 +1059,10 @@ async def test_download_timeline_non_200_2xx_response_skips_block_and_re_polls(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -1065,7 +1095,10 @@ async def test_download_timeline_none_creator_id_raises_runtime_error(
     state.creator_name = "none_cid"
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -1120,7 +1153,10 @@ async def test_download_timeline_interactive_key_error_continues_loop(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -1160,7 +1196,10 @@ async def test_download_timeline_interactive_generic_exception_continues_loop(
     )
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    _noop = lambda _: None  # noqa: E731
+
+    async def _noop(_):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
@@ -1240,10 +1279,13 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
     # circuit via the module-level patch.
     monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
     # the source in textio to short-circuit the 15-second sleep fallback.
-    _noop = lambda _interactive: None  # noqa: E731
+    async def _noop(_interactive):
+        return None
+
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)

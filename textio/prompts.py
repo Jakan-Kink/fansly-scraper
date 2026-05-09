@@ -1,10 +1,18 @@
-"""Interactive prompts via prompt_toolkit.
+"""Async interactive prompts via prompt_toolkit.
 
-Sync + async helpers for the three prompt shapes used in this codebase:
-yes/no confirmation, free-text input, and press-Enter-to-continue. All
-helpers drain the loguru queue (``logger.complete()``) before the prompt
-appears, so log lines emitted just prior don't visually mash against
-the prompt due to ``enqueue=True``'s background sink processing.
+Three prompt shapes — yes/no confirmation, free-text input, and
+press-Enter-to-continue — exposed as async helpers (``aconfirm``,
+``aprompt_text``, ``await_for_enter``). All helpers drain the loguru
+queue (``logger.complete()``) before the prompt appears, so log lines
+emitted just prior don't visually mash against the prompt due to
+``enqueue=True``'s background sink processing.
+
+Async-only by design: this codebase runs entirely under ``asyncio.run()``
+at the top, so a sync helper would invariably nest event loops
+(prompt_toolkit's ``PromptSession.prompt()`` calls ``asyncio.run()``
+internally and raises in nested contexts). All callers should be
+async; convert sync callers via the upward-propagation pattern rather
+than reaching for sync prompt helpers.
 
 Non-TTY callers raise RuntimeError — interactive prompts shouldn't run
 under automation, and silent fallback would mask bugs in the
@@ -47,8 +55,8 @@ def _interpret_yn(answer: str, default: bool | None) -> bool | None:
     return None
 
 
-def confirm(question: str, *, default: bool | None = None) -> bool:
-    """Synchronous yes/no prompt.
+async def aconfirm(question: str, *, default: bool | None = None) -> bool:
+    """Async yes/no prompt.
 
     Args:
         question: The question text (no trailing space — the helper adds
@@ -64,41 +72,11 @@ def confirm(question: str, *, default: bool | None = None) -> bool:
     session: PromptSession[str] = PromptSession()
     suffix = _yn_suffix(default)
     while True:
-        answer = session.prompt(f"{question}{suffix}").strip().lower()
-        result = _interpret_yn(answer, default)
-        if result is not None:
-            return result
-        logger.error("Please enter 'y' or 'n'.")
-
-
-async def aconfirm(question: str, *, default: bool | None = None) -> bool:
-    """Async variant of :func:`confirm`."""
-    _require_tty()
-    logger.complete()
-    session: PromptSession[str] = PromptSession()
-    suffix = _yn_suffix(default)
-    while True:
         answer = (await session.prompt_async(f"{question}{suffix}")).strip().lower()
         result = _interpret_yn(answer, default)
         if result is not None:
             return result
         logger.error("Please enter 'y' or 'n'.")
-
-
-def prompt_text(
-    question: str,
-    *,
-    default: str | None = None,
-    completer: Completer | None = None,
-) -> str:
-    """Synchronous free-text prompt. Returns the user's stripped input."""
-    _require_tty()
-    logger.complete()
-    session: PromptSession[str] = PromptSession(completer=completer)
-    answer = session.prompt(question).strip()
-    if not answer and default is not None:
-        return default
-    return answer
 
 
 async def aprompt_text(
@@ -107,7 +85,7 @@ async def aprompt_text(
     default: str | None = None,
     completer: Completer | None = None,
 ) -> str:
-    """Async variant of :func:`prompt_text`."""
+    """Async free-text prompt. Returns the user's stripped input."""
     _require_tty()
     logger.complete()
     session: PromptSession[str] = PromptSession(completer=completer)
@@ -117,16 +95,8 @@ async def aprompt_text(
     return answer
 
 
-def wait_for_enter(message: str = "Press <ENTER> to continue ...") -> None:
-    """Block until the user presses Enter. Discards any typed text."""
-    _require_tty()
-    logger.complete()
-    session: PromptSession[str] = PromptSession()
-    session.prompt(message)
-
-
 async def await_for_enter(message: str = "Press <ENTER> to continue ...") -> None:
-    """Async variant of :func:`wait_for_enter`."""
+    """Block until the user presses Enter. Discards any typed text."""
     _require_tty()
     logger.complete()
     session: PromptSession[str] = PromptSession()

@@ -78,7 +78,7 @@ async def fetch_and_process_media(
             for info in media_infos:
                 try:
                     all_media.append(
-                        parse_media_info(
+                        await parse_media_info(
                             state, info, post_id, interactive=config.interactive
                         )
                     )
@@ -89,7 +89,7 @@ async def fetch_and_process_media(
                         f"\n{traceback.format_exc()}",
                         42,
                     )
-                    input_enter_continue(config.interactive)
+                    await input_enter_continue(config.interactive)
 
             progress.update_task(fetch_task, advance=len(ids))
 

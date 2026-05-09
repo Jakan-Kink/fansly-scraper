@@ -177,7 +177,7 @@ class TestDownloadFunctions:
         assert "photo.jpg" in str(cdn_route.calls[0].request.url)
         assert "no_ts.jpg" in str(cdn_route.calls[1].request.url)
 
-    def test_download_file_non_200_raises(
+    async def test_download_file_non_200_raises(
         self, respx_fansly_api, mock_config, tmp_path
     ):
         """Line 228: non-200 status from CDN → DownloadError."""
@@ -189,13 +189,13 @@ class TestDownloadFunctions:
         out = tmp_path / "out.jpg"
         try:
             with out.open("wb") as f, pytest.raises(DownloadError) as excinfo:
-                _download_file(mock_config, url, f)
+                await _download_file(mock_config, url, f)
         finally:
             dump_fansly_calls(cdn_route.calls, "test_download_file_non_200_raises")
 
         assert "404" in str(excinfo.value)
 
-    def test_download_regular_file_non_200_raises(
+    async def test_download_regular_file_non_200_raises(
         self, respx_fansly_api, mock_config, tmp_path
     ):
         """Line 285: non-200 status from CDN → DownloadError."""
@@ -211,7 +211,7 @@ class TestDownloadFunctions:
 
         try:
             with pytest.raises(DownloadError) as excinfo:
-                _download_regular_file(mock_config, media, save)
+                await _download_regular_file(mock_config, media, save)
         finally:
             dump_fansly_calls(
                 cdn_route.calls, "test_download_regular_file_non_200_raises"

@@ -123,4 +123,4 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
             f"Failed to download post {post_id}. Response code: {post_response.status_code}\n{post_response.text}",
             20,
         )
-        input_enter_continue(config.interactive)
+        await input_enter_continue(config.interactive)

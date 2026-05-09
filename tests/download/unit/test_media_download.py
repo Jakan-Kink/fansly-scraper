@@ -141,7 +141,7 @@ class TestFetchAndProcessMedia:
         with (
             patch("download.media.process_media_info", new_callable=AsyncMock),
             patch("download.media.parse_media_info", return_value=fake_media),
-            patch("download.media.input_enter_continue"),
+            patch("download.media.input_enter_continue", new_callable=AsyncMock),
         ):
             result = await fetch_and_process_media(mock_config, state, [am_id])
         assert isinstance(result, list)
@@ -182,7 +182,7 @@ class TestFetchAndProcessMedia:
             patch(
                 "download.media.parse_media_info", side_effect=ValueError("bad media")
             ),
-            patch("download.media.input_enter_continue"),
+            patch("download.media.input_enter_continue", new_callable=AsyncMock),
         ):
             result = await fetch_and_process_media(mock_config, state, [snowflake_id()])
 

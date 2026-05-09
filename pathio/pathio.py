@@ -10,6 +10,7 @@ It handles:
 import sys
 from pathlib import Path
 
+from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import PathCompleter
 
@@ -21,7 +22,7 @@ from metadata.models import Media
 from .types import PathConfig
 
 
-def ask_correct_dir() -> Path:
+async def ask_correct_dir() -> Path:
     """Prompt the user (TTY-only) for a valid download directory.
 
     Uses prompt_toolkit so the user gets path completion, ~/expansion, and
@@ -39,14 +40,18 @@ def ask_correct_dir() -> Path:
     )
     while True:
         try:
-            directory_name = session.prompt(
-                "Enter valid download directory path: "
+            logger.complete()
+            directory_name = (
+                await session.prompt_async("Enter valid download directory path: ")
             ).strip()
         except (KeyboardInterrupt, EOFError):
             textio_logger.opt(depth=1).log("ERROR", "Directory selection cancelled")
             raise
 
-        path = Path(directory_name).expanduser()
+        # ASYNC240: Path.expanduser/is_dir on a single user-typed string are
+        # negligible-cost operations and we're already blocked on user input;
+        # wrapping them in to_thread would only add overhead for no benefit.
+        path = Path(directory_name).expanduser()  # noqa: ASYNC240
         if path.is_dir():
             textio_logger.opt(depth=1).log("INFO", f"Folder path chosen: {path}")
             return path
