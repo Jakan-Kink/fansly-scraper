@@ -212,7 +212,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     }
 
     # Validate log levels
-    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    valid_levels = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     for logger_name, level in config.log_levels.items():
         if level not in valid_levels:
             textio_logger.opt(depth=1).log(
