@@ -427,6 +427,7 @@ _DISPATCH: dict[tuple[int, int], Any] = {
 # Add entries only after confirming (via TRACE logs or a source dig)
 # that the event genuinely has no downloader-relevant side effect.
 _NOOP_DESCRIPTIONS: dict[tuple[int, int], str] = {
+    (1, 2): "post like (engagement signal, no download work)",
     (2, 2): "media like (engagement signal, no download work)",
     (4, 1): "message delivered / sent acknowledgement",
     (4, 2): "message read-receipt acknowledgement",
