@@ -564,7 +564,6 @@ def _try_segment_download(
     m3u8_url: str,
     output_path: Path,
     cookies: dict[str, str],
-    created_at: int | None = None,
 ) -> Path:
     """Download HLS video by fetching each segment then muxing with PyAV.
 
@@ -576,7 +575,6 @@ def _try_segment_download(
         m3u8_url: URL of the master HLS manifest
         output_path: Path to save the final video
         cookies: CloudFront authentication cookies
-        created_at: Optional timestamp to set on final file
 
     Returns:
         Path to the downloaded video file
@@ -672,9 +670,6 @@ def _try_segment_download(
             )
         else:
             raise M3U8Error("Both PyAV and FFmpeg muxing failed for segments")
-
-        if created_at:
-            os.utime(output_path, (created_at, created_at))
 
         return output_path
 
@@ -843,7 +838,7 @@ def download_m3u8(
             return full_path
 
         # Tier 3: Manual segment download + mux
-        result = _try_segment_download(config, m3u8_url, full_path, cookies, created_at)
+        result = _try_segment_download(config, m3u8_url, full_path, cookies)
         _fix_dimension_mismatch_if_needed(result)
         if created_at:
             os.utime(result, (created_at, created_at))

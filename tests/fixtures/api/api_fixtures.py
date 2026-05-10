@@ -243,6 +243,42 @@ def mock_fansly_timeline_response():
 
 
 @pytest.fixture
+def respx_ivs_cdn() -> Generator[None, None, None]:
+    """Activate respx mocking for IVS CDN tests (``*.live-video.net``).
+
+    Use this for tests that exercise IVS-host code paths (master/variant
+    playlist fetches, ``.ts`` segment downloads, etc.) — anything that
+    hits ``*.live-video.net`` rather than ``apiv3.fansly.com``.
+
+    Yields from inside ``respx.mock`` so the global registry is active
+    during the test and torn down on teardown. Tests add their own
+    ``respx.get(url=...).mock(side_effect=[...])`` routes for the
+    specific IVS URLs under exercise.
+
+    Distinct from ``respx_fansly_api`` because IVS calls do NOT hit a
+    Fansly API, do not need the CORS preflight blanket, and do not
+    require ``mock_config._api`` wiring. Pick exactly one of these
+    fixtures per test — respx maintains a global singleton registry.
+
+    Example::
+
+        async def test_segment_fetch(respx_ivs_cdn, tmp_path):
+            url = "https://chan.live-video.net/segment_001.ts"
+            route = respx.get(url).mock(
+                side_effect=[httpx.Response(200, content=b"TS-DATA")]
+            )
+            try:
+                async with httpx.AsyncClient() as client:
+                    ok = await _download_segment(client, url, tmp_path / "s.ts", "[t]")
+            finally:
+                dump_fansly_calls(route.calls)
+            assert ok is True
+    """
+    with respx.mock:
+        yield
+
+
+@pytest.fixture
 def respx_fansly_api(
     mock_config,
     fansly_api,
@@ -341,4 +377,5 @@ __all__ = [
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "respx_fansly_api",
+    "respx_ivs_cdn",
 ]

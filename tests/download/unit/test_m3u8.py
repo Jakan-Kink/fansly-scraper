@@ -491,14 +491,19 @@ class TestDownloadM3U8ThreeTierStrategy:
         ]
 
     def test_created_at_passed_through_to_segment_fallback(
-        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
     ):
-        """When falling back to segment download, created_at is forwarded."""
+        """Segment-download tier success → created_at applied on result path."""
         config = _make_real_config()
         save_path = tmp_path / "video.mp4"
         mock_pyav.return_value = False
         mock_ffmpeg.return_value = False
         mock_segment.return_value = save_path.parent / "video.mp4"
+
+        utime_calls: list[tuple] = []
+        monkeypatch.setattr(
+            "download.m3u8.os.utime", lambda p, t: utime_calls.append((p, t))
+        )
 
         download_m3u8(
             config=config,
@@ -507,8 +512,9 @@ class TestDownloadM3U8ThreeTierStrategy:
             created_at=1633046400,
         )
 
-        args, _ = mock_segment.call_args
-        assert args[4] == 1633046400
+        assert utime_calls == [
+            (save_path.parent / "video.mp4", (1633046400, 1633046400))
+        ]
 
     def test_non_m3u8error_exception_is_wrapped(
         self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
@@ -1948,44 +1954,6 @@ class TestSegmentDownload:
             finally:
                 dump_fansly_calls(playlist_route.calls)
                 dump_fansly_calls(segment_route.calls)
-
-    def test_created_at_sets_file_mtime(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
-    ):
-        """created_at passes through to os.utime on the final file."""
-        config = self._make_config_with_segments(fansly_api_with_respx)
-        output_path = tmp_path / "video.mp4"
-
-        monkeypatch.setattr(
-            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
-        )
-        monkeypatch.setattr(
-            "download.m3u8._mux_segments_with_pyav",
-            lambda _segs, out: out.write_bytes(b"\x00" * 1024) or True,
-        )
-
-        utime_calls: list = []
-        monkeypatch.setattr(
-            "download.m3u8.os.utime",
-            lambda p, t: utime_calls.append((p, t)),
-        )
-
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes()
-
-            try:
-                _try_segment_download(
-                    config=config,
-                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                    output_path=output_path,
-                    cookies={"CloudFront-Policy": "a"},
-                    created_at=1700000000,
-                )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
-
-        assert utime_calls == [(output_path, (1700000000, 1700000000))]
 
     def test_download_ts_skips_empty_chunks(
         self, tmp_path, monkeypatch, fansly_api_with_respx

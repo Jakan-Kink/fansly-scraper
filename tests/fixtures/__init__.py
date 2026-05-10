@@ -43,6 +43,7 @@ from .api import (
     mount_empty_creator_pipeline,
     mount_empty_following_route,
     respx_fansly_api,
+    respx_ivs_cdn,
     run_main_and_cleanup,
     spawn_ctx_with_mock_process,
     ws_message,
@@ -198,6 +199,12 @@ from .stash import (
     tag_mixin,
     test_state,
 )
+from .textio import (
+    FakePromptSession,
+    fake_prompt_session,
+    no_tty,
+    tty,
+)
 from .utils import (
     SyncExecutor,
     cleanup_fansly_websockets,
@@ -273,6 +280,7 @@ mod_api_fixtures = [
     "mount_empty_creator_pipeline",
     "mount_empty_following_route",
     "respx_fansly_api",
+    "respx_ivs_cdn",
     "run_main_and_cleanup",
     "spawn_ctx_with_mock_process",
     "ws_message",
@@ -463,6 +471,13 @@ mod_utils_fixtures = [
     "fake_monotonic_clock",
 ]
 
+mod_textio_fixtures = [
+    "FakePromptSession",
+    "fake_prompt_session",
+    "no_tty",
+    "tty",
+]
+
 mod_init = [
     "load_json_fixture",
     "save_json_fixture",
@@ -491,6 +506,7 @@ __all__ = [  # noqa: PLE0604
     *mod_cleanup_fixtures,
     *mod_utils_helpers,
     *mod_utils_fixtures,
+    *mod_textio_fixtures,
     *mod_init,
 ]
 

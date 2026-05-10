@@ -391,8 +391,7 @@ async def _record_stream(
             continue
 
         # Resolve the highest-bandwidth variant URL from the master manifest.
-        # _resolve_variant_url is sync (uses httpx.Client) — run in thread.
-        variant_url = await asyncio.to_thread(_resolve_variant_url, auth_url)
+        variant_url = await _resolve_variant_url(auth_url)
         if variant_url is None:
             logger.warning(
                 "daemon.livestream_watcher: {} could not resolve variant URL "
@@ -557,7 +556,7 @@ _IVS_MASTER_HEADERS: dict[str, str] = {
 }
 
 
-def _resolve_variant_url(master_url: str) -> str | None:
+async def _resolve_variant_url(master_url: str) -> str | None:
     """Fetch the IVS master playlist and return the highest-bandwidth variant URL.
 
     IVS master URL format (from ``stream.playbackUrl``):
@@ -575,8 +574,8 @@ def _resolve_variant_url(master_url: str) -> str | None:
     base_uri = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=15.0) as client:
-            response = client.get(master_url, headers=_IVS_MASTER_HEADERS)
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(master_url, headers=_IVS_MASTER_HEADERS)
             response.raise_for_status()
     except Exception as exc:
         logger.warning(

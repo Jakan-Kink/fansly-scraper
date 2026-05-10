@@ -441,10 +441,10 @@ async def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
-@patch("builtins.input", return_value="")
+@patch("config.browser.await_for_enter", new_callable=AsyncMock)
 @patch("config.browser.close_browser_by_name")
 async def test_get_auth_token_from_leveldb_interactive_browser_locked(
-    mock_close_browser, mock_input, mock_db_class
+    mock_close_browser, mock_await_enter, mock_db_class
 ):
     """Test interactive handling of browser lock error in LevelDB access."""
     mock_db_class.side_effect = [
@@ -460,7 +460,7 @@ async def test_get_auth_token_from_leveldb_interactive_browser_locked(
 
     assert result == "test-token"
     mock_close_browser.assert_called_once()
-    mock_input.assert_called_once()
+    mock_await_enter.assert_awaited_once()
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")

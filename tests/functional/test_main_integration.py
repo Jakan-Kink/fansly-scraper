@@ -957,6 +957,11 @@ async def test_main_other_tasks_generic_exception_cancels_pending(
     """
     env = main_integration_env
     env.config.download_mode = DownloadMode.TIMELINE
+    # Disable the livestream watcher for this test — its poll loop also calls
+    # asyncio.wait_for(..., timeout=30), which would collide with the
+    # discriminator below and propagate the simulated error out of the
+    # watcher task instead of staying inside the other-tasks gather block.
+    env.config.monitoring_livestream_recording_enabled = False
     init_logging_config(env.config)
     env.register_empty_content()
 
