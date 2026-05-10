@@ -66,10 +66,10 @@ from daemon.handlers import (
     dispatch_ws_event,
     has_handler,
 )
-from daemon.livestream_watcher import route_ws_chat_message
 from daemon.polling import poll_home_timeline, poll_story_states
 from daemon.simulator import ActivitySimulator
 from daemon.state import mark_creator_processed
+from download.livestream_chat import route_ws_chat_message
 
 
 if TYPE_CHECKING:
@@ -888,6 +888,8 @@ async def _following_refresh_loop(
         dashboard.mark_active(TASK_FOLLOWING, "Following refresh: fetching...")
         try:
             state = DownloadState()
+            # Populate state.creator_id; get_following_accounts requires it.
+            await get_creator_account_info(config, state)
             new_names = await get_following_accounts(config, state)
             if new_names:
                 config.user_names = new_names

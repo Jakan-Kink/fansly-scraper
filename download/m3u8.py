@@ -679,117 +679,6 @@ def _try_segment_download(
 
 
 # ---------------------------------------------------------------------------
-# Container dimension mismatch detection + repair
-# ---------------------------------------------------------------------------
-
-
-def _detect_dimension_mismatch(
-    video_path: Path,
-) -> tuple[bool, int, int, int, int]:
-    """Detect a container vs bitstream dimension mismatch using PyAV.
-
-    Decodes one video frame so that dimensions come from the H.264 SPS (via
-    the decoder), then compares them against the MP4 container-declared
-    dimensions (from the moov/tkhd/stsd atoms).  This is the PyAV equivalent
-    of ffprobe's ``-show_entries frame=width,height`` with ``-read_intervals
-    "%+#1"`` — cheap because only a single frame is decoded.
-
-    Classic trigger: a "starting soon" placeholder segment (e.g. 640x480)
-    is the first .ts in an HLS stream.  The stitcher writes its dimensions
-    into the moov atom and never updates them when the live segment switches
-    to 1080p.  ``stream.width/height`` reflects the stale container value;
-    ``frame.width/frame.height`` reflects the real SPS.
-
-    Args:
-        video_path: Path to an MP4 file to inspect.
-
-    Returns:
-        ``(mismatch, container_w, container_h, bitstream_w, bitstream_h)``.
-        Returns ``(False, 0, 0, 0, 0)`` when detection is not possible.
-    """
-    try:
-        with av.open(str(video_path)) as container:
-            video_streams = [s for s in container.streams if s.type == "video"]
-            if not video_streams:
-                return False, 0, 0, 0, 0
-
-            video_stream = video_streams[0]
-            container_w = video_stream.width
-            container_h = video_stream.height
-
-            for frame in container.decode(video=0):
-                bitstream_w, bitstream_h = frame.width, frame.height
-                mismatch = bitstream_w != container_w or bitstream_h != container_h
-                return mismatch, container_w, container_h, bitstream_w, bitstream_h
-    except Exception as e:
-        print_debug(f"Could not probe video dimensions for mismatch check: {e}")
-
-    return False, 0, 0, 0, 0
-
-
-def _fix_dimension_mismatch_if_needed(output_path: Path) -> None:
-    """Detect and repair a container vs bitstream dimension mismatch.
-
-    Runs :func:`_detect_dimension_mismatch` to decode one frame (fast).
-    If container dimensions differ from the SPS-declared bitstream dimensions,
-    remuxes the file with ``ffmpeg -c copy``.  FFmpeg re-parses the H.264 SPS
-    during muxing and rebuilds the tkhd/stsd atoms from the bitstream, so the
-    output container accurately reflects the encoded resolution.
-
-    The fix is applied atomically: the remux writes to a ``.remux.mp4`` temp
-    file which is renamed over the original only on success, leaving the
-    original untouched on any failure.
-
-    Args:
-        output_path: Path to the MP4 file to inspect and potentially repair.
-    """
-    mismatch, container_w, container_h, bitstream_w, bitstream_h = (
-        _detect_dimension_mismatch(output_path)
-    )
-    if not mismatch:
-        return
-
-    print_warning(
-        f"Container dimension mismatch detected: "
-        f"container={container_w}x{container_h}, "
-        f"bitstream SPS={bitstream_w}x{bitstream_h}. "
-        f"Remuxing to rebuild container metadata..."
-    )
-
-    tmp_path = output_path.with_suffix(".remux.mp4")
-    try:
-        (
-            ffmpeg.input(str(output_path))
-            .output(str(tmp_path), vcodec="copy", acodec="copy")
-            .overwrite_output()
-            .run(capture_stdout=True, capture_stderr=True, quiet=True)
-        )
-        if tmp_path.exists() and tmp_path.stat().st_size > 0:
-            tmp_path.replace(output_path)
-            print_info(
-                f"Container dimensions corrected: "
-                f"{container_w}x{container_h} → {bitstream_w}x{bitstream_h}"
-            )
-            return
-        print_warning(
-            "Dimension-fix remux produced empty output — leaving original file"
-        )
-    except ffmpeg.Error as e:
-        stderr = e.stderr.decode(errors="replace") if e.stderr else str(e)
-        print_debug(f"Dimension-fix remux failed: {stderr}")
-        print_warning(
-            "Could not fix container dimensions — file will have stale resolution metadata"
-        )
-    except Exception as e:
-        print_debug(f"Dimension-fix remux failed: {e}")
-        print_warning(
-            "Could not fix container dimensions — file will have stale resolution metadata"
-        )
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-
-# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -825,21 +714,18 @@ def download_m3u8(
     try:
         # Tier 1: PyAV direct download (fastest — in-process)
         if _try_direct_download_pyav(config, m3u8_url, full_path, cookies):
-            _fix_dimension_mismatch_if_needed(full_path)
             if created_at:
                 os.utime(full_path, (created_at, created_at))
             return full_path
 
         # Tier 2: FFmpeg subprocess (proven, handles edge cases)
         if _try_direct_download_ffmpeg(config, m3u8_url, full_path, cookies):
-            _fix_dimension_mismatch_if_needed(full_path)
             if created_at:
                 os.utime(full_path, (created_at, created_at))
             return full_path
 
         # Tier 3: Manual segment download + mux
         result = _try_segment_download(config, m3u8_url, full_path, cookies)
-        _fix_dimension_mismatch_if_needed(result)
         if created_at:
             os.utime(result, (created_at, created_at))
 

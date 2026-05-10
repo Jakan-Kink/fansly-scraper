@@ -13,10 +13,11 @@ underlying functions are monkeypatched at the daemon.runner local
 binding to control results and trigger stop_event after N iterations.
 
 Internal-mock disclosure: tests monkeypatch poll_home_timeline,
-poll_story_states, get_following_accounts, should_process_creator,
-_is_creator_in_scope at the daemon.runner binding (the local use site,
-canonical scope for testing the loop's behavior). Real-pipeline tests
-for the underlying functions live in test_polling.py / test_filters.py.
+poll_story_states, get_creator_account_info, get_following_accounts,
+should_process_creator, _is_creator_in_scope at the daemon.runner
+binding (the local use site, canonical scope for testing the loop's
+behavior). Real-pipeline tests for the underlying functions live in
+test_polling.py / test_filters.py.
 """
 
 from __future__ import annotations
@@ -521,6 +522,10 @@ class TestFollowingRefreshLoop:
             stop_event.set()
             return {"new_user1", "new_user2"}
 
+        async def _account_info(_config, _state):
+            return None
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _account_info)
         monkeypatch.setattr("daemon.runner.get_following_accounts", _refresh)
 
         stop_event = asyncio.Event()
@@ -547,6 +552,10 @@ class TestFollowingRefreshLoop:
             stop_event.set()
             return set()
 
+        async def _account_info(_config, _state):
+            return None
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _account_info)
         monkeypatch.setattr("daemon.runner.get_following_accounts", _refresh)
 
         stop_event = asyncio.Event()
@@ -572,6 +581,10 @@ class TestFollowingRefreshLoop:
             stop_event.set()
             raise RuntimeError("refresh boom")
 
+        async def _account_info(_config, _state):
+            return None
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _account_info)
         monkeypatch.setattr("daemon.runner.get_following_accounts", _raises)
 
         stop_event = asyncio.Event()
@@ -589,6 +602,44 @@ class TestFollowingRefreshLoop:
         )
 
     @pytest.mark.asyncio
+    async def test_get_creator_account_info_called_before_following(
+        self, config, monkeypatch
+    ):
+        """Periodic refresh must populate state.creator_id before fetching the list.
+
+        Regression: the periodic loop used to construct a fresh
+        ``DownloadState()`` and call ``get_following_accounts`` directly,
+        which raises ``RuntimeError("client ID not set")`` on every tick.
+        The fix mirrors ``_refresh_following`` by calling
+        ``get_creator_account_info`` first.
+        """
+        config.use_following = True
+        sim = _make_simulator("active")
+
+        call_order: list[str] = []
+
+        async def _account_info(_config, _state):
+            call_order.append("account_info")
+
+        async def _refresh(_config, _state):
+            call_order.append("following")
+            stop_event.set()
+            return set()
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _account_info)
+        monkeypatch.setattr("daemon.runner.get_following_accounts", _refresh)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        budget = _make_budget()
+
+        await _following_refresh_loop(
+            config, sim, stop_event, refresh_event, budget, _FastDashboard()
+        )
+
+        assert call_order == ["account_info", "following"]
+
+    @pytest.mark.asyncio
     async def test_refresh_daemon_unrecoverable_re_raised(self, config, monkeypatch):
         """Lines 881-882: DaemonUnrecoverableError bypasses the generic except."""
         config.use_following = True
@@ -597,6 +648,10 @@ class TestFollowingRefreshLoop:
         async def _raises(_config, _state):
             raise DaemonUnrecoverableError("refresh fatal")
 
+        async def _account_info(_config, _state):
+            return None
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _account_info)
         monkeypatch.setattr("daemon.runner.get_following_accounts", _raises)
 
         stop_event = asyncio.Event()
