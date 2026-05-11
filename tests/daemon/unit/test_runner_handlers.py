@@ -420,6 +420,56 @@ class TestHandleTimelineOnlyItemException:
         )
 
 
+class TestHandleTimelineOnlyItemBypassesStatsShortcut:
+    """Regression: timeline-only handler must always hit /timeline/{creator}
+    even when get_creator_account_info reports the creator as 'unchanged'.
+
+    Fansly's timelineStats counts can lag a freshly-posted item by seconds to
+    minutes; the home-timeline poll surfaces the post before the stats cache
+    catches up. If the daemon honoured the unchanged short-circuit here,
+    download_timeline would return without fetching, the post would never be
+    persisted, and mark_creator_processed would advance the baseline past it
+    — locking the post into permanent home-feed limbo.
+    """
+
+    @pytest.mark.asyncio
+    async def test_creator_content_unchanged_flag_is_cleared_before_download(
+        self, config, entity_store, monkeypatch
+    ):
+        creator_id = snowflake_id()
+        account = AccountFactory.build(id=creator_id, username="tl_unchanged")
+        await entity_store.save(account)
+
+        async def _info_marks_unchanged(_config, state):
+            # Simulate get_creator_account_info concluding stats+walls match
+            # the DB snapshot — the production path that would short-circuit
+            # download_timeline if we didn't override it.
+            state.creator_content_unchanged = True
+            state.fetched_timeline_duplication = True
+
+        captured: dict = {}
+
+        async def _capture_download(_config, state):
+            captured["creator_content_unchanged"] = state.creator_content_unchanged
+            captured["fetched_timeline_duplication"] = (
+                state.fetched_timeline_duplication
+            )
+
+        monkeypatch.setattr(
+            "daemon.runner.get_creator_account_info", _info_marks_unchanged
+        )
+        monkeypatch.setattr("daemon.runner.download_timeline", _capture_download)
+
+        await _handle_timeline_only_item(
+            config, DownloadTimelineOnly(creator_id=creator_id)
+        )
+
+        assert captured == {
+            "creator_content_unchanged": False,
+            "fetched_timeline_duplication": False,
+        }
+
+
 # ---------------------------------------------------------------------------
 # _handle_mark_messages_deleted — entirely uncovered (lines 448-475)
 # ---------------------------------------------------------------------------

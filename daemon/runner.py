@@ -443,6 +443,18 @@ async def _handle_timeline_only_item(
     state = DownloadState(creator_id=item.creator_id, creator_name=creator_name)
     try:
         await get_creator_account_info(config, state)
+        # The home-timeline poll already proved this creator has new content
+        # (cache-miss post + should_process_creator=True). Fansly's
+        # timelineStats counts and wall structure can still appear unchanged
+        # because they're served from a separately-cached summary that lags
+        # the home feed by seconds to minutes. If we honoured those flags
+        # here, download_timeline would short-circuit before hitting
+        # /timeline/{creator}, the fresh post would never be persisted, and
+        # mark_creator_processed (called after this returns cleanly) would
+        # advance the baseline past the post's createdAt — locking the post
+        # into permanent limbo on subsequent home-timeline polls.
+        state.creator_content_unchanged = False
+        state.fetched_timeline_duplication = False
         await download_timeline(config, state)
     except Exception as exc:
         logger.opt(exception=exc).error(
@@ -531,7 +543,7 @@ async def _process_timeline_candidate(
     baseline_consumed: set[int],
     queue: asyncio.Queue[WorkItem],
     budget: ErrorBudget,
-) -> None:
+) -> bool:
     """Evaluate one creator from the timeline poll and enqueue if needed.
 
     Checks scope, applies should_process_creator, and enqueues a
@@ -545,10 +557,20 @@ async def _process_timeline_candidate(
         baseline_consumed: Set of creator IDs already past their first check.
         queue: Work queue to push DownloadTimelineOnly items onto.
         budget: ErrorBudget to call on_success after a successful evaluation.
+
+    Returns:
+        True if a DownloadTimelineOnly WorkItem was enqueued for this creator.
+        False when the candidate was filtered out (out-of-scope or
+        ``should_process_creator`` returned False). Callers use this to
+        distinguish "saw a cache-miss post" from "actually had work to do" —
+        the simulator's ``on_new_content()`` is gated on real work, not on
+        raw home-feed cache misses, to avoid resetting the active-state
+        clock for posts that exist on /timeline/home but never persisted
+        to the DB (eventual-consistency limbo).
     """
     if not await _is_creator_in_scope(config, creator_id):
         logger.debug("daemon.runner: creator {} out of scope — skipping", creator_id)
-        return
+        return False
 
     baseline = session_baseline if creator_id not in baseline_consumed else None
     baseline_consumed.add(creator_id)
@@ -571,6 +593,8 @@ async def _process_timeline_candidate(
     if should:
         await queue.put(DownloadTimelineOnly(creator_id=creator_id))
         budget.on_success()
+        return True
+    return False
 
 
 async def _timeline_poll_loop(
@@ -587,10 +611,12 @@ async def _timeline_poll_loop(
     """Continuously poll the home timeline and enqueue DownloadTimelineOnly items.
 
     Skips the poll when the simulator is in the hidden state
-    (simulator.should_poll is False). Calls simulator.on_new_content() when
-    the poll returns at least one creator with new posts. Triggers a following
-    list refresh (via refresh_event) when on_new_content() signals a transition
-    from idle/hidden to active.
+    (simulator.should_poll is False). Calls simulator.on_new_content() only
+    when ``_process_timeline_candidate`` actually enqueues a WorkItem for at
+    least one creator — i.e., when real downloadable work was produced, not
+    merely when /timeline/home returned a cache-miss post ID. Triggers a
+    following list refresh (via refresh_event) when on_new_content() signals
+    a transition from idle/hidden to active.
 
     Args:
         config: FanslyConfig instance.
@@ -639,12 +665,19 @@ async def _timeline_poll_loop(
             continue
 
         if new_creator_ids:
-            transitioned = simulator.on_new_content()
-            if transitioned:
-                refresh_event.set()
+            # Gate on_new_content() on whether any candidate actually produced
+            # a WorkItem. The home-timeline poll uses cache presence as a
+            # newness proxy (post_id not in identity map ⇒ "new"), but a post
+            # can be on /timeline/home and absent from cache yet still get
+            # skipped downstream because its createdAt is older than
+            # MonitorState.lastCheckedAt — an eventual-consistency artifact
+            # between Fansly's aggregated home feed and per-creator timelines.
+            # Resetting state_entered_at for those would livelock the
+            # simulator in "active" forever (see daemon/simulator.py).
+            queued_any = False
             for creator_id in new_creator_ids:
                 prefetched = posts_by_creator.get(creator_id, [])
-                await _process_timeline_candidate(
+                if await _process_timeline_candidate(
                     config,
                     creator_id,
                     prefetched,
@@ -652,7 +685,13 @@ async def _timeline_poll_loop(
                     baseline_consumed,
                     queue,
                     budget,
-                )
+                ):
+                    queued_any = True
+
+            if queued_any:
+                transitioned = simulator.on_new_content()
+                if transitioned:
+                    refresh_event.set()
 
 
 async def _story_poll_loop(

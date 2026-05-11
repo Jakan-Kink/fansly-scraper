@@ -1229,7 +1229,12 @@ class TestTimelinePollLoopShouldPollFalse:
 
 
 class TestTimelinePollLoopActiveTransition:
-    """Line 626: on_new_content returns True → refresh_event.set."""
+    """on_new_content returns True (transition) → refresh_event.set.
+
+    on_new_content() is gated on whether _process_timeline_candidate actually
+    enqueued a WorkItem; should_process_creator returning True is therefore a
+    precondition for the transition fan-out (refresh_event) to fire.
+    """
 
     @pytest.mark.asyncio
     async def test_transition_to_active_sets_refresh_event(self, config, monkeypatch):
@@ -1249,7 +1254,7 @@ class TestTimelinePollLoopActiveTransition:
             return True
 
         async def _should_process(*_a, **_k):
-            return False  # don't enqueue — we only care about the refresh side-effect
+            return True  # enqueue → on_new_content fires → transition path runs
 
         monkeypatch.setattr("daemon.runner.poll_home_timeline", _poll)
         monkeypatch.setattr("daemon.runner._is_creator_in_scope", _scope_check)
@@ -1275,6 +1280,75 @@ class TestTimelinePollLoopActiveTransition:
 
         # The simulator transition fired refresh_event.
         assert refresh_event.is_set()
+        # And the candidate was enqueued (the precondition for on_new_content).
+        assert queue.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_with_no_actionable_work_does_not_reset_simulator(
+        self, config, monkeypatch
+    ):
+        """Regression: home-timeline cache miss + should_process=False must NOT
+        call simulator.on_new_content().
+
+        This is the eventual-consistency limbo case — a post is on /timeline/home
+        but its createdAt is older than MonitorState.lastCheckedAt, so
+        should_process_creator skips. Pre-fix, on_new_content() fired anyway
+        (because poll_home_timeline reported cache misses), resetting
+        state_entered_at on every poll and pinning the simulator in 'active'
+        forever.
+        """
+        new_content_calls = 0
+
+        class _RecordingSimulator(StubSimulator):
+            def on_new_content(self) -> bool:
+                nonlocal new_content_calls
+                new_content_calls += 1
+                return True
+
+        sim = _RecordingSimulator(
+            timeline_interval=1.0, should_poll=True, transitions=True
+        )
+
+        creator_id = snowflake_id()
+        poll_count = 0
+
+        async def _poll(_config):
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count >= 1:
+                stop_event.set()
+            return [creator_id], {creator_id: [{"id": 1, "createdAt": 0}]}
+
+        async def _scope_check(_config, _cid):
+            return True
+
+        async def _should_process(*_a, **_k):
+            return False  # limbo: cache-miss post but baseline-skipped
+
+        monkeypatch.setattr("daemon.runner.poll_home_timeline", _poll)
+        monkeypatch.setattr("daemon.runner._is_creator_in_scope", _scope_check)
+        monkeypatch.setattr("daemon.runner.should_process_creator", _should_process)
+
+        stop_event = asyncio.Event()
+        refresh_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = _make_budget()
+
+        await _timeline_poll_loop(
+            config,
+            sim,
+            queue,
+            None,
+            set(),
+            stop_event,
+            budget,
+            refresh_event,
+            _FastDashboard(),
+        )
+
+        assert new_content_calls == 0
+        assert not refresh_event.is_set()
+        assert queue.empty()
 
 
 class TestStoryPollLoopShouldPollFalse:
