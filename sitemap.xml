@@ -2,102 +2,102 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/changelog/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/archive/hardCut-PostgreSQL-Implementation-Plan/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/configuration/config_options/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/guide/manual-token-extraction/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/planning/STASH_ORM_MIGRATION_GUIDE/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/planning/monitoring-daemon-architecture/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/CHECKKEY_JSPYBRIDGE/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-API-analysis/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Route-Table/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-field-transformations/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-mapping/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-Stash-performer-mapping/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/Fansly-WebSocket-Protocol/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/architecture/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/monitoring-cadence/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/reference/request-signing/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/API_DOWNLOAD_TEST_MIGRATION_TODO/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/API_TESTING_REQUIREMENTS/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/PASS_2_AUDIT_MASTER_REPORT/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/STASH_TEST_MIGRATION_TODO/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/TESTING_REQUIREMENTS/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/V0_10_MOCK_PATTERNS/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/dead_tests_audit_2026-05-05/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
     <url>
          <loc>https://jakan-kink.github.io/fansly-scraper/testing/snyk-violations-from-contributers/</loc>
-         <lastmod>2026-05-08</lastmod>
+         <lastmod>2026-05-12</lastmod>
     </url>
 </urlset>

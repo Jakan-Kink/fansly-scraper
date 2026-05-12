@@ -48,13 +48,31 @@
     <ul class="current">
     <li class="toctree-l2"><a class="reference internal" href="#unreleased">Unreleased</a>
     </li>
-    <li class="toctree-l2"><a class="reference internal" href="#0134-2026-05-08">0.13.4 - 2026-05-08</a>
+    <li class="toctree-l2"><a class="reference internal" href="#0136-2026-05-09">0.13.6 - 2026-05-09</a>
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#added">Added</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#0135-2026-05-09">0.13.5 - 2026-05-09</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#changed">Changed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#0134-2026-05-08">0.13.4 - 2026-05-08</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#removed">Removed</a>
     </li>
@@ -62,17 +80,17 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#0133-2026-05-04">0.13.3 - 2026-05-04</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_1">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_3">Added</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#removed_1">Removed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#added_2">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_4">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed_1">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#performance">Performance</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed_1">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_3">Fixed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#removed_2">Removed</a>
     </li>
@@ -82,21 +100,21 @@
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#0131-2026-04-23">0.13.1 - 2026-04-23</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_3">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_5">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed_2">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_3">Changed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed_2">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_4">Fixed</a>
     </li>
         </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#0130-2026-04-22">0.13.0 - 2026-04-22</a>
         <ul>
-    <li class="toctree-l3"><a class="reference internal" href="#added_4">Added</a>
+    <li class="toctree-l3"><a class="reference internal" href="#added_6">Added</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#changed_3">Changed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#changed_4">Changed</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#fixed_3">Fixed</a>
+    <li class="toctree-l3"><a class="reference internal" href="#fixed_5">Fixed</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#deprecated">Deprecated</a>
     </li>
@@ -204,12 +222,107 @@ in the project's original prose-style format. The v0.13.0 entry is
 mirrored here in Keep-a-Changelog form and is the canonical structure
 for all subsequent releases.</p>
 </blockquote>
-<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="unreleased"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h2 id="0136-2026-05-09"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...v0.13.6">0.13.6</a> - 2026-05-09<a class="headerlink" href="#0136-2026-05-09" title="Permanent link">&para;</a></h2>
+<p>Livestream recorder overwrite-protection on broadcast reconnects.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>_unique_output_path</code> helper in <code>daemon/livestream_watcher.py</code>: when a
+  broadcast reconnect would produce the same output filename as a previously
+  completed (or crash-interrupted) session, the new recording is written to
+  <code>&lt;stem&gt;_part2.mp4</code>, <code>_part3.mp4</code>, etc. A slot is considered taken when the
+  MP4 already exists with data <strong>or</strong> when its temp segment dir is still on
+  disk from a prior crashed attempt.</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Livestream recorder silently overwrote the previous session's completed MP4
+  whenever a creator reconnected mid-broadcast. <code>_record_stream</code> now calls
+  <code>_unique_output_path</code> before creating the temp segment dir, ensuring each
+  reconnect session gets a distinct output file.</li>
+</ul>
+<h2 id="0135-2026-05-09"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...v0.13.5">0.13.5</a> - 2026-05-09<a class="headerlink" href="#0135-2026-05-09" title="Permanent link">&para;</a></h2>
+<p>Async API migration, YAML config render-policy, interactive prompt refactor,
+rate-limiter hardening, atomic downloads, URL centralization, livestream
+recording, and logging sink fix.</p>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>daemon/livestream_watcher.py</code> — long-running watcher task that polls
+  <code>GET /api/v1/streaming/followingstreams/online</code> and spawns a per-creator
+  recording task for every followed creator who is live.</li>
+<li>IVS HLS recording via manual segment polling (<code>httpx</code> + <code>m3u8</code>): dedup by
+  <code>EXT-X-MEDIA-SEQUENCE</code> index, <code>EXT-X-PREFETCH</code> leading-edge hint collection,
+  and a 60 s <code>EXT-X-ENDLIST</code> grace period for transient creator pauses.</li>
+<li>PID-based PyAV mux (<code>_mux_ivs_segments</code>): probes up to 5 segments to
+  identify stable audio/video PIDs, PTS-rebases packets across segment
+  boundaries, and writes a single MP4.</li>
+<li>Orphan-segment salvage (<code>_salvage_orphan_segments</code>): on watcher startup,
+  re-muxes <code>.&lt;stem&gt;_segments</code> temp dirs left behind by a prior crash.</li>
+<li>Three new <code>MonitoringSection</code> config fields: <code>livestream_recording_enabled</code>,
+  <code>livestream_poll_interval_seconds</code> (default 30),
+  <code>livestream_manifest_poll_interval_seconds</code> (default 3, range 1–15).</li>
+<li>Six new Fansly API endpoints: <code>get_following_streams_online</code>,
+  <code>get_streaming_channel</code>, <code>get_chatroom_messages</code>, <code>get_chatrooms</code>,
+  <code>get_chatrooms_settings</code>, <code>post_chatroom_subalert</code>.</li>
+<li><code>StreamSession</code>, <code>StreamChannel</code>, <code>StreamingInfo</code> Pydantic models in
+  <code>metadata/models.py</code> for ephemeral livestream API payloads.</li>
+<li><code>textio/prompts.py</code> — new module centralizing all interactive user prompts;
+  all call sites migrated from inline <code>input()</code>/<code>ainput()</code> to the new helpers.</li>
+<li><code>FanslyApi.BASE_URL</code>, <code>FANSLY_HOST</code>, <code>WS_URL</code> class variables and 16 endpoint
+  <code>@property</code> templates centralizing every Fansly URL in one place.</li>
+<li><code>--show-config</code> and <code>--generate-config</code> CLI flags.</li>
+<li><code>config_schema</code> render-policy markers (<code>always</code> / <code>conditional</code>) so generated
+  scaffold configs include only operator-required fields.</li>
+<li><code>respect_timeline_stats</code> config field; nullable <code>usernames</code> field.</li>
+<li><code>cascade-up</code> semantics for section serialization in the YAML loader.</li>
+<li><code>tests/fixtures/config/config_fixtures.py</code>: <code>unit_config</code>, <code>unit_config_path</code>,
+  <code>no_display</code>, <code>validation_config</code> fixtures (distinct from the DB-backed <code>config</code>).</li>
+<li><code>tests/fixtures/download/story_factories.py</code>: <code>FakeStory</code> factory.</li>
+<li>Rate limiter: asyncio.gather concurrency tests covering <code>floor=0</code> and <code>floor&gt;0</code>
+  serialization invariants.</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>All <code>FanslyApi</code> HTTP methods migrated to <code>async</code>/<code>httpx.AsyncClient</code>; the
+  entire download pipeline is now fully async end-to-end.</li>
+<li><code>RateLimiterDisplay.start()</code> moved from <code>get_api()</code> to <code>setup_api()</code> so the
+  cached constructor remains I/O-free.</li>
+<li><code>textio/prompts.py</code> consolidates all prompts; <code>textio/textio.py</code> and call
+  sites simplified accordingly.</li>
+<li>YAML loader refactored to preserve <code>model_fields_set</code> honesty and fix the
+  <code>_rebuild_schema_from_config</code> round-trip (mutates sections in place instead
+  of reconstructing them).</li>
+<li><code>config/fanslyconfig.py</code> section-model decomposition aligned with new
+  render-policy schema.</li>
+<li>Regular downloads stream into a sibling <code>NamedTemporaryFile</code> and atomically
+  <code>shutil.move</code> to the target path — partial files no longer reach the dedup
+  hash store on interrupted downloads.</li>
+<li>Unbound <code>logger.*</code> calls (no <code>.bind(logger=...)</code>) now route to the textio
+  console and file handlers instead of being silently dropped by all filters.</li>
+<li><code>api/websocket.py</code> <code>http_client</code> typed to accept <code>httpx.AsyncClient</code> in
+  production and <code>httpx.Client</code> on the legacy test path.</li>
+<li><code>daemon/filters.py</code> <code>should_process_creator</code> ported to async.</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Rate limiter Bug A residual: <code>_reserve_slot</code> cursor stalled at
+  <code>learned_floor=0</code> on cold start. Now advances by
+  <code>max(floor, token_refill_interval)</code> so concurrent waiters serialise even
+  before the floor warms up.</li>
+<li>Rate limiter: removed redundant <code>last_backoff_time</code> double-write in the
+  success-reduction branch that was staling the cursor clamp.</li>
+<li>Config INI loader: <code>model_fields_set</code> honesty preserved during migration so
+  fields touched only by defaults are not written to the output YAML.</li>
+<li><code>_rebuild_schema_from_config</code> round-trip: sections are now mutated in place
+  rather than reconstructed wholesale, fixing field-ordering regressions.</li>
+<li>Logging grapheme-cluster collapse for supplementary-plane emoji and
+  VS16-modified codepoints that misaligned Rich column widths over SSH/tmux.</li>
+</ul>
 <h2 id="0134-2026-05-08"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4">0.13.4</a> - 2026-05-08<a class="headerlink" href="#0134-2026-05-08" title="Permanent link">&para;</a></h2>
 <p>Stash integration enhancements for non-aligned library layouts and
 separate-host workflows, a streaming-response error-handling fix, and
 test-suite housekeeping that retires unused packaging dependencies.</p>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>stash_context.override_dldir_w_mapped</code> config field. When <code>true</code>,
   <code>get_stash_path()</code> returns <code>mapped_path</code> directly and ignores the
@@ -240,7 +353,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   download-directory prompt in <code>pathio</code> now offers tab-completion,
   <code>~</code>-expansion, and inline path validation.</li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>_section_to_map</code> (YAML save) now uses <code>model_dump(by_alias=True)</code>
   with an alias-to-attribute lookup so aliased fields write their
@@ -262,7 +375,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   parsing. Single regex pass; <code>is_preview</code> is now available as a
   side-channel signal for downstream tagging work.</li>
 </ul>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Every non-200 download response was raising <code>httpx.ResponseNotRead</code>
   instead of the intended <code>DownloadError</code>. <code>_download_file</code> and
@@ -271,7 +384,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   error with <code>response.content.decode('utf-8')</code> — httpx forbids
   reading <code>.content</code> on a streaming response without a prior
   <code>.read()</code>. Fixed to call <code>response.read().decode("utf-8",
-  errors="replace")</code> first, so the actual server status and body now
+errors="replace")</code> first, so the actual server status and body now
   surface in error logs for failed downloads.</li>
 <li><code>mapped_path</code> resolution edge case in the by-code regex fallback.</li>
 </ul>
@@ -284,7 +397,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   type-checking).</li>
 </ul>
 <h2 id="0133-2026-05-04"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.1...v0.13.3">0.13.3</a> - 2026-05-04<a class="headerlink" href="#0133-2026-05-04" title="Permanent link">&para;</a></h2>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>stash_context.mapped_path</code> config field: translates the local
   <code>download_directory</code> prefix to the path the Stash container sees,
@@ -304,7 +417,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   never executed). Stash connection settings are config-file only;
   <code>--stash-only</code> (a mode flag, not a connection setting) is retained.</li>
 </ul>
-<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li>WebSocket transport now runs on its own dedicated thread with a private
   asyncio loop (<code>FanslyWebSocket.start_in_thread()</code> / <code>stop_thread()</code>).
@@ -323,7 +436,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   asyncpg / Alembic records to the db sink, <code>stash_graphql_client.*</code> to
   the stash sink, and <code>py.warnings</code> records routed by origin file path.</li>
 </ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Eliminated WebSocket reconnect death-spiral.</strong> The ping_worker
   previously shared the main asyncio loop with downloads, GraphQL
@@ -378,8 +491,8 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
 <li>18 mutable list field defaults converted from <code>= []</code> to
   <code>Field(default_factory=list)</code>. Pydantic 2 deep-copies mutable field
   defaults per instance to prevent shared state; <code>Field(default_factory=
-  list)</code> calls the factory directly without going through <code>copy.
-  deepcopy</code>. Eliminates ~106 MB of allocator churn (memo dicts,
+list)</code> calls the factory directly without going through <code>copy.
+deepcopy</code>. Eliminates ~106 MB of allocator churn (memo dicts,
   <code>_keep_alive</code> table, dispatch walks) per startup preload — confirmed
   by memray attribution dropping from 119 MB to 13 MB through the
   <code>copy.py</code> subtree.</li>
@@ -412,7 +525,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   <code>_image_code_index</code>) now store entity IDs rather than full Pydantic
   refs. Storing full objects pinned them past <code>invalidate_type</code>, so the
   per-creator heap drop was deferred to end-of-stash. <code>find_*_by_media_
-  codes</code> rehydrates via <code>store.get_many</code> (cache-first, batched DB-fetch
+codes</code> rehydrates via <code>store.get_many</code> (cache-first, batched DB-fetch
   for misses).</li>
 <li>Per-creator stash invalidation list extended to include <code>VideoFile</code>
   and <code>ImageFile</code> leaves. <code>Scene</code>/<code>Image</code> preload via the GraphQL
@@ -420,7 +533,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   entries; orphaning them across creators leaked ~3.9k objects per pass
   on a typical fan with ~3k images and ~800 scenes.</li>
 </ul>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>StashUnmappedFieldWarning</code> and other <code>warnings.warn()</code> output now
   reach loguru sinks.</strong> Two compound failures: <code>logger.patch()</code> was
@@ -440,7 +553,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   messages in addition to <code>{</code>/<code>}</code>, so traceback frame names like
   <code>&lt;module&gt;</code>, <code>&lt;listcomp&gt;</code>, and <code>&lt;genexpr&gt;</code> no longer crash loguru's
   colorizer with <code>ValueError: Tag "&lt;module&gt;" does not correspond to any
-  known color directive</code>. Loguru re-parses callable formatter output to
+known color directive</code>. Loguru re-parses callable formatter output to
   strip tags even when <code>colorize=False</code>, so the escape is required
   regardless of sink color setting.</li>
 <li><code>stash/processing/base.py</code> now catches <code>StashCapabilityError</code> distinct
@@ -458,7 +571,7 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
   notices the subprocess died. Now joins all of them explicitly.</li>
 <li>Three daemon worker-loop bugs surfaced and fixed during test reform:
   <code>_handle_full_creator_download</code> was calling <code>download_wall(config,
-  state)</code> without the required <code>wall_id</code>, <code>_refresh_following</code> was
+state)</code> without the required <code>wall_id</code>, <code>_refresh_following</code> was
   missing <code>get_creator_account_info</code>, and <code>_handle_timeline_only_item</code>
   was passing an empty <code>creator_name=""</code> downstream.</li>
 <li>xdist worker shutdown no longer raises <code>SIGABRT</code> / <code>SIGSEGV</code> / <code>SIGBUS</code>.
@@ -507,12 +620,12 @@ test-suite housekeeping that retires unused packaging dependencies.</p>
 <h2 id="0131-2026-04-23"><a href="https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.0...v0.13.1">0.13.1</a> - 2026-04-23<a class="headerlink" href="#0131-2026-04-23" title="Permanent link">&para;</a></h2>
 <p>Patch release fixing two issues reported on Windows + Python 3.14, plus
 rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
-<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>docs/reference/request-signing.md</code> — reverse-engineered notes on Fansly's
   request-signing scheme.</li>
 </ul>
-<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Dependency</strong>: added <code>filelock ^3.29.0</code> as a direct runtime dep, replacing
   POSIX-only <code>fcntl</code> usage in the <code>config.ini → config.yaml</code> migration lock
@@ -520,7 +633,7 @@ rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
   (<code>fcntl.flock</code> on POSIX, <code>msvcrt.locking</code> on Windows).</li>
 <li><code>poetry.lock</code> and pre-commit hook versions refreshed.</li>
 </ul>
-<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_4">Fixed<a class="headerlink" href="#fixed_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>#77</strong> — Unconditional <code>import fcntl</code> at <code>config/loader.py:28</code> crashed app
   startup on Windows (fcntl is POSIX-only). Swapped to
@@ -534,13 +647,13 @@ rolling up incidental <code>fork-main</code> commits since v0.13.0.</p>
   and the DB column to NULL-tolerant (Alembic migration
   <code>bb7006ec7c0e_make_media_locations_location_nullable</code>). Downstream readers
   at <code>media/media.py:27</code> already handled <code>None</code> via the <code>loc.raw_url or
-  loc.location</code> fallback.</li>
+loc.location</code> fallback.</li>
 </ul>
 <h2 id="0130-2026-04-22"><a href="https://github.com/Jakan-Kink/fansly-scraper/releases/tag/v0.13.0">0.13.0</a> - 2026-04-22<a class="headerlink" href="#0130-2026-04-22" title="Permanent link">&para;</a></h2>
 <p>First release under the Keep-a-Changelog format. Flagship feature: the
 post-batch monitoring daemon. Also rolls up every notable change landed
 since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
-<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
+<h3 id="added_6">Added<a class="headerlink" href="#added_6" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Post-batch monitoring daemon</strong> (<code>--daemon</code> / <code>-d</code> / <code>--monitor</code>) — continuous
   WebSocket-driven event dispatch for new posts, stories, PPV messages,
@@ -582,7 +695,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
 <li><code>download/messages.py::download_messages_for_group</code> — daemon entry point that downloads a DM group by id, resolving creator identity from the group. Batch-path <code>download_messages</code> unchanged.</li>
 <li><code>DownloadMessagesForGroup.sender_id</code> — optional field carrying the WS <code>senderId</code> so the runner can pre-populate creator identity.</li>
 </ul>
-<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Dependency floor</strong>: <code>stash-graphql-client</code> bumped from <code>&gt;=0.11.0</code> to
   <code>&gt;=0.12.0</code>, unlocking batched GraphQL mutations (<code>save_batch</code>,
@@ -600,7 +713,7 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).</p>
   now <strong>Ready to Start</strong>, with the SGC v0.12 batch APIs identified as
   primary adoption targets</li>
 </ul>
-<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_5">Fixed<a class="headerlink" href="#fixed_5" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Rich Live display corruption from stdout prints — stable frame
   rendering under concurrent logging</li>

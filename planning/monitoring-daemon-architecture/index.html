@@ -92,7 +92,7 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#package-layout-new-daemon-top-level-package">Package layout — new daemon/ top-level package</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#event-routing-register_handler-not-monitor_events">Event routing — register_handler, not monitor_events</a>
+    <li class="toctree-l3"><a class="reference internal" href="#event-routing-register_handler">Event routing — register_handler</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#persistent-state-monitorstate-table">Persistent state — MonitorState table</a>
     </li>
@@ -290,11 +290,13 @@ argparse matches option strings exactly (tested 2026-04-16).</p>
 └── state.py             # MonitorState persistence helpers
 </code></pre></div>
 <p><code>daemon/</code> parallels <code>download/</code>, <code>metadata/</code>, <code>api/</code>, <code>config/</code>, etc.</p>
-<h3 id="event-routing-register_handler-not-monitor_events">Event routing — <code>register_handler</code>, not <code>monitor_events</code><a class="headerlink" href="#event-routing-register_handler-not-monitor_events" title="Permanent link">&para;</a></h3>
-<p><code>FanslyWebSocket.monitor_events=True</code> is for human-readable protocol
-discovery (the <code>scripts/ws_monitor.py</code> tool). The daemon instead calls
-<code>ws.register_handler(MSG_SERVICE_EVENT, daemon_dispatcher)</code> to receive
-decoded events and act on them. These two mechanisms must not be conflated.</p>
+<h3 id="event-routing-register_handler">Event routing — <code>register_handler</code><a class="headerlink" href="#event-routing-register_handler" title="Permanent link">&para;</a></h3>
+<p>The daemon calls <code>ws.register_handler(MSG_SERVICE_EVENT, daemon_dispatcher)</code>
+to receive decoded WebSocket events and act on them. The dispatcher
+classifies each <code>(svc, type)</code> pair through <code>daemon/handlers.py</code> into one
+of four tiers: dispatched (returns a <code>WorkItem</code>), noop (recognised, no
+action), gathering (recognised, semantics being verified), or unknown
+(no entry in any table — logged as "consider adding").</p>
 <h3 id="persistent-state-monitorstate-table">Persistent state — <code>MonitorState</code> table<a class="headerlink" href="#persistent-state-monitorstate-table" title="Permanent link">&para;</a></h3>
 <p>Scoped schema — the identity map already tracks <code>Post</code> existence via
 <code>store.get_from_cache(Post, id)</code> (see <code>download/common.py::check_page_duplicates</code>),

@@ -86,6 +86,10 @@
     <li class="toctree-l2"><a class="reference internal" href="#core-design-patterns">Core Design Patterns</a>
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#pydantic-entitystore-database-pattern">Pydantic + EntityStore database pattern</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#unicode-coercion-truncated-surrogate-pairs">Unicode coercion — truncated surrogate pairs</a>
+    </li>
+        </ul>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#identity-map-via-wrap-validator">Identity map via wrap validator</a>
     </li>
@@ -338,6 +342,11 @@ rather than duplicating them.</p>
 <span class="c1"># handled automatically.</span>
 <span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
 </code></pre></div>
+<h4 id="unicode-coercion-truncated-surrogate-pairs">Unicode coercion — truncated surrogate pairs<a class="headerlink" href="#unicode-coercion-truncated-surrogate-pairs" title="Permanent link">&para;</a></h4>
+<p>Fansly text fields (wall names, post <code>content</code>, account <code>about</code>, subscription tier <code>name</code>, promo <code>description</code>, etc.) frequently contain supplementary-plane characters — most often the <strong>U+1D400 block</strong> (mathematical bold, italic, sans-serif bold Latin letters: <code>𝐘</code>, <code>𝘋</code>, <code>𝗙</code>). Each such character is a UTF-16 surrogate pair. When Fansly's backend truncates a string mid-pair, the response carries an unpaired surrogate (e.g., <code>\uD835</code> with no matching low half) that asyncpg refuses to encode as UTF-8.</p>
+<p><strong>Reported:</strong> <a href="https://github.com/Jakan-Kink/fansly-scraper/issues/55">GH #55 (closed)</a> — wall-name persistence failure on a REST API response containing a truncated U+1D400-block character. The issue's attached screenshot shows U+FFFD as the <strong>last</strong> visible character in the affected wall name, consistent with a length-cap truncation that severed a surrogate pair at the exact string boundary (rather than mid-string corruption). The screenshot pins the truncation as upstream of our client (Fansly-side), but the exact source layer — API-response serialization or their database storage — isn't determinable from the available evidence.</p>
+<p><code>metadata/models.py::_coerce_api_types</code> handles this for every string field on every model during <code>model_validate</code>: encode with <code>errors="surrogatepass"</code>, decode with <code>errors="replace"</code>. Unpaired surrogates become U+FFFD (<code>�</code>); properly-paired surrogates round-trip unchanged.</p>
+<p>The render symptom is "two block/replacement glyphs for one character" in terminals — one half of the broken pair rendered as an empty box, paired with a substitution glyph. Not a consumer bug; upstream truncation already happened.</p>
 <h3 id="identity-map-via-wrap-validator">Identity map via wrap validator<a class="headerlink" href="#identity-map-via-wrap-validator" title="Permanent link">&para;</a></h3>
 <p>Every model defines:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;wrap&quot;</span><span class="p">)</span>
