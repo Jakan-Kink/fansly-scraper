@@ -386,6 +386,7 @@ class MonitoringSection(_BaseSection):
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "enabled",
+            "websocket_subprocess",
         }
     )
 
