@@ -321,7 +321,6 @@ class _ChildWebSocket:
             # JS: 2 === r → handlePingResponseEvent
             elif message_type == MSG_PING:
                 self._last_ping_response = asyncio.get_event_loop().time()
-                logger.trace("Received ping response: {}", message_data)
 
             # JS: 1e4 === r → handleServiceEvent(decodeMessage("ServiceEvent", t.d))
             elif message_type == MSG_SERVICE_EVENT:
@@ -600,8 +599,6 @@ class _ChildWebSocket:
                             break
 
                         await self.websocket.send("p")
-
-                        logger.trace("Sent ping (next in {:.1f}s)", ping_interval)
 
                     except WebSocketException as e:
                         logger.error("Error sending ping: {}", e)
