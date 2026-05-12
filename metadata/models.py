@@ -547,6 +547,7 @@ class FanslyObject(BaseModel):
                 # mathematical bold chars in Fansly wall/post names).
                 # surrogatepass encodes surrogates as UTF-8-like bytes,
                 # then 'replace' converts them to U+FFFD on decode.
+                # Origin: GH #55 (closed) — wall-name persistence failure.
                 try:
                     v.encode("utf-8")
                 except UnicodeEncodeError:

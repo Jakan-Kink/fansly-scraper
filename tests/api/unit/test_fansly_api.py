@@ -163,13 +163,11 @@ class TestFanslyApi:
         mock_ws_client.start_in_thread = MagicMock()
         mock_ws_client.stop_thread = AsyncMock()
 
-        # Mock get_websocket_class — production resolves the WS class via this
-        # accessor (Lever 4 subprocess gateway) and then calls it with the
-        # constructor kwargs, so we return a lambda that ignores those kwargs
-        # and yields the prepared mock instance.
+        # Patch FanslyWebSocket so the real subprocess isn't spawned;
+        # the constructor returns the prepared mock instance.
         with patch(
-            "api.fansly.get_websocket_class",
-            return_value=lambda **_kwargs: mock_ws_client,
+            "api.fansly.FanslyWebSocket",
+            new=lambda **_kwargs: mock_ws_client,
         ):
             result = await fansly_api.setup_session()
             assert result is True
@@ -567,15 +565,14 @@ class TestFanslyApi:
             side_effect=[httpx.Response(401)]
         )
 
-        # Mock get_websocket_class — production resolves the WS class via this
-        # accessor and never reaches websockets.client.connect directly.
         # The 401 from /account/me will short-circuit before WS is even built,
-        # so a bare lambda that would raise IF called is sufficient evidence.
+        # so the FanslyWebSocket patch raising on instantiation is evidence
+        # the WS path was never reached.
         def _explode(**_kwargs):
-            raise RuntimeError("WS class should not be instantiated on 401")
+            raise RuntimeError("WS should not be instantiated on 401")
 
         with (
-            patch("api.fansly.get_websocket_class", return_value=_explode),
+            patch("api.fansly.FanslyWebSocket", new=_explode),
             pytest.raises(RuntimeError, match="Error during session setup"),
         ):
             await fansly_api.setup_session()

@@ -174,11 +174,6 @@ class FanslyConfig:
     # piping through log-capture tools that mangle ANSI escape sequences.
     # Loaded from schema.monitoring.dashboard_enabled.
     monitoring_dashboard_enabled: bool = True
-    # Subprocess-isolate the Fansly WebSocket so its heartbeat is not
-    # starved by main-process GIL contention. Loaded from
-    # schema.monitoring.websocket_subprocess. See
-    # api/websocket_subprocess.py for the proxy implementation.
-    monitoring_websocket_subprocess: bool = False
     # Three-tier simulator state durations + per-resource poll intervals.
     # Loaded from schema.monitoring.* — see config_options.md for semantics.
     monitoring_active_duration_minutes: int = 60

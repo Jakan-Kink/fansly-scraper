@@ -134,6 +134,16 @@ if obj.related_entity:
 await store.save(obj)
 ```
 
+#### Unicode coercion — truncated surrogate pairs
+
+Fansly text fields (wall names, post `content`, account `about`, subscription tier `name`, promo `description`, etc.) frequently contain supplementary-plane characters — most often the **U+1D400 block** (mathematical bold, italic, sans-serif bold Latin letters: `𝐘`, `𝘋`, `𝗙`). Each such character is a UTF-16 surrogate pair. When Fansly's backend truncates a string mid-pair, the response carries an unpaired surrogate (e.g., `\uD835` with no matching low half) that asyncpg refuses to encode as UTF-8.
+
+**Reported:** [GH #55 (closed)](https://github.com/Jakan-Kink/fansly-scraper/issues/55) — wall-name persistence failure on a REST API response containing a truncated U+1D400-block character. The issue's attached screenshot shows U+FFFD as the **last** visible character in the affected wall name, consistent with a length-cap truncation that severed a surrogate pair at the exact string boundary (rather than mid-string corruption). The screenshot pins the truncation as upstream of our client (Fansly-side), but the exact source layer — API-response serialization or their database storage — isn't determinable from the available evidence.
+
+`metadata/models.py::_coerce_api_types` handles this for every string field on every model during `model_validate`: encode with `errors="surrogatepass"`, decode with `errors="replace"`. Unpaired surrogates become U+FFFD (`�`); properly-paired surrogates round-trip unchanged.
+
+The render symptom is "two block/replacement glyphs for one character" in terminals — one half of the broken pair rendered as an empty box, paired with a substitution glyph. Not a consumer bug; upstream truncation already happened.
+
 ### Identity map via wrap validator
 
 Every model defines:

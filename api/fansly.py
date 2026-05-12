@@ -15,7 +15,6 @@ import httpx
 from httpx_retries import Retry, RetryTransport
 
 from api.websocket import FanslyWebSocket
-from api.websocket_subprocess import get_websocket_class
 from config.logging import textio_logger as logger
 from helpers.timer import timing_jitter
 from helpers.web import get_flat_qs_dict, split_url
@@ -884,11 +883,7 @@ class FanslyApi:
         # http_client= shares the cookie jar with HTTP for bidirectional rotation sync.
         logger.info("Starting persistent WebSocket connection for anti-detection")
 
-        self._websocket_client = get_websocket_class(
-            use_subprocess=getattr(
-                self.config, "monitoring_websocket_subprocess", False
-            ),
-        )(
+        self._websocket_client = FanslyWebSocket(
             token=self.token,
             user_agent=self.user_agent,
             http_client=self.http_session,

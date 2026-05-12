@@ -249,7 +249,6 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         schema.monitoring.unrecoverable_error_timeout_seconds
     )
     config.monitoring_dashboard_enabled = schema.monitoring.dashboard_enabled
-    config.monitoring_websocket_subprocess = schema.monitoring.websocket_subprocess
     config.monitoring_active_duration_minutes = (
         schema.monitoring.active_duration_minutes
     )

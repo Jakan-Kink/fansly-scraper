@@ -35,9 +35,12 @@ The tool is well positioned for this:
   does **not** touch this — detection is polling-based, so the watcher
   doesn't need its own WS handler. A list-of-callables refactor would
   only be needed for a future WS-based detection enhancement.
-- **`scripts/ws_monitor.py`** has a catch-all dump path
-  (`scripts/ws_monitor.py:494-500`) — useful for the deferred
-  WS-detection work, not needed for v1.
+- **Unknown WS events get a labelled fall-through.** `daemon/handlers.py`
+  classifies every documented `(svc, type)` pair as dispatched / noop /
+  gathering; anything outside the protocol doc lands at the runner's
+  "consider adding to _DISPATCH or _NOOP_DESCRIPTIONS" log. Useful for
+  the deferred WS-detection work — observe gathering / unknown lines for
+  candidates — not needed for v1.
 - **MediaLocation already models multi-CDN delivery.** `metadata/models.py:1085`
   stores `(mediaId, locationId, location)` rows where `locationId` is `1=Direct`,
   `102=DASH`, `103=HLS`. A live recording is a Media row with a MediaLocation

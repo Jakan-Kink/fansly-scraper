@@ -448,6 +448,45 @@ class TestTimestampAndCoercion:
         assert _parse_timestamp({"key": "val"}) == {"key": "val"}
         assert _parse_timestamp(object) is object
 
+    def test_parse_timestamp_float_seconds_subsecond_precision(self):
+        """Fansly WS broadcasts Message.createdAt as float seconds with ms
+        decimal (observed ``1778563256.288``). Must preserve sub-second precision."""
+        result = _parse_timestamp(1778563256.288)
+        assert isinstance(result, datetime)
+        assert result.year == 2026
+        assert result.tzinfo is UTC
+        # 0.288 seconds = 288_000 microseconds; allow ±1 µs for fp rounding.
+        assert abs(result.microsecond - 288_000) <= 1
+
+    def test_parse_timestamp_int_vs_float_seconds_same_instant(self):
+        """Int seconds and float seconds with .0 fraction must produce equal datetimes."""
+        a = _parse_timestamp(1778544106)
+        b = _parse_timestamp(1778544106.0)
+        assert a == b
+
+    def test_parse_timestamp_float_milliseconds_above_threshold(self):
+        """Float ms (above 1e10) should divide by 1000 and still keep sub-ms precision."""
+        result = _parse_timestamp(1778563256288.5)
+        assert isinstance(result, datetime)
+        assert result.year == 2026
+        # 288.5 ms → 288_500 µs.
+        assert abs(result.microsecond - 288_500) <= 1
+
+    def test_message_model_coerces_float_created_at(self):
+        """Heterogeneous timestamp shapes from WS: a Message dict with float
+        ``createdAt`` must produce a datetime via ``_coerce_api_types``."""
+        data = {
+            "id": snowflake_id(),
+            "senderId": snowflake_id(),
+            "groupId": snowflake_id(),
+            "content": "x",
+            "createdAt": 1778563256.288,
+        }
+        msg = Message.model_validate(data)
+        assert isinstance(msg.createdAt, datetime)
+        assert msg.createdAt.year == 2026
+        assert abs(msg.createdAt.microsecond - 288_000) <= 1
+
     def test_coerce_api_types_non_dict(self):
         result = FanslyObject._coerce_api_types.__func__(FanslyObject, [1, 2, 3])
         assert result == [1, 2, 3]

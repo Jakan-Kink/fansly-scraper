@@ -1229,12 +1229,7 @@ class TestTimelinePollLoopShouldPollFalse:
 
 
 class TestTimelinePollLoopActiveTransition:
-    """on_new_content returns True (transition) → refresh_event.set.
-
-    on_new_content() is gated on whether _process_timeline_candidate actually
-    enqueued a WorkItem; should_process_creator returning True is therefore a
-    precondition for the transition fan-out (refresh_event) to fire.
-    """
+    """on_new_content returns True (transition) → refresh_event.set."""
 
     @pytest.mark.asyncio
     async def test_transition_to_active_sets_refresh_event(self, config, monkeypatch):
@@ -1287,16 +1282,7 @@ class TestTimelinePollLoopActiveTransition:
     async def test_cache_miss_with_no_actionable_work_does_not_reset_simulator(
         self, config, monkeypatch
     ):
-        """Regression: home-timeline cache miss + should_process=False must NOT
-        call simulator.on_new_content().
-
-        This is the eventual-consistency limbo case — a post is on /timeline/home
-        but its createdAt is older than MonitorState.lastCheckedAt, so
-        should_process_creator skips. Pre-fix, on_new_content() fired anyway
-        (because poll_home_timeline reported cache misses), resetting
-        state_entered_at on every poll and pinning the simulator in 'active'
-        forever.
-        """
+        """Cache-miss creator + should_process=False → on_new_content not called."""
         new_content_calls = 0
 
         class _RecordingSimulator(StubSimulator):

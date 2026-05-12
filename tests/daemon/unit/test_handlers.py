@@ -18,9 +18,15 @@ relationship) that don't reduce to a (input, expected) shape.
 
 from __future__ import annotations
 
+import io
+import logging
+
 import pytest
+from loguru import logger as loguru_logger
 
 from daemon.handlers import (
+    _GATHERING_DESCRIPTIONS,
+    _NOOP_DESCRIPTIONS,
     CheckCreatorAccess,
     DownloadMessagesForGroup,
     DownloadTimelineOnly,
@@ -500,3 +506,52 @@ def test_has_handler_typing_announce() -> None:
     event, which fires every 3-5 seconds and would flood the log.
     """
     assert has_handler(5, 22) is True
+
+
+# ---------------------------------------------------------------------------
+# Four-class taxonomy: gathering tier (provisional classification)
+# ---------------------------------------------------------------------------
+
+
+def test_gathering_entry_routes_to_gathering_handler(caplog) -> None:
+    """An entry in _GATHERING_DESCRIPTIONS dispatches via the gathering path."""
+    caplog.set_level(logging.DEBUG)
+    _GATHERING_DESCRIPTIONS[(9999, 1)] = "test gathering entry"
+    try:
+        result = dispatch_ws_event(9999, 1, {"sample": "payload"})
+    finally:
+        _GATHERING_DESCRIPTIONS.pop((9999, 1), None)
+
+    assert result is None
+    debug_msgs = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+    assert any(
+        "gathering" in m and "svc=9999 type=1" in m and "test gathering entry" in m
+        for m in debug_msgs
+    )
+
+
+def test_has_handler_recognises_gathering_entries() -> None:
+    """has_handler returns True for entries in _GATHERING_DESCRIPTIONS."""
+    _GATHERING_DESCRIPTIONS[(9999, 2)] = "test gathering entry"
+    try:
+        assert has_handler(9999, 2) is True
+    finally:
+        _GATHERING_DESCRIPTIONS.pop((9999, 2), None)
+
+
+def test_noop_takes_precedence_over_gathering() -> None:
+    """A (svc, type) pair listed in both tables routes through noop, not gathering."""
+    _NOOP_DESCRIPTIONS[(8888, 1)] = "noop wins"
+    _GATHERING_DESCRIPTIONS[(8888, 1)] = "gathering loses"
+    sink = io.StringIO()
+    sink_id = loguru_logger.add(sink, level="DEBUG")
+    try:
+        dispatch_ws_event(8888, 1, {})
+    finally:
+        loguru_logger.remove(sink_id)
+        _NOOP_DESCRIPTIONS.pop((8888, 1), None)
+        _GATHERING_DESCRIPTIONS.pop((8888, 1), None)
+    output = sink.getvalue()
+    assert "known event" in output
+    assert "noop wins" in output
+    assert "gathering loses" not in output

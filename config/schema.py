@@ -400,7 +400,6 @@ class MonitoringSection(_BaseSection):
     session_baseline: datetime | None = None
     unrecoverable_error_timeout_seconds: int = 3600
     dashboard_enabled: bool = True
-    websocket_subprocess: bool = False
     heartbeat_interval_minutes: int = 15
     livestream_recording_enabled: bool = True
     livestream_poll_interval_seconds: int = 30

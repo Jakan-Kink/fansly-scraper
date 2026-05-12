@@ -49,12 +49,14 @@ daemon/
 
 `daemon/` parallels `download/`, `metadata/`, `api/`, `config/`, etc.
 
-### Event routing — `register_handler`, not `monitor_events`
+### Event routing — `register_handler`
 
-`FanslyWebSocket.monitor_events=True` is for human-readable protocol
-discovery (the `scripts/ws_monitor.py` tool). The daemon instead calls
-`ws.register_handler(MSG_SERVICE_EVENT, daemon_dispatcher)` to receive
-decoded events and act on them. These two mechanisms must not be conflated.
+The daemon calls `ws.register_handler(MSG_SERVICE_EVENT, daemon_dispatcher)`
+to receive decoded WebSocket events and act on them. The dispatcher
+classifies each `(svc, type)` pair through `daemon/handlers.py` into one
+of four tiers: dispatched (returns a `WorkItem`), noop (recognised, no
+action), gathering (recognised, semantics being verified), or unknown
+(no entry in any table — logged as "consider adding").
 
 ### Persistent state — `MonitorState` table
 

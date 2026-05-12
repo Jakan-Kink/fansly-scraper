@@ -421,16 +421,7 @@ class TestHandleTimelineOnlyItemException:
 
 
 class TestHandleTimelineOnlyItemBypassesStatsShortcut:
-    """Regression: timeline-only handler must always hit /timeline/{creator}
-    even when get_creator_account_info reports the creator as 'unchanged'.
-
-    Fansly's timelineStats counts can lag a freshly-posted item by seconds to
-    minutes; the home-timeline poll surfaces the post before the stats cache
-    catches up. If the daemon honoured the unchanged short-circuit here,
-    download_timeline would return without fetching, the post would never be
-    persisted, and mark_creator_processed would advance the baseline past it
-    — locking the post into permanent home-feed limbo.
-    """
+    """Timeline-only handler clears the stats-cache skip flags before download."""
 
     @pytest.mark.asyncio
     async def test_creator_content_unchanged_flag_is_cleared_before_download(
@@ -441,9 +432,6 @@ class TestHandleTimelineOnlyItemBypassesStatsShortcut:
         await entity_store.save(account)
 
         async def _info_marks_unchanged(_config, state):
-            # Simulate get_creator_account_info concluding stats+walls match
-            # the DB snapshot — the production path that would short-circuit
-            # download_timeline if we didn't override it.
             state.creator_content_unchanged = True
             state.fetched_timeline_duplication = True
 
@@ -769,7 +757,7 @@ class TestOnServiceEvent:
 
         assert queue.empty()
         warnings = _logged(caplog, "WARNING")
-        assert any("WS envelope decode error svc=15" in m for m in warnings)
+        assert any("WS envelope decode error" in m and "svc=15" in m for m in warnings)
 
     @pytest.mark.asyncio
     async def test_event_type_missing_returns_silently(self):

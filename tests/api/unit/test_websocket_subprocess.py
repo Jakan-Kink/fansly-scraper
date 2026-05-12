@@ -1,4 +1,4 @@
-"""Tests for api/websocket_subprocess.py."""
+"""Tests for the subprocess-backed FanslyWebSocket."""
 
 import asyncio
 import contextlib
@@ -10,13 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from api.websocket import FanslyWebSocket
-from api.websocket_subprocess import (
-    FanslyWebSocketProxy,
-    _run_ws_subprocess,
-    _setup_child_logging,
-    get_websocket_class,
-)
+from api.websocket import FanslyWebSocket, _run_ws_subprocess, _setup_child_logging
+from api.websocket_protocol import MSG_SERVICE_EVENT
 from tests.fixtures.api import (
     build_mock_ws_class,
     make_proxy,
@@ -29,60 +24,81 @@ from tests.fixtures.utils import close_qs
 
 
 class TestSetupChildLogging:
-    """Lines 93-94: _setup_child_logging configures a single loguru sink."""
+    """_setup_child_logging installs a sink that forwards records to evt_q."""
 
-    def test_remove_then_add_with_path(self, tmp_path):
-        log_path = str(tmp_path / "child.log")
-        with patch("api.websocket_subprocess.logger") as mock_logger:
-            _setup_child_logging(log_path)
+    def test_remove_then_add_queue_sink(self):
+        evt_q = mp.Queue()
+        try:
+            with patch("api.websocket.logger") as mock_logger:
+                _setup_child_logging(evt_q)
+            mock_logger.remove.assert_called_once_with()
+            mock_logger.add.assert_called_once()
+            args, kwargs = mock_logger.add.call_args
+            # Sink is a callable, not a path
+            assert callable(args[0])
+            assert kwargs["level"] == "TRACE"
+            assert kwargs["backtrace"] is True
+            assert kwargs["diagnose"] is True
+        finally:
+            evt_q.close()
+            evt_q.join_thread()
 
-        mock_logger.remove.assert_called_once_with()
-        mock_logger.add.assert_called_once()
-        args, kwargs = mock_logger.add.call_args
-        assert args[0] == log_path
-        assert kwargs["rotation"] == "50 MB"
-        assert kwargs["retention"] == 5
-        assert kwargs["enqueue"] is False
-        assert kwargs["backtrace"] is True
-        assert kwargs["diagnose"] is True
+    def test_sink_emits_log_kind_event_for_each_record(self):
+        """The sink callable installed by _setup_child_logging pushes
+        ``{"kind": "log", ...}`` per record. Drive it with a stand-in Message."""
+        evt_q = mp.Queue()
+        try:
+            captured_sink: list = []
+            with patch("api.websocket.logger") as mock_logger:
+                mock_logger.add.side_effect = lambda sink, **_: captured_sink.append(
+                    sink
+                )
+                _setup_child_logging(evt_q)
+
+            sink = captured_sink[0]
+            fake_message = SimpleNamespace(
+                record={
+                    "level": SimpleNamespace(name="INFO"),
+                    "name": "api.test",
+                    "function": "do_thing",
+                    "line": 42,
+                    "message": "hello",
+                }
+            )
+            sink(fake_message)
+            msg = evt_q.get(timeout=2.0)
+            assert msg == {
+                "kind": "log",
+                "level": "INFO",
+                "name": "api.test",
+                "function": "do_thing",
+                "line": 42,
+                "message": "hello",
+            }
+        finally:
+            evt_q.close()
+            evt_q.join_thread()
 
 
-# ── get_websocket_class ────────────────────────────────────────────────
-
-
-class TestGetWebsocketClass:
-    """Line 582: factory returns FanslyWebSocketProxy when use_subprocess=True."""
-
-    def test_default_returns_in_thread_class(self):
-        assert get_websocket_class() is FanslyWebSocket
-
-    def test_explicit_false_returns_in_thread_class(self):
-        assert get_websocket_class(False) is FanslyWebSocket
-
-    def test_true_returns_proxy_class(self):
-        assert get_websocket_class(True) is FanslyWebSocketProxy
-
-
-# ── FanslyWebSocketProxy.__init__ ──────────────────────────────────────
+# ── FanslyWebSocket.__init__ ──────────────────────────────────────
 
 
 class TestProxyInit:
     """Lines 316-340: constructor stores all args and seeds runtime fields."""
 
     def test_minimal_construction(self):
-        proxy = FanslyWebSocketProxy(token="tok", user_agent="ua")  # noqa: S106
+        proxy = FanslyWebSocket(token="tok", user_agent="ua")  # noqa: S106
         assert proxy.token == "tok"
         assert proxy.user_agent == "ua"
         assert proxy.cookies == {}
         assert proxy.enable_logging is False
         assert proxy.on_unauthorized is None
         assert proxy.on_rate_limited is None
-        assert proxy.monitor_events is False
         assert proxy.base_url is None
         assert proxy.http_client is None
 
     def test_runtime_state_defaults(self):
-        proxy = FanslyWebSocketProxy(token="t", user_agent="u")  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u")  # noqa: S106
         assert proxy.connected is False
         assert proxy.session_id is None
         assert proxy.websocket_session_id is None
@@ -96,7 +112,7 @@ class TestProxyInit:
 
     def test_cookies_dict_is_copied(self):
         original = {"k": "v"}
-        proxy = FanslyWebSocketProxy(token="t", user_agent="u", cookies=original)  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u", cookies=original)  # noqa: S106
         assert proxy.cookies == {"k": "v"}
         assert proxy.cookies is not original
 
@@ -104,21 +120,19 @@ class TestProxyInit:
         cb1 = MagicMock()
         cb2 = MagicMock()
         client = MagicMock(name="httpx_client")
-        proxy = FanslyWebSocketProxy(
+        proxy = FanslyWebSocket(
             token="tk",  # noqa: S106
             user_agent="UA",
             cookies={"a": "1"},
             enable_logging=True,
             on_unauthorized=cb1,
             on_rate_limited=cb2,
-            monitor_events=True,
             base_url="https://example.invalid",
             http_client=client,
         )
         assert proxy.enable_logging is True
         assert proxy.on_unauthorized is cb1
         assert proxy.on_rate_limited is cb2
-        assert proxy.monitor_events is True
         assert proxy.base_url == "https://example.invalid"
         assert proxy.http_client is client
 
@@ -415,13 +429,13 @@ class TestStartInThread:
         existing.start.assert_not_called()
 
     async def test_spawn_path_creates_queues_and_drain(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)  # logs/ dir is created in cwd
+        monkeypatch.chdir(tmp_path)
         proxy = make_proxy()
         mock_proc = MagicMock(name="ws_proc")
         mock_proc.is_alive.return_value = True
 
         with patch(
-            "api.websocket_subprocess.mp.get_context",
+            "api.websocket.mp.get_context",
             return_value=spawn_ctx_with_mock_process(mock_proc),
         ):
             proxy.start_in_thread()
@@ -432,7 +446,6 @@ class TestStartInThread:
             assert proxy._cmd_q is not None
             assert proxy._evt_q is not None
             assert proxy._drain_task is not None
-            assert (tmp_path / "logs").is_dir()
         finally:
             proxy._drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -451,7 +464,7 @@ class TestStartInThread:
         new_proc.is_alive.return_value = True
 
         with patch(
-            "api.websocket_subprocess.mp.get_context",
+            "api.websocket.mp.get_context",
             return_value=spawn_ctx_with_mock_process(new_proc),
         ):
             proxy.start_in_thread()
@@ -692,26 +705,24 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={"sess": "abc"},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(31,),
                 )
 
-            instance.start_in_thread.assert_called_once()
-            instance.stop_thread.assert_awaited()
+            instance._maintain_connection.assert_awaited()
+            instance._stop_event.set.assert_called()
             # No status event expected — change-on-update path is in
             # test_status_publisher_emits_on_change.
         finally:
@@ -726,21 +737,19 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -759,8 +768,8 @@ class TestRunWsSubprocessShutdown:
             instance.send_message = AsyncMock(side_effect=RuntimeError("boom"))
 
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 # The supervisor must not propagate the inner error.
                 _run_ws_subprocess(
@@ -768,17 +777,15 @@ class TestRunWsSubprocessShutdown:
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
-            instance.stop_thread.assert_awaited()
+            instance._stop_event.set.assert_called()
         finally:
             close_qs(cmd_q, evt_q)
 
@@ -791,21 +798,19 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={"old": "x"},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -823,21 +828,19 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -845,7 +848,7 @@ class TestRunWsSubprocessShutdown:
                 call.args[0] for call in instance.register_handler.call_args_list
             }
             assert 99 in registered_types
-            assert FanslyWebSocket.MSG_SERVICE_EVENT in registered_types
+            assert MSG_SERVICE_EVENT in registered_types
         finally:
             close_qs(cmd_q, evt_q)
 
@@ -859,21 +862,19 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(8,),
                 )
 
@@ -897,22 +898,20 @@ class TestRunWsSubprocessShutdown:
 
             mock_class, _instance = build_mock_ws_class()
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
-                patch("api.websocket_subprocess.logger") as mock_logger,
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
+                patch("api.websocket.logger") as mock_logger,
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -929,7 +928,7 @@ class TestRunWsSubprocessShutdown:
         evt_q = mp.Queue()
         try:
             # No-op cmd first so _command_consumer yields the loop before stop.
-            cmd_q.put({"cmd": "register", "type": FanslyWebSocket.MSG_SERVICE_EVENT})
+            cmd_q.put({"cmd": "register", "type": MSG_SERVICE_EVENT})
             cmd_q.put({"cmd": "stop"})
 
             mock_class, instance = build_mock_ws_class()
@@ -941,21 +940,19 @@ class TestRunWsSubprocessShutdown:
             instance.account_id = "1234"
 
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -985,21 +982,19 @@ class TestRunWsSubprocessCookieForwarder:
         mock_class, instance = build_mock_ws_class()
 
         with (
-            patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-            patch("api.websocket_subprocess._setup_child_logging"),
+            patch("api.websocket._ChildWebSocket", mock_class),
+            patch("api.websocket._setup_child_logging"),
         ):
             _run_ws_subprocess(
                 init_kwargs={
                     "token": "t",
                     "user_agent": "ua",
                     "enable_logging": False,
-                    "monitor_events": False,
                     "base_url": None,
                 },
                 cookies_initial={},
                 cmd_q=cmd_q,
                 evt_q=evt_q,
-                log_path=str(tmp_path / "child.log"),
                 forward_types=(),
             )
 
@@ -1117,21 +1112,19 @@ class TestRunWsSubprocessAuthCallbacks:
             mock_class, _instance = build_mock_ws_class()
 
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(),
                 )
 
@@ -1163,21 +1156,19 @@ class TestRunWsSubprocessAuthCallbacks:
             mock_class, instance = build_mock_ws_class()
 
             with (
-                patch("api.websocket_subprocess.FanslyWebSocket", mock_class),
-                patch("api.websocket_subprocess._setup_child_logging"),
+                patch("api.websocket._ChildWebSocket", mock_class),
+                patch("api.websocket._setup_child_logging"),
             ):
                 _run_ws_subprocess(
                     init_kwargs={
                         "token": "t",
                         "user_agent": "ua",
                         "enable_logging": False,
-                        "monitor_events": False,
                         "base_url": None,
                     },
                     cookies_initial={},
                     cmd_q=cmd_q,
                     evt_q=evt_q,
-                    log_path=str(tmp_path / "child.log"),
                     forward_types=(42,),
                 )
 

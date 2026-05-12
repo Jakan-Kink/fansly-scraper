@@ -4,16 +4,9 @@ This module is stateless: it translates decoded ServiceEvent dicts into typed
 WorkItem values that the daemon runner executes.  No downloads, no API calls,
 no side effects — pure input → output functions.
 
-Event shapes come from the ``_monitor_*`` methods in ``api/websocket.py``.
-The ``dispatch_ws_event`` entry point mirrors the dispatch table used by
-``FanslyWebSocket._monitor_service_event``.
-
-Service IDs referenced here (from ``FanslyWebSocket`` constants):
-    SVC_MEDIA        = 2
-    SVC_FOLLOWS      = 3
-    SVC_MSG_INTERACT = 5
-    SVC_WALLET       = 6
-    SVC_SUBSCRIPTIONS = 15
+Service IDs and event-type semantics are documented in
+``docs/reference/Fansly-WebSocket-Protocol.md`` and exported via
+``api/websocket_protocol.py``.
 """
 
 from __future__ import annotations
@@ -21,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from api.websocket_protocol import format_event_label
 from config.logging import textio_logger as logger
 from config.logging import websocket_logger as ws_logger
 
@@ -380,15 +374,40 @@ def _handle_noop_events(
     function with the description bound in.
     """
     ws_logger.debug(
-        "daemon.handlers: known event ({}, {}) -- {}",
-        service_id,
-        event_type,
+        "daemon.handlers: known event {} -- {}",
+        format_event_label(service_id, event_type),
         description,
     )
     ws_logger.trace(
-        "daemon.handlers: event ({}, {}) - {}",
-        service_id,
-        event_type,
+        "daemon.handlers: event {} - {}",
+        format_event_label(service_id, event_type),
+        event,
+    )
+    return None
+
+
+def _handle_gathering_events(
+    event: dict[str, Any],
+    service_id: int,
+    event_type: int,
+    description: str,
+) -> WorkItem | None:
+    """Acknowledge a known event whose semantics are not yet pinned down.
+
+    Distinct from ``_handle_noop_events`` only in operator framing: the
+    event is recognised but classification is provisional. Logs at DEBUG
+    with a "gathering" tag (``grep gathering`` surfaces the to-classify
+    backlog) and dumps the payload at TRACE so accumulated samples can
+    inform a later actionable / noop decision. Always returns ``None``.
+    """
+    ws_logger.debug(
+        "daemon.handlers: gathering {} -- {}",
+        format_event_label(service_id, event_type),
+        description,
+    )
+    ws_logger.trace(
+        "daemon.handlers: gathering payload {} - {}",
+        format_event_label(service_id, event_type),
         event,
     )
     return None
@@ -435,19 +454,120 @@ _NOOP_DESCRIPTIONS: dict[tuple[int, int], str] = {
 }
 
 
+# Recognised events whose classification is provisional. The dispatcher
+# routes these through ``_handle_gathering_events`` so operators see a
+# stable label AND a TRACE payload sample on each occurrence; reading the
+# accumulated samples informs whether the entry should later be promoted
+# to ``_DISPATCH`` or demoted to ``_NOOP_DESCRIPTIONS``.
+#
+# Sourced from docs/reference/Fansly-WebSocket-Protocol.md — every
+# documented (svc, type) pair not already in _DISPATCH or
+# _NOOP_DESCRIPTIONS lands here. Descriptions stay close to the doc's
+# wording; semantics may differ from labels and need empirical
+# verification (see TRACE payload samples).
+_GATHERING_DESCRIPTIONS: dict[tuple[int, int], str] = {
+    # PostService (svc=1) — content lifecycle beyond likes
+    (1, 1): "new post created (home/sub/list timelines)",
+    (1, 3): "post unliked (engagement signal)",
+    (1, 4): "post stats updated (likeCount/replyCount/tipAmount)",
+    (1, 5): "post deleted",
+    (1, 8): "post content updated (re-fetch trigger)",
+    (1, 9): "wall post created",
+    (1, 10): "wall post deleted",
+    (1, 101): "wall created",
+    (1, 102): "wall deleted",
+    # MediaService (svc=2)
+    (2, 5): "media updated (re-encoded/processed)",
+    (2, 999): "media cache invalidation signal",
+    # FollowerService (svc=3)
+    (3, 3): "unfollow",
+    # GroupService (svc=4) — beyond the (4,1)/(4,2) ACKs in noop
+    (4, 3): "group message reaction added",
+    (4, 4): "group reaction removed / user settings changed",
+    (4, 6): "user added to group",
+    (4, 7): "user removed from group",
+    (4, 8): "group created",
+    (4, 9): "group user settings changed",
+    # MessageService (svc=5) — beyond new/deleted/typing
+    (5, 2): "message ack batch",
+    (5, 3): "message reaction added",
+    (5, 4): "message reaction removed",
+    # WalletService (svc=6) — beyond balance/transaction in dispatch
+    (6, 1): "wallet transaction created (intermediate; terminal at type=3)",
+    (6, 101): "wallets loaded signal",
+    # TippingService (svc=7)
+    (7, 1): "tip sent",
+    (7, 101): "tip goal progress",
+    # OnlineStatusService (svc=8)
+    (8, 1): "online status change",
+    # NotificationService (svc=9) — inner notification.type carries serviceId*1000+N
+    (9, 1): "notification created (inner type code = serviceId*1000+N)",
+    (9, 100): "notifications loaded signal",
+    (9, 101): "unread notification count changed",
+    (9, 102): "notifications bulk update",
+    # ProfileService (svc=10)
+    (10, 2): "post pinned",
+    (10, 100): "post pinned (alternate)",
+    (10, 101): "post unpinned",
+    (10, 102): "pinned posts bulk update",
+    # IgnoreService (svc=11)
+    (11, 1): "user ignored/blocked",
+    # AccountService (svc=12) — beyond profile updated in dispatch
+    (12, 100): "account data changed (consumer fan-out)",
+    (12, 101): "account suggestions refetch signal",
+    (12, 999): "account cache invalidation signal",
+    # SubscriptionService (svc=15) — beyond confirmed (type=5) in dispatch
+    (15, 100): "subscriptions query result",
+    (15, 101): "gift code added",
+    (15, 102): "subscription update (alternate)",
+    # PaymentService (svc=16)
+    (16, 1): "payment initiated",
+    (16, 2): "payment confirmed",
+    (16, 3): "payment error",
+    (16, 10): "payment method added",
+    (16, 11): "payment method updated",
+    (16, 20): "payout request created (creator-side)",
+    (16, 21): "payout request updated (creator-side)",
+    # CCBillService (svc=17)
+    (17, 2): "CCBill transaction updated",
+    # InovioService (svc=26)
+    (26, 3): "3DS authentication request",
+    # StoryService (svc=32) — type=7 in dispatch; doc note: type=8 may route via main handler
+    (32, 8): "story bundle purchase (doc: may route via main onServiceEvent)",
+    # PollsService (svc=42)
+    (42, 10): "poll vote cast",
+    (42, 20): "poll subscribed (viewport enter)",
+    (42, 21): "poll unsubscribed (viewport leave)",
+    (42, 50): "poll data/results updated",
+    # StreamingService (svc=45)
+    (45, 10): "stream state changed (live/offline)",
+    (45, 11): "stream permission changed",
+    # ChatRoomService (svc=46) — chatws only; (46,10) pre-dispatched in runner
+    (46, 4): "chat room state update",
+    (46, 20): "chat user banned",
+    (46, 30): "chat ban notification (system msg)",
+    (46, 50): "chat tip goal created",
+    (46, 51): "chat tip goal updated/deleted",
+    (46, 53): "chat subscription alert (system msg)",
+    (46, 54): "chat room settings changed",
+    # INTERNAL (svc=1000) — doc says client-only; never sent by server
+    (1000, 100): "activity heartbeat (unexpected — doc says client-only)",
+}
+
+
 def has_handler(service_id: int, event_type: int) -> bool:
     """Report whether ``(svc, type)`` is known to the daemon dispatcher.
 
-    Returns ``True`` for both active/filter handlers (``_DISPATCH`` members)
-    and declared no-op entries (``_NOOP_DESCRIPTIONS`` members). Exposed
-    so the daemon runner can distinguish "handler ran and returned None"
-    (expected) from "no handler registered at all" (a coverage gap worth
-    logging more visibly).
+    Returns ``True`` for active handlers (``_DISPATCH``), declared no-ops
+    (``_NOOP_DESCRIPTIONS``), and provisionally-classified entries
+    (``_GATHERING_DESCRIPTIONS``). Exposed so the daemon runner can
+    distinguish "handler ran and returned None" (expected) from "no
+    handler registered at all" (a coverage gap worth logging more visibly).
     """
-    return (service_id, event_type) in _DISPATCH or (
-        service_id,
-        event_type,
-    ) in _NOOP_DESCRIPTIONS
+    key = (service_id, event_type)
+    return (
+        key in _DISPATCH or key in _NOOP_DESCRIPTIONS or key in _GATHERING_DESCRIPTIONS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -462,8 +582,8 @@ def dispatch_ws_event(
 ) -> WorkItem | None:
     """Translate a decoded ServiceEvent into a WorkItem, or None if no action needed.
 
-    ``event`` is the already-decoded payload (after the envelope → serviceId/event
-    → payload triple-JSON unpacking done by FanslyWebSocket._monitor_service_event).
+    ``event`` is the already-decoded inner payload (envelope → serviceId/event →
+    payload triple-JSON unpacking is done by the runner before reaching here).
 
     Args:
         service_id: The ``serviceId`` field from the decoded envelope.
@@ -474,10 +594,14 @@ def dispatch_ws_event(
         A WorkItem subclass instance describing the required action, or None
         when the event is informational, irrelevant, or malformed.
     """
-    description = _NOOP_DESCRIPTIONS.get((service_id, event_type))
+    key = (service_id, event_type)
+    description = _NOOP_DESCRIPTIONS.get(key)
     if description is not None:
         return _handle_noop_events(event, service_id, event_type, description)
-    handler = _DISPATCH.get((service_id, event_type))
+    description = _GATHERING_DESCRIPTIONS.get(key)
+    if description is not None:
+        return _handle_gathering_events(event, service_id, event_type, description)
+    handler = _DISPATCH.get(key)
     if handler is None:
         return None
     return handler(event)

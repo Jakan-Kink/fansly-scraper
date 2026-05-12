@@ -164,10 +164,10 @@ class TestFanslyApiAdditional:
     async def test_get_active_session_async_error(self, fansly_api):
         """Test get_active_session_async handles WebSocket errors.
 
-        Production resolves the WS class via api.fansly.get_websocket_class
-        (subprocess gateway) and calls .start_in_thread(). We mock the class
-        so its instance raises on start_in_thread — the except handler then
-        wraps the failure as 'WebSocket session setup failed'.
+        Production constructs FanslyWebSocket and calls .start_in_thread().
+        We patch the class so its instance raises on start_in_thread — the
+        except handler then wraps the failure as 'WebSocket session setup
+        failed'.
         """
         mock_ws_instance = AsyncMock()
         mock_ws_instance.connected = False
@@ -179,8 +179,8 @@ class TestFanslyApiAdditional:
 
         with (
             patch(
-                "api.fansly.get_websocket_class",
-                return_value=lambda **_kwargs: mock_ws_instance,
+                "api.fansly.FanslyWebSocket",
+                new=lambda **_kwargs: mock_ws_instance,
             ),
             pytest.raises(
                 RuntimeError,

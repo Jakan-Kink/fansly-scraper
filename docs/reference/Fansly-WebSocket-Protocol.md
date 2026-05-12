@@ -140,6 +140,33 @@ Connection states: `CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4`
 
 A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=3, type=58000).
 
+#### PPV Order Payload (type=7)
+
+```json
+{
+  "type": 7,
+  "order": {
+    "orderId": "<order-snowflake>",
+    "accountMediaId": "<media-snowflake>",
+    "correlationAccountId": "<creator-accountId>",
+    "accountId": "<buyer-accountId>",
+    "type": 1
+  }
+}
+```
+
+- `accountMediaId` matches the `contentId` from any earlier `attachments[]` entry on a DM (`svc=5 type=1, attachment.contentType=1`) where the creator offered this media — so a DM-offered locked preview can be stitched to its eventual purchase without a REST roundtrip.
+- `correlationAccountId` = the creator (seller). The daemon's `_handle_ppv_purchase` reads this to emit `RedownloadCreatorMedia(creator_id=...)`.
+- `accountId` = the buyer (always the local user, since WS only delivers events the local account participates in).
+
+#### PPV Correlation Chain (distinct from subscription)
+
+Unlike subscriptions (where `subscription.historyId == wallet.transaction.correlationId` is a direct stitching key), the PPV chain does NOT publish the join key on the wire:
+
+- `order.orderId` and `wallet.transaction.correlationId` are **different Snowflake IDs**, minted ~milliseconds apart.
+- The actual join is via an intermediate payment/charge record not broadcast on the WS bus.
+- For the daemon's "re-download this creator's media" reaction this doesn't matter; for any downstream code that needs to stitch a specific PPV order to its specific transaction, fetch the payment record via a REST endpoint.
+
 ### serviceId=3 — FollowerService
 
 | Type | Key      | Callback         | Description                                    |
@@ -164,7 +191,12 @@ A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=
 - `1` = Delivered (message reached recipient's client)
 - `2` = Read (recipient opened/viewed the message)
 
-Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipients[]`
+Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipients[]`.
+
+`messageIds[]` carries one or more IDs — a single ACK frame may batch
+read receipts for multiple messages at once (observed: a single `type=2`
+ack covering two earlier message IDs when the recipient opened the
+thread after both arrived). Don't assume single-element arrays.
 
 ### serviceId=5 — MessageService
 
@@ -211,7 +243,9 @@ Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipie
 }
 ```
 
-Note: `createdAt` is in seconds with decimal (not milliseconds like other events).
+Note: `createdAt` is in seconds with decimal (not milliseconds like other events). The same envelope may mix representations — observed: the outer `message.createdAt` is float seconds (e.g., `1776225990.786`) while its nested `inReplyToMessage.createdAt` is int seconds (e.g., `1776222494`, no decimal). The `_parse_timestamp` validator handles both (sub-second precision is preserved into `datetime.microsecond`).
+
+`inReplyTo` sentinel: empty string `""` means the message is standalone; a non-empty string is the parent message ID (and `inReplyToMessage` will be populated with the full parent message object as a nested dict, not just an ID). Both `inReplyTo` and `inReplyToRoot` follow this convention.
 
 #### Message Reaction (type=3)
 
@@ -266,10 +300,17 @@ Wallet types: `1` = main wallet, `2` = earnings wallet.
 
 `walletVersion` is checked: updates with lower version than cached are ignored.
 
+`balance` vs `balance64` — the wallet update carries both:
+
+- `balance` = net spendable (post-pending-debit).
+- `balance64` = gross (pre-pending-debit, includes any in-flight debit).
+
+When a purchase is in flight, `balance64 - balance` equals the amount of the pending debit and matches the paired `wallet.transaction.amount` exactly (verified empirically for a single-pending-transaction PPV: a $59.99 purchase produced `balance64 - balance = 59990` mills, equal to `transaction.amount`). Don't display `balance64` to the user as "your balance" — the user-facing number is `balance`.
+
 Transaction type codes:
 
 - `14001` = Wallet credit from external payment (money in)
-- `58000` = Subscription/PPV purchase debit (money out)
+- `58000` = Subscription / PPV purchase debit (money out). Same code for both subscription renewals AND single-item PPV media purchases; not subscription-specific.
 
 ### serviceId=7 — TippingService
 
@@ -315,6 +356,28 @@ Notification type codes (from notification filters in main.js):
 | 32007 | Story(32) + 7          | Locked text purchased   |
 | 45012 | Streaming(45) + 12     | Stream ticket purchased |
 
+#### `(9, 1)` Correlation Semantics
+
+Every `(9, 1)` notification carries two correlation IDs that point at different things depending on the inner `notification.type`:
+
+- **`correlationGroupId`** → the **persistent entity** affected (the "thing" the notification is about)
+- **`correlationId`** → the **specific triggering record** (the "what just happened")
+
+Empirically observed mappings (other inner types follow the same shape but specific references are unconfirmed):
+
+| `notification.type` | `correlationGroupId` → | `correlationId` → | Paired direct event? |
+|---|---|---|---|
+| 5003 (Message Reaction) | `message.id` that was reacted to | `like.id` from the `(5, 3)` reaction | **Yes** — `(5, 3)` is also delivered to the local observer (group member) |
+| 15011 (Promotion) | creator's `accountId` (the promoter) | `promo.id` inside `subscriptionTiers[].plans[].promos[]` (see SubscriptionService below) | **No** — `(15, 11)` is not delivered to the local observer; the notification is the only signal |
+
+**Pairing depends on participation.** When the local observer is a *participant* in the underlying event (sender, buyer, group-member, etc.), the direct service event is fanned out to them alongside the notification. When the local observer is only a *target* of a creator-initiated action (promotion offer, etc.), only the notification arrives.
+
+**Empirical note on the `15011` "Promotion used" table label above.** Observed in real traffic, `(9, 1)` type=15011 fires when a creator *activates or extends* a promotion offer, with `promo.uses=0` at notification time. The "used" label may be a Fansly-side misnomer or a stale revision of the protocol; the trigger semantics are closer to "promotion available."
+
+**`notification.accountId`** is always the **recipient** of the notification feed (whose feed it lands in), not the actor of the triggering action. The actor lives on the direct event's payload when present, or has to be resolved from the persistent entity referenced by `correlationGroupId`.
+
+**Dispatch policy:** the monitoring daemon noops all `(9, 1)` notifications. For paired inner types (5003, 2007, 2008, 3002, 15006, etc.), the direct event is authoritative. For unpaired inner types (15011 promotion, possibly 15007 expiration), the notification carries no actionable content for the downloader — the user would still have to accept the offer (which would fire a `(15, 5)` subscription event the daemon already handles).
+
 ### serviceId=15 — SubscriptionService
 
 | Type | Key            | Callback                  | Description                       |
@@ -328,6 +391,51 @@ Subscription flows through two events with the same `id`:
 
 1. First event: `status: 2` (pending) — lean payload
 2. Second event: `status: 3` (confirmed) — enriched with tier name, color, endsAt, etc.
+
+#### Subscription Tier Entity Shape
+
+The `subscriptionTiers` array on an `account` object (returned by REST timeline / account endpoints) is the underlying entity the SubscriptionService events reference. Shape:
+
+```json
+{
+  "subscriptionTiers": [{
+    "id": "<tier-snowflake>",
+    "accountId": "<creator-accountId>",
+    "name": "...",  "color": "#XXXXXX",  "pos": 0,  "price": <mills>,
+    "subscriptionBenefits": ["..."],
+    "includedTierIds": ["<lower-tier-snowflake>"],
+    "plans": [{
+      "id": "<plan-snowflake>",
+      "status": 1,
+      "billingCycle": <days>,
+      "price": <mills>,
+      "useAmounts": 0,
+      "promos": [{
+        "id": "<promo-snowflake>",
+        "status": 1,
+        "price": <mills, discounted>,
+        "duration": <days>,
+        "description": "...",
+        "startsAt": <ms>,
+        "endsAt": <ms>,
+        "maxUses": <int>,
+        "maxUsesBefore": <ms>,
+        "newSubscribersOnly": 0,
+        "uses": <int>
+      }],
+      "uses": <int>
+    }]
+  }]
+}
+```
+
+**Hierarchy:** *tier* > *plans* (different billing cycles for the same tier) > *promos* (discounted variants of a plan).
+
+- `(15, 5)` subscription events reference `subscriptionTier.id` and `plan.id`.
+- `(9, 1)` type=15011 promotion notifications reference `promo.id` via `correlationId` (see `(9, 1)` Correlation Semantics above).
+- `includedTierIds` describes tier hierarchy (a higher tier inherits lower tiers' benefits/content access); promo correlation does not traverse this hierarchy — each promo is bound to a single plan.
+
+**Promo records are persistent slots.** The same `promo.id` is reused across successive promotional windows, with `startsAt` / `endsAt` / `price` / `description` updated each time the creator reactivates the offer. The Snowflake ID's age reflects slot-creation time (potentially years old), NOT current promotion activation. Trust `startsAt` / `endsAt` / `uses` for currentness.
 
 ### serviceId=16 — PaymentService
 
@@ -579,6 +687,27 @@ t+5.7s  svc=5  type=1  Auto-welcome message           (creator's automated DM)
 ```
 
 All events are correlated via `correlationId` ↔ `historyId` chains.
+
+## Full PPV Media Purchase Flow (observed)
+
+```
+t-Xm  svc=5  type=1   New message (creator)        DM with attachment offering locked media
+                                                   attachments[0].contentId = <media-id>
+t+0s  svc=2  type=7   PPV order                    order.accountMediaId = <media-id>
+                                                   order.correlationAccountId = <creator-id>
+                                                   order.accountId = <buyer-id>
+t+0.1s svc=6 type=2   Wallet balance update        balance64 - balance = purchase amount
+                                                   walletVersion ticks
+t+0.2s svc=6 type=3   Transaction record           type=58000, amount = mills value
+                                                   correlationId points at an upstream payment
+                                                   record NOT broadcast separately
+```
+
+The earlier DM offers the locked-preview media; the `attachments[0].contentId` equals the eventual `order.accountMediaId`, so a daemon can correlate "this DM contained this purchase" without an extra API call.
+
+Daemon reaction policy: dispatch on the `svc=2 type=7` order (the terminal signal that the unlock occurred). The wallet update / transaction events are informational only — they fire reliably alongside the order but carry no additional access-state information the order doesn't already convey.
+
+Distinct from the subscription flow's correlation: `order.orderId ≠ wallet.transaction.correlationId` (they're close in Snowflake-mint time but not equal). For PPV-specific receipt or audit-trail features, the join key has to come from a REST endpoint.
 
 ## Platform Infrastructure Notes
 

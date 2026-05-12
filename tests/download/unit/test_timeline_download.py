@@ -375,27 +375,128 @@ async def test_download_timeline_skips_when_fetched_duplication_cached(
 
 
 @pytest.mark.asyncio
-async def test_download_timeline_skips_when_creator_content_unchanged(
-    entity_store, mock_config
+async def test_download_timeline_skips_when_probe_confirms_unchanged(
+    respx_fansly_api, entity_store, mock_config, monkeypatch
 ):
-    """creator_content_unchanged → credit skipped items as duplicates, return.
+    """creator_content_unchanged + page 1 all-known → skip + credit duplicates."""
+    from tests.fixtures.metadata.metadata_factories import (
+        AccountFactory,
+        PostFactory,
+    )
 
-    Covers lines 106-116 (the early-return path that credits
-    total_timeline_pictures + total_timeline_videos into duplicate_count).
-    """
     config = mock_config
+    config.use_duplicate_threshold = False
+    config.use_pagination_duplication = False
+    config.timeline_retries = 0
+    config.timeline_delay_seconds = 0
+
+    creator_id = snowflake_id()
+    post_id = snowflake_id()
+
+    # Seed the identity map: account + a post whose id we'll echo back on
+    # page 1. With the seeded post already cached, the probe finds page 1
+    # all-known and short-circuits — matching the old upfront-skip outcome.
+    account = AccountFactory.build(id=creator_id, username=f"unchanged_{creator_id}")
+    await entity_store.save(account)
+    post = PostFactory.build(id=post_id, accountId=creator_id)
+    await entity_store.save(post)
 
     state = DownloadState()
-    state.creator_id = snowflake_id()
+    state.creator_id = creator_id
+    state.creator_name = f"unchanged_{creator_id}"
     state.creator_content_unchanged = True
     state.total_timeline_pictures = 10
     state.total_timeline_videos = 5
 
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+        return_value=httpx.Response(
+            200,
+            json=_timeline_response(
+                posts=[
+                    {
+                        "id": post_id,
+                        "accountId": creator_id,
+                        "fypFlags": 0,
+                        "createdAt": 1700000000,
+                    }
+                ],
+            ),
+        )
+    )
+    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+
     await download_timeline(config, state)
 
-    # Real side effect: duplicate_count incremented by 15.
+    # Probe verified page 1 was all-known → original skip path ran.
     assert state.duplicate_count == 15
     assert state.download_type == DownloadType.TIMELINE
+
+
+@pytest.mark.asyncio
+async def test_download_timeline_probe_falsified_persists_limbo_post(
+    respx_fansly_api, entity_store, mock_config, monkeypatch
+):
+    """creator_content_unchanged + page 1 has cache-miss post → fetch + persist."""
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
+
+    config = mock_config
+    config.download_directory = mock_config.download_directory  # tmp_path-ish
+    config.use_duplicate_threshold = False
+    config.use_pagination_duplication = False
+    config.debug = False
+    config.show_downloads = False
+    config.show_skipped_downloads = False
+    config.interactive = False
+    config.timeline_retries = 0
+    config.timeline_delay_seconds = 0
+
+    creator_id = snowflake_id()
+    limbo_post_id = snowflake_id()
+
+    account = AccountFactory.build(id=creator_id, username=f"limbo_{creator_id}")
+    await entity_store.save(account)
+
+    state = DownloadState()
+    state.creator_id = creator_id
+    state.creator_name = f"limbo_{creator_id}"
+    state.creator_content_unchanged = True
+    state.total_timeline_pictures = 0
+    state.total_timeline_videos = 0
+
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_timeline_response(
+                    posts=[
+                        {
+                            "id": limbo_post_id,
+                            "accountId": creator_id,
+                            "fypFlags": 0,
+                            "createdAt": 1700000000,
+                        }
+                    ],
+                ),
+            ),
+            # Second page exhausts via IndexError on timeline["posts"][-1].
+            httpx.Response(200, json=_timeline_response()),
+        ]
+    )
+    _noop_download = AsyncMock(return_value=None)
+    monkeypatch.setattr("download.common.download_media", _noop_download)
+    monkeypatch.setattr("download.media.download_media", _noop_download)
+    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+
+    async def _noop(_interactive):
+        return None
+
+    monkeypatch.setattr("download.common.input_enter_continue", _noop)
+    monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+    monkeypatch.setattr("download.media.input_enter_continue", _noop)
+
+    await download_timeline(config, state)
+
+    assert get_store().get_from_cache(Post, limbo_post_id) is not None
 
 
 @pytest.mark.asyncio

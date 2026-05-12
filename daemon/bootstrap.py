@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from api.websocket import FanslyWebSocket
+from api.websocket_protocol import MSG_SERVICE_EVENT
 from config.logging import textio_logger as logger
 from config.logging import websocket_logger as ws_logger
 
@@ -120,7 +121,7 @@ async def bootstrap_daemon_ws(config: FanslyConfig) -> DaemonBootstrap:
         )
 
     ws.register_handler(
-        FanslyWebSocket.MSG_SERVICE_EVENT,
+        MSG_SERVICE_EVENT,
         _make_ws_handler(simulator, queue, budget=None),
     )
     ws_logger.info(
@@ -212,7 +213,7 @@ async def shutdown_bootstrap(bootstrap: DaemonBootstrap) -> None:
         return
     # Remove our handler so leftover events between now and WS shutdown
     # don't balloon the orphaned queue.
-    bootstrap.ws._event_handlers.pop(FanslyWebSocket.MSG_SERVICE_EVENT, None)
+    bootstrap.ws._event_handlers.pop(MSG_SERVICE_EVENT, None)
     ws_logger.info("daemon.bootstrap: delta-capture handler detached")
 
 

@@ -41,7 +41,7 @@ import httpx
 from loguru import logger
 
 from api.websocket import FanslyWebSocket
-from api.websocket_subprocess import get_websocket_class
+from api.websocket_protocol import MSG_SERVICE_EVENT, format_event_label, service_name
 from config.fanslyconfig import FanslyConfig
 from config.logging import websocket_logger as ws_logger
 from daemon.dashboard import (
@@ -156,9 +156,7 @@ def _make_ws(config: FanslyConfig) -> FanslyWebSocket:
     Returns:
         A new FanslyWebSocket ready for ``start_in_thread()``.
     """
-    return get_websocket_class(
-        use_subprocess=getattr(config, "monitoring_websocket_subprocess", False),
-    )(
+    return FanslyWebSocket(
         token=config.token or "",
         user_agent=config.user_agent or "",
     )
@@ -443,16 +441,8 @@ async def _handle_timeline_only_item(
     state = DownloadState(creator_id=item.creator_id, creator_name=creator_name)
     try:
         await get_creator_account_info(config, state)
-        # The home-timeline poll already proved this creator has new content
-        # (cache-miss post + should_process_creator=True). Fansly's
-        # timelineStats counts and wall structure can still appear unchanged
-        # because they're served from a separately-cached summary that lags
-        # the home feed by seconds to minutes. If we honoured those flags
-        # here, download_timeline would short-circuit before hitting
-        # /timeline/{creator}, the fresh post would never be persisted, and
-        # mark_creator_processed (called after this returns cleanly) would
-        # advance the baseline past the post's createdAt — locking the post
-        # into permanent limbo on subsequent home-timeline polls.
+        # Daemon was woken by the home feed; the stats-cache shortcut must
+        # not preempt the per-creator fetch.
         state.creator_content_unchanged = False
         state.fetched_timeline_duplication = False
         await download_timeline(config, state)
@@ -559,14 +549,9 @@ async def _process_timeline_candidate(
         budget: ErrorBudget to call on_success after a successful evaluation.
 
     Returns:
-        True if a DownloadTimelineOnly WorkItem was enqueued for this creator.
-        False when the candidate was filtered out (out-of-scope or
-        ``should_process_creator`` returned False). Callers use this to
-        distinguish "saw a cache-miss post" from "actually had work to do" —
-        the simulator's ``on_new_content()`` is gated on real work, not on
-        raw home-feed cache misses, to avoid resetting the active-state
-        clock for posts that exist on /timeline/home but never persisted
-        to the DB (eventual-consistency limbo).
+        True if a DownloadTimelineOnly WorkItem was enqueued for this creator,
+        False when the candidate was out-of-scope or ``should_process_creator``
+        returned False.
     """
     if not await _is_creator_in_scope(config, creator_id):
         logger.debug("daemon.runner: creator {} out of scope — skipping", creator_id)
@@ -611,12 +596,10 @@ async def _timeline_poll_loop(
     """Continuously poll the home timeline and enqueue DownloadTimelineOnly items.
 
     Skips the poll when the simulator is in the hidden state
-    (simulator.should_poll is False). Calls simulator.on_new_content() only
-    when ``_process_timeline_candidate`` actually enqueues a WorkItem for at
-    least one creator — i.e., when real downloadable work was produced, not
-    merely when /timeline/home returned a cache-miss post ID. Triggers a
-    following list refresh (via refresh_event) when on_new_content() signals
-    a transition from idle/hidden to active.
+    (simulator.should_poll is False). Calls simulator.on_new_content() when
+    at least one candidate is enqueued. Triggers a following list refresh
+    (via refresh_event) when on_new_content() signals a transition from
+    idle/hidden to active.
 
     Args:
         config: FanslyConfig instance.
@@ -665,15 +648,6 @@ async def _timeline_poll_loop(
             continue
 
         if new_creator_ids:
-            # Gate on_new_content() on whether any candidate actually produced
-            # a WorkItem. The home-timeline poll uses cache presence as a
-            # newness proxy (post_id not in identity map ⇒ "new"), but a post
-            # can be on /timeline/home and absent from cache yet still get
-            # skipped downstream because its createdAt is older than
-            # MonitorState.lastCheckedAt — an eventual-consistency artifact
-            # between Fansly's aggregated home feed and per-creator timelines.
-            # Resetting state_entered_at for those would livelock the
-            # simulator in "active" forever (see daemon/simulator.py).
             queued_any = False
             for creator_id in new_creator_ids:
                 prefetched = posts_by_creator.get(creator_id, [])
@@ -1092,7 +1066,10 @@ def _make_ws_handler(
             )
         except (json.JSONDecodeError, TypeError) as exc:
             ws_logger.warning(
-                "daemon.runner: WS envelope decode error svc={} - {}", service_id, exc
+                "daemon.runner: WS envelope decode error from {} svc={} - {}",
+                service_name(service_id),
+                service_id,
+                exc,
             )
             return
 
@@ -1101,9 +1078,8 @@ def _make_ws_handler(
             return
 
         ws_logger.debug(
-            "daemon.runner: WS service event svc={} type={}",
-            service_id,
-            event_type,
+            "daemon.runner: WS service event {}",
+            format_event_label(service_id, event_type),
         )
 
         # Let interrupt events wake the simulator even during hidden
@@ -1126,16 +1102,14 @@ def _make_ws_handler(
         if item is None:
             if not has_handler(service_id, event_type):
                 ws_logger.debug(
-                    "daemon.runner: WS event unknown / unhandled "
-                    "(svc={} type={}) — consider adding to _DISPATCH or "
-                    "_NOOP_DESCRIPTIONS in daemon/handlers.py",
-                    service_id,
-                    event_type,
+                    "daemon.runner: WS event unknown / unhandled — {} — "
+                    "consider adding to _DISPATCH or _NOOP_DESCRIPTIONS in "
+                    "daemon/handlers.py",
+                    format_event_label(service_id, event_type),
                 )
                 ws_logger.trace(
-                    "daemon.runner: unknown event (svc={} type={}) payload - {}",
-                    service_id,
-                    event_type,
+                    "daemon.runner: unknown event {} payload - {}",
+                    format_event_label(service_id, event_type),
                     inner,
                 )
             # Handled events that return None (filtered by their handler
@@ -1144,10 +1118,9 @@ def _make_ws_handler(
             # level. No runner-side log needed here.
             return
         ws_logger.info(
-            "daemon.runner: WS event → {} (svc={} type={})",
+            "daemon.runner: WS event → {} ({})",
             type(item).__name__,
-            service_id,
-            event_type,
+            format_event_label(service_id, event_type),
         )
         await queue.put(item)
         if budget is not None:
@@ -1282,7 +1255,7 @@ async def _run_daemon_body(
     if bootstrap is not None and bootstrap.ws_started:
         ws: Any = bootstrap.ws
         ws.register_handler(
-            FanslyWebSocket.MSG_SERVICE_EVENT,
+            MSG_SERVICE_EVENT,
             _make_ws_handler(simulator, queue, budget),
         )
         dashboard.set_ws_state(True)
@@ -1293,7 +1266,7 @@ async def _run_daemon_body(
     else:
         ws = (ws_factory or _make_ws)(config)
         ws.register_handler(
-            FanslyWebSocket.MSG_SERVICE_EVENT,
+            MSG_SERVICE_EVENT,
             _make_ws_handler(simulator, queue, budget),
         )
         try:
