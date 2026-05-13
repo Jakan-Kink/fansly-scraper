@@ -652,3 +652,76 @@ def test_logging_per_handler_rotation_override() -> None:
     assert sec.main_log.backup_count is None
     assert sec.stash_file.backup_count is None
     assert sec.global_.default_backup_count == 5
+
+
+def test_dump_renders_only_set_or_always_fields_at_every_nesting_level(
+    tmp_path: Path,
+) -> None:
+    """Render policy is recursive: unset conditional fields stay out of YAML.
+
+    Reproduces the bug where enabling the trace handler (a deeply-nested
+    field) bled every other unset rotation/format knob into the YAML as
+    bare `format:` / `max_size:` / `rotation_when:` keys. The fix made
+    ``_section_to_map`` recurse into nested BaseModels, applying the
+    render policy at every level rather than only at the top.
+
+    Assertions intentionally span more than the LoggingSection because
+    the original fix request was "shouldn't just be specific to logging":
+    same render policy applies to any nested submodel a future config
+    section adds.
+    """
+    schema = ConfigSchema()
+    # Mutate ONLY trace.enabled — a single deep field. Everything else in
+    # the logging subtree stays at its default (None) and must NOT render.
+    schema.logging.trace.enabled = True
+
+    out_path = tmp_path / "config.yaml"
+    schema.dump_yaml(out_path)
+    yaml_text = out_path.read_text(encoding="utf-8")
+
+    # The one field we actually set MUST appear.
+    assert "enabled: true" in yaml_text.lower()
+
+    # The unset rotation/format/compression knobs on TraceLogEntry MUST NOT
+    # appear as bare-key noise. Each of these would have rendered pre-fix
+    # because _section_to_map dumped the entry via model_dump() recursively
+    # without re-applying the render policy.
+    trace_block_start = yaml_text.lower().find("\n  trace:")
+    assert trace_block_start >= 0, f"trace block missing:\n{yaml_text}"
+    # Slice from the trace header to the next sibling header at the same
+    # indent ("  websocket:") or end of file.
+    rest = yaml_text[trace_block_start + 1 :]
+    next_sibling = rest.find("\n  ", 1)
+    trace_block = rest if next_sibling < 0 else rest[:next_sibling]
+    for unset_field in (
+        "format:",
+        "max_size:",
+        "rotation_when:",
+        "rotation_interval:",
+        "utc:",
+        "backup_count:",
+        "compression:",
+        "keep_uncompressed:",
+    ):
+        assert unset_field not in trace_block, (
+            f"unset trace.{unset_field.rstrip(':')} bled into YAML:\n{trace_block}"
+        )
+
+    # Cascade-up at every level: peer handler entries (rich_handler,
+    # main_log, etc.) where nothing was set must NOT appear as empty
+    # `rich_handler: {}` or bare `rich_handler:` blocks. The _ALWAYS marker
+    # on the parent field is a "show the slot IF it has content" hint, not
+    # "show the slot even when empty".
+    for empty_peer in (
+        "  rich_handler:",
+        "  main_log:",
+        "  json:",
+        "  stash_console:",
+        "  stash_file:",
+        "  db:",
+        "  websocket:",
+    ):
+        assert empty_peer not in yaml_text, (
+            f"empty peer handler {empty_peer!r} rendered with no inner content:\n"
+            f"{yaml_text}"
+        )

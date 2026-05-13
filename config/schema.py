@@ -811,11 +811,19 @@ def _section_to_map(section: BaseModel, existing: CommentedMap | None) -> Commen
     If *existing* is provided its keys are updated in-place so that YAML
     comments on each key survive the writeback.
 
-    Render policy:
+    Render policy (applies at every nesting level — section, subsection,
+    sub-subsection):
       - Fields in ``model_fields_set`` (operator explicitly set them or
         runtime mutated them) are always written.
       - Fields tagged ``json_schema_extra={"render": "always"}`` are written
         even at default value — they're the visible operator-knob slots.
+      - Fields whose value is itself a BaseModel are recursed into with
+        the same policy; the nested model's own ``model_fields_set`` and
+        ``_ALWAYS`` markers drive what shows up inside.
+      - Cascade-up: when a recursive call returns an empty CommentedMap
+        (nothing renderable inside), the parent field is omitted entirely.
+        This applies even to parent fields marked ``_ALWAYS`` — an "always
+        visible slot" with no content inside is not a slot, just noise.
       - Everything else is conditional and stays absent from YAML.
 
     Fields previously written but no longer in either set are deleted from
@@ -842,7 +850,29 @@ def _section_to_map(section: BaseModel, existing: CommentedMap | None) -> Commen
             if info
             else field_name
         )
-        raw_value = _python_to_yaml_value(field_value, raw_attr)
+        if isinstance(raw_attr, BaseModel):
+            # Nested submodel — recurse so the render policy applies INSIDE
+            # the submodel, not just at this level. Otherwise an _ALWAYS
+            # field whose value is a Pydantic model would dump the model's
+            # entire field set (including unset None-defaults), bleeding
+            # blank `key:` lines into the YAML for every conditional inner
+            # field. The fix lives here so it covers every nested section
+            # (LoggingSection.trace + global_ + per-handler entries,
+            # ConfigSchema's own top-level sections at the outer call site,
+            # any future nested submodel).
+            nested_existing = (
+                target.get(out_key)
+                if isinstance(target.get(out_key), CommentedMap)
+                else None
+            )
+            nested_map = _section_to_map(raw_attr, nested_existing)
+            if not nested_map:
+                # Cascade-up: nothing renderable inside → omit the slot
+                # even if its parent declared `_ALWAYS`.
+                continue
+            raw_value = nested_map
+        else:
+            raw_value = _python_to_yaml_value(field_value, raw_attr)
         target[out_key] = raw_value
         written.add(out_key)
     # Delete keys that previously existed but are no longer rendered. Without
