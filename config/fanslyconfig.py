@@ -531,8 +531,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "respect_timeline_stats", config.respect_timeline_stats)
     _maybe_set(base.options, "interactive", config.interactive)
     _maybe_set(base.options, "prompt_on_exit", config.prompt_on_exit)
-    _maybe_set(base.options, "debug", config.debug)
-    _maybe_set(base.options, "trace", config.trace)
     _maybe_set(base.options, "timeline_retries", config.timeline_retries)
     _maybe_set(base.options, "timeline_delay_seconds", config.timeline_delay_seconds)
     _maybe_set(base.options, "api_max_retries", config.api_max_retries)

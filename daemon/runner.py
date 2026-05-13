@@ -235,6 +235,19 @@ async def _handle_messages_item(
         config: FanslyConfig instance.
         item: Work item specifying which DM group to download.
     """
+    # Scope-filter against -u creators (fixes #94): WS message events fire
+    # for every DM sender on the account regardless of -u, so without this
+    # check the daemon downloads messages/previews from creators the user
+    # didn't ask for.
+    if item.sender_id is not None and not await _is_creator_in_scope(
+        config, item.sender_id
+    ):
+        logger.debug(
+            "daemon.runner: message sender {} out of scope — skipping",
+            item.sender_id,
+        )
+        return
+
     logger.info(
         "daemon.runner: downloading messages for group {} (sender={})",
         item.group_id,
@@ -273,6 +286,16 @@ async def _handle_full_creator_item(
         config: FanslyConfig instance.
         item: Work item specifying the creator to download.
     """
+    # Scope-filter against -u creators (fixes #94): subscription-confirmed
+    # / PPV-purchased WS broadcasts trigger FullCreatorDownload for the
+    # creator who minted the event — even if the user passed -u <other>.
+    if not await _is_creator_in_scope(config, item.creator_id):
+        logger.debug(
+            "daemon.runner: FullCreatorDownload creator {} out of scope — skipping",
+            item.creator_id,
+        )
+        return
+
     creator_name = await _resolve_creator_name(item.creator_id)
     if creator_name is None:
         logger.warning(

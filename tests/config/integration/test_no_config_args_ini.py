@@ -91,7 +91,7 @@ def test_no_config_args_ini_created_with_cli_overrides(
     """map_args_to_config with CLI overrides must not create config_args.ini."""
     # Build an args namespace that overrides several settings
     args = argparse.Namespace(
-        debug=True,
+        verbose=1,
         users=["testcreator"],
         download_mode_normal=True,
         download_mode_messages=False,
@@ -162,7 +162,7 @@ def test_config_path_stable_across_multiple_calls(
 
     for _ in range(3):
         args = argparse.Namespace(
-            debug=False,
+            verbose=0,
             users=None,
             download_mode_normal=False,
             download_mode_messages=False,

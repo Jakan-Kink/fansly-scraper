@@ -275,11 +275,18 @@ def test_debug_mode_all_loggers(logging_config, log_dir):
         set_debug_enabled(False)
 
 
-def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_config):
-    """Test that trace mode affects trace_logger and sqlalchemy (for db_logger.trace())."""
+def test_trace_mode_floors_every_handler(logging_config, log_dir, mock_config):
+    """``-vv`` / ``config.trace=True`` floors EVERY handler at TRACE.
+
+    Pre-v0.14 the trace toggle only affected ``trace_logger`` and
+    ``sqlalchemy``; non-db file handlers (main_log, json, stash) kept
+    their INFO floor. The v0.14 redesign reframes trace as a uniform
+    runtime override — DEBUG (and TRACE) messages from every handler
+    surface in their respective sinks.
+    """
     config = mock_config
     config.trace = True
-    init_logging_config(config)  # Use config, not logging_config
+    init_logging_config(config)
     try:
         # trace_logger should output TRACE
         trace_logger.trace("Trace message")
@@ -288,25 +295,25 @@ def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_conf
             "Trace message" in line for line in read_log_file(log_dir, "trace.log")
         ), f"Log content: {read_log_file(log_dir, 'trace.log')}"
 
-        # Non-db loggers should still filter out DEBUG
+        # Every handler — DEBUG messages now flow through to their sinks.
         textio_logger.debug("Debug textio")
         json_logger.debug("Debug json")
         stash_logger.debug("Debug stash")
-        # But db_logger should allow DEBUG (since trace mode sets sqlalchemy to TRACE level)
         db_logger.debug("Debug db")
         logger.complete()
 
-        # Check each log file - non-db loggers filter DEBUG
-        assert not any(
-            "Debug" in line
+        # All four sinks now carry the DEBUG message.
+        assert any(
+            "Debug textio" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng.log")
         )
-        assert not any(
-            "Debug" in line
+        assert any(
+            "Debug json" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng_json.log")
         )
-        assert not any("Debug" in line for line in read_log_file(log_dir, "stash.log"))
-        # But sqlalchemy.log should contain DEBUG (trace mode enables TRACE level)
+        assert any(
+            "Debug stash" in line for line in read_log_file(log_dir, "stash.log")
+        )
         assert any(
             "Debug db" in line for line in read_log_file(log_dir, "sqlalchemy.log")
         )

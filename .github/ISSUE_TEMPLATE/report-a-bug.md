@@ -3,36 +3,42 @@ name: Report a Bug
 about: Point out suspected bugs
 title: "[Replace with descriptive keypoint title]"
 labels: needs triage
-assignees: ''
-
+assignees: ""
 ---
 
-**IMPORTANT:** Be sure to replace all ``{{`` template sections ``⚠️}}`` or your issue may be discarded.
+**IMPORTANT:** Be sure to replace all `{{` template sections `⚠️}}` or your issue may be discarded.
 
 ## Bug Description
+
 {{ Replace with a clear and concise description of what the bug is. ⚠️}}
 
 ## Expected behavior
+
 {{ What did you expect to happen?⚠️}}
 
 ## Actual behavior
+
 {{ What actually happened? ⚠️}}
 
-*If applicable, add screenshots (just paste/`CTRL+V` - or see [this guide](https://stackoverflow.com/a/14494775/15163882)) to help explain your problem.*
+_If applicable, add screenshots (just paste/`CTRL+V` - or see [this guide](https://stackoverflow.com/a/14494775/15163882)) to help explain your problem._
 
 ## Environment Information
- - Operating System: {{e.g. Windows, Linux, macOS ⚠️}}
- - Fansly Downloader Version: {{e.g. v0.4 ⚠️}}
- - Fansly Downloader Type: {{e.g. Executable, python version ⚠️}}
- - Specific creators name: {{e.g. FanslyModelName ⚠️}}
+
+- Operating System: {{e.g. Windows, Linux, macOS ⚠️}}
+- Fansly Downloader Version: {{e.g. v0.13.7 ⚠️}}
+- Fansly Downloader Type: {{e.g. Executable, python version ⚠️}}
+- Specific creators name: {{e.g. FanslyModelName ⚠️}}
 
 ## User Research
-*( fill ``[ ]`` with ``x``, if you've already done said task )*
+
+_( fill `[ ]` with `x`, if you've already done said task )_
 
 I have done the following:
-- [ ] Looked through [old GitHub issues](https://github.com/prof79/fansly-downloader-ng/issues?&q=is%3Aissue)
-- [ ] Read the [config.ini options](https://github.com/prof79/fansly-downloader-ng/wiki/Fansly-Downloader-NG-Settings#explanation-of-configini)
+
+- [ ] Looked through [old GitHub issues](https://github.com/Jakan-Kink/fansly-scraper/issues?&q=is%3Aissue)
+- [ ] Read the [config.yaml options reference](https://github.com/Jakan-Kink/fansly-scraper/blob/main/docs/configuration/config_options.md)
 - [ ] Searched the Web (like [DuckDuckGo](https://duckduckgo.com))
 
 ## Additional context
+
 {{Add any other context about the problem here. ⚠️}}

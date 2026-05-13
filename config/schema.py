@@ -214,6 +214,10 @@ class OptionsSection(_BaseSection):
     model_config = ConfigDict(extra="forbid")
 
     # Retired fields silently dropped during load (see config_options.md).
+    # ``debug`` and ``trace`` were retired in v0.14 in favour of the CLI
+    # ``-v`` / ``-vv`` runtime overrides and persistent per-handler level
+    # configuration under ``logging.global.default_level``. Legacy YAMLs
+    # carrying them load cleanly; the toggles silently no-op.
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "separate_metadata",
@@ -221,14 +225,15 @@ class OptionsSection(_BaseSection):
             "db_sync_commits",
             "db_sync_seconds",
             "db_sync_min_size",
+            "debug",
+            "trace",
         }
     )
 
     # ALWAYS-rendered: download_directory has a placeholder default that
-    # MUST be edited; debug is the operator-visible toggle for verbose
-    # logging; temp_folder lets operators see the override slot even when
-    # blank. Everything else in this section is conditional — present only
-    # when explicitly set.
+    # MUST be edited; temp_folder lets operators see the override slot even
+    # when blank. Everything else in this section is conditional — present
+    # only when explicitly set.
     download_directory: str = Field(
         default="Local_directory", json_schema_extra=_ALWAYS
     )
@@ -245,8 +250,6 @@ class OptionsSection(_BaseSection):
     use_folder_suffix: bool = True
     interactive: bool = True
     prompt_on_exit: bool = True
-    debug: bool = Field(default=False, json_schema_extra=_ALWAYS)
-    trace: bool = False
     timeline_retries: int = 1
     timeline_delay_seconds: int = 60
     api_max_retries: int = 10
@@ -390,15 +393,18 @@ class LoggingGlobalSection(_BaseSection):
     hourly UTC time rotation, 5 backups, gzip compression, 2 most-recent
     kept uncompressed for live tail-ability.
 
-    ``debug`` and ``trace`` are floors for FILE loggers only — they lift
-    file-output verbosity but leave console output untouched (console
-    NEVER hits TRACE regardless of ``trace: true``).
+    ``trace`` is a file-only toggle — when true the trace handler is
+    enabled at TRACE; console handlers ignore it (console rejects TRACE
+    by schema validation). Runtime ``-vv`` flips the same switch and also
+    forces every other handler to TRACE; YAML toggle alone only opens the
+    trace file sink at TRACE without overriding peer handlers.
     """
 
-    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"verbose"})
+    # ``debug`` was retired in v0.14: it duplicated ``default_level: DEBUG``
+    # at YAML level and ``-v`` at runtime, with no behavioral difference.
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"verbose", "debug"})
 
     directory: str | None = Field(default=None, json_schema_extra=_ALWAYS)
-    debug: bool = Field(default=False, json_schema_extra=_ALWAYS)
     trace: bool = False
     default_level: LogLevel = "INFO"
     default_format: str | None = None
@@ -630,7 +636,7 @@ class MonitoringSection(_BaseSection):
     unrecoverable_error_timeout_seconds: int = 3600
     dashboard_enabled: bool = True
     heartbeat_interval_minutes: int = 15
-    livestream_recording_enabled: bool = True
+    livestream_recording_enabled: bool = False
     livestream_poll_interval_seconds: int = 30
     livestream_manifest_poll_interval_seconds: int = Field(default=3, ge=1, le=15)
 

@@ -126,47 +126,47 @@ def test_get_log_level_with_debug_enabled():
 
 
 def test_get_log_level_with_trace_enabled(tmp_path):
-    """Test that trace mode affects trace_logger and sqlalchemy (for db_logger.trace())."""
+    """``-vv`` / ``config.trace=True`` floors EVERY handler at TRACE.
+
+    Pre-v0.14 the trace toggle only floored ``trace`` + ``sqlalchemy`` +
+    ``websocket`` and left peer handlers at their schema-configured level.
+    The new semantic (per the v0.14 CLI redesign) is uniform: ``-vv`` is
+    an opt-in override applied across the board so operators get coherent
+    trace-level output everywhere, including the console.
+    """
     config = FanslyConfig(program_version="test")
     config.trace = True
     init_logging_config(config)
 
     try:
-        # trace_logger should accept TRACE level
+        # Every handler floors at TRACE under -vv / config.trace=True.
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
-
-        # sqlalchemy should also use TRACE level (for db_logger.trace())
         assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
-
-        # Other loggers should still be at default levels
-        assert get_log_level("textio") == _LEVEL_VALUES["INFO"]
-        assert get_log_level("json") == _LEVEL_VALUES["INFO"]
-        assert get_log_level("stash_console") == _LEVEL_VALUES["INFO"]
-        assert get_log_level("stash_file") == _LEVEL_VALUES["INFO"]
+        assert get_log_level("websocket") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
     finally:
         config.trace = False
         init_logging_config(config)
 
 
 def test_get_log_level_with_debug_and_trace(tmp_path):
-    """Test interaction between debug and trace modes."""
+    """``-vv`` (debug + trace simultaneously) — TRACE wins over DEBUG."""
     config = FanslyConfig(program_version="test")
     config.trace = True
     init_logging_config(config)
     set_debug_enabled(True)
 
     try:
-        # trace_logger should accept TRACE level
+        # TRACE wins — debug floor is below trace floor.
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
-
-        # sqlalchemy should use TRACE level (trace check happens before debug check)
         assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
-
-        # Other loggers should be at DEBUG level
-        assert get_log_level("textio") == _LEVEL_VALUES["DEBUG"]
-        assert get_log_level("json") == _LEVEL_VALUES["DEBUG"]
-        assert get_log_level("stash_console") == _LEVEL_VALUES["DEBUG"]
-        assert get_log_level("stash_file") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
     finally:
         config.trace = False
         init_logging_config(config)

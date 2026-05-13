@@ -72,9 +72,14 @@ if sys.platform == "win32":  # pragma: no cover
             sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, errors="replace")
             sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, errors="replace")
 
-# Global configuration
+# Global configuration. ``_debug_enabled`` / ``_trace_enabled`` are runtime
+# overrides driven by ``-v`` / ``-vv`` (or programmatic toggling via
+# ``set_debug_enabled`` / ``set_trace_enabled`` for IPython sessions). When
+# set, they short-circuit ``get_log_level`` to apply a uniform floor across
+# all handlers — TRACE wins over DEBUG, DEBUG wins over per-handler config.
 _config = None
 _debug_enabled = False
+_trace_enabled = False
 
 # Log file names
 DEFAULT_LOG_FILE = "fansly_downloader_ng.log"
@@ -399,11 +404,18 @@ def setup_handlers() -> None:
 
         logging_section = LoggingSection()
 
-    # Legacy ``_config.trace=True`` (-vv CLI flag, programmatic toggle)
-    # enables the trace handler regardless of the schema's per-entry
-    # ``trace.enabled`` default — keeps the pre-v0.14 "flip one knob to
-    # see trace output" behavior working.
-    if _config and getattr(_config, "trace", False):
+    # ``-vv`` (or ``set_trace_enabled(True)``) opens the trace file sink at
+    # TRACE regardless of the schema's per-entry ``trace.enabled`` default.
+    # The ``get_log_level`` override below then also forces every other
+    # handler to TRACE for the duration of the run.
+    #
+    # Operate on a model_copy(deep=True) — direct mutation of the live
+    # ``_config.logging`` instance would leak ``global_.trace = True`` into
+    # the schema and the next ``_save_config`` would persist a per-run
+    # CLI flag into YAML. The runtime trace floor lives in
+    # ``_trace_enabled``; the schema stays clean.
+    if _trace_enabled:
+        logging_section = logging_section.model_copy(deep=True)
         logging_section.trace.enabled = True
         logging_section.global_.trace = True
 
@@ -650,15 +662,19 @@ def setup_handlers() -> None:
 
 
 def init_logging_config(config: Any) -> None:
-    """Initialize logging configuration."""
-    global _config, _debug_enabled
+    """Initialize logging configuration.
+
+    Mirrors the live ``config.debug`` / ``config.trace`` runtime attributes
+    into the module-level overrides so ``get_log_level`` sees the right
+    floor. Tests rely on this — they mutate ``config.trace`` then call
+    ``init_logging_config(config)`` to re-prime the handlers.
+    """
+    global _config, _debug_enabled, _trace_enabled
     _config = config
 
-    # Set debug mode based on config settings (important for IPython sessions)
     if config:
-        # Check debug setting (trace is separate and only affects trace_logger)
-        debug_enabled = config.debug
-        _debug_enabled = debug_enabled
+        _debug_enabled = bool(getattr(config, "debug", False))
+        _trace_enabled = bool(getattr(config, "trace", False))
 
     # IMPORTANT: Set up handlers FIRST so db_logger has somewhere to write
     setup_handlers()
@@ -674,52 +690,73 @@ def init_logging_config(config: Any) -> None:
 
 
 def set_debug_enabled(enabled: bool) -> None:
-    """Set the global debug flag."""
+    """Toggle the runtime DEBUG-floor override (driven by ``-v``).
+
+    Re-runs handler setup so per-handler levels pick up the change. Safe
+    to call from IPython sessions to flip verbosity mid-run.
+    """
     global _debug_enabled
     _debug_enabled = enabled
     update_logging_config(_config, enabled)
 
 
+def set_trace_enabled(enabled: bool) -> None:
+    """Toggle the runtime TRACE-floor override (driven by ``-vv``).
+
+    When set, all handlers (including the otherwise-dormant trace.log
+    sink) are forced to TRACE level. Mirrors ``set_debug_enabled`` for
+    the higher verbosity tier.
+    """
+    global _trace_enabled
+    _trace_enabled = enabled
+    # Re-run setup so the trace-handler enable bridge + level overrides
+    # propagate. Pass _debug_enabled through unchanged — set_trace_enabled
+    # is orthogonal to debug; -vv mode keeps debug on too.
+    update_logging_config(_config, _debug_enabled)
+
+
 def get_log_level(logger_name: str, default: str = "INFO") -> int:
     """Get log level for a logger.
 
+    Precedence (highest first):
+        1. ``-vv`` / ``_trace_enabled`` — every handler floors at TRACE,
+           including ``trace_logger`` and the otherwise-default-INFO peers.
+        2. ``-v`` / ``_debug_enabled`` — every non-trace handler floors at
+           DEBUG; ``trace_logger`` stays disabled (CRITICAL).
+        3. Per-handler schema config (``config.log_levels[name]``), with
+           a DEBUG ceiling so users can't accidentally TRACE-spam non-trace
+           handlers via YAML.
+
     Args:
-        logger_name: Name of the logger (e.g., "textio", "stash_console", "sqlalchemy")
-        default: Default level if config not set or logger not found
+        logger_name: handler identity — "textio", "stash_console",
+            "stash_file", "sqlalchemy", "trace", "websocket", "json".
+        default: Fallback when neither overrides nor config provide one.
 
     Returns:
-        Log level as integer (e.g., 10 for DEBUG, 20 for INFO)
-        For trace_logger:
-            - 5 (TRACE) if config.trace is True
-            - 50 (CRITICAL) if config.trace is False (effectively disabled)
-        For sqlalchemy logger:
-            - 5 (TRACE) if config.trace is True (enables db_logger.trace())
-            - Level from config or default otherwise
-        For other loggers:
-            - 10 (DEBUG) if debug mode is enabled
-            - Level from config or default, but never below DEBUG
+        Log level as integer (e.g., 5 for TRACE, 10 for DEBUG, 20 for INFO).
     """
-    # Special handling for trace_logger
     if logger_name == "trace":
-        # Only allow TRACE level when trace=True, otherwise effectively disable
+        # Trace handler is dormant unless trace mode is on (either CLI
+        # ``-vv`` or YAML ``logging.global.trace=true``). CRITICAL is the
+        # canonical "effectively off" level for a loguru sink that should
+        # otherwise stay registered.
+        schema_trace = bool(
+            _config
+            and getattr(getattr(_config, "logging", None), "global_", None)
+            and _config.logging.global_.trace
+        )
         return (
             _LEVEL_VALUES["TRACE"]
-            if (_config and _config.trace)
+            if (_trace_enabled or schema_trace)
             else _LEVEL_VALUES["CRITICAL"]
         )
 
-    # Special handling for sqlalchemy logger - allow TRACE level when trace is enabled
-    if logger_name == "sqlalchemy" and _config and _config.trace:
-        return _LEVEL_VALUES["TRACE"]
-    # For sqlalchemy when trace is disabled, fall through to normal handling
-
-    # Special handling for websocket logger - allow TRACE level when trace is enabled.
-    # When config.trace is True, per-frame receive + ping/pong logs surface.
-    # When False, falls through to the user's log_levels["websocket"] setting.
-    if logger_name == "websocket" and _config and _config.trace:
+    if _trace_enabled:
+        # -vv override — every handler goes to TRACE. Console handlers'
+        # schema-level "no TRACE in YAML" rule doesn't apply here because
+        # this is a runtime opt-in, not a persisted misconfiguration.
         return _LEVEL_VALUES["TRACE"]
 
-    # Force DEBUG level if debug mode is enabled (for non-trace loggers)
     if _debug_enabled:
         return _LEVEL_VALUES["DEBUG"]
 
@@ -735,11 +772,13 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
 
 
 def update_logging_config(config: Any, enabled: bool) -> None:
-    """Update the logging configuration.
+    """Refresh handlers + asyncio plumbing after a verbosity toggle.
 
     Args:
-        config: The FanslyConfig instance to use
-        enabled: Whether debug mode should be enabled
+        config: The FanslyConfig instance to use.
+        enabled: Whether debug-floor mode is active. Stored as
+            ``_debug_enabled``; asyncio is also flipped to DEBUG when set,
+            WARNING when cleared.
     """
     from config.fanslyconfig import FanslyConfig  # noqa: PLC0415, I001  # circular: config.fanslyconfig → config.logging
 

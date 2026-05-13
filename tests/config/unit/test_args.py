@@ -10,12 +10,12 @@ import pytest
 
 from config.args import (
     _handle_boolean_settings,
-    _handle_debug_settings,
     _handle_download_mode,
     _handle_monitoring_settings,
     _handle_path_settings,
     _handle_unsigned_ints,
     _handle_user_settings,
+    _handle_verbosity_settings,
     _parse_iso_datetime,
     check_attributes,
     map_args_to_config,
@@ -47,7 +47,7 @@ def args():
     monitoring session baseline flags.
     """
     return argparse.Namespace(
-        debug=False,
+        verbose=0,
         users=None,
         download_mode_normal=False,
         download_mode_messages=False,
@@ -218,27 +218,36 @@ def test_parse_args_returns_namespace():
     assert isinstance(result, argparse.Namespace)
     assert hasattr(result, "users")
     assert hasattr(result, "download_mode_single")
-    assert hasattr(result, "debug")
+    assert hasattr(result, "verbose")
     assert hasattr(result, "pg_host")
     assert hasattr(result, "stash_only")
 
 
 def test_check_attributes_success_and_failure(config_with_path, args):
     """Lines 519-526: valid → pass; invalid → RuntimeError."""
-    check_attributes(args, config_with_path, "debug", "debug")
+    check_attributes(args, config_with_path, "verbose", "debug")
 
     with pytest.raises(RuntimeError, match="Internal argument configuration error"):
         check_attributes(args, config_with_path, "nonexistent_arg", "debug")
 
     with pytest.raises(RuntimeError, match="Internal argument configuration error"):
-        check_attributes(args, config_with_path, "debug", "nonexistent_config")
+        check_attributes(args, config_with_path, "verbose", "nonexistent_config")
 
 
-def test_handle_debug_settings(config_with_path, args):
-    """Lines 529-536: debug=True → sets config.debug + logs args."""
-    args.debug = True
-    _handle_debug_settings(args, config_with_path)
+def test_handle_verbosity_settings_debug(config_with_path, args):
+    """``-v`` (verbose=1) flips config.debug, leaves trace untouched."""
+    args.verbose = 1
+    _handle_verbosity_settings(args, config_with_path)
     assert config_with_path.debug is True
+    assert config_with_path.trace is False
+
+
+def test_handle_verbosity_settings_trace(config_with_path, args):
+    """``-vv`` (verbose=2) flips both config.debug AND config.trace."""
+    args.verbose = 2
+    _handle_verbosity_settings(args, config_with_path)
+    assert config_with_path.debug is True
+    assert config_with_path.trace is True
 
 
 def test_handle_user_settings_all_branches(config_with_path, args):

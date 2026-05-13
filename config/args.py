@@ -8,7 +8,7 @@ from typing import Any, get_args
 
 from pydantic import BaseModel, SecretStr
 
-from config.logging import set_debug_enabled, textio_logger
+from config.logging import set_debug_enabled, set_trace_enabled, textio_logger
 from errors import ConfigError
 from helpers.common import get_post_id_from_request, is_valid_post_id
 from helpers.rich_progress import get_rich_console
@@ -602,11 +602,15 @@ def parse_args() -> argparse.Namespace:
     # region Developer/troubleshooting arguments
 
     parser.add_argument(
-        "--debug",
+        "-v",
+        "--verbose",
         required=False,
-        default=False,
-        action="store_true",
-        help="Print debugging output. Only for developers or troubleshooting.",
+        default=0,
+        action="count",
+        dest="verbose",
+        help="Increase log verbosity. -v overrides every handler to DEBUG; "
+        "-vv overrides every handler to TRACE and opens the trace.log file "
+        "sink. Repeatable; runtime-only, never written back to config.yaml.",
     )
     parser.add_argument(
         "--generate-config",
@@ -669,18 +673,22 @@ def check_attributes(
     )
 
 
-def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> None:
-    """Handle debug settings and logging.
+def _handle_verbosity_settings(args: argparse.Namespace, config: FanslyConfig) -> None:
+    """Apply ``-v`` / ``-vv`` to the runtime debug/trace flags.
 
-    Only overlays ``config.debug`` when ``--debug`` is explicitly passed —
-    otherwise an unconditional ``config.debug = args.debug`` would clobber
-    a YAML-set ``debug: true`` on every invocation that omits the flag.
-    Marked ephemeral so the CLI value also doesn't persist back to YAML.
+    Cumulative: ``-v`` → debug, ``-vv`` → debug + trace. Both flags are
+    runtime-only — marked ephemeral so they never write back to config.yaml.
+    Operators wanting persistent verbosity edit ``logging.global.default_level``
+    instead.
     """
-    if args.debug:
+    if args.verbose >= 1:
         config.debug = True
         config._ephemeral_overrides.add("debug")
+    if args.verbose >= 2:
+        config.trace = True
+        config._ephemeral_overrides.add("trace")
     set_debug_enabled(config.debug)
+    set_trace_enabled(config.trace)
 
     if config.debug:
         textio_logger.opt(depth=1).log("DEBUG", f"Args: {args}")
@@ -975,7 +983,7 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     download_mode_set = False
 
     # Handle each group of settings
-    _handle_debug_settings(args, config)
+    _handle_verbosity_settings(args, config)
     _handle_user_settings(args, config)
 
     _, mode_set = _handle_download_mode(args, config)

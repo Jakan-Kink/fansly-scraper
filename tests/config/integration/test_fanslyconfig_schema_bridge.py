@@ -19,10 +19,10 @@ from pydantic import SecretStr
 
 from config.args import (
     _handle_boolean_settings,
-    _handle_debug_settings,
     _handle_download_mode,
     _handle_monitoring_settings,
     _handle_user_settings,
+    _handle_verbosity_settings,
 )
 from config.config import load_config
 from config.fanslyconfig import FanslyConfig
@@ -706,7 +706,7 @@ def _full_args_namespace(**overrides) -> argparse.Namespace:
     Pass keyword overrides for the flags under test.
     """
     defaults = {
-        "debug": False,
+        "verbose": 0,
         "users": None,
         "download_mode_normal": False,
         "download_mode_messages": False,
@@ -750,55 +750,59 @@ def _full_args_namespace(**overrides) -> argparse.Namespace:
     return argparse.Namespace(**defaults)
 
 
-def test_debug_cli_does_not_clobber_yaml_true(
+def test_verbose_flag_does_not_persist_to_yaml(
     config_dir: Path, fresh_config: FanslyConfig
 ) -> None:
-    """``--debug`` is per-run; YAML's ``debug: true`` survives an invocation
-    that does NOT pass ``--debug``.
+    """``-v`` / ``-vv`` are runtime-only — never written back to config.yaml.
 
-    Pre-fix, ``_handle_debug_settings`` did ``config.debug = args.debug``
-    unconditionally. With ``args.debug=False`` (the argparse default when
-    ``--debug`` is omitted), that overwrote a YAML-set True with False on
-    every invocation — silently disabling the user's persisted debug mode.
+    Pre-v0.14, ``options.debug`` was a persisted YAML field that could
+    silently flip back to False on save. The v0.14 redesign removes the
+    field entirely; verbosity lives purely in the runtime
+    ``config.debug`` / ``config.trace`` attributes, populated from
+    ``args.verbose`` and marked ephemeral.
     """
     yaml_path = config_dir / "config.yaml"
-    schema = ConfigSchema()
-    schema.options.debug = True
-    schema.dump_yaml(yaml_path)
-
+    ConfigSchema().dump_yaml(yaml_path)
     load_config(fresh_config)
-    assert fresh_config.debug is True
+    assert fresh_config.debug is False
+    assert fresh_config.trace is False
 
-    # Simulate invocation WITHOUT --debug (the regression scenario).
-    _handle_debug_settings(_full_args_namespace(debug=False), fresh_config)
-    assert fresh_config.debug is True, (
-        "Omitting --debug must not clobber the YAML-loaded debug=True"
-    )
+    # -v → runtime debug; -vv → runtime debug + trace; both ephemeral.
+    _handle_verbosity_settings(_full_args_namespace(verbose=2), fresh_config)
+    assert fresh_config.debug is True
+    assert fresh_config.trace is True
 
     fresh_config._save_config()
-    reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.options.debug is True
+    reloaded_text = yaml_path.read_text()
+    assert "debug:" not in reloaded_text, (
+        "options.debug must not appear in YAML — schema field was retired"
+    )
+    assert "trace: true" not in reloaded_text.lower(), (
+        "options.trace must not appear in YAML — schema field was retired"
+    )
 
 
-def test_debug_cli_overlay_does_not_persist(
+def test_legacy_yaml_with_options_debug_loads_cleanly(
     config_dir: Path, fresh_config: FanslyConfig
 ) -> None:
-    """``--debug`` enables debug for the session but does not write to YAML."""
+    """Pre-v0.14 YAMLs carrying ``options.debug: true`` load without error.
+
+    The keys are listed in ``OptionsSection._DROPPED_FIELDS`` so the
+    retired-field validator pops them before ``extra="forbid"`` rejects
+    them. Runtime debug/trace stay False because the legacy YAML signal
+    no longer feeds into runtime state — operators wanting persistent
+    verbosity now set ``logging.global.default_level: DEBUG`` or pass
+    ``-v`` at the CLI.
+    """
     yaml_path = config_dir / "config.yaml"
-    schema = ConfigSchema()
-    schema.options.debug = False
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-
-    _handle_debug_settings(_full_args_namespace(debug=True), fresh_config)
-    assert fresh_config.debug is True
-
-    fresh_config._save_config()
-    reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.options.debug is False, (
-        "CLI --debug must be per-run only; YAML's debug=False stays as the default"
+    yaml_path.write_text(
+        "options:\n  download_directory: /tmp/x\n  debug: true\n  trace: true\n",
+        encoding="utf-8",
     )
+    # No ValidationError despite the now-retired keys.
+    load_config(fresh_config)
+    assert fresh_config.debug is False
+    assert fresh_config.trace is False
 
 
 def test_negative_bool_cli_flags_do_not_persist(

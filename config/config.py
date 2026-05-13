@@ -151,8 +151,10 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.respect_timeline_stats = opts.respect_timeline_stats
     config.interactive = opts.interactive
     config.prompt_on_exit = opts.prompt_on_exit
-    config.debug = opts.debug
-    config.trace = opts.trace
+    # ``debug`` and ``trace`` are no longer schema-backed. They're runtime
+    # attributes driven by the ``-v`` / ``-vv`` CLI verbosity count (see
+    # config/args.py::_handle_verbosity_settings); start at False here so
+    # that loading config.yaml never silently reactivates a prior CLI flip.
 
     # Numeric options
     config.timeline_retries = opts.timeline_retries
