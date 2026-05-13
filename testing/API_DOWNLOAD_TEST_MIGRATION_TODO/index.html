@@ -95,6 +95,18 @@
                   </li>
                   <li class="toctree-l1 current"><a class="reference internal current" href="#">API/Download Test Migration</a>
     <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#current-status-2026-05-10">Current Status (2026-05-10)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#fixture-surface-consolidated-to-path-c">Fixture Surface — Consolidated to Path C</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#file-inventory-drift">File inventory drift</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#migrated-this-round-path-c">Migrated this round (path C)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#remaining-diagnostic-first-then-migrate">Remaining — diagnostic first, then migrate</a>
+    </li>
+        </ul>
+    </li>
     <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a>
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#the-problem">The Problem</a>
@@ -257,7 +269,156 @@
                 <h1 id="api-and-download-test-migration-guide">API and Download Test Migration Guide<a class="headerlink" href="#api-and-download-test-migration-guide" title="Permanent link">&para;</a></h1>
 <p><strong>Goal</strong>: Migrate all API and download tests to mock only at external boundaries (HTTP via RESPX), not internal methods.</p>
 <p><strong>Created</strong>: 2025-11-18
+<strong>Last status update</strong>: 2026-05-10
 <strong>Reference</strong>: <code>STASH_TEST_MIGRATION_TODO.md</code> for migration philosophy</p>
+<hr />
+<h2 id="current-status-2026-05-10">Current Status (2026-05-10)<a class="headerlink" href="#current-status-2026-05-10" title="Permanent link">&para;</a></h2>
+<h3 id="fixture-surface-consolidated-to-path-c">Fixture Surface — Consolidated to Path C<a class="headerlink" href="#fixture-surface-consolidated-to-path-c" title="Permanent link">&para;</a></h3>
+<p>The fixture inventory in "Available Fixtures for Migration" below is <strong>OUT OF DATE</strong>. Three fansly-side fixtures (<code>fansly_api</code>, <code>fansly_api_with_respx</code>, original <code>respx_fansly_api</code>) plus <code>respx_ivs_cdn</code> have been consolidated into two <strong>bootstrapped</strong> fixtures:</p>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>Yields</th>
+<th>Activates</th>
+<th>Production seam exercised</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>respx_fansly_api</code></td>
+<td><code>FanslyApi</code> (bootstrapped)</td>
+<td>respx + <code>fake_websocket_session()</code></td>
+<td>Real <code>FanslyConfig.setup_api()</code> → <code>update_device_id</code> + <code>setup_session</code> + real <code>FanslyWebSocket</code> auth against <code>FakeSocket</code></td>
+</tr>
+<tr>
+<td><code>respx_ivs_cdn</code></td>
+<td><code>httpx.AsyncClient</code></td>
+<td>respx (host-scoped to <code>*.live-video.net</code>)</td>
+<td>Real <code>_download_segment(client, ...)</code> and <code>_resolve_variant_url</code> code paths</td>
+</tr>
+</tbody>
+</table>
+<p>Tests no longer need to do <code>mock_config._api = fansly_api</code>, <code>with respx.mock:</code> inline, or per-test fansly-side OPTIONS blankets — the fixture handles all three. Per-host fixtures compose: a test that hits both apiv3 AND IVS uses both fixtures simultaneously. Signed-CDN media URLs stay as per-test <code>respx.get(url__startswith=...)</code> (no dedicated fixture — host-arbitrary).</p>
+<p>Bootstrap routes use <code>side_effect=[Response(...)]</code> (one-shot — exhausts during setup_api so test routes on the same endpoint can override). OPTIONS uses <code>return_value=Response(200)</code> (host-scoped to apiv3) since every test fires a CORS preflight.</p>
+<p>Two production bugs surfaced and fixed in the same patch as the fixture consolidation (per <code>feedback_remove_mocks_fix_bugs</code>):
+1. <code>FakeSocket.recv()</code> now raises <code>ConnectionClosedOK</code> after close (matched real <code>websockets</code> lib; old behavior returned <code>""</code> causing infinite listen-loop spin)
+2. <code>SyncExecutor.shutdown()</code> added (asyncio.BaseEventLoop.close requires it; old <code>AttributeError</code> was masked because old fixture never closed the loop properly)</p>
+<h3 id="file-inventory-drift">File inventory drift<a class="headerlink" href="#file-inventory-drift" title="Permanent link">&para;</a></h3>
+<p>The "Test File Inventory" tables below list files and counts from 2025-11-21. The branch has accumulated many migration waves since. Current state (2026-05-10) of <code>tests/download/unit/</code> and <code>tests/api/unit/</code>:</p>
+<div class="highlight"><pre><span></span><code>tests/download/unit/          tests/api/unit/
+  test_account.py               test_fansly_api.py
+  test_account_coverage.py      test_fansly_api_additional.py
+  test_collections.py     ✅    test_fansly_api_callback.py
+  test_common.py                test_fansly_api_monitoring.py
+  test_downloadstate.py         test_rate_limiter.py
+  test_downloadstate_additional.py  test_rate_limiter_display.py
+  test_globalstate.py           test_websocket.py
+  test_globalstate_additional.py    test_websocket_subprocess.py
+  test_m3u8.py            ✅    test_websocket_thread.py
+  test_media_download.py
+  test_media_filtering.py
+  test_media_pipeline.py
+  test_messages_download.py
+  test_pagination_duplication.py
+  test_single_download.py
+  test_statistics.py
+  test_stories.py         ✅
+  test_timeline_download.py
+  test_wall_download.py
+</code></pre></div>
+<p><code>test_transaction_recovery.py</code> and other files in the 2025-11-21 inventory have been removed or restructured.</p>
+<h3 id="migrated-this-round-path-c">Migrated this round (path C)<a class="headerlink" href="#migrated-this-round-path-c" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Tests</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tests/download/unit/test_collections.py</code></td>
+<td>4 ✅</td>
+<td>Already real-pipeline; just adopted new fixture surface</td>
+</tr>
+<tr>
+<td><code>tests/download/unit/test_stories.py</code></td>
+<td>11 ✅</td>
+<td>Inline <code>config_with_api</code> fixture removed; tests take <code>respx_fansly_api, test_config</code> directly</td>
+</tr>
+<tr>
+<td><code>tests/download/unit/test_m3u8.py</code></td>
+<td>56 ✅</td>
+<td>Bulk rename <code>fansly_api_with_respx</code> → <code>respx_fansly_api</code>. Surfaced + fixed <code>SyncExecutor.shutdown()</code></td>
+</tr>
+</tbody>
+</table>
+<p>Plus supporting infrastructure changes:
+- <code>tests/conftest.py:mock_config</code> enriched (token, user_agent, check_key, config_path)
+- <code>tests/conftest.py:test_config</code> aliased to <code>mock_config</code> (same instance)
+- <code>tests/fixtures/core/config_fixtures.py:config_wired</code> switched from <code>fansly_api</code> to <code>fansly_api_factory</code>
+- <code>tests/fixtures/api/fake_websocket.py:FakeSocket.recv</code> raises <code>ConnectionClosedOK</code> after close
+- <code>tests/fixtures/utils/concurrency.py:SyncExecutor.shutdown</code> added</p>
+<h3 id="remaining-diagnostic-first-then-migrate">Remaining — diagnostic first, then migrate<a class="headerlink" href="#remaining-diagnostic-first-then-migrate" title="Permanent link">&para;</a></h3>
+<p>Files that still consume the deleted <code>fansly_api</code> / <code>fansly_api_with_respx</code> (need migration). Before each: <code>grep -n "MagicMock\|AsyncMock\|patch\b" &lt;file&gt;</code> to scope whether it's a rename (like test_m3u8.py) or a rewrite (like test_account.py).</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Failure mode</th>
+<th>Estimated shape</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tests/download/unit/test_account.py</code></td>
+<td>36 fixture-resolution errors</td>
+<td><strong>Rewrite</strong>. Local <code>mock_config_with_api</code> fixture wraps <code>MagicMock(get_api)</code> + <code>MagicMock(_database)</code>. Multiple tests use <code>MagicMock(spec=httpx.Response)</code> and <code>fansly_api.get_json_response_contents = MagicMock(...)</code>. Each test needs respx routes returning real httpx.Response with realistic JSON.</td>
+</tr>
+<tr>
+<td><code>tests/download/unit/test_account_coverage.py</code></td>
+<td>Inline <code>real_config</code> fixture takes <code>fansly_api</code></td>
+<td><strong>Move fixture to <code>tests/fixtures/download/</code></strong>, then update to use <code>fansly_api_factory()</code></td>
+</tr>
+<tr>
+<td><code>tests/download/unit/test_media_pipeline.py</code></td>
+<td>8 failures — <code>respx.AllMockedAssertionError</code> on CDN OPTIONS preflights</td>
+<td>Per-test add <code>respx.options(url__startswith="https://cdn.fansly.com/...")</code> route (new contract: only apiv3 OPTIONS is fixture-blanketed; other hosts mount their own)</td>
+</tr>
+<tr>
+<td><code>tests/api/unit/test_fansly_api.py</code></td>
+<td>Uses <code>fansly_api</code> fixture</td>
+<td>Likely rename + spy pattern for some tests</td>
+</tr>
+<tr>
+<td><code>tests/api/unit/test_fansly_api_additional.py</code></td>
+<td>5 violations (init tests + CORS)</td>
+<td>Per Phase 1 of the original plan — replace <code>patch.object(FanslyApi, "update_device_id")</code> with respx routes</td>
+</tr>
+<tr>
+<td><code>tests/api/unit/test_fansly_api_monitoring.py</code></td>
+<td>Uses <code>fansly_api</code></td>
+<td>TBD — diagnose before classifying</td>
+</tr>
+<tr>
+<td><code>tests/core/unit/test_fansly_downloader_ng.py</code></td>
+<td>Uses <code>fansly_api</code></td>
+<td>TBD — diagnose before classifying</td>
+</tr>
+<tr>
+<td><code>tests/download/integration/test_m3u8_integration.py</code></td>
+<td>Uses <code>fansly_api</code></td>
+<td>TBD — likely rename + real tmp_path</td>
+</tr>
+<tr>
+<td><code>tests/metadata/integration/test_account_processing.py</code></td>
+<td>Uses <code>fansly_api</code></td>
+<td>TBD — likely rename, integration test against real DB</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
 <h3 id="the-problem">The Problem<a class="headerlink" href="#the-problem" title="Permanent link">&para;</a></h3>
