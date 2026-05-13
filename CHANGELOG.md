@@ -15,6 +15,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-05-13
+
+Verbosity refactor (`--debug` → `-v`/`-vv` with broader trace semantic),
+config-driven logging schema, daemon scope fixes (#94), and tag-triggered
+auto-release workflow.
+
+### Added
+
+- Config-driven `LoggingSection`: eight named loggers (two console
+  + six file) under `logging:`, each with `enabled`/`level`/`format`
+  plus orthogonal size and time rotation axes. Per-handler `None`
+  falls through to `logging.global.default_*`. Pre-v0.14 flat shape
+  (`logging: {sqlalchemy: INFO, textio: INFO, ...}`) auto-migrates to
+  the nested form via a `model_validator(mode="before")`.
+- `-v` / `-vv` CLI flags (`action="count"`). `-v` floors every handler
+  at DEBUG; `-vv` floors every handler at TRACE and opens the `trace.log`
+  sink. Per-run only; never written back to `config.yaml`.
+- Daemon simulator state transitions now emit cause-tagged log lines:
+  `daemon.runner: activity state -> active (new_content/<source>)` from
+  the home-timeline + story polling loops, and
+  `... -> active (ws_interrupt svc=N type=M)` on WS-bus wake from
+  hidden state.
+- `.github/workflows/release-on-tag.yml` — GitHub Action that creates
+  a Release from the matching `CHANGELOG.md` section on `v<digit>...`
+  tag push. PEP 440 (`v0.14.0`, `v0.14.0b1`, `v0.14.0.dev1`) + SemVer
+  (`v0.14.0-rc1`) shapes both supported; alpha/beta/rc/dev flagged as
+  pre-release, `.postN` stays stable.
+
+### Changed
+
+- Trace mode runtime semantic broadened. `-vv` and persistent
+  `logging.global.trace=true` now floor **every** handler at TRACE,
+  not just `trace_logger`/`sqlalchemy`/`websocket` as before.
+  `setup_handlers` operates on a `LoggingSection.model_copy(deep=True)`
+  so the runtime override doesn't leak back into `_config.logging` and
+  silently persist into YAML on the next `_save_config`.
+- `monitoring.livestream_recording_enabled` default flipped `true` →
+  `false`. The feature was previously on by default without docs (#94).
+- `.github/ISSUE_TEMPLATE/report-a-bug.md` rebranded for the
+  Jakan-Kink fork: links point to `Jakan-Kink/fansly-scraper`,
+  version example bumped to v0.13.7, "config.ini options" reference
+  replaced with `config.yaml` + `docs/configuration/config_options.md`.
+- `docs/configuration/config_options.md` audited: CLI ↔ config mapping
+  table rewritten (~30 real flags; the prior table listed `-dm`, `-p`,
+  and `--metadata-only` entries that are no longer present in
+  `argparse` — these were removed from the table). Retired-field
+  callouts added under every affected section. `-r` / `--reverse-order`
+  description corrected to "reverse alphabetical creator order" — the
+  flag controls `sorted(user_names, ...)`, not timeline chronology.
+
+### Fixed
+
+- Daemon WS handlers now honor the `-u` scope filter on message and
+  full-creator items, matching the behavior story polling already had.
+  Foreign-creator events (a message from a creator outside the `-u`
+  set, a WS subscription event for an unrelated account) are skipped
+  instead of triggering scrapes (#94).
+- `tests/api/unit/test_websocket.py::test_ping_timeout_resets_connection`
+  setup ordering: `_last_ping_response = 0.0` now runs **after**
+  `_start_ping_loop()`, so the production's loop-start reset doesn't
+  clobber the stale-value setup. Fixes intermittent failure under `-n8`.
+
+### Removed
+
+- `--debug` CLI flag. Use `-v` (DEBUG floor on every handler) or `-vv`
+  (TRACE floor on every handler) instead.
+- Schema fields `options.debug`, `options.trace`, `logging.global.debug`.
+  Legacy `config.yaml` files carrying any of these load cleanly — the
+  retired-field validator (`_DROPPED_FIELDS`) strips them before
+  `extra="forbid"` runs. Operators wanting persistent verbosity should
+  edit `logging.global.default_level` (per-handler default) instead.
+
 ## [0.13.7] - 2026-05-12
 
 WebSocket gateway refactor, livestream/daemon hardening, and production
@@ -606,7 +678,8 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.7...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...v0.13.5

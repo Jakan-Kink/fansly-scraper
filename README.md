@@ -11,7 +11,7 @@
 
 ![Fansly Downloader NG Screenshot](resources/fansly_ng_screenshot.png)
 
-**Fansly Downloader NG** is a content scraping and archival tool for Fansly. Download photos, videos, audio, and other media — in bulk or selectively — from timelines, messages, walls, stories, collections, and individual posts. The v0.13 release adds a **continuous monitoring daemon** that watches creators in near real time via Fansly's WebSocket and a calibrated polling fallback, so your local archive can stay current long after the initial bulk download completes.
+**Fansly Downloader NG** is a content scraping and archival tool for Fansly. Download photos, videos, audio, and other media — in bulk or selectively — from timelines, messages, walls, stories, collections, and individual posts. A **continuous monitoring daemon** watches creators in near real time via Fansly's WebSocket and a calibrated polling fallback, so your local archive can stay current long after the initial bulk download completes. Optional **AWS IVS livestream recording** captures broadcasts to MP4 as they happen.
 
 Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](https://github.com/Avnsx/fansly-downloader) and [prof79](https://github.com/prof79)'s [Fansly Downloader NG](https://github.com/prof79/fansly-downloader-ng) (now dormant since June 2024). Active development continues here at [Jakan-Kink/fansly-scraper](https://github.com/Jakan-Kink/fansly-scraper).
 
@@ -23,7 +23,7 @@ Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](h
 - **Single Posts** by post ID
 - **Stash-only**: Re-ingest existing local library into Stash without re-downloading
 
-### 🛰️ Monitoring Daemon (v0.13+)
+### 🛰️ Monitoring Daemon
 
 - Post-batch continuous monitoring via `--daemon` / `-d` / `--monitor`
 - Live WebSocket event dispatch for new posts, stories, PPV, message edits/deletes, and subscription changes
@@ -31,6 +31,15 @@ Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](h
 - Timeline + story polling fallback when the socket is quiet
 - Skips inactive creators automatically — no wasted work on accounts that haven't posted since last check
 - Persistent `MonitorState` table so daemon restarts don't re-trigger every story or cold-scan every timeline
+- Per-creator scope filter on WebSocket events: with `-u alice,bob` the daemon ignores events from creators outside that set, matching the polling loop's existing behavior
+
+### 📺 Livestream Recording (Opt-In)
+
+- Records AWS IVS low-latency HLS broadcasts (Fansly's `*.live-video.net` pipeline) to MP4 as the creator goes live
+- Manual segment polling with PyAV mux — robust against the IVS sliding-window buffer (~28s) where a stalled `ffmpeg` would drop footage
+- Overwrite-protection on broadcast reconnects: a mid-stream reconnect writes `<stem>_part2.mp4`, `_part3.mp4`, ... instead of clobbering the prior session's completed file
+- Orphan-segment salvage: temp segment directories left behind by a prior crash are re-muxed at watcher startup
+- Opt-in: set `monitoring.livestream_recording_enabled: true` in `config.yaml`. Default is `false` so existing setups don't suddenly start writing video to disk
 
 ### 🧑‍🤝‍🧑 Multi-Creator + Automation
 
@@ -314,11 +323,14 @@ poetry run python fansly_downloader_ng.py -ni -npox
 # Specific creators
 poetry run python fansly_downloader_ng.py -u creator1,creator2,creator3
 
-# Specific download mode
-poetry run python fansly_downloader_ng.py -dm timeline
-#                                              ^^^^^^^^
-# one of: normal | timeline | messages | collection | wall |
-#         single | stories | stash_only
+# Specific download mode (one flag per mode — pick exactly one)
+poetry run python fansly_downloader_ng.py --timeline
+# or: --normal | --messages | --collection | --single <post-id> | --stash-only
+# (WALL and STORIES modes are config-only: set `options.download_mode: WALL`
+#  or STORIES in config.yaml — no CLI flag)
+
+# Verbose output: -v floors every handler at DEBUG, -vv at TRACE
+poetry run python fansly_downloader_ng.py -u creator1 -vv
 
 # Batch download, then watch forever via the monitoring daemon
 poetry run python fansly_downloader_ng.py -u creator1 --daemon
@@ -374,10 +386,10 @@ Distinct exit codes let you wire `fansly_downloader_ng.py` into shell pipelines 
 - **A**: No. This tool is for archiving content you already have legitimate access to. This WILL NEVER bypass paywalls or access controls.
 
 - **Q**: "Is there a risk of being banned?"
-- **A**: There is always that possibility when using any third-party tool that interacts with a web service. However, the v0.13 monitoring daemon specifically calibrates its polling cadence against real browser behavior (based on the javascript timing from Fansly's own UI code) to reduce detection surface.
+- **A**: There is always that possibility when using any third-party tool that interacts with a web service. However, the monitoring daemon specifically calibrates its polling cadence against real browser behavior (based on the javascript timing from Fansly's own UI code) to reduce detection surface.
 
 - **Q**: "What happened to the original prof79 repo?"
-- **A**: prof79 has not touched the project since June 28, 2024 (v0.9.9). All development through v0.10.x, v0.11.x, and now v0.13 happens on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper).
+- **A**: prof79 has not touched the project since June 28, 2024 (v0.9.9). All development through v0.10.x, v0.11.x, v0.13.x, and v0.14.x happens on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper).
 
 Please note that "Issue" tickets are reserved for reporting genuine or suspected bugs that require attention from a developer.
 
