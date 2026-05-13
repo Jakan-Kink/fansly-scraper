@@ -59,6 +59,10 @@
     <li class="toctree-l2"><a class="reference internal" href="#quick-example">Quick example</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#targeted_creator">targeted_creator</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)</a>
+    </li>
+        </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#my_account">my_account</a>
     </li>
@@ -72,7 +76,7 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#options-retries-rate-limiting">options — retries &amp; rate limiting</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)</a>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)</a>
     </li>
         </ul>
     </li>
@@ -81,6 +85,14 @@
     <li class="toctree-l2"><a class="reference internal" href="#cache">cache</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#logging">logging</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#loggingglobal">logging.global</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#per-handler-entries">Per-handler entries</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields">Retired fields</a>
+    </li>
+        </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#stash_context">stash_context</a>
     </li>
@@ -88,13 +100,13 @@
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#monitoring-top-level">monitoring — top-level</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#monitoring-livestream-recording">monitoring — livestream recording</a>
+    </li>
     <li class="toctree-l3"><a class="reference internal" href="#monitoring-session-baseline">monitoring — session baseline</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#monitoring-three-tier-cadence">monitoring — three-tier cadence</a>
     </li>
-    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)</a>
-    </li>
-    <li class="toctree-l3"><a class="reference internal" href="#websocket-subprocess-isolation">WebSocket subprocess isolation</a>
+    <li class="toctree-l3"><a class="reference internal" href="#retired-fields-silently-dropped-on-load_2">Retired fields (silently dropped on load)</a>
     </li>
         </ul>
     </li>
@@ -232,7 +244,6 @@ in.</p>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <span class="w">  </span><span class="nt">use_following</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="nt">use_following_with_pagination</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </code></pre></div>
 <table>
 <thead>
@@ -246,8 +257,8 @@ in.</p>
 <tbody>
 <tr>
 <td><code>usernames</code></td>
-<td><code>list[str]</code></td>
-<td><code>["replaceme"]</code></td>
+<td><code>list[str] \| null</code></td>
+<td><code>null</code></td>
 <td>Creator usernames to process. A comma-separated string (legacy <code>config.ini</code> shape) is auto-coerced into a list at parse time</td>
 </tr>
 <tr>
@@ -256,11 +267,20 @@ in.</p>
 <td><code>false</code></td>
 <td>When <code>true</code>, ignore <code>usernames</code> and download from every creator the account follows. Equivalent to <code>-uf</code> on the CLI</td>
 </tr>
+</tbody>
+</table>
+<h3 id="retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>use_following_with_pagination</code></td>
-<td><code>bool</code></td>
-<td><code>false</code></td>
-<td>Same as <code>use_following</code> but uses paginated <code>/account/{id}/following</code> walking instead of a single batched call. Useful for accounts following thousands of creators where the batched call hits server-side response-size limits</td>
+<td>CLI-only macro (<code>-ufp</code>) — toggles <code>use_following</code> AND <code>options.use_pagination_duplication</code> together at runtime. Never a real YAML setting; not consulted from there</td>
 </tr>
 </tbody>
 </table>
@@ -334,8 +354,6 @@ in.</p>
 <span class="w">  </span><span class="nt">use_folder_suffix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">interactive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">prompt_on_exit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">debug</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="nt">trace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">timeline_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 <span class="w">  </span><span class="nt">timeline_delay_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
 <span class="w">  </span><span class="nt">api_max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
@@ -346,6 +364,7 @@ in.</p>
 <span class="w">  </span><span class="nt">rate_limiting_retry_after_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
 <span class="w">  </span><span class="nt">rate_limiting_backoff_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
 <span class="w">  </span><span class="nt">rate_limiting_max_backoff_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">  </span><span class="nt">respect_timeline_stats</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">temp_folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 </code></pre></div>
 <h3 id="options-output-ui"><code>options</code> — output &amp; UI<a class="headerlink" href="#options-output-ui" title="Permanent link">&para;</a></h3>
@@ -440,30 +459,11 @@ in.</p>
 </tbody>
 </table>
 <h3 id="options-debugging"><code>options</code> — debugging<a class="headerlink" href="#options-debugging" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>debug</code></td>
-<td><code>bool</code></td>
-<td><code>false</code></td>
-<td>Set the global file-log floor to DEBUG (console untouched)</td>
-</tr>
-<tr>
-<td><code>trace</code></td>
-<td><code>bool</code></td>
-<td><code>false</code></td>
-<td>Set the global file-log floor to TRACE (console never hits TRACE regardless of this flag)</td>
-</tr>
-</tbody>
-</table>
+<p>There is no YAML toggle for runtime verbosity. Pass <code>-v</code> (DEBUG floor on
+every handler) or <code>-vv</code> (TRACE floor on every handler) on the command
+line, or edit <code>logging.global.default_level</code> for persistent per-handler
+defaults. See <a href="#logging"><code>logging</code></a> below for the per-handler levels and
+the <a href="#cli--config-mapping">CLI mapping table</a> for the verbosity flags.</p>
 <h3 id="options-deduplication"><code>options</code> — deduplication<a class="headerlink" href="#options-deduplication" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -560,9 +560,15 @@ in.</p>
 <td><code>300</code></td>
 <td>Cap on the backoff sleep duration</td>
 </tr>
+<tr>
+<td><code>respect_timeline_stats</code></td>
+<td><code>bool</code></td>
+<td><code>true</code></td>
+<td>When <code>true</code>, the timeline/wall downloaders short-circuit a full scan when <code>TimelineStats</code> counts and wall structure match the local DB. Set <code>false</code> to force a full scan</td>
+</tr>
 </tbody>
 </table>
-<h3 id="retired-fields-silently-dropped-on-load">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load" title="Permanent link">&para;</a></h3>
+<h3 id="retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load_1" title="Permanent link">&para;</a></h3>
 <p>The following keys were valid in earlier versions and are now silently
 stripped from the YAML on load. Keeping them in your file is harmless:</p>
 <ul>
@@ -570,6 +576,9 @@ stripped from the YAML on load. Keeping them in your file is harmless:</p>
 <li><code>metadata_handling</code> — runtime never branched on <code>SIMPLE</code> vs <code>ADVANCED</code></li>
 <li><code>db_sync_commits</code>, <code>db_sync_seconds</code>, <code>db_sync_min_size</code> — SQLite-era
   write-sync tuning knobs; not consulted under asyncpg</li>
+<li><code>debug</code>, <code>trace</code> — replaced by the <code>-v</code> / <code>-vv</code> CLI flags (per-run
+  runtime override). For persistent verbosity, set
+  <code>logging.global.default_level</code> instead</li>
 </ul>
 <hr />
 <h2 id="postgres"><code>postgres</code><a class="headerlink" href="#postgres" title="Permanent link">&para;</a></h2>
@@ -707,64 +716,249 @@ are overwritten on the next session-setup pass).</p>
 </table>
 <hr />
 <h2 id="logging"><code>logging</code><a class="headerlink" href="#logging" title="Permanent link">&para;</a></h2>
-<p>Per-named-logger floor levels. The application uses 6 named loggers
-plus <code>json</code> (an output format, not a topic); each can be tuned independently.</p>
+<p>Eight named loggers plus a <code>global</code> defaults block. Two console handlers
+and six rotating-file handlers. Each entry has its own <code>enabled</code> /
+<code>level</code> / <code>format</code>; file entries additionally have orthogonal size and
+time rotation axes (both can be active simultaneously — size cap <em>and</em>
+hourly rotation, whichever trips first). Per-entry <code>null</code> fields fall
+through to the corresponding <code>global.default_*</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">logging</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">sqlalchemy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="w">  </span><span class="nt">stash_console</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="w">  </span><span class="nt">stash_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="w">  </span><span class="nt">textio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="w">  </span><span class="nt">websocket</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
-<span class="w">  </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">  </span><span class="nt">global</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">~/.fansly-downloader-ng/logs</span>
+<span class="w">    </span><span class="nt">trace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">default_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INFO</span>
+<span class="w">    </span><span class="nt">default_max_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">104857600</span><span class="w"> </span><span class="c1"># 100 MiB</span>
+<span class="w">    </span><span class="nt">default_rotation_when</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">h</span><span class="w"> </span><span class="c1"># hourly</span>
+<span class="w">    </span><span class="nt">default_rotation_interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">    </span><span class="nt">default_utc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">default_backup_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w">    </span><span class="nt">default_compression</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gz</span>
+<span class="w">    </span><span class="nt">default_keep_uncompressed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+
+<span class="w">  </span><span class="c1"># Console handlers</span>
+<span class="w">  </span><span class="nt">rich_handler</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">stash_console</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="w"> </span><span class="p p-Indicator">}</span>
+
+<span class="w">  </span><span class="c1"># File handlers — each can override any default</span>
+<span class="w">  </span><span class="nt">main_log</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="p p-Indicator">,</span><span class="nt"> backup_count</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">stash_file</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="p p-Indicator">,</span><span class="nt"> backup_count</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">db</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="p p-Indicator">,</span><span class="nt"> backup_count</span><span class="p">:</span><span class="w"> </span><span class="nv">20</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">websocket</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">INFO</span><span class="p p-Indicator">,</span><span class="nt"> backup_count</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">trace</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> enabled</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">,</span><span class="nt"> level</span><span class="p">:</span><span class="w"> </span><span class="nv">TRACE</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </code></pre></div>
+<h3 id="loggingglobal"><code>logging.global</code><a class="headerlink" href="#loggingglobal" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>YAML key</th>
-<th>Python attribute</th>
 <th>Default</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>sqlalchemy</code></td>
-<td><code>sqlalchemy</code></td>
-<td><code>"INFO"</code></td>
-<td>SQLAlchemy / asyncpg / alembic log floor</td>
+<td><code>directory</code></td>
+<td><code>null</code></td>
+<td>Log root directory. <code>null</code> → application default (<code>~/.fansly-downloader-ng/logs</code>)</td>
 </tr>
 <tr>
-<td><code>stash_console</code></td>
-<td><code>stash_console</code></td>
-<td><code>"INFO"</code></td>
-<td>Stash integration console output</td>
+<td><code>trace</code></td>
+<td><code>false</code></td>
+<td>Persistent trace toggle — linked bi-directionally with <code>trace.enabled</code>; setting either flips both. Opens the <code>trace.log</code> sink at TRACE; peer handlers stay at their configured level. (For a uniform TRACE floor across every handler, use the runtime <code>-vv</code> flag instead.)</td>
 </tr>
 <tr>
-<td><code>stash_file</code></td>
-<td><code>stash_file</code></td>
+<td><code>default_level</code></td>
 <td><code>"INFO"</code></td>
-<td>Stash integration file log (<code>stash.log</code>)</td>
+<td>Fallback level for any handler whose <code>level</code> is <code>null</code></td>
 </tr>
 <tr>
-<td><code>textio</code></td>
-<td><code>textio</code></td>
-<td><code>"INFO"</code></td>
-<td>Default user-facing console + main file log</td>
+<td><code>default_format</code></td>
+<td><code>null</code></td>
+<td>Fallback log format (loguru format string) for any handler whose <code>format</code> is <code>null</code></td>
 </tr>
 <tr>
-<td><code>websocket</code></td>
-<td><code>websocket</code></td>
-<td><code>"INFO"</code></td>
-<td>WebSocket protocol traffic log (<code>websocket.log</code>). Set <code>TRACE</code> to dump every received frame</td>
+<td><code>default_max_size</code></td>
+<td><code>104857600</code> (100 MiB)</td>
+<td>Size axis cap. <code>null</code> disables size-based rotation</td>
 </tr>
 <tr>
-<td><code>json</code></td>
-<td><code>json_level</code></td>
-<td><code>"INFO"</code></td>
-<td>JSON-formatted file log (<code>fansly_downloader_ng_json.log</code>). Note the YAML key is <code>json</code> but the Python attribute is <code>json_level</code> because <code>json</code> would shadow Pydantic's <code>BaseModel.json()</code> serialiser</td>
+<td><code>default_rotation_when</code></td>
+<td><code>"h"</code></td>
+<td>Time axis interval unit: <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, or <code>midnight</code>. <code>null</code> disables time-based rotation</td>
+</tr>
+<tr>
+<td><code>default_rotation_interval</code></td>
+<td><code>1</code></td>
+<td>Count of <code>default_rotation_when</code> units between rotations</td>
+</tr>
+<tr>
+<td><code>default_utc</code></td>
+<td><code>true</code></td>
+<td>Whether the time axis uses UTC</td>
+</tr>
+<tr>
+<td><code>default_backup_count</code></td>
+<td><code>5</code></td>
+<td>Retention: number of rotated files kept. <code>null</code> retains forever</td>
+</tr>
+<tr>
+<td><code>default_compression</code></td>
+<td><code>"gz"</code></td>
+<td>Compression applied to rotated files: <code>gz</code>, <code>bz2</code>, <code>xz</code>, or <code>null</code> (uncompressed)</td>
+</tr>
+<tr>
+<td><code>default_keep_uncompressed</code></td>
+<td><code>2</code></td>
+<td>Most-recent N rotated files kept uncompressed for live <code>tail -F</code></td>
 </tr>
 </tbody>
 </table>
+<h3 id="per-handler-entries">Per-handler entries<a class="headerlink" href="#per-handler-entries" title="Permanent link">&para;</a></h3>
+<p><strong>Console handlers</strong> (<code>rich_handler</code>, <code>stash_console</code>):</p>
+<table>
+<thead>
+<tr>
+<th>YAML key</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td>Disable to drop the handler entirely</td>
+</tr>
+<tr>
+<td><code>level</code></td>
+<td><code>null</code> → <code>default_level</code></td>
+<td>Per-handler level floor. <code>TRACE</code> is rejected on console (file-only)</td>
+</tr>
+<tr>
+<td><code>format</code></td>
+<td><code>null</code> → <code>default_format</code></td>
+<td>Per-handler format override</td>
+</tr>
+</tbody>
+</table>
+<p><strong>File handlers</strong> (<code>main_log</code>, <code>json</code>, <code>stash_file</code>, <code>db</code>, <code>trace</code>, <code>websocket</code>):</p>
+<table>
+<thead>
+<tr>
+<th>YAML key</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>true</code> (<code>false</code> for <code>trace</code>)</td>
+<td>Disable to drop the handler</td>
+</tr>
+<tr>
+<td><code>filename</code></td>
+<td>per-handler default</td>
+<td>Output filename (joined with <code>global.directory</code>). Defaults: <code>fansly_downloader_ng.log</code>, <code>fansly_downloader_ng_json.log</code>, <code>stash.log</code>, <code>sqlalchemy.log</code>, <code>trace.log</code>, <code>websocket.log</code></td>
+</tr>
+<tr>
+<td><code>level</code></td>
+<td><code>null</code> → <code>default_level</code></td>
+<td>Per-handler level floor</td>
+</tr>
+<tr>
+<td><code>format</code></td>
+<td><code>null</code> → <code>default_format</code></td>
+<td>Per-handler format override</td>
+</tr>
+<tr>
+<td><code>max_size</code></td>
+<td><code>null</code> → <code>default_max_size</code></td>
+<td>Size cap in bytes. <code>null</code> disables the size axis</td>
+</tr>
+<tr>
+<td><code>rotation_when</code></td>
+<td><code>null</code> → <code>default_rotation_when</code></td>
+<td>Time interval unit. <code>null</code> disables the time axis</td>
+</tr>
+<tr>
+<td><code>rotation_interval</code></td>
+<td><code>null</code> → <code>default_rotation_interval</code></td>
+<td>Count of time units</td>
+</tr>
+<tr>
+<td><code>utc</code></td>
+<td><code>null</code> → <code>default_utc</code></td>
+<td>Whether the time axis uses UTC</td>
+</tr>
+<tr>
+<td><code>backup_count</code></td>
+<td><code>null</code> → <code>default_backup_count</code></td>
+<td>Rotated-file retention count</td>
+</tr>
+<tr>
+<td><code>compression</code></td>
+<td><code>null</code> → <code>default_compression</code></td>
+<td>Per-handler compression override</td>
+</tr>
+<tr>
+<td><code>keep_uncompressed</code></td>
+<td><code>null</code> → <code>default_keep_uncompressed</code></td>
+<td>Most-recent N rotated files left uncompressed for live tail</td>
+</tr>
+</tbody>
+</table>
+<h3 id="retired-fields">Retired fields<a class="headerlink" href="#retired-fields" title="Permanent link">&para;</a></h3>
+<p>Pre-v0.14 <code>logging:</code> was a flat map of <code>&lt;logger&gt;: &lt;level&gt;</code> strings. Old
+files keep loading via a <code>model_validator(mode="before")</code> that lifts the
+flat entries into the nested shape:</p>
+<table>
+<thead>
+<tr>
+<th>Legacy key</th>
+<th>New location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sqlalchemy</code></td>
+<td><code>db.level</code></td>
+</tr>
+<tr>
+<td><code>stash_console</code></td>
+<td><code>stash_console.level</code></td>
+</tr>
+<tr>
+<td><code>stash_file</code></td>
+<td><code>stash_file.level</code></td>
+</tr>
+<tr>
+<td><code>textio</code></td>
+<td><code>main_log.level</code> AND <code>rich_handler.level</code></td>
+</tr>
+<tr>
+<td><code>websocket</code></td>
+<td><code>websocket.level</code></td>
+</tr>
+<tr>
+<td><code>json</code> (string)</td>
+<td><code>json.level</code></td>
+</tr>
+<tr>
+<td><code>json_level</code></td>
+<td><code>json.level</code></td>
+</tr>
+</tbody>
+</table>
+<p>These keys are silently dropped (no migration):</p>
+<ul>
+<li><code>logging.global.debug</code> — replaced by <code>-v</code> CLI flag (runtime DEBUG floor
+  on every handler) or <code>logging.global.default_level: DEBUG</code> (per-handler
+  default for handlers whose <code>level</code> is <code>null</code>)</li>
+<li><code>logging.global.verbose</code> — older alias for the same toggle, also
+  retired</li>
+</ul>
 <hr />
 <h2 id="stash_context"><code>stash_context</code><a class="headerlink" href="#stash_context" title="Permanent link">&para;</a></h2>
 <p><a href="https://github.com/stashapp/stash">Stash media server</a> integration
@@ -854,7 +1048,10 @@ intervals and the <code>main.js</code> evidence behind them.</p>
 <span class="w">  </span><span class="nt">session_baseline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 <span class="w">  </span><span class="nt">unrecoverable_error_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
 <span class="w">  </span><span class="nt">dashboard_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">websocket_subprocess</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">heartbeat_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+<span class="w">  </span><span class="nt">livestream_recording_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">livestream_poll_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">livestream_manifest_poll_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
 </code></pre></div>
 <h3 id="monitoring-top-level"><code>monitoring</code> — top-level<a class="headerlink" href="#monitoring-top-level" title="Permanent link">&para;</a></h3>
 <table>
@@ -890,11 +1087,46 @@ intervals and the <code>main.js</code> evidence behind them.</p>
 <td>Show the Rich-based live dashboard (simulator state + per-loop countdown bars) while the daemon runs. Set <code>false</code> when piping output through tools that mangle ANSI escape sequences</td>
 </tr>
 <tr>
-<td><code>websocket_subprocess</code></td>
+<td><code>heartbeat_interval_minutes</code></td>
+<td><code>int</code></td>
+<td><code>15</code></td>
+<td>—</td>
+<td>How often the simulator-tick loop emits its alive log line. Lower values produce more chatter; higher values reduce log volume</td>
+</tr>
+</tbody>
+</table>
+<h3 id="monitoring-livestream-recording"><code>monitoring</code> — livestream recording<a class="headerlink" href="#monitoring-livestream-recording" title="Permanent link">&para;</a></h3>
+<p>Recording is <strong>opt-in</strong> — set <code>livestream_recording_enabled: true</code> to capture
+broadcasts. The watcher polls Fansly's online-streams endpoint on the interval
+below; when it sees a tracked creator go live it spawns a per-broadcast
+recorder that polls the IVS HLS manifest for new segments.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>livestream_recording_enabled</code></td>
 <td><code>bool</code></td>
 <td><code>false</code></td>
-<td>—</td>
-<td>Run the Fansly WebSocket in an isolated subprocess so its ping/pong heartbeat is insulated from main-process GIL contention. Default off until the subprocess path stabilizes; flip on for a validation run, then promote in a follow-up. See <a href="#websocket-subprocess-isolation">WebSocket subprocess isolation</a> below</td>
+<td>Master switch. <code>false</code> (default) suppresses the watcher and recorder entirely</td>
+</tr>
+<tr>
+<td><code>livestream_poll_interval_seconds</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>Seconds between <code>/streaming/followingstreams/online</code> polls. Lower values catch broadcasts faster at the cost of API traffic</td>
+</tr>
+<tr>
+<td><code>livestream_manifest_poll_interval_seconds</code></td>
+<td><code>int (1..15)</code></td>
+<td><code>3</code></td>
+<td>Seconds between HLS manifest refreshes inside an active recording. The ~28s IVS sliding-window buffer means values &gt;5 risk dropping segments under load</td>
 </tr>
 </tbody>
 </table>
@@ -983,7 +1215,7 @@ so tune within narrow operational windows rather than aggressively.</p>
 <p>Jitter (0-10 s for timeline polls, 0-2 s for story polls) is added on top
 of each base interval so the daemon's traffic pattern doesn't look
 machine-precise.</p>
-<h3 id="retired-fields-silently-dropped-on-load_1">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load_1" title="Permanent link">&para;</a></h3>
+<h3 id="retired-fields-silently-dropped-on-load_2">Retired fields (silently dropped on load)<a class="headerlink" href="#retired-fields-silently-dropped-on-load_2" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -996,27 +1228,12 @@ machine-precise.</p>
 <td><code>enabled</code></td>
 <td>Never had a runtime consumer; <code>daemon_mode</code> is the actual on/off switch</td>
 </tr>
+<tr>
+<td><code>websocket_subprocess</code></td>
+<td>Subprocess WebSocket is now the only path — <code>FanslyWebSocket</code> is a parent-side shim over a child <code>multiprocessing.Process</code> that owns the heartbeat. No toggle (the asymmetric-GIL problem the toggle solved is now fixed by design)</td>
+</tr>
 </tbody>
 </table>
-<h3 id="websocket-subprocess-isolation">WebSocket subprocess isolation<a class="headerlink" href="#websocket-subprocess-isolation" title="Permanent link">&para;</a></h3>
-<p>The in-thread <code>FanslyWebSocket</code> runs on its own asyncio loop in a daemon
-thread, but the GIL still binds it to whichever thread holds it. Under
-heavy main-thread CPU bursts (image hashing, dedupe, large JSON decodes),
-the WS thread can't acquire the GIL within the spec-mandated
-<code>1.2 × pingInterval</code> window, manifesting as repeated
-<code>Ping timeout (&gt;30s since last response)</code> warnings and reconnect storms.</p>
-<p>The pattern is <strong>asymmetric-GIL</strong>: a thread that does microseconds of
-work per minute but has a hard ~30 s deadline can't be saved by
-<code>sys.setswitchinterval</code>, thread priority, or moving to its own asyncio
-loop — the failure mode is <em>GIL-acquisition wait</em>, which only goes away
-when the deadline-sensitive code has its own GIL. That requires a separate
-process.</p>
-<p>When <code>websocket_subprocess: true</code>, the <code>FanslyWebSocketProxy</code> wraps the
-WebSocket in a <code>multiprocessing.Process</code> — the child has its own GIL, so
-the heartbeat is fully insulated. Surface compatibility is preserved
-(same public attributes, same handler-registration API), so callers don't
-branch on the toggle. Cookies sync across the boundary via <code>cmd_q</code> /
-<code>evt_q</code> queues; auth-error and rate-limit signals propagate the same way.</p>
 <hr />
 <h2 id="logic"><code>logic</code><a class="headerlink" href="#logic" title="Permanent link">&para;</a></h2>
 <p>Regex patterns for extracting values from Fansly's served JavaScript.
@@ -1099,7 +1316,10 @@ These rarely need user adjustment — the defaults track Fansly's current
 to <code>DownloadMode.NORMAL</code>.</p>
 <hr />
 <h2 id="cli-config-mapping">CLI ↔ config mapping<a class="headerlink" href="#cli-config-mapping" title="Permanent link">&para;</a></h2>
-<p>CLI flags override config values when both are supplied.</p>
+<p>CLI flags override config values when both are supplied. Inverted flags
+(<code>--no-…</code>, <code>--hide-…</code>) flip the corresponding bool to <code>false</code> regardless
+of the YAML setting.</p>
+<p><strong>Targeted creator</strong></p>
 <table>
 <thead>
 <tr>
@@ -1110,16 +1330,100 @@ to <code>DownloadMode.NORMAL</code>.</p>
 <tbody>
 <tr>
 <td><code>targeted_creator.usernames</code></td>
-<td><code>-u &lt;name&gt;[,&lt;name&gt;...]</code> or positional args</td>
+<td><code>-u &lt;name&gt;[,&lt;name&gt;...]</code> / <code>--user</code></td>
 </tr>
 <tr>
 <td><code>targeted_creator.use_following</code></td>
 <td><code>-uf</code> / <code>--use-following</code></td>
 </tr>
+</tbody>
+</table>
+<p><strong>Authentication</strong></p>
+<table>
+<thead>
 <tr>
-<td><code>options.download_mode</code></td>
-<td><code>-dm &lt;mode&gt;</code> / <code>--download-mode &lt;mode&gt;</code></td>
+<th>Config field</th>
+<th>CLI flag</th>
 </tr>
+</thead>
+<tbody>
+<tr>
+<td><code>my_account.authorization_token</code></td>
+<td><code>-t</code> / <code>--token</code></td>
+</tr>
+<tr>
+<td><code>my_account.user_agent</code></td>
+<td><code>-ua</code> / <code>--user-agent</code></td>
+</tr>
+<tr>
+<td><code>my_account.check_key</code></td>
+<td><code>-ck</code> / <code>--check-key</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Download mode</strong> — pick at most one; absent → uses <code>options.download_mode</code></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>options.download_mode = NORMAL</code></td>
+<td><code>--normal</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode = TIMELINE</code></td>
+<td><code>--timeline</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode = MESSAGES</code></td>
+<td><code>--messages</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode = COLLECTION</code></td>
+<td><code>--collection</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode = SINGLE</code></td>
+<td><code>--single</code></td>
+</tr>
+<tr>
+<td><code>options.download_mode = STASH_ONLY</code></td>
+<td><code>--stash-only</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Output / paths</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>options.download_directory</code></td>
+<td><code>-dir</code> / <code>--directory</code></td>
+</tr>
+<tr>
+<td><code>options.temp_folder</code></td>
+<td><code>--temp-folder</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Boolean toggles</strong> (the negated flags set the corresponding YAML to <code>false</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>options.interactive</code></td>
 <td><code>-ni</code> / <code>--non-interactive</code> (sets <code>false</code>)</td>
@@ -1129,29 +1433,155 @@ to <code>DownloadMode.NORMAL</code>.</p>
 <td><code>-npox</code> / <code>--no-prompt-on-exit</code> (sets <code>false</code>)</td>
 </tr>
 <tr>
-<td><code>options.debug</code></td>
-<td><code>-v</code></td>
+<td><code>options.use_folder_suffix</code></td>
+<td><code>-nfs</code> / <code>--no-folder-suffix</code> (sets <code>false</code>)</td>
 </tr>
 <tr>
-<td><code>options.trace</code></td>
-<td><code>-vv</code></td>
+<td><code>options.download_media_previews</code></td>
+<td><code>-np</code> / <code>--no-previews</code> (sets <code>false</code>)</td>
 </tr>
 <tr>
-<td><code>monitoring.daemon_mode</code></td>
-<td><code>--daemon</code> / <code>-d</code></td>
+<td><code>options.show_downloads</code></td>
+<td><code>-hd</code> / <code>--hide-downloads</code> (sets <code>false</code>)</td>
 </tr>
 <tr>
-<td><code>monitoring.session_baseline</code></td>
-<td><code>--monitor-since &lt;iso&gt;</code>, <code>--full-pass</code></td>
+<td><code>options.show_skipped_downloads</code></td>
+<td><code>-hsd</code> / <code>--hide-skipped-downloads</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.open_folder_when_finished</code></td>
+<td><code>-nof</code> / <code>--no-open-folder</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.separate_messages</code></td>
+<td><code>-nsm</code> / <code>--no-separate-messages</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.separate_timeline</code></td>
+<td><code>-nst</code> / <code>--no-separate-timeline</code> (sets <code>false</code>)</td>
+</tr>
+<tr>
+<td><code>options.separate_previews</code></td>
+<td><code>-sp</code> / <code>--separate-previews</code></td>
+</tr>
+<tr>
+<td><code>options.use_duplicate_threshold</code></td>
+<td><code>-udt</code> / <code>--use-duplicate-threshold</code></td>
+</tr>
+<tr>
+<td><code>options.use_pagination_duplication</code></td>
+<td><code>-upd</code> / <code>--use-pagination-duplication</code></td>
+</tr>
+<tr>
+<td>(runtime debug — no YAML field)</td>
+<td><code>-v</code> / <code>--verbose</code> (override every handler→DEBUG)</td>
+</tr>
+<tr>
+<td>(runtime trace — no YAML field)</td>
+<td><code>-vv</code> (override every handler→TRACE)</td>
 </tr>
 </tbody>
 </table>
-<p>CLI-only flags (no config equivalent):</p>
-<ul>
-<li><code>-p &lt;post_id&gt;</code> — single-post download (use with <code>-dm SINGLE</code>)</li>
-<li><code>--metadata-only</code> — sync metadata to DB without downloading files</li>
-<li><code>--stash-only</code> — equivalent to <code>-dm STASH_ONLY</code></li>
-</ul>
+<p><strong>Retries / rate limiting</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>options.timeline_retries</code></td>
+<td><code>-tr</code> / <code>--timeline-retries</code></td>
+</tr>
+<tr>
+<td><code>options.timeline_delay_seconds</code></td>
+<td><code>-td</code> / <code>--timeline-delay-seconds</code></td>
+</tr>
+<tr>
+<td><code>options.api_max_retries</code></td>
+<td><code>-ar</code> / <code>--api-max-retries</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Postgres</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>postgres.pg_host</code></td>
+<td><code>--pg-host</code></td>
+</tr>
+<tr>
+<td><code>postgres.pg_port</code></td>
+<td><code>--pg-port</code></td>
+</tr>
+<tr>
+<td><code>postgres.pg_database</code></td>
+<td><code>--pg-database</code></td>
+</tr>
+<tr>
+<td><code>postgres.pg_user</code></td>
+<td><code>--pg-user</code></td>
+</tr>
+<tr>
+<td><code>postgres.pg_password</code></td>
+<td><code>--pg-password</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Monitoring daemon</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>monitoring.daemon_mode</code></td>
+<td><code>-d</code> / <code>--daemon</code> / <code>--monitor</code></td>
+</tr>
+<tr>
+<td><code>monitoring.session_baseline</code></td>
+<td><code>--monitor-since &lt;iso-timestamp&gt;</code>, <code>--full-pass</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Other / CLI-only</strong> (no config equivalent)</p>
+<table>
+<thead>
+<tr>
+<th>CLI flag</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-r</code> / <code>--reverse-order</code></td>
+<td>Process creators in reverse alphabetical order (Z→A instead of A→Z; applies to both the following list and <code>-u</code> targets)</td>
+</tr>
+<tr>
+<td><code>-ufp</code> / <code>--use-following-with-pagination</code></td>
+<td>CLI-only macro: enables <code>targeted_creator.use_following</code> AND <code>options.use_pagination_duplication</code> together at runtime</td>
+</tr>
+<tr>
+<td><code>--generate-config</code></td>
+<td>Scaffold a fresh <code>config.yaml</code> at the working directory and exit</td>
+</tr>
+<tr>
+<td><code>--show-config</code></td>
+<td>Print the loaded effective configuration and exit</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="first-run-migration-behaviour">First-run / migration behaviour<a class="headerlink" href="#first-run-migration-behaviour" title="Permanent link">&para;</a></h2>
 <p>On startup, the loader performs a one-shot migration pass against
