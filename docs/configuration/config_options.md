@@ -243,27 +243,99 @@ cache:
 
 ## `logging`
 
-Per-named-logger floor levels. The application uses 6 named loggers
-plus `json` (an output format, not a topic); each can be tuned independently.
+Eight named loggers plus a `global` defaults block. Two console handlers
+and six rotating-file handlers. Each entry has its own `enabled` /
+`level` / `format`; file entries additionally have orthogonal size and
+time rotation axes (both can be active simultaneously — size cap *and*
+hourly rotation, whichever trips first). Per-entry `null` fields fall
+through to the corresponding `global.default_*`.
 
 ```yaml
 logging:
-  sqlalchemy: INFO
-  stash_console: INFO
-  stash_file: INFO
-  textio: INFO
-  websocket: INFO
-  json: INFO
+  global:
+    directory: ~/.fansly-downloader-ng/logs
+    debug: false
+    trace: false
+    default_level: INFO
+    default_max_size: 104857600       # 100 MiB
+    default_rotation_when: h          # hourly
+    default_rotation_interval: 1
+    default_utc: true
+    default_backup_count: 5
+    default_compression: gz
+    default_keep_uncompressed: 2
+
+  # Console handlers
+  rich_handler: {enabled: true, level: INFO}
+  stash_console: {enabled: true, level: INFO}
+
+  # File handlers — each can override any default
+  main_log:    {enabled: true, level: INFO}
+  json:        {enabled: true, level: INFO, backup_count: 10}
+  stash_file:  {enabled: true, level: INFO, backup_count: 10}
+  db:          {enabled: true, level: INFO, backup_count: 20}
+  websocket:   {enabled: true, level: INFO, backup_count: 10}
+  trace:       {enabled: false, level: TRACE}
 ```
 
-| YAML key        | Python attribute | Default  | Description                                                                                                                                                                                          |
-| --------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sqlalchemy`    | `sqlalchemy`     | `"INFO"` | SQLAlchemy / asyncpg / alembic log floor                                                                                                                                                             |
-| `stash_console` | `stash_console`  | `"INFO"` | Stash integration console output                                                                                                                                                                     |
-| `stash_file`    | `stash_file`     | `"INFO"` | Stash integration file log (`stash.log`)                                                                                                                                                             |
-| `textio`        | `textio`         | `"INFO"` | Default user-facing console + main file log                                                                                                                                                          |
-| `websocket`     | `websocket`      | `"INFO"` | WebSocket protocol traffic log (`websocket.log`). Set `TRACE` to dump every received frame                                                                                                           |
-| `json`          | `json_level`     | `"INFO"` | JSON-formatted file log (`fansly_downloader_ng_json.log`). Note the YAML key is `json` but the Python attribute is `json_level` because `json` would shadow Pydantic's `BaseModel.json()` serialiser |
+### `logging.global`
+
+| YAML key                    | Default            | Description                                                                                                                  |
+| --------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `directory`                 | `null`             | Log root directory. `null` → application default (`~/.fansly-downloader-ng/logs`)                                            |
+| `debug`                     | `false`            | Global debug floor for file handlers (does not affect console)                                                               |
+| `trace`                     | `false`            | Global trace toggle — linked bi-directionally with `trace.enabled`; setting either flips both                                |
+| `default_level`             | `"INFO"`           | Fallback level for any handler whose `level` is `null`                                                                       |
+| `default_format`            | `null`             | Fallback log format (loguru format string) for any handler whose `format` is `null`                                          |
+| `default_max_size`          | `104857600` (100 MiB) | Size axis cap. `null` disables size-based rotation                                                                         |
+| `default_rotation_when`     | `"h"`              | Time axis interval unit: `s`, `m`, `h`, `d`, or `midnight`. `null` disables time-based rotation                              |
+| `default_rotation_interval` | `1`                | Count of `default_rotation_when` units between rotations                                                                     |
+| `default_utc`               | `true`             | Whether the time axis uses UTC                                                                                               |
+| `default_backup_count`      | `5`                | Retention: number of rotated files kept. `null` retains forever                                                              |
+| `default_compression`       | `"gz"`             | Compression applied to rotated files: `gz`, `bz2`, `xz`, or `null` (uncompressed)                                            |
+| `default_keep_uncompressed` | `2`                | Most-recent N rotated files kept uncompressed for live `tail -F`                                                             |
+
+### Per-handler entries
+
+**Console handlers** (`rich_handler`, `stash_console`):
+
+| YAML key  | Default              | Description                                                                                       |
+| --------- | -------------------- | ------------------------------------------------------------------------------------------------- |
+| `enabled` | `true`               | Disable to drop the handler entirely                                                              |
+| `level`   | `null` → `default_level` | Per-handler level floor. `TRACE` is rejected on console (file-only)                           |
+| `format`  | `null` → `default_format` | Per-handler format override                                                                  |
+
+**File handlers** (`main_log`, `json`, `stash_file`, `db`, `trace`, `websocket`):
+
+| YAML key            | Default                         | Description                                                                                              |
+| ------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `enabled`           | `true` (`false` for `trace`)    | Disable to drop the handler                                                                              |
+| `filename`          | per-handler default             | Output filename (joined with `global.directory`). Defaults: `fansly_downloader_ng.log`, `fansly_downloader_ng_json.log`, `stash.log`, `sqlalchemy.log`, `trace.log`, `websocket.log` |
+| `level`             | `null` → `default_level`        | Per-handler level floor                                                                                  |
+| `format`            | `null` → `default_format`       | Per-handler format override                                                                              |
+| `max_size`          | `null` → `default_max_size`     | Size cap in bytes. `null` disables the size axis                                                         |
+| `rotation_when`     | `null` → `default_rotation_when` | Time interval unit. `null` disables the time axis                                                       |
+| `rotation_interval` | `null` → `default_rotation_interval` | Count of time units                                                                                |
+| `utc`               | `null` → `default_utc`          | Whether the time axis uses UTC                                                                           |
+| `backup_count`      | `null` → `default_backup_count` | Rotated-file retention count                                                                             |
+| `compression`       | `null` → `default_compression`  | Per-handler compression override                                                                         |
+| `keep_uncompressed` | `null` → `default_keep_uncompressed` | Most-recent N rotated files left uncompressed for live tail                                         |
+
+### Retired fields (migrated on load)
+
+Pre-v0.14 `logging:` was a flat map of `<logger>: <level>` strings. Old
+files keep loading via a `model_validator(mode="before")` that lifts the
+flat entries into the nested shape:
+
+| Legacy key      | New location              |
+| --------------- | ------------------------- |
+| `sqlalchemy`    | `db.level`                |
+| `stash_console` | `stash_console.level`    |
+| `stash_file`    | `stash_file.level`        |
+| `textio`        | `main_log.level` AND `rich_handler.level` |
+| `websocket`     | `websocket.level`         |
+| `json` (string) | `json.level`              |
+| `json_level`    | `json.level`              |
 
 ---
 

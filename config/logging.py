@@ -354,14 +354,31 @@ trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
 _handler_ids: dict[int, tuple[Any, Any]] = {}  # {id: (handler, file_handler)}
 
 
+def _resolve(entry: Any, global_section: Any, attr: str, default_attr: str) -> Any:
+    """Resolve a per-handler field, falling through to a global default.
+
+    Returns the entry's value if non-``None``, otherwise the matching
+    ``default_*`` on ``global_section``. Keeps the per-handler config
+    free of repetition: operators write ``backup_count: 20`` only on
+    handlers that need to override the global default.
+    """
+    value = getattr(entry, attr, None)
+    if value is not None:
+        return value
+    return getattr(global_section, default_attr)
+
+
 def setup_handlers() -> None:
     """Set up all logging handlers.
 
-    This function configures all loggers with appropriate handlers:
-    1. textio_logger - Console output with colors and formatting
-    2. json_logger - JSON-formatted logs with rotation
-    3. stash_logger - Stash-specific logs
-    4. db_logger - Database operation logs
+    Reads per-handler config from ``_config.logging`` (LoggingSection):
+    each entry's ``enabled`` / ``level`` / ``format`` plus — for file
+    entries — ``filename`` / ``max_size`` / ``rotation_when`` /
+    ``rotation_interval`` / ``utc`` / ``backup_count`` / ``compression``
+    / ``keep_uncompressed``. Any per-handler ``None`` falls through to
+    the matching ``logging.global_.default_*``. When ``_config`` or
+    ``_config.logging`` is absent (early boot, tests), behavior matches
+    the pre-config-driven defaults.
     """
     for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
         try:
@@ -373,7 +390,27 @@ def setup_handlers() -> None:
             pass  # Handler already removed
     _handler_ids.clear()
 
-    log_dir = Path.cwd() / "logs"
+    # Pull the schema's LoggingSection if available; tests + early boot
+    # run with _config=None and get a default-constructed section so all
+    # the per-handler / global_ fields are present.
+    logging_section = getattr(_config, "logging", None)
+    if logging_section is None:
+        from config.schema import LoggingSection  # noqa: PLC0415, I001  # circular: config.schema → config.logging
+
+        logging_section = LoggingSection()
+
+    # Legacy ``_config.trace=True`` (-vv CLI flag, programmatic toggle)
+    # enables the trace handler regardless of the schema's per-entry
+    # ``trace.enabled`` default — keeps the pre-v0.14 "flip one knob to
+    # see trace output" behavior working.
+    if _config and getattr(_config, "trace", False):
+        logging_section.trace.enabled = True
+        logging_section.global_.trace = True
+
+    g = logging_section.global_
+
+    # ``directory`` defaults to <cwd>/logs when unset
+    log_dir = Path(g.directory).expanduser() if g.directory else Path.cwd() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Import inside the function to avoid circular imports.
@@ -470,159 +507,146 @@ def setup_handlers() -> None:
         format_record = "<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>"
         use_colorize = True
 
-    handler_id = logger.add(  # type: ignore[call-overload]
-        sink=console_sink,
-        format=format_record,
-        level=get_log_level("textio", "INFO"),
+    def _add_file_handler(
+        entry: Any,
+        *,
+        filter: Any,
+        default_format: str,
+        level_logger_name: str,
+        default_level: str = "INFO",
+        encoding: str | None = None,
+        tag_db: bool = False,
+    ) -> Any:
+        """Build a SizeTimeRotatingHandler from a FileLoggerEntry and add it.
+
+        Skips the add entirely when ``entry.enabled`` is False. Returns
+        the wrapper handler (or None when disabled) so callers can stash
+        it in ``_handler_ids``.
+        """
+        if not entry.enabled:
+            return None
+        file_path = log_dir / entry.filename
+        kwargs: dict[str, Any] = {
+            "filename": str(file_path),
+            "maxBytes": _resolve(entry, g, "max_size", "default_max_size"),
+            "backupCount": _resolve(entry, g, "backup_count", "default_backup_count"),
+            "when": _resolve(entry, g, "rotation_when", "default_rotation_when"),
+            "interval": _resolve(
+                entry, g, "rotation_interval", "default_rotation_interval"
+            ),
+            "utc": _resolve(entry, g, "utc", "default_utc"),
+            "compression": _resolve(entry, g, "compression", "default_compression"),
+            "keep_uncompressed": _resolve(
+                entry, g, "keep_uncompressed", "default_keep_uncompressed"
+            ),
+        }
+        if encoding is not None:
+            kwargs["encoding"] = encoding
+        wrapper = SizeTimeRotatingHandler(**kwargs)
+        if tag_db:
+            wrapper.handler.db_logger_name = "database_logger"  # debug tag
+        handler_id = logger.add(
+            wrapper.write,
+            format=entry.format or g.default_format or default_format,
+            level=get_log_level(level_logger_name, default_level),
+            filter=filter,
+            backtrace=True,
+            diagnose=True,
+            **enqueue_args,
+        )
+        _handler_ids[handler_id] = (wrapper, None)
+        return wrapper
+
+    def _add_console_handler(
+        entry: Any, *, filter: Any, level_logger_name: str
+    ) -> None:
+        """Add a Rich-console sink driven by a ConsoleLoggerEntry."""
+        if not entry.enabled:
+            return
+        handler_id = logger.add(  # type: ignore[call-overload]
+            sink=console_sink,
+            format=entry.format or g.default_format or format_record,
+            level=get_log_level(level_logger_name, "INFO"),
+            filter=filter,
+            colorize=use_colorize,
+            **enqueue_args,
+        )
+        _handler_ids[handler_id] = (None, None)
+
+    # 1. Rich console (textio)
+    _add_console_handler(
+        logging_section.rich_handler,
         filter=textio_filter,
-        colorize=use_colorize,
-        **enqueue_args,
+        level_logger_name="textio",
     )
-    _handler_ids[handler_id] = (None, None)
 
-    # 2. TextIO File Handler
-    textio_file = log_dir / DEFAULT_LOG_FILE
-    textio_handler = SizeTimeRotatingHandler(
-        filename=str(textio_file),
-        maxBytes=100 * 1024 * 1024,  # 100MB
-        backupCount=5,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
-        encoding="utf-8",
-    )
-    handler_id = logger.add(
-        textio_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss.SSS}] [{level.name:<8}] {name}:{function}:{line} - {message}",
-        level=get_log_level("textio", "INFO"),
+    # 2. Main log file
+    _add_file_handler(
+        logging_section.main_log,
         filter=lambda record: record.get("extra", {}).get("logger") not in _owned_sinks,
-        backtrace=True,
-        diagnose=True,
-        **enqueue_args,
-    )
-    _handler_ids[handler_id] = (textio_handler, None)
-
-    # 3. JSON File Handler
-    json_file = log_dir / os.getenv("LOGURU_JSON_LOG_FILE", DEFAULT_JSON_LOG_FILE)
-    json_handler = SizeTimeRotatingHandler(
-        filename=str(json_file),
-        maxBytes=100 * 1024 * 1024,  # 100MB
-        backupCount=10,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
+        default_format="[{time:YYYY-MM-DD HH:mm:ss.SSS}] [{level.name:<8}] "
+        "{name}:{function}:{line} - {message}",
+        level_logger_name="textio",
         encoding="utf-8",
     )
-    handler_id = logger.add(
-        json_handler.write,
-        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
-        level=get_log_level("json", "INFO"),
+
+    # 3. JSON file. LOGURU_JSON_LOG_FILE env override remains supported
+    # (operator escape hatch ahead of YAML edits); when set, it wins over
+    # the schema's filename for this run only.
+    json_entry = logging_section.json_
+    json_filename_env = os.getenv("LOGURU_JSON_LOG_FILE")
+    if json_filename_env:
+        json_entry = json_entry.model_copy(update={"filename": json_filename_env})
+    _add_file_handler(
+        json_entry,
         filter=lambda record: record.get("extra", {}).get("logger") == "json",
-        backtrace=True,
-        diagnose=True,
-        **enqueue_args,
+        default_format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
+        level_logger_name="json",
+        encoding="utf-8",
     )
-    _handler_ids[handler_id] = (json_handler, None)
 
-    # 4. Stash Console Handler — same shared console sink as textio
-    handler_id = logger.add(  # type: ignore[call-overload]
-        sink=console_sink,
-        format=format_record,
-        level=get_log_level("stash_console", "INFO"),
-        colorize=use_colorize,
+    # 4. Stash console
+    _add_console_handler(
+        logging_section.stash_console,
         filter=lambda record: record.get("extra", {}).get("logger") == "stash",
-        **enqueue_args,
+        level_logger_name="stash_console",
     )
-    _handler_ids[handler_id] = (None, None)
 
-    # 5. Stash File Handler
-    stash_file = log_dir / DEFAULT_STASH_LOG_FILE
-    stash_handler = SizeTimeRotatingHandler(
-        filename=str(stash_file),
-        maxBytes=100 * 1024 * 1024,
-        backupCount=10,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
-    )
-    handler_id = logger.add(
-        stash_handler.write,
-        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
-        level=get_log_level("stash_file", "INFO"),
+    # 5. Stash file
+    _add_file_handler(
+        logging_section.stash_file,
         filter=lambda record: record.get("extra", {}).get("logger") == "stash",
-        **enqueue_args,
+        default_format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
+        level_logger_name="stash_file",
     )
-    _handler_ids[handler_id] = (stash_handler, None)
 
-    # 6. Database File Handler
-    db_file = log_dir / DEFAULT_DB_LOG_FILE
-    db_handler = SizeTimeRotatingHandler(
-        filename=str(db_file),
-        maxBytes=100 * 1024 * 1024,
-        backupCount=20,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
-    )
-    db_handler.handler.db_logger_name = "database_logger"  # debug tag
-    handler_id = logger.add(
-        db_handler.write,
-        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
-        level=get_log_level("sqlalchemy", "INFO"),
+    # 6. Database file
+    _add_file_handler(
+        logging_section.db,
         filter=lambda record: record.get("extra", {}).get("logger") == "db",
-        **enqueue_args,
+        default_format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
+        level_logger_name="sqlalchemy",
+        tag_db=True,
     )
-    _handler_ids[handler_id] = (db_handler, None)
 
-    # 7. Trace File Handler (for very detailed logging)
-    trace_file = log_dir / "trace.log"
-    trace_handler = SizeTimeRotatingHandler(
-        filename=str(trace_file),
-        maxBytes=100 * 1024 * 1024,  # 100MB
-        backupCount=5,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
-    )
-    handler_id = logger.add(
-        trace_handler.write,
-        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SSS} | {name}:{function}:{line} - {message}",
-        level=get_log_level("trace", "TRACE"),  # Default to TRACE level
+    # 7. Trace file (file-only, default-disabled)
+    _add_file_handler(
+        logging_section.trace,
         filter=lambda record: record.get("extra", {}).get("logger", None) == "trace",
-        **enqueue_args,
+        default_format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SSS} | "
+        "{name}:{function}:{line} - {message}",
+        level_logger_name="trace",
+        default_level="TRACE",
     )
-    _handler_ids[handler_id] = (trace_handler, None)
 
-    # 8. WebSocket File Handler — frame-level traffic kept out of the main log
-    websocket_file = log_dir / DEFAULT_WEBSOCKET_LOG_FILE
-    websocket_handler = SizeTimeRotatingHandler(
-        filename=str(websocket_file),
-        maxBytes=100 * 1024 * 1024,
-        backupCount=10,
-        when="h",
-        interval=1,
-        utc=True,
-        compression="gz",
-        keep_uncompressed=2,
-    )
-    handler_id = logger.add(
-        websocket_handler.write,
-        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {name}:{function}:{line} - {message}",
-        level=get_log_level("websocket", "INFO"),
+    # 8. WebSocket file — frame-level traffic kept out of the main log
+    _add_file_handler(
+        logging_section.websocket,
         filter=lambda record: record.get("extra", {}).get("logger") == "websocket",
-        **enqueue_args,
+        default_format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || "
+        "{name}:{function}:{line} - {message}",
+        level_logger_name="websocket",
     )
-    _handler_ids[handler_id] = (websocket_handler, None)
 
 
 def init_logging_config(config: Any) -> None:

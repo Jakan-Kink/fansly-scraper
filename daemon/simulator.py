@@ -142,7 +142,7 @@ class ActivitySimulator:
         self.state_entered_at = self._now()
         return was_non_active
 
-    def on_ws_event_during_hidden(self, service_id: int, event_type: int) -> None:
+    def on_ws_event_during_hidden(self, service_id: int, event_type: int) -> bool:
         """Wake from hidden state if the WebSocket event is an interrupt event.
 
         Mirrors the real browser behaviour: a desktop notification (e.g. new
@@ -152,10 +152,15 @@ class ActivitySimulator:
         Args:
             service_id: The ``svc`` field from the decoded WebSocket frame.
             event_type: The ``type`` field from the decoded WebSocket frame.
+
+        Returns:
+            True if a hidden → active wake occurred; False otherwise.
         """
         if self.state == "hidden" and (service_id, event_type) in INTERRUPT_EVENTS:
             self.state = "active"
             self.state_entered_at = self._now()
+            return True
+        return False
 
     def tick(self) -> str | None:
         """Advance the state machine by checking whether the current phase has expired.

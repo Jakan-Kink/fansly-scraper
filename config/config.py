@@ -3,6 +3,7 @@
 import configparser
 import os
 from pathlib import Path
+from typing import Any
 
 from config.fanslyconfig import FanslyConfig
 from config.loader import load_or_migrate
@@ -200,15 +201,29 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
 
     # --- Logging ---
     log = schema.logging
+    config.logging = log
+
+    def _entry_level(entry: Any) -> str:
+        """Resolve a handler entry's level, falling through to global default."""
+        return entry.level or log.global_.default_level
+
+    # log_levels dict preserves the legacy flat key→level shape for
+    # ``get_log_level()`` consumers. "textio" historically governed both
+    # the rich console and the main file handler; since the new schema
+    # splits them, we resolve "textio" from main_log (the file handler is
+    # the primary "textio" surface; rich_handler runs in parallel with
+    # its own per-handler key below).
     config.log_levels = {
-        "sqlalchemy": log.sqlalchemy,
-        "stash_console": log.stash_console,
-        "stash_file": log.stash_file,
-        "textio": log.textio,
-        "websocket": log.websocket,
-        # `log.json` would return the BaseModel.json() bound method —
-        # the Python attribute is json_level, YAML key is still "json".
-        "json": log.json_level,
+        "sqlalchemy": _entry_level(log.db),
+        "stash_console": _entry_level(log.stash_console),
+        "stash_file": _entry_level(log.stash_file),
+        "textio": _entry_level(log.main_log),
+        "rich_handler": _entry_level(log.rich_handler),
+        "main_log": _entry_level(log.main_log),
+        "websocket": _entry_level(log.websocket),
+        "json": _entry_level(log.json_),
+        "trace": _entry_level(log.trace),
+        "db": _entry_level(log.db),
     }
 
     # Validate log levels

@@ -16,6 +16,7 @@ from pydantic import SecretStr, ValidationError
 from config.modes import DownloadMode
 from config.schema import (
     ConfigSchema,
+    LoggingSection,
     LogicSection,
     MonitoringSection,
     MyAccountSection,
@@ -556,3 +557,98 @@ def test_monitoring_unrecoverable_error_timeout_round_trip(tmp_path: Path) -> No
 
     reloaded = ConfigSchema.load_yaml(out_path)
     assert reloaded.monitoring.unrecoverable_error_timeout_seconds == 7200
+
+
+# ---------------------------------------------------------------------------
+# LoggingSection: legacy flat-shape migration + trace toggle linkage
+# ---------------------------------------------------------------------------
+
+
+def test_logging_section_defaults() -> None:
+    """Default LoggingSection has all 8 handlers + global with rotation defaults."""
+    sec = LoggingSection()
+    assert sec.global_.default_level == "INFO"
+    assert sec.global_.default_max_size == 100 * 1024 * 1024
+    assert sec.global_.default_rotation_when == "h"
+    assert sec.global_.default_backup_count == 5
+    assert sec.global_.default_compression == "gz"
+    assert sec.global_.default_keep_uncompressed == 2
+
+    # File defaults pinned per-subclass
+    assert sec.main_log.filename == "fansly_downloader_ng.log"
+    assert sec.json_.filename == "fansly_downloader_ng_json.log"
+    assert sec.stash_file.filename == "stash.log"
+    assert sec.db.filename == "sqlalchemy.log"
+    assert sec.trace.filename == "trace.log"
+    assert sec.websocket.filename == "websocket.log"
+
+    # Trace is the only file handler default-disabled
+    assert sec.trace.enabled is False
+    assert sec.trace.level == "TRACE"
+    assert sec.main_log.enabled is True
+    assert sec.websocket.enabled is True
+
+
+def test_logging_legacy_flat_shape_migrates_to_nested() -> None:
+    """Pre-v0.14 `logging: {logger: LEVEL}` flat shape lifts into nested entries."""
+    legacy_yaml = {
+        "sqlalchemy": "WARNING",
+        "stash_console": "DEBUG",
+        "stash_file": "INFO",
+        "textio": "DEBUG",
+        "websocket": "TRACE",
+        "json": "INFO",
+    }
+    sec = LoggingSection.model_validate(legacy_yaml)
+    assert sec.db.level == "WARNING"
+    assert sec.stash_console.level == "DEBUG"
+    assert sec.stash_file.level == "INFO"
+    # textio seeds BOTH main_log AND rich_handler
+    assert sec.main_log.level == "DEBUG"
+    assert sec.rich_handler.level == "DEBUG"
+    assert sec.websocket.level == "TRACE"
+    assert sec.json_.level == "INFO"
+
+
+def test_logging_legacy_json_level_alias_migrates() -> None:
+    """The buggy-save `json_level:` (string) form also lifts to json.level."""
+    sec = LoggingSection.model_validate({"json_level": "WARNING"})
+    assert sec.json_.level == "WARNING"
+
+
+def test_logging_console_rejects_trace_level() -> None:
+    """ConsoleLoggerEntry rejects level='TRACE' since TRACE is file-only."""
+    with pytest.raises(ValidationError, match="cannot have level='TRACE'"):
+        LoggingSection.model_validate({"rich_handler": {"level": "TRACE"}})
+
+
+def test_logging_trace_toggle_linkage_via_global() -> None:
+    """Setting global.trace=true propagates to trace.enabled=true."""
+    sec = LoggingSection.model_validate({"global": {"trace": True}})
+    assert sec.global_.trace is True
+    assert sec.trace.enabled is True
+
+
+def test_logging_trace_toggle_linkage_via_trace_entry() -> None:
+    """Setting trace.enabled=true propagates to global.trace=true."""
+    sec = LoggingSection.model_validate({"trace": {"enabled": True}})
+    assert sec.trace.enabled is True
+    assert sec.global_.trace is True
+
+
+def test_logging_per_handler_rotation_override() -> None:
+    """Per-handler rotation knobs override the global defaults."""
+    sec = LoggingSection.model_validate(
+        {
+            "global": {"default_backup_count": 5},
+            "db": {"backup_count": 20},
+            "json": {"backup_count": 10},
+        }
+    )
+    # Overrides apply
+    assert sec.db.backup_count == 20
+    assert sec.json_.backup_count == 10
+    # Unset entries leave None and inherit from global at use time
+    assert sec.main_log.backup_count is None
+    assert sec.stash_file.backup_count is None
+    assert sec.global_.default_backup_count == 5

@@ -437,17 +437,23 @@ class TestPingLoop:
 
     @pytest.mark.asyncio
     async def test_ping_timeout_resets_connection(self):
-        """Ping timeout detection disconnects (lines 457-467)."""
+        """Ping timeout detection disconnects (lines 457-467).
+
+        Note: ``_start_ping_loop()`` resets ``_last_ping_response = now`` to
+        avoid spurious timeout on a fresh connection. The test must set the
+        stale-response value AFTER that reset, not before.
+        """
         ws = _make_ws()
         fake = FakeSocket()
         ws.websocket = fake
         ws.connected = True
-        # Set last ping response far in the past to trigger timeout
-        ws._last_ping_response = 0.0
-        ws._last_connection_reset = 0.0
+        ws._last_connection_reset = 0.0  # > 15s ago → bypasses cooldown gate
 
         with patch("api.websocket.timing_jitter", return_value=0.01):
             ws._start_ping_loop()
+            # Override AFTER _start_ping_loop's reset to simulate
+            # "no ping response in a long time" — first iter fires timeout.
+            ws._last_ping_response = 0.0
             await asyncio.sleep(0.1)
 
         # Timeout should have set connected=False

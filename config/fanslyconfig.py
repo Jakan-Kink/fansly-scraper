@@ -18,6 +18,7 @@ from config.modes import DownloadMode
 from config.schema import (
     CacheSection,
     ConfigSchema,
+    LoggingSection,
     StashContextSection,
 )
 
@@ -207,6 +208,12 @@ class FanslyConfig:
     stash_require_stash_only_mode: bool = False
 
     # Logging
+    # ``log_levels`` is the legacy flat ``{logger_name: level_string}``
+    # view, kept for ``get_log_level()`` consumers. ``logging`` is the
+    # full nested LoggingSection — used by ``setup_handlers()`` to read
+    # per-handler rotation knobs (max_size, backup_count, when, utc,
+    # compression, keep_uncompressed) with fall-through to
+    # ``logging.global_.default_*``.
     log_levels: dict[str, str] = field(
         default_factory=lambda: {
             "sqlalchemy": "INFO",
@@ -217,6 +224,7 @@ class FanslyConfig:
             "json": "INFO",
         }
     )
+    logging: LoggingSection | None = None
     # endregion config.ini
 
     # endregion Fields
@@ -597,14 +605,23 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.cache, "device_id", config.cached_device_id)
     _maybe_set(base.cache, "device_id_timestamp", config.cached_device_id_timestamp)
 
-    # logging
+    # logging — sync flat ``log_levels`` dict onto the nested per-handler
+    # ``level`` fields. Legacy ``textio`` key drove both the rich console
+    # and the main file handler; keep that pairing on save so the YAML
+    # round-trip stays stable for operators who never touched the new
+    # split.
     log = config.log_levels
-    _maybe_set(base.logging, "sqlalchemy", log.get("sqlalchemy", "INFO"))
-    _maybe_set(base.logging, "stash_console", log.get("stash_console", "INFO"))
-    _maybe_set(base.logging, "stash_file", log.get("stash_file", "INFO"))
-    _maybe_set(base.logging, "textio", log.get("textio", "INFO"))
-    _maybe_set(base.logging, "websocket", log.get("websocket", "INFO"))
-    _maybe_set(base.logging, "json_level", log.get("json", "INFO"))
+    _maybe_set(base.logging.db, "level", log.get("sqlalchemy", "INFO"))
+    _maybe_set(base.logging.stash_console, "level", log.get("stash_console", "INFO"))
+    _maybe_set(base.logging.stash_file, "level", log.get("stash_file", "INFO"))
+    _maybe_set(base.logging.main_log, "level", log.get("textio", "INFO"))
+    _maybe_set(
+        base.logging.rich_handler,
+        "level",
+        log.get("rich_handler", log.get("textio", "INFO")),
+    )
+    _maybe_set(base.logging.websocket, "level", log.get("websocket", "INFO"))
+    _maybe_set(base.logging.json_, "level", log.get("json", "INFO"))
 
     # stash_context: replace wholesale (Optional[Section]; None when unconfigured)
     base.stash_context = stash_section

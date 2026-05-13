@@ -16,7 +16,7 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -308,33 +308,261 @@ class CacheSection(_BaseSection):
     device_id_timestamp: int | None = None
 
 
-class LoggingSection(_BaseSection):
-    """Log level configuration for named loggers.
+# ── Logging type aliases ────────────────────────────────────────
+LogLevel = Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+RotationWhen = Literal["s", "m", "h", "d", "midnight"]
+Compression = Literal["gz", "bz2", "xz"]
 
-    The YAML key for the JSON logger is ``json:``, but the Python
-    attribute is ``json_level`` because ``json`` would shadow Pydantic's
-    built-in ``BaseModel.json()`` serialisation method — accessing
-    ``section.json`` would silently return the log-level string instead
-    of a serialiser. ``populate_by_name=True`` lets callers use either
-    name when constructing from code.
+
+class ConsoleLoggerEntry(_BaseSection):
+    """Console-style logger (Rich-formatted stdout/stderr).
+
+    Rejects ``level: TRACE`` — TRACE never hits the console, it's a
+    file-only level.
+    """
+
+    enabled: bool = True
+    level: LogLevel | None = None
+    format: str | None = None
+
+    @field_validator("level")
+    @classmethod
+    def _reject_trace_on_console(cls, v: str | None) -> str | None:
+        if v == "TRACE":
+            raise ValueError(
+                "Console loggers cannot have level='TRACE' (TRACE is file-only)"
+            )
+        return v
+
+
+class FileLoggerEntry(_BaseSection):
+    """Rotating-file logger.
+
+    Size and time rotation axes are orthogonal — both can be active
+    simultaneously (matches ``SizeTimeRotatingHandler``). Either or both
+    may be ``None`` to disable that axis; per-field ``None`` falls
+    through to the matching ``default_*`` on ``LoggingGlobalSection``.
+    """
+
+    enabled: bool = True
+    filename: str
+    level: LogLevel | None = None
+    format: str | None = None
+    max_size: int | None = None
+    rotation_when: RotationWhen | None = None
+    rotation_interval: int | None = None
+    utc: bool | None = None
+    backup_count: int | None = None
+    compression: Compression | None = None
+    keep_uncompressed: int | None = None
+
+
+class MainLogEntry(FileLoggerEntry):
+    filename: str = "fansly_downloader_ng.log"
+
+
+class JsonLogEntry(FileLoggerEntry):
+    filename: str = "fansly_downloader_ng_json.log"
+
+
+class StashFileEntry(FileLoggerEntry):
+    filename: str = "stash.log"
+
+
+class DbLogEntry(FileLoggerEntry):
+    filename: str = "sqlalchemy.log"
+
+
+class TraceLogEntry(FileLoggerEntry):
+    enabled: bool = False
+    filename: str = "trace.log"
+    level: LogLevel | None = "TRACE"
+
+
+class WebsocketLogEntry(FileLoggerEntry):
+    filename: str = "websocket.log"
+
+
+class LoggingGlobalSection(_BaseSection):
+    """Cross-cutting defaults inherited by any per-logger field that is ``None``.
+
+    Defaults match FDNG's pre-config-driven behavior: 100 MB size cap,
+    hourly UTC time rotation, 5 backups, gzip compression, 2 most-recent
+    kept uncompressed for live tail-ability.
+
+    ``debug`` and ``trace`` are floors for FILE loggers only — they lift
+    file-output verbosity but leave console output untouched (console
+    NEVER hits TRACE regardless of ``trace: true``).
+    """
+
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"verbose"})
+
+    directory: str | None = Field(default=None, json_schema_extra=_ALWAYS)
+    debug: bool = Field(default=False, json_schema_extra=_ALWAYS)
+    trace: bool = False
+    default_level: LogLevel = "INFO"
+    default_format: str | None = None
+    default_max_size: int | None = 100 * 1024 * 1024  # 100 MB
+    default_rotation_when: RotationWhen | None = "h"
+    default_rotation_interval: int = 1
+    default_utc: bool = True
+    default_backup_count: int | None = 5
+    default_compression: Compression | None = "gz"
+    default_keep_uncompressed: int = 2
+
+
+class LoggingSection(_BaseSection):
+    """Eight named loggers + global defaults.
+
+    Two console handlers (``rich_handler``, ``stash_console``) and six
+    file handlers (``main_log``, ``json``, ``stash_file``, ``db``,
+    ``trace``, ``websocket``). Each entry has its own ``enabled`` /
+    ``level`` / ``format`` plus — for file entries — independent size
+    and time rotation axes. Unset per-logger fields fall through to
+    ``global.default_*``.
+
+    The attribute ``global_`` aliases YAML key ``global`` because
+    ``global`` is a Python keyword; same for ``json_`` aliasing ``json``
+    (which would also shadow Pydantic's ``BaseModel.json()`` serialiser).
+    ``populate_by_name=True`` lets either form load.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    sqlalchemy: str = "INFO"
-    stash_console: str = "INFO"
-    stash_file: str = "INFO"
-    textio: str = "INFO"
-    websocket: str = "INFO"
-    json_level: str = Field("INFO", alias="json", serialization_alias="json")
+    global_: LoggingGlobalSection = Field(
+        default_factory=LoggingGlobalSection,
+        alias="global",
+        json_schema_extra=_ALWAYS,
+    )
+    rich_handler: ConsoleLoggerEntry = Field(
+        default_factory=ConsoleLoggerEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    main_log: MainLogEntry = Field(
+        default_factory=MainLogEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    json_: JsonLogEntry = Field(
+        default_factory=JsonLogEntry,
+        alias="json",
+        json_schema_extra=_ALWAYS,
+    )
+    stash_console: ConsoleLoggerEntry = Field(
+        default_factory=ConsoleLoggerEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    stash_file: StashFileEntry = Field(
+        default_factory=StashFileEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    db: DbLogEntry = Field(
+        default_factory=DbLogEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    trace: TraceLogEntry = Field(
+        default_factory=TraceLogEntry,
+        json_schema_extra=_ALWAYS,
+    )
+    websocket: WebsocketLogEntry = Field(
+        default_factory=WebsocketLogEntry,
+        json_schema_extra=_ALWAYS,
+    )
 
     @model_validator(mode="before")
     @classmethod
-    def _remap_json_level_to_alias(cls, data: Any) -> Any:
-        """Accept legacy ``json_level:`` written by buggy save code as ``json:``."""
-        if isinstance(data, dict) and "json_level" in data and "json" not in data:
-            data["json"] = data.pop("json_level")
-        return data
+    def _migrate_legacy_flat_levels(cls, data: Any) -> Any:
+        """Lift the pre-v0.14 flat shape into the nested per-logger entries.
+
+        Old::
+
+            logging:
+              sqlalchemy: INFO
+              stash_console: INFO
+              stash_file: INFO
+              textio: INFO
+              websocket: INFO
+              json: INFO
+
+        New::
+
+            logging:
+              global: {default_level: INFO, ...}
+              db: {level: INFO}
+              stash_console: {level: INFO}
+              stash_file: {level: INFO}
+              main_log: {level: INFO}
+              rich_handler: {level: INFO}
+              websocket: {level: INFO}
+              json: {level: INFO}
+
+        Note ``textio`` seeds BOTH ``main_log.level`` and
+        ``rich_handler.level`` because the legacy key drove both the
+        main file handler and the rich console handler.
+        """
+        if not isinstance(data, dict):
+            return data
+        single_target: dict[str, tuple[str, str]] = {
+            "sqlalchemy": ("db", "level"),
+            "stash_console": ("stash_console", "level"),
+            "stash_file": ("stash_file", "level"),
+            "websocket": ("websocket", "level"),
+            "json_level": ("json", "level"),
+        }
+        migrated = dict(data)
+        for legacy_key, (section, field) in single_target.items():
+            if legacy_key in migrated and isinstance(migrated[legacy_key], str):
+                value = migrated.pop(legacy_key)
+                target = migrated.setdefault(section, {})
+                if isinstance(target, dict):
+                    target.setdefault(field, value)
+        # textio seeds two targets (main file + rich console)
+        if "textio" in migrated and isinstance(migrated["textio"], str):
+            value = migrated.pop("textio")
+            for section in ("main_log", "rich_handler"):
+                target = migrated.setdefault(section, {})
+                if isinstance(target, dict):
+                    target.setdefault("level", value)
+        # Legacy `json: INFO` (string) → `json: {level: INFO}`; leave dict alone
+        if isinstance(migrated.get("json"), str):
+            migrated["json"] = {"level": migrated["json"]}
+
+        # Sanitize per-entry level strings before Literal validation. Pre-v0.14
+        # ``load_config`` accepted any string + soft-fell-back to ``INFO`` on
+        # invalid values; preserve that lenient behavior so legacy YAMLs with
+        # typos still load.
+        valid_levels = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        for entry_key in (
+            "rich_handler",
+            "main_log",
+            "json",
+            "stash_console",
+            "stash_file",
+            "db",
+            "trace",
+            "websocket",
+        ):
+            entry = migrated.get(entry_key)
+            if not isinstance(entry, dict):
+                continue
+            level = entry.get("level")
+            if not isinstance(level, str):
+                continue
+            normalized = level.upper()
+            entry["level"] = normalized if normalized in valid_levels else "INFO"
+        return migrated
+
+    @model_validator(mode="after")
+    def _link_trace_toggles(self) -> Self:
+        """Keep ``global.trace`` and ``trace.enabled`` in sync.
+
+        Either toggle being True means trace logging is active. Setting
+        one in YAML implies the other — operators can write whichever
+        feels natural and they end up consistent.
+        """
+        if self.global_.trace or self.trace.enabled:
+            self.global_.trace = True
+            self.trace.enabled = True
+        return self
 
 
 class StashContextSection(_BaseSection):

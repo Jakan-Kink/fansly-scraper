@@ -665,6 +665,10 @@ async def _timeline_poll_loop(
             if queued_any:
                 transitioned = simulator.on_new_content()
                 if transitioned:
+                    logger.info(
+                        "daemon.runner: activity state -> active"
+                        " (new_content/home_timeline)"
+                    )
                     refresh_event.set()
 
 
@@ -730,6 +734,9 @@ async def _story_poll_loop(
         if creator_ids:
             transitioned = simulator.on_new_content()
             if transitioned:
+                logger.info(
+                    "daemon.runner: activity state -> active (new_content/story_poll)"
+                )
                 refresh_event.set()
             for creator_id in creator_ids:
                 if not await _is_creator_in_scope(config, creator_id):
@@ -1083,7 +1090,13 @@ def _make_ws_handler(
         )
 
         # Let interrupt events wake the simulator even during hidden
-        simulator.on_ws_event_during_hidden(service_id, event_type)
+        woke = simulator.on_ws_event_during_hidden(service_id, event_type)
+        if woke:
+            logger.info(
+                "daemon.runner: activity state -> active (ws_interrupt svc={} type={})",
+                service_id,
+                event_type,
+            )
 
         # SVC_CHAT (serviceId=46) type=10 — real-time chat message.
         # Route to an active ChatRecorder if one exists for this room.
