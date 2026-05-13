@@ -8,30 +8,21 @@ import httpx
 import pytest
 import respx
 
-from api.fansly import FanslyApi
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
-
-
-HOME_TIMELINE_URL = f"{FanslyApi.BASE_URL}timeline/home"
-STORY_STATES_URL = f"{FanslyApi.BASE_URL}mediastories/following"
 
 
 class TestGetHomeTimeline:
     """Tests for FanslyApi.get_home_timeline."""
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_home_timeline_hits_correct_url_and_params(self, fansly_api):
+    async def test_home_timeline_hits_correct_url_and_params(self, respx_fansly_api):
         """get_home_timeline sends GET to the home timeline endpoint with correct params."""
-        respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+        route = respx.get(url__startswith=respx_fansly_api.TIMELINE_HOME_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
         try:
-            result = await fansly_api.get_home_timeline()
+            result = await respx_fansly_api.get_home_timeline()
         finally:
             dump_fansly_calls(route.calls, "get_home_timeline - correct URL/params")
 
@@ -40,7 +31,7 @@ class TestGetHomeTimeline:
         assert len(route.calls) == 1
 
         request = route.calls.last.request
-        assert HOME_TIMELINE_URL in str(request.url)
+        assert respx_fansly_api.TIMELINE_HOME_ENDPOINT in str(request.url)
 
         params = dict(request.url.params)
         assert params["before"] == "0"
@@ -49,13 +40,9 @@ class TestGetHomeTimeline:
         assert params["ngsw-bypass"] == "true"
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_home_timeline_handles_500_retry(self, fansly_api):
+    async def test_home_timeline_handles_500_retry(self, respx_fansly_api):
         """get_home_timeline retries on 500 and returns the eventual success response."""
-        respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+        route = respx.get(url__startswith=respx_fansly_api.TIMELINE_HOME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(500, json={"success": False}),
                 httpx.Response(200, json={"success": True, "response": []}),
@@ -63,13 +50,11 @@ class TestGetHomeTimeline:
         )
 
         try:
-            result = await fansly_api.get_home_timeline()
+            result = await respx_fansly_api.get_home_timeline()
         finally:
             dump_fansly_calls(route.calls, "get_home_timeline - 500 retry")
 
-        # RetryTransport retried and eventually got 200
         assert result.status_code == 200
-        # At least 2 calls: the initial 500 + 1 retry that succeeded
         assert len(route.calls) >= 2
 
 
@@ -77,13 +62,13 @@ class TestGetStoryStatesFollowing:
     """Tests for FanslyApi.get_story_states_following."""
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_story_states_following_hits_correct_url_and_params(self, fansly_api):
+    async def test_story_states_following_hits_correct_url_and_params(
+        self, respx_fansly_api
+    ):
         """get_story_states_following sends GET to the following endpoint with correct params."""
-        respx.options(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+        route = respx.get(
+            url__startswith=respx_fansly_api.MEDIA_STORIES_FOLLOWING_ENDPOINT
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -98,7 +83,7 @@ class TestGetStoryStatesFollowing:
         )
 
         try:
-            result = await fansly_api.get_story_states_following()
+            result = await respx_fansly_api.get_story_states_following()
         finally:
             dump_fansly_calls(
                 route.calls, "get_story_states_following - correct URL/params"
@@ -109,7 +94,7 @@ class TestGetStoryStatesFollowing:
         assert len(route.calls) == 1
 
         request = route.calls.last.request
-        assert STORY_STATES_URL in str(request.url)
+        assert respx_fansly_api.MEDIA_STORIES_FOLLOWING_ENDPOINT in str(request.url)
 
         params = dict(request.url.params)
         assert params["limit"] == "100"
@@ -117,27 +102,22 @@ class TestGetStoryStatesFollowing:
         assert params["ngsw-bypass"] == "true"
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_story_states_following_returns_json_body(self, fansly_api):
+    async def test_story_states_following_returns_json_body(self, respx_fansly_api):
         """get_story_states_following response is parseable JSON with expected structure."""
         story_state = {"accountId": "987654321", "hasActiveStories": True}
-        respx.options(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+        route = respx.get(
+            url__startswith=respx_fansly_api.MEDIA_STORIES_FOLLOWING_ENDPOINT
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
-                    json={
-                        "success": True,
-                        "response": [story_state],
-                    },
+                    json={"success": True, "response": [story_state]},
                 )
             ]
         )
 
         try:
-            result = await fansly_api.get_story_states_following()
+            result = await respx_fansly_api.get_story_states_following()
         finally:
             dump_fansly_calls(route.calls, "get_story_states_following - JSON body")
 

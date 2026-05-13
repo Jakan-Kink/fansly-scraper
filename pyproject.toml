@@ -45,7 +45,7 @@ sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<1.0.0"
+asyncpg = ">=0.30.0,<0.31.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
@@ -91,6 +91,7 @@ types-toml = ">=0.10.8.20240310"
 types-m3u8 = ">=6.0.0.20250708"
 types-psutil = ">=7.0.0.20250401"
 types-tqdm = ">=4.67.0.20241221"
+asyncpg-stubs = ">=0.30.0.20241001"
 
 [tool.poetry.group.test]
 optional = true

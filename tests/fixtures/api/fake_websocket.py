@@ -49,8 +49,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from websockets.exceptions import ConnectionClosedOK
+from websockets.frames import Close
 
 from api.websocket_protocol import MSG_SERVICE_EVENT as _PROTO_MSG_SERVICE_EVENT
+
+
+_CLEAN_CLOSE_FRAME = Close(code=1000, reason="")
 
 
 class FakeSocket:
@@ -58,9 +63,12 @@ class FakeSocket:
 
     Records all sent messages and feeds back scripted recv responses from a
     queue. Once the queue is drained, ``recv()`` blocks until ``close()`` is
-    called — this matches the real WebSocket behavior of waiting for the
-    next server message, so downstream code that expects a long-lived
-    connection does not exit prematurely.
+    called, then raises ``ConnectionClosedOK`` — matching the real
+    ``websockets`` library, which raises after close rather than returning
+    a sentinel. Returning empty strings spins the listen loop forever
+    because production ``_handle_message`` catches ``JSONDecodeError`` and
+    loops; raising propagates to ``_listen_loop``'s ``WebSocketException``
+    branch which sets ``connected = False`` and exits.
 
     Attributes:
         sent: Every message sent via ``send()`` in call order.
@@ -79,14 +87,12 @@ class FakeSocket:
     async def recv(self) -> str:
         if self._recv_queue:
             return self._recv_queue.pop(0)
-        # Block until close() is called — simulates waiting for next server
-        # message on a live connection.
         await self._block_event.wait()
-        return ""
+        raise ConnectionClosedOK(_CLEAN_CLOSE_FRAME, _CLEAN_CLOSE_FRAME)
 
     async def close(self) -> None:
         self.closed = True
-        self._block_event.set()  # Unblock any pending recv.
+        self._block_event.set()
 
 
 def ws_message(msg_type: int, data: str) -> str:

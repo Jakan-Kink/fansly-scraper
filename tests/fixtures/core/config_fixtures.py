@@ -73,14 +73,20 @@ def complete_args():
 
 
 @pytest.fixture
-def config_wired(config, entity_store, fansly_api):
+def config_wired(config, entity_store, fansly_api_factory):
     """Config wired with a real FanslyApi backed by the test entity_store.
 
-    ``entity_store`` is requested before ``fansly_api`` so the store
-    singleton is set before any polling/filter functions call
+    ``entity_store`` is requested before ``fansly_api_factory`` so the
+    store singleton is set before any polling/filter functions call
     ``get_store()`` during test setup.
+
+    Uses ``fansly_api_factory`` (synchronous, no bootstrap) rather than
+    ``respx_fansly_api`` (async, bootstrapped) because callers of this
+    fixture do not need the ``setup_api`` bootstrap to have run —
+    they install their own respx routes and exercise specific code
+    paths without needing device_id refresh or WebSocket auth.
     """
-    config._api = fansly_api
+    config._api = fansly_api_factory()
     return config
 
 

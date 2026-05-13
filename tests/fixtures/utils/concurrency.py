@@ -63,5 +63,14 @@ class SyncExecutor:
         """
         return (func(*args) for args in zip(*iterables, strict=False))
 
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        """No-op shutdown — required by asyncio.BaseEventLoop.close().
+
+        When SyncExecutor is patched in for ThreadPoolExecutor and the
+        asyncio loop happens to install it as its default executor, the
+        loop's close() invokes ``executor.shutdown(wait=False)``.
+        Without this method asyncio raises AttributeError during teardown.
+        """
+
 
 __all__ = ["SyncExecutor"]

@@ -60,20 +60,9 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def config_with_api(test_config, fansly_api_with_respx):
-    """FanslyConfig whose get_api() returns a real httpx-backed FanslyApi.
-
-    Bypasses FanslyConfig.get_api()'s lazy-construction path (which would
-    try to read missing auth tokens) by injecting the api directly.
-    """
-    test_config._api = fansly_api_with_respx
-    return test_config
-
-
 @pytest.mark.asyncio
-@respx.mock
-async def test_mark_stories_viewed_posts_once_per_story(config_with_api):
+async def test_mark_stories_viewed_posts_once_per_story(respx_fansly_api, test_config):
+    config_with_api = test_config
     """Helper POSTs /mediastory/view once per saved story with the story id."""
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
@@ -99,8 +88,10 @@ async def test_mark_stories_viewed_posts_once_per_story(config_with_api):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_mark_stories_viewed_swallows_single_failure(config_with_api):
+async def test_mark_stories_viewed_swallows_single_failure(
+    respx_fansly_api, test_config
+):
+    config_with_api = test_config
     """One story failing with 500 must not prevent the others from being marked.
 
     ``api.mark_story_viewed`` uses ``http_session.post`` directly (no retry
@@ -138,8 +129,8 @@ async def test_mark_stories_viewed_swallows_single_failure(config_with_api):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_mark_stories_viewed_empty_list_is_noop(config_with_api):
+async def test_mark_stories_viewed_empty_list_is_noop(respx_fansly_api, test_config):
+    config_with_api = test_config
     """Passing an empty list does not hit the network."""
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
@@ -154,8 +145,10 @@ async def test_mark_stories_viewed_empty_list_is_noop(config_with_api):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_mark_stories_viewed_swallows_post_exception(config_with_api):
+async def test_mark_stories_viewed_swallows_post_exception(
+    respx_fansly_api, test_config
+):
+    config_with_api = test_config
     """Connection-level exception from POST → caught + logged, others continue.
 
     Covers lines 106-107 (``except Exception as e: print_warning(...)``).

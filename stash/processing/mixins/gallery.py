@@ -657,10 +657,10 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             }
         )
 
-        # Link images and scenes to gallery using relationship helpers
-        for image in all_images:
-            await image.add_to_gallery(gallery)
-            await self.store.save(image)
+        # Gallery.__side_mutations__["images"] fires addGalleryImages at
+        # gallery.save(), diffing against _snapshot.
+        if all_images:
+            gallery.images = list(gallery.images or []) + list(all_images)
         for scene in all_scenes:
             await gallery.add_scene(scene)
         if all_scenes:

@@ -188,7 +188,7 @@ def test_cleanup_database_no_database():
 
 # _async_main tests — `main` is patched as the seam for testing the wrapper's
 # own exit-code-mapping and cleanup logic; end-to-end coverage of main() itself
-# lives in tests/functional/ (Wave 2.2).
+# lives in tests/functional/.
 
 
 def _clear_atexit_cleanup_handlers() -> None:
@@ -1395,39 +1395,27 @@ def test_increase_file_descriptor_limit_handles_exception(caplog, monkeypatch):
     ), f"Expected FD-limit warning, got WARNING: {warning_messages}"
 
 
-# load_client_account_into_db happy path — pulled forward from the
-# deleted tests/core/unit/test_fansly_downloader_ng_extra.py
-# (Wave 2 Cat-D #2). Original used MagicMock(spec=FanslyConfig) + fake
-# API; this rewrite uses real FanslyConfig + real EntityStore so the
-# Account row is actually persisted via process_account_data.
+# load_client_account_into_db happy path — real FanslyConfig + real
+# EntityStore so the Account row is actually persisted via
+# process_account_data.
 
 
 async def test_load_client_account_into_db_persists_real_account(
     respx_fansly_api,
     config_with_database,
-    fansly_api,
     entity_store,
     monkeypatch,
 ):
     """load_client_account_into_db saves the client Account into the real store.
 
-    Real-pipeline rewrite (Wave 2 Cat-D #2): the original was a
-    MagicMock-heavy duplicate that asserted only that the patched
-    ``process_account_data`` had been awaited with the expected dict.
-    This version uses ``respx_fansly_api`` (same pattern established
-    by collections + single rewrites): real ``FanslyApi`` from the
-    ``fansly_api`` fixture, real ``EntityStore`` for persistence,
-    real ``/api/v1/account?usernames=`` HTTP boundary mocked at the
-    respx layer. ``asyncio.sleep`` is short-circuited so the test
-    doesn't block on the production timing_jitter call.
-
-    Asserting via ``store.get(Account, creator_id)`` exercises the
-    full pipeline: HTTP fetch → JSON envelope unwrap → ID coercion
-    → process_account_data → identity-map merge → real DB row.
+    Exercises the full pipeline: HTTP fetch → JSON envelope unwrap →
+    ID coercion → process_account_data → identity-map merge → real
+    DB row, with ``asyncio.sleep`` short-circuited so the test doesn't
+    block on the production timing_jitter call.
     """
 
     config = config_with_database
-    config._api = fansly_api
+    config._api = respx_fansly_api
     creator_id = snowflake_id()
     creator_name = "real_clientuser"
 

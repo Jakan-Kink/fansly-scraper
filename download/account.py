@@ -119,7 +119,7 @@ def _extract_account_data(
         if isinstance(response_data, list):
             return response_data[0]
 
-    except KeyError as e:
+    except httpx.HTTPStatusError as e:
         if response.status_code == 401:
             message = (
                 f"API returned unauthorized (24). "
@@ -130,6 +130,8 @@ def _extract_account_data(
                 f"\n  {e!s}\n  {response.text}"
             )
             raise ApiAuthenticationError(message)
+        raise
+    except KeyError as e:
         message = (
             "Bad response from fansly API (25). Please make sure your configuration file is not malformed."
             f"\n  {e!s}\n  {response.text}"

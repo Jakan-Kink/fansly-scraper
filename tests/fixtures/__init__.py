@@ -30,9 +30,7 @@ from .api import (
     dump_fansly_calls,
     fake_websocket_session,
     fake_ws,
-    fansly_api,
     fansly_api_factory,
-    fansly_api_with_respx,
     fansly_json,
     main_integration_env,
     make_fake_ws_factory,
@@ -99,6 +97,7 @@ from .download import (
     DownloadStateFactory,
     FakeStory,
     GlobalStateFactory,
+    m3u8_mock_config,
 )
 from .metadata import (
     AccountFactory,
@@ -255,6 +254,7 @@ mod_download_factories = [
     "DownloadStateFactory",
     "FakeStory",
     "GlobalStateFactory",
+    "m3u8_mock_config",
 ]
 
 mod_api_fixtures = [
@@ -267,9 +267,7 @@ mod_api_fixtures = [
     "dump_fansly_calls",
     "fake_websocket_session",
     "fake_ws",
-    "fansly_api",
     "fansly_api_factory",
-    "fansly_api_with_respx",
     "fansly_json",
     "main_integration_env",
     "make_fake_ws_factory",

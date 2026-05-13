@@ -864,25 +864,48 @@ async def test_process_message_batch(
             f"Expected at least 14 GraphQL calls (3 messages x ~5 ops each), got {len(calls)}"
         )
 
-        # Verify first message gallery operations
-        assert_op_with_vars(
-            calls[0],
-            "findGalleries",
-            gallery_filter__code__value=str(messages[0].id),
-        )
-        assert_op(calls[1], "findGalleries")
-        assert "title" in calls[1]["variables"]["gallery_filter"]
+        # Batch processing interleaves the 3 messages' lookups in the global
+        # calls list, so positional assertions on calls[0..4] are nondeterministic.
+        # Search structurally for messages[0]'s expected operations instead.
+        msg0_id = str(messages[0].id)
+        msg0_content = messages[0].content
+        msg0_url = f"https://fansly.com/messages/{group.id}/{messages[0].id}"
 
-        assert_op(calls[2], "findGalleries")
-        assert "url" in calls[2]["variables"]["gallery_filter"]
+        def _filter_value(call, key):
+            return (
+                call.get("variables", {})
+                .get("gallery_filter", {})
+                .get(key, {})
+                .get("value")
+            )
 
-        # Call 3: findGalleries (populate() filter-query for performers relationship)
-        # SGC v0.12 inlines values; no variables field
-        assert_op(calls[3], "findGalleries")
-        assert "performers" in calls[3]["query"]
+        assert any(
+            "findGalleries" in c["query"] and _filter_value(c, "code") == msg0_id
+            for c in calls
+        ), f"Expected findGalleries by code for messages[0].id={msg0_id}"
 
-        # Call 4: galleryCreate
-        assert_op(calls[4], "galleryCreate")
+        assert any(
+            "findGalleries" in c["query"] and _filter_value(c, "title") == msg0_content
+            for c in calls
+        ), "Expected findGalleries by title for messages[0].content"
+
+        assert any(
+            "findGalleries" in c["query"] and _filter_value(c, "url") == msg0_url
+            for c in calls
+        ), f"Expected findGalleries by url for messages[0] ({msg0_url})"
+
+        # populate() filter-query for performers relationship — SGC v0.12
+        # inlines values into the query string (no variables).
+        assert any(
+            "findGalleries" in c["query"] and "performers" in c["query"] for c in calls
+        ), "Expected findGalleries populate filter for performers"
+
+        # galleryCreate for messages[0]
+        assert any(
+            "galleryCreate" in c["query"]
+            and c.get("variables", {}).get("input", {}).get("code") == msg0_id
+            for c in calls
+        ), f"Expected galleryCreate for messages[0].id={msg0_id}"
 
         gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
         assert 1 <= len(gallery_creates) <= 3, (

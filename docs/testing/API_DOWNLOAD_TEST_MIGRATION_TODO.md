@@ -1,5 +1,5 @@
 ---
-status: planning
+status: in-progress
 ---
 
 # API and Download Test Migration Guide
@@ -7,7 +7,89 @@ status: planning
 **Goal**: Migrate all API and download tests to mock only at external boundaries (HTTP via RESPX), not internal methods.
 
 **Created**: 2025-11-18
+**Last status update**: 2026-05-10
 **Reference**: `STASH_TEST_MIGRATION_TODO.md` for migration philosophy
+
+---
+
+## Current Status (2026-05-10)
+
+### Fixture Surface — Consolidated to Path C
+
+The fixture inventory in "Available Fixtures for Migration" below is **OUT OF DATE**. Three fansly-side fixtures (`fansly_api`, `fansly_api_with_respx`, original `respx_fansly_api`) plus `respx_ivs_cdn` have been consolidated into two **bootstrapped** fixtures:
+
+| Fixture | Yields | Activates | Production seam exercised |
+| --- | --- | --- | --- |
+| `respx_fansly_api` | `FanslyApi` (bootstrapped) | respx + `fake_websocket_session()` | Real `FanslyConfig.setup_api()` → `update_device_id` + `setup_session` + real `FanslyWebSocket` auth against `FakeSocket` |
+| `respx_ivs_cdn` | `httpx.AsyncClient` | respx (host-scoped to `*.live-video.net`) | Real `_download_segment(client, ...)` and `_resolve_variant_url` code paths |
+
+Tests no longer need to do `mock_config._api = fansly_api`, `with respx.mock:` inline, or per-test fansly-side OPTIONS blankets — the fixture handles all three. Per-host fixtures compose: a test that hits both apiv3 AND IVS uses both fixtures simultaneously. Signed-CDN media URLs stay as per-test `respx.get(url__startswith=...)` (no dedicated fixture — host-arbitrary).
+
+Bootstrap routes use `side_effect=[Response(...)]` (one-shot — exhausts during setup_api so test routes on the same endpoint can override). OPTIONS uses `return_value=Response(200)` (host-scoped to apiv3) since every test fires a CORS preflight.
+
+Two production bugs surfaced and fixed in the same patch as the fixture consolidation (per `feedback_remove_mocks_fix_bugs`):
+1. `FakeSocket.recv()` now raises `ConnectionClosedOK` after close (matched real `websockets` lib; old behavior returned `""` causing infinite listen-loop spin)
+2. `SyncExecutor.shutdown()` added (asyncio.BaseEventLoop.close requires it; old `AttributeError` was masked because old fixture never closed the loop properly)
+
+### File inventory drift
+
+The "Test File Inventory" tables below list files and counts from 2025-11-21. The branch has accumulated many migration waves since. Current state (2026-05-10) of `tests/download/unit/` and `tests/api/unit/`:
+
+```
+tests/download/unit/          tests/api/unit/
+  test_account.py               test_fansly_api.py
+  test_account_coverage.py      test_fansly_api_additional.py
+  test_collections.py     ✅    test_fansly_api_callback.py
+  test_common.py                test_fansly_api_monitoring.py
+  test_downloadstate.py         test_rate_limiter.py
+  test_downloadstate_additional.py  test_rate_limiter_display.py
+  test_globalstate.py           test_websocket.py
+  test_globalstate_additional.py    test_websocket_subprocess.py
+  test_m3u8.py            ✅    test_websocket_thread.py
+  test_media_download.py
+  test_media_filtering.py
+  test_media_pipeline.py
+  test_messages_download.py
+  test_pagination_duplication.py
+  test_single_download.py
+  test_statistics.py
+  test_stories.py         ✅
+  test_timeline_download.py
+  test_wall_download.py
+```
+
+`test_transaction_recovery.py` and other files in the 2025-11-21 inventory have been removed or restructured.
+
+### Migrated this round (path C)
+
+| File | Tests | Notes |
+| --- | --- | --- |
+| `tests/download/unit/test_collections.py` | 4 ✅ | Already real-pipeline; just adopted new fixture surface |
+| `tests/download/unit/test_stories.py` | 11 ✅ | Inline `config_with_api` fixture removed; tests take `respx_fansly_api, test_config` directly |
+| `tests/download/unit/test_m3u8.py` | 56 ✅ | Bulk rename `fansly_api_with_respx` → `respx_fansly_api`. Surfaced + fixed `SyncExecutor.shutdown()` |
+
+Plus supporting infrastructure changes:
+- `tests/conftest.py:mock_config` enriched (token, user_agent, check_key, config_path)
+- `tests/conftest.py:test_config` aliased to `mock_config` (same instance)
+- `tests/fixtures/core/config_fixtures.py:config_wired` switched from `fansly_api` to `fansly_api_factory`
+- `tests/fixtures/api/fake_websocket.py:FakeSocket.recv` raises `ConnectionClosedOK` after close
+- `tests/fixtures/utils/concurrency.py:SyncExecutor.shutdown` added
+
+### Remaining — diagnostic first, then migrate
+
+Files that still consume the deleted `fansly_api` / `fansly_api_with_respx` (need migration). Before each: `grep -n "MagicMock\|AsyncMock\|patch\b" <file>` to scope whether it's a rename (like test_m3u8.py) or a rewrite (like test_account.py).
+
+| File | Failure mode | Estimated shape |
+| --- | --- | --- |
+| `tests/download/unit/test_account.py` | 36 fixture-resolution errors | **Rewrite**. Local `mock_config_with_api` fixture wraps `MagicMock(get_api)` + `MagicMock(_database)`. Multiple tests use `MagicMock(spec=httpx.Response)` and `fansly_api.get_json_response_contents = MagicMock(...)`. Each test needs respx routes returning real httpx.Response with realistic JSON. |
+| `tests/download/unit/test_account_coverage.py` | Inline `real_config` fixture takes `fansly_api` | **Move fixture to `tests/fixtures/download/`**, then update to use `fansly_api_factory()` |
+| `tests/download/unit/test_media_pipeline.py` | 8 failures — `respx.AllMockedAssertionError` on CDN OPTIONS preflights | Per-test add `respx.options(url__startswith="https://cdn.fansly.com/...")` route (new contract: only apiv3 OPTIONS is fixture-blanketed; other hosts mount their own) |
+| `tests/api/unit/test_fansly_api.py` | Uses `fansly_api` fixture | Likely rename + spy pattern for some tests |
+| `tests/api/unit/test_fansly_api_additional.py` | 5 violations (init tests + CORS) | Per Phase 1 of the original plan — replace `patch.object(FanslyApi, "update_device_id")` with respx routes |
+| `tests/api/unit/test_fansly_api_monitoring.py` | Uses `fansly_api` | TBD — diagnose before classifying |
+| `tests/core/unit/test_fansly_downloader_ng.py` | Uses `fansly_api` | TBD — diagnose before classifying |
+| `tests/download/integration/test_m3u8_integration.py` | Uses `fansly_api` | TBD — likely rename + real tmp_path |
+| `tests/metadata/integration/test_account_processing.py` | Uses `fansly_api` | TBD — likely rename, integration test against real DB |
 
 ---
 

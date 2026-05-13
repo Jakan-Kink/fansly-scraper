@@ -152,7 +152,7 @@ async def test_process_account_media_bundles(entity_store, mock_config, timeline
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
+async def test_bundle_truncation_backfill(entity_store, config_wired):
     """Test that bundles with >5 items backfill truncated accountMedia via API.
 
     The Fansly API truncates accountMedia objects at 5 items per bundle in
@@ -169,9 +169,6 @@ async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
     # 7 accountMedia items — first 5 "present" in response, last 2 "truncated"
     am_ids = [snowflake_id() for _ in range(7)]
     media_ids = [snowflake_id() for _ in range(7)]
-
-    # Set up the API on config
-    config._api = fansly_api
 
     # Create prerequisite account
     account = Account(id=account_id, username="truncation_test")
@@ -243,7 +240,7 @@ async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
         }
     ]
 
-    await process_media_bundles(config, account_id, bundle_data)
+    await process_media_bundles(config_wired, account_id, bundle_data)
 
     # Verify: bundle exists and junction table has all 7 positions
     bundle = await store.get(AccountMediaBundle, bundle_id)

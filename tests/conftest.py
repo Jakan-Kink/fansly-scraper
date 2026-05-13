@@ -452,28 +452,36 @@ def sample_message(sample_account):
 
 
 @pytest.fixture
-def mock_config():
+def mock_config(tmp_path):
     """Create a basic FanslyConfig instance without database setup.
 
     Use this for tests that mock the database or don't need real database access.
     For tests that need a real database, use the 'config' fixture from database_fixtures.py
 
-    Note: Sets pg_database to a non-existent name to prevent accidental connections
-    to the production database.
+    Token, user_agent, and check_key are pre-populated to satisfy
+    ``token_is_valid()`` and ``useragent_is_valid()`` so the
+    ``respx_fansly_api`` fixture can drive ``setup_api()`` end-to-end.
+    config_path is a per-test tmp file so any ``_save_config`` call
+    writes to a throwaway location.
+
+    Note: Sets pg_database to a non-existent name to prevent accidental
+    connections to the production database.
     """
     config = FanslyConfig(program_version="0.13.0")
-    # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
+    config.config_path = tmp_path / "config.yaml"
+    # token_is_valid() requires len >= 50 and no "ReplaceMe".
+    config.token = "a" * 60
+    # useragent_is_valid() requires len >= 40 and no "ReplaceMe".
+    config.user_agent = "Mozilla/5.0 " + "A" * 60
+    config.check_key = "test_check_key"
     return config
 
 
 @pytest.fixture
-def test_config():
-    """Alias for mock_config fixture for backwards compatibility."""
-    config = FanslyConfig(program_version="0.13.0")
-    # Override database name to prevent accidental connections to production database
-    config.pg_database = "test_mock_should_not_connect"
-    return config
+def test_config(mock_config):
+    """Alias for mock_config — same instance, kept for legacy callers."""
+    return mock_config
 
 
 @pytest.fixture

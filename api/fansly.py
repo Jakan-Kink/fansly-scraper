@@ -358,7 +358,9 @@ class FanslyApi:
             alternate_token=alternate_token,
         )
 
-        await self.cors_options_request(url)
+        # CORS-simple GETs (no custom headers) don't preflight in real browsers.
+        if add_fansly_headers:
+            await self.cors_options_request(url)
 
         (_, file_url) = split_url(url)
 
@@ -440,18 +442,19 @@ class FanslyApi:
             alternate_token=alternate_token,
         )
 
-        # CORS preflight (sync variant).
+        # CORS-simple GETs (no custom headers) don't preflight in real browsers.
         sync = self._get_segment_session()
-        cors_headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Access-Control-Request-Headers": "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id",
-            "Access-Control-Request-Method": "GET",
-            "Origin": self.FANSLY_HOST,
-            "Referer": f"{self.FANSLY_HOST}/",
-            "User-Agent": self.user_agent,
-        }
-        sync.options(url, headers=cors_headers)
+        if add_fansly_headers:
+            cors_headers = {
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Access-Control-Request-Headers": "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id",
+                "Access-Control-Request-Method": "GET",
+                "Origin": self.FANSLY_HOST,
+                "Referer": f"{self.FANSLY_HOST}/",
+                "User-Agent": self.user_agent,
+            }
+            sync.options(url, headers=cors_headers)
 
         (_, file_url) = split_url(url)
 

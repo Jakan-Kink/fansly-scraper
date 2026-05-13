@@ -1,117 +1,130 @@
 """API fixtures for testing Fansly API client using respx for edge mocking.
 
-This module provides fixtures for testing the Fansly API client WITHOUT using MagicMock
-for internal functions. Instead, we use respx to mock HTTP responses at the edge
-(the network boundary).
+This module provides fixtures for testing the Fansly API client through
+its production seam — ``FanslyConfig.setup_api()`` — with all four
+edge boundaries faked at the appropriate layer:
 
-Key Principles:
-- NO MagicMock for internal functions
-- Use respx to mock HTTP/HTTPS requests
-- Provide real JSON responses that match Fansly API format
-- Test with real FanslyApi instances
+- ``apiv3.fansly.com`` HTTP — respx host-scoped routes
+- Signed CDN media URLs — respx per-test ``url__startswith`` routes
+- ``*.live-video.net`` IVS — respx host-scoped routes (``respx_ivs_cdn``)
+- ``wss://wsv3.fansly.com`` WebSocket — ``fake_websocket_session()``
+  patches ``api.websocket.ws_client.connect`` so real ``FanslyWebSocket``
+  code runs against an auto-authenticating ``FakeSocket``
+
+Reference pattern: ``tests/fixtures/stash/stash_api_fixtures.py``'s
+``respx_stash_client`` and ``respx_stash_processor`` (yields a fully
+configured subject reached through the production construction seam,
+with respx active inside the fixture body).
+
+Branch policy (``tests-to-100/CLAUDE.md``): edges only — no internal
+mocks. ``respx_fansly_api`` runs the real ``setup_api()`` bootstrap
+(``update_device_id`` + ``setup_session`` + WS auth), surfacing real
+production behavior to every consumer test.
 
 Usage:
-    import respx
-    import httpx
-
-    @respx.mock
-    async def test_api_call(fansly_api_with_respx):
-        # Mock the edge (HTTP response) — ALWAYS side_effect=[] per CLAUDE.md,
-        # never return_value (which would defeat retry-budget accounting).
-        respx.get("https://apiv3.fansly.com/api/v1/account").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={"success": True, "response": {"id": "123"}},
-                )
-            ]
+    @pytest.mark.asyncio
+    async def test_collections(respx_fansly_api):
+        # respx_fansly_api yields a bootstrapped FanslyApi.
+        # mock_config._api is wired automatically.
+        respx.get("https://apiv3.fansly.com/api/v1/account/media/orders/").mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": {...}})]
         )
-
-        # Test with real API instance
-        result = await fansly_api_with_respx.get_account_info()
-        assert result["id"] == "123"
+        # Use the yielded api directly OR mock_config._api — same instance.
+        result = await respx_fansly_api.get_media_collections()
 """
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
+import pytest_asyncio
 import respx
+from loguru import logger
 
 from api.fansly import FanslyApi
 
+from .fake_websocket import fake_websocket_session
 
-@pytest.fixture
-def fansly_api_with_respx():
-    """Create a real FanslyApi instance for use with respx HTTP mocking.
 
-    This fixture provides a real FanslyApi instance with real httpx.Client.
-    Use respx to mock the HTTP responses at the edge.
+# ───────────────────────────────────────────────────────────────────────
+# Sample response dictionaries (used by tests as JSON bodies)
+# ───────────────────────────────────────────────────────────────────────
 
-    Returns:
-        FanslyApi: Real API instance with real HTTP client
 
-    Example:
-        @respx.mock
-        async def test_timeline(fansly_api_with_respx):
-            # Mock the HTTP response — per-test routes must use side_effect=[].
-            respx.get("https://apiv3.fansly.com/api/v1/timeline").mock(
-                side_effect=[httpx.Response(200, json={"response": []})]
-            )
+def create_mock_json_response(
+    status_code: int = 200,
+    json_data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """Create a real httpx.Response for use with respx mocking."""
+    if json_data is None:
+        json_data = {}
 
-            # Use real API
-            timeline = await fansly_api_with_respx.get_timeline()
-            assert timeline == []
-    """
-    # Lazy import to avoid circular dependency
+    if headers is None:
+        headers = {"content-type": "application/json"}
 
-    api = FanslyApi(
-        token="test_token",  # noqa: S106 # Test fixture token
-        user_agent="test_user_agent",
-        check_key="test_check_key",
-        device_id="test_device_id",
-        device_id_timestamp=int(datetime.now(UTC).timestamp() * 1000),
+    return httpx.Response(
+        status_code=status_code,
+        json=json_data,
+        headers=headers,
     )
-
-    return api
 
 
 @pytest.fixture
-def fansly_api():
-    """Create a real FanslyApi instance for testing.
+def mock_fansly_account_response():
+    """Provide a sample Fansly account API response for testing."""
+    return {
+        "success": True,
+        "response": {
+            "id": "123456789",
+            "username": "testuser",
+            "displayName": "Test User",
+            "about": "Test account",
+            "location": "Test Location",
+            "following": False,
+            "subscribed": False,
+            "flags": 0,
+            "version": 1,
+            "createdAt": int(datetime.now(UTC).timestamp() * 1000),
+        },
+        "aggregationData": {},
+    }
 
-    This is an alias for fansly_api_with_respx for backward compatibility.
-    Use with respx to mock HTTP responses.
 
-    Returns:
-        FanslyApi: Real API instance
-    """
-    # Lazy import to avoid circular dependency
+@pytest.fixture
+def mock_fansly_timeline_response():
+    """Provide a sample Fansly timeline API response for testing."""
+    return {
+        "success": True,
+        "response": [
+            {
+                "id": "post_123",
+                "accountId": "123456789",
+                "content": "Test post content",
+                "createdAt": int(datetime.now(UTC).timestamp() * 1000),
+                "likeCount": 5,
+                "replyCount": 2,
+                "attachments": [],
+            }
+        ],
+        "aggregationData": {},
+    }
 
-    api = FanslyApi(
-        token="test_token",  # noqa: S106 # Test fixture token
-        user_agent="test_user_agent",
-        check_key="test_check_key",
-        device_id="test_device_id",
-        device_id_timestamp=int(datetime.now(UTC).timestamp() * 1000),
-    )
 
-    return api
+# ───────────────────────────────────────────────────────────────────────
+# FanslyApi factory (for tests that build their own api instances)
+# ───────────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def fansly_api_factory():
     """Factory fixture for creating FanslyApi instances with custom parameters.
 
-    Returns:
-        Callable: Factory function that creates real FanslyApi instances
-
-    Example:
-        def test_custom_api(fansly_api_factory):
-            api = fansly_api_factory(token="custom_token")
-            assert api.token == "custom_token"
+    For tests that need multiple api instances or custom constructor args.
+    Most tests should use ``respx_fansly_api`` instead — it constructs the
+    api through the production ``FanslyConfig.setup_api()`` seam.
     """
 
     def _create_api(
@@ -138,198 +151,202 @@ def fansly_api_factory():
     return _create_api
 
 
-def create_mock_json_response(
-    status_code: int = 200,
-    json_data: dict[str, Any] | None = None,
-    headers: dict[str, str] | None = None,
-) -> httpx.Response:
-    """Create a real httpx.Response for use with respx mocking.
+# ───────────────────────────────────────────────────────────────────────
+# Bootstrap-route helper for setup_api()
+# ───────────────────────────────────────────────────────────────────────
 
-    This creates REAL response objects, not MagicMock objects.
 
-    Args:
-        status_code: HTTP status code
-        json_data: Dictionary to include as JSON body
-        headers: Optional HTTP headers
+def _mount_apiv3_bootstrap_routes() -> None:
+    """Mount the routes ``FanslyConfig.setup_api()`` needs to complete.
 
-    Returns:
-        httpx.Response: Real httpx Response object
+    Called inside ``respx.mock`` before ``await mock_config.setup_api()``.
+    Covers ``update_device_id`` → ``GET /api/v1/device/id?ngsw-bypass=true``
+    and ``setup_session`` preflight → ``GET /api/v1/account/me?ngsw-bypass=true``,
+    plus the OPTIONS preflight that ``cors_options_request`` fires before
+    each GET (``api/fansly.py:362``).
 
-    Example:
-        response = create_mock_json_response(
-            200,
-            {"success": True, "response": {"id": "123"}}
-        )
-
-        # Use with respx — per-test routes must use side_effect=[] per CLAUDE.md.
-        respx.get("https://api.example.com/test").mock(
-            side_effect=[response]
-        )
+    The OPTIONS responder is host-scoped to ``apiv3.fansly.com`` so a
+    misdirected OPTIONS to a different host raises through
+    ``assert_all_mocked=True`` instead of getting a silent 200.
     """
-    if json_data is None:
-        json_data = {}
-
-    if headers is None:
-        headers = {"content-type": "application/json"}
-
-    return httpx.Response(
-        status_code=status_code,
-        json=json_data,
-        headers=headers,
+    # URL prefixes terminate with ``?`` (the query-string separator) so
+    # ``account/me?`` is NOT a string prefix of ``account/media/orders/?``.
+    # Without the terminator, respx's naive prefix matching catches
+    # ``me`` ⊂ ``media`` and the bootstrap route intercepts test routes.
+    #
+    # OPTIONS uses ``return_value`` because every test fires a CORS
+    # preflight (``cors_options_request`` at ``api/fansly.py:362``); a
+    # one-shot OPTIONS responder would exhaust after the first GET.
+    # The endpoint GETs use ``side_effect=[...]`` (one-shot): they fire
+    # exactly once during ``setup_api()`` bootstrap and then exhaust, so
+    # tests can mount their own routes on the same endpoints without
+    # the bootstrap routes intercepting (respx skips exhausted routes
+    # and matches later-registered ones for the same URL).
+    respx.route(
+        method="OPTIONS",
+        url__startswith="https://apiv3.fansly.com",
+    ).mock(return_value=httpx.Response(200))
+    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/device/id?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={"success": True, "response": "test-device-id-bootstrap"},
+            )
+        ]
+    )
+    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {
+                        "account": {
+                            "id": "100000001",
+                            "username": "testuser",
+                            "displayName": "Test User",
+                        }
+                    },
+                },
+            )
+        ]
     )
 
 
-@pytest.fixture
-def mock_fansly_account_response():
-    """Provide a sample Fansly account API response for testing.
-
-    Returns:
-        dict: Sample account response matching Fansly API format
-
-    Example:
-        @respx.mock
-        def test_account(fansly_api, mock_fansly_account_response):
-            respx.get("https://apiv3.fansly.com/api/v1/account/123").mock(
-                side_effect=[httpx.Response(200, json=mock_fansly_account_response)]
-            )
-    """
-    return {
-        "success": True,
-        "response": {
-            "id": "123456789",
-            "username": "testuser",
-            "displayName": "Test User",
-            "about": "Test account",
-            "location": "Test Location",
-            "following": False,
-            "subscribed": False,
-            "flags": 0,
-            "version": 1,
-            "createdAt": int(datetime.now(UTC).timestamp() * 1000),
-        },
-        "aggregationData": {},
-    }
+# ───────────────────────────────────────────────────────────────────────
+# respx_fansly_api — apiv3.fansly.com edge, bootstrapped via setup_api()
+# ───────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def mock_fansly_timeline_response():
-    """Provide a sample Fansly timeline API response for testing.
+@pytest_asyncio.fixture
+async def respx_fansly_api(
+    mock_config,
+    no_display,
+) -> AsyncGenerator[FanslyApi, None]:
+    """Get a bootstrapped FanslyApi via FanslyConfig.setup_api().
 
-    Returns:
-        dict: Sample timeline response matching Fansly API format
+    Mirrors production: the api is reached through the same FanslyConfig
+    path real code uses (``get_api`` → ``setup_api`` → ``update_device_id``
+    + ``setup_session``). Bootstrap HTTP runs inside the respx context;
+    WebSocket auth runs against a ``FakeSocket`` that synthesizes a
+    session_id (``fake_websocket_session()``).
+
+    Yields:
+        FanslyApi: bootstrapped, session_id populated, ready to use.
+        ``mock_config._api`` is wired to the same instance.
+
+    Tests register per-call routes on ``https://apiv3.fansly.com/...``
+    URLs with ``side_effect=[]`` (per branch CLAUDE.md respx rules).
+    The bootstrap routes are reset between bootstrap and serve phases
+    so test-side ``route.calls`` assertions start clean.
+
+    OPTIONS preflight is host-scoped to ``apiv3.fansly.com`` only —
+    a misdirected OPTIONS to a different host fails through
+    ``assert_all_mocked=True`` instead of getting a silent 200.
 
     Example:
-        @respx.mock
-        def test_timeline(fansly_api, mock_fansly_timeline_response):
-            respx.get("https://apiv3.fansly.com/api/v1/timeline").mock(
-                side_effect=[httpx.Response(200, json=mock_fansly_timeline_response)]
-            )
+        @pytest.mark.asyncio
+        async def test_timeline(respx_fansly_api):
+            route = respx.get(
+                url__startswith="https://apiv3.fansly.com/api/v1/timeline"
+            ).mock(side_effect=[httpx.Response(200, json={...})])
+            try:
+                result = await respx_fansly_api.get_home_timeline()
+            finally:
+                dump_fansly_calls(route.calls)
     """
-    return {
-        "success": True,
-        "response": [
-            {
-                "id": "post_123",
-                "accountId": "123456789",
-                "content": "Test post content",
-                "createdAt": int(datetime.now(UTC).timestamp() * 1000),
-                "likeCount": 5,
-                "replyCount": 2,
-                "attachments": [],
-            }
-        ],
-        "aggregationData": {},
-    }
+    with respx.mock, fake_websocket_session() as _ws:
+        _mount_apiv3_bootstrap_routes()
+
+        # Real production seam: get_api() → setup_api() → update_device_id
+        # + setup_session (which spins up FanslyWebSocket and waits for
+        # session_id from the FakeSocket auth_response).
+        api = await mock_config.setup_api()
+
+        # ``respx.clear()`` (not ``reset()``) removes the bootstrap routes
+        # from the registry — otherwise a test mounting a route on the
+        # same endpoint (e.g., ``account/me``) hits the bootstrap route
+        # first; since its ``side_effect=[]`` is exhausted, respx raises
+        # ``StopIteration`` instead of falling through to the test's
+        # route. ``reset()`` only clears call history, not routes.
+        respx.clear()
+        respx.route(
+            method="OPTIONS",
+            url__startswith="https://apiv3.fansly.com",
+        ).mock(return_value=httpx.Response(200))
+
+        try:
+            yield api
+        finally:
+            # Close the WebSocket thread + httpx session to prevent
+            # socket warnings on test teardown.
+            await api.aclose()
+            await api.http_session.aclose()
 
 
-@pytest.fixture
-def respx_ivs_cdn() -> Generator[None, None, None]:
-    """Activate respx mocking for IVS CDN tests (``*.live-video.net``).
+# ───────────────────────────────────────────────────────────────────────
+# respx_ivs_cdn — *.live-video.net edge for IVS livestream tests
+# ───────────────────────────────────────────────────────────────────────
 
-    Use this for tests that exercise IVS-host code paths (master/variant
-    playlist fetches, ``.ts`` segment downloads, etc.) — anything that
-    hits ``*.live-video.net`` rather than ``apiv3.fansly.com``.
 
-    Yields from inside ``respx.mock`` so the global registry is active
-    during the test and torn down on teardown. Tests add their own
-    ``respx.get(url=...).mock(side_effect=[...])`` routes for the
-    specific IVS URLs under exercise.
+@pytest_asyncio.fixture
+async def respx_ivs_cdn() -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Get an httpx.AsyncClient with respx active for IVS CDN tests.
 
-    Distinct from ``respx_fansly_api`` because IVS calls do NOT hit a
-    Fansly API, do not need the CORS preflight blanket, and do not
-    require ``mock_config._api`` wiring. Pick exactly one of these
-    fixtures per test — respx maintains a global singleton registry.
+    Use for tests that exercise IVS-host code paths (master/variant
+    playlist fetches, ``.ts`` segment downloads) — anything hitting
+    ``*.live-video.net``. Distinct from ``respx_fansly_api`` because
+    IVS calls do NOT hit a Fansly API, do not need CORS preflight,
+    and do not require ``mock_config._api`` wiring.
 
-    Example::
+    Yields a fresh ``httpx.AsyncClient`` ready for IVS calls. Tests
+    that consume ``_download_segment(client, ...)`` (which takes an
+    injected client) use the yielded one directly; tests of
+    ``_resolve_variant_url`` (which constructs its own client
+    internally) just need respx active inside the with-block.
 
+    No fixture-level fallback responder — ``assert_all_mocked=True``
+    catches any unrouted call as a test failure (preferred to silent
+    200s on the wrong host).
+
+    Example:
         async def test_segment_fetch(respx_ivs_cdn, tmp_path):
             url = "https://chan.live-video.net/segment_001.ts"
             route = respx.get(url).mock(
                 side_effect=[httpx.Response(200, content=b"TS-DATA")]
             )
             try:
-                async with httpx.AsyncClient() as client:
-                    ok = await _download_segment(client, url, tmp_path / "s.ts", "[t]")
+                ok = await _download_segment(
+                    respx_ivs_cdn, url, tmp_path / "s.ts", "[t]"
+                )
             finally:
                 dump_fansly_calls(route.calls)
             assert ok is True
     """
     with respx.mock:
-        yield
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=15.0,
+        ) as client:
+            yield client
 
 
-@pytest.fixture
-def respx_fansly_api(
-    mock_config,
-    fansly_api,
-) -> Generator[None, None, None]:
-    """Activate respx mocking with CORS preflight handling for Fansly API tests.
-
-    Wires fansly_api into mock_config, then activates respx.mock with a
-    blanket OPTIONS route (FanslyApi.cors_options_request sends an OPTIONS
-    preflight before every GET).
-
-    Tests add their own respx.get/post routes for specific endpoints.
-
-    NOTE: Uses ``respx.mock(using="httpcore")`` to intercept at the lowest
-    transport level, which works with httpx_retries wrapped transports.
-
-    Example::
-
-        @pytest.mark.asyncio
-        async def test_collections(respx_fansly_api, mock_config):
-            respx.get("https://apiv3.fansly.com/api/v1/account/media/orders/").mock(
-                side_effect=[httpx.Response(200, json={"success": True, "response": {...}})]
-            )
-            await download_collections(mock_config, state)
-    """
-    mock_config._api = fansly_api
-    with respx.mock:
-        # Intentional `return_value` — this is a fixture-level blanket CORS
-        # preflight that must respond to every OPTIONS request throughout the
-        # test. `side_effect=[Response(200)]` would exhaust after one call.
-        # Per-test GET/POST routes still must use `side_effect=[...]`.
-        respx.route(method="OPTIONS").mock(return_value=httpx.Response(200))
-        yield
+# ───────────────────────────────────────────────────────────────────────
+# dump_fansly_calls — debug helper for try/finally blocks
+# ───────────────────────────────────────────────────────────────────────
 
 
 def dump_fansly_calls(calls, label: str = "Fansly API calls") -> None:
-    """Print request/response details for each Fansly API call.
+    """Log request/response details for each Fansly API call.
 
     Works with respx route.calls or respx.calls. Use in try/finally blocks
-    when debugging test failures to see exactly what HTTP calls were made:
-
-        route = respx.get(...).mock(side_effect=[...])
-        try:
-            await function_under_test()
-        finally:
-            dump_fansly_calls(route.calls)
+    when debugging test failures to see exactly what HTTP calls were made.
 
     Handles three response states per call:
 
-    - **Response present** (normal case): prints status code.
-    - **No response** (``side_effect=[<Exception>]`` raised before producing a
-      response): prints ``"NO RESPONSE (exception raised)"``. Without this
+    - **Response present** (normal case): logs status code.
+    - **No response** (``side_effect=[<Exception>]`` raised before producing
+      a response): logs ``"NO RESPONSE (exception raised)"``. Without this
       branch, accessing ``call.response`` would raise ``ValueError`` from
       respx and the dump itself would crash inside the test's ``finally:`` —
       masking the real failure with a fixture-side error.
@@ -341,39 +358,33 @@ def dump_fansly_calls(calls, label: str = "Fansly API calls") -> None:
         calls: respx route.calls or respx.calls list
         label: Header label for the output
     """
-    print(f"\n{'=' * 70}")
-    print(f"  {label} ({len(calls)} total)")
-    print(f"{'=' * 70}")
+    sep = "=" * 70
+    lines = [sep, f"  {label} ({len(calls)} total)", sep]
     for i, call in enumerate(calls):
         try:
             req = call.request
         except Exception as exc:  # pragma: no cover  (defensive — shouldn't happen)
-            print(f"\n  [{i}] <unable to access call.request: {exc!r}>")
+            lines.append(f"  [{i}] <unable to access call.request: {exc!r}>")
             continue
 
-        # ``call.response`` raises ValueError when respx's side_effect was an
-        # Exception class/instance (no Response was produced). Use the
-        # ``has_response`` / ``optional_response`` API to handle that
-        # gracefully.
         if getattr(call, "has_response", True):
             resp = call.optional_response
             status = resp.status_code if resp is not None else "NO RESPONSE"
         else:
             status = "NO RESPONSE (exception raised)"
 
-        print(f"\n  [{i}] {req.method} {req.url}")
+        lines.append(f"  [{i}] {req.method} {req.url}")
         if req.content:
-            print(f"      body: {req.content[:200]}")
-        print(f"      → {status}")
-    print(f"\n{'=' * 70}\n")
+            lines.append(f"      body: {req.content[:200]!r}")
+        lines.append(f"      → {status}")
+    lines.append(sep)
+    logger.info("\n" + "\n".join(lines))
 
 
 __all__ = [
     "create_mock_json_response",
     "dump_fansly_calls",
-    "fansly_api",
     "fansly_api_factory",
-    "fansly_api_with_respx",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
     "respx_fansly_api",

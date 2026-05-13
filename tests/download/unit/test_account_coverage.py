@@ -1,7 +1,7 @@
 """Coverage tests for download/account.py — proper pattern with real objects.
 
-Uses real FanslyConfig, real httpx.Response, respx at the edge.
-NO MagicMock for internal objects.
+Uses real FanslyConfig (via ``config_wired``), real httpx.Response, respx at
+the edge. NO MagicMock for internal objects.
 """
 
 import httpx
@@ -9,7 +9,6 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
-from config.fanslyconfig import FanslyConfig
 from download.account import (
     _extract_account_data,
     _get_account_response,
@@ -19,23 +18,10 @@ from errors import ApiAccountInfoError, ApiError
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
 
-@pytest.fixture
-def real_config(fansly_api):
-    """Real FanslyConfig with real FanslyApi."""
-    config = FanslyConfig(program_version="0.13.0")
-    config._api = fansly_api
-    config.token = "a" * 60
-    config.user_agent = "a" * 50
-    config.check_key = "test-key"
-    config.interactive = False
-    config.reverse_order = False
-    return config
-
-
 class TestExtractAccountDataKeyErrorNon401:
     """Cover _extract_account_data KeyError with non-401 status (lines 133-137)."""
 
-    def test_key_error_non_401_raises_api_error(self, real_config):
+    def test_key_error_non_401_raises_api_error(self, config_wired):
         """KeyError on a non-401 response raises generic ApiError (not ApiAuthenticationError).
 
         get_json_response_contents raises RuntimeError for non-success responses,
@@ -52,7 +38,7 @@ class TestExtractAccountDataKeyErrorNon401:
         )
 
         with pytest.raises(ApiError, match="Bad response from fansly API"):
-            _extract_account_data(response, real_config)
+            _extract_account_data(response, config_wired)
 
 
 class TestGetAccountResponseNon200:
@@ -64,7 +50,7 @@ class TestGetAccountResponseNon200:
     """
 
     @pytest.mark.asyncio
-    async def test_non_200_2xx_status_raises(self, real_config):
+    async def test_non_200_2xx_status_raises(self, config_wired):
         """204 No Content passes raise_for_status but fails the != 200 check."""
         state = DownloadState()
         state.creator_name = "testcreator"
@@ -82,6 +68,6 @@ class TestGetAccountResponseNon200:
                     ApiAccountInfoError,
                     match="API returned status code 204",
                 ):
-                    await _get_account_response(real_config, state)
+                    await _get_account_response(config_wired, state)
             finally:
                 dump_fansly_calls(route.calls)

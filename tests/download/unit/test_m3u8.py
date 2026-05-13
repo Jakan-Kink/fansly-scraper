@@ -199,10 +199,10 @@ class TestM3U8Progress:
 class TestFetchM3U8SegmentPlaylist:
     """Tests for ``fetch_m3u8_segment_playlist`` — real parser + fake API."""
 
-    def test_endlist_vod_returned_directly(self, fansly_api_with_respx):
+    def test_endlist_vod_returned_directly(self, respx_fansly_api):
         """VOD endlist playlist → returned directly without recursion."""
         config = _make_real_config()
-        config._api = fansly_api_with_respx
+        config._api = respx_fansly_api
 
         playlist_text = """#EXTM3U
 #EXT-X-VERSION:3
@@ -237,7 +237,7 @@ segment2.ts
         # Single HTTP call — no recursion.
         assert get_route.call_count == 1
 
-    def test_master_playlist_selects_highest_resolution(self, fansly_api_with_respx):
+    def test_master_playlist_selects_highest_resolution(self, respx_fansly_api):
         """Master playlist → recursive fetch of highest-resolution variant.
 
         The real code calls _get_highest_quality_variant_url which fetches
@@ -245,7 +245,7 @@ segment2.ts
         variant URL. Three total HTTP calls.
         """
         config = _make_real_config()
-        config._api = fansly_api_with_respx
+        config._api = respx_fansly_api
 
         master = """#EXTM3U
 #EXT-X-VERSION:3
@@ -293,10 +293,10 @@ segment1.ts
         # Variant call targets the 1080p variant URL.
         assert "video_1080.m3u8" in str(variant_route.calls[0].request.url)
 
-    def test_master_playlist_fallback_guesses_1080p_url(self, fansly_api_with_respx):
+    def test_master_playlist_fallback_guesses_1080p_url(self, respx_fansly_api):
         """Master playlist with no variants → guesses ``_1080.m3u8`` fallback URL."""
         config = _make_real_config()
-        config._api = fansly_api_with_respx
+        config._api = respx_fansly_api
 
         empty_master = """#EXTM3U
 #EXT-X-VERSION:3
@@ -335,10 +335,10 @@ segment1.ts
         assert variant_route.call_count == 1
         assert "_1080.m3u8" in str(variant_route.calls[0].request.url)
 
-    def test_http_error_raises_m3u8error(self, fansly_api_with_respx):
+    def test_http_error_raises_m3u8error(self, respx_fansly_api):
         """Non-200 response → real ``raise M3U8Error`` fires."""
         config = _make_real_config()
-        config._api = fansly_api_with_respx
+        config._api = respx_fansly_api
 
         with respx.mock:
             respx.options(url__startswith="https://example.com/v.m3u8").mock(
@@ -1810,11 +1810,9 @@ class TestSegmentDownload:
         )
         return playlist_route, segment_route
 
-    def test_success_invokes_pyav_mux(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
-    ):
+    def test_success_invokes_pyav_mux(self, tmp_path, monkeypatch, respx_fansly_api):
         """All segments downloaded + PyAV mux succeeds → returns output_path."""
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
         cookies = {"CloudFront-Policy": "abc"}
 
@@ -1850,9 +1848,9 @@ class TestSegmentDownload:
         # ffmpeg mux not called — PyAV succeeded first.
         assert ffmpeg_called["n"] == 0
 
-    def test_ffmpeg_mux_fallback(self, tmp_path, monkeypatch, fansly_api_with_respx):
+    def test_ffmpeg_mux_fallback(self, tmp_path, monkeypatch, respx_fansly_api):
         """PyAV mux fails → FFmpeg concat fallback tried."""
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         monkeypatch.setattr(
@@ -1888,11 +1886,9 @@ class TestSegmentDownload:
         assert result == output_path
         assert ffmpeg_called["n"] == 1
 
-    def test_both_mux_paths_fail_raises(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
-    ):
+    def test_both_mux_paths_fail_raises(self, tmp_path, monkeypatch, respx_fansly_api):
         """Both PyAV + FFmpeg mux fail → raises M3U8Error."""
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         monkeypatch.setattr(
@@ -1922,11 +1918,9 @@ class TestSegmentDownload:
                 dump_fansly_calls(playlist_route.calls)
                 dump_fansly_calls(segment_route.calls)
 
-    def test_missing_segments_raises(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
-    ):
+    def test_missing_segments_raises(self, tmp_path, monkeypatch, respx_fansly_api):
         """Segment returns 404 → not-written on disk → raises with list."""
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         monkeypatch.setattr(
@@ -1956,7 +1950,7 @@ class TestSegmentDownload:
                 dump_fansly_calls(segment_route.calls)
 
     def test_download_ts_skips_empty_chunks(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
+        self, tmp_path, monkeypatch, respx_fansly_api
     ):
         """iter_bytes yields empty chunks mixed with real ones → empties skipped.
 
@@ -1965,7 +1959,7 @@ class TestSegmentDownload:
         streaming responses can yield empty chunks when the network
         pauses; the production guard protects against writing empty data.
         """
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         playlist_text = (
@@ -2028,7 +2022,7 @@ class TestSegmentDownload:
         assert result == output_path
 
     def test_download_ts_handles_non_200_status(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
+        self, tmp_path, monkeypatch, respx_fansly_api
     ):
         """Segment returns non-200 → debug log + returns without writing.
 
@@ -2037,7 +2031,7 @@ class TestSegmentDownload:
         from ``download_ts`` without raising — the file is simply not
         created, which is then caught by the missing-segments check.
         """
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         monkeypatch.setattr(
@@ -2064,7 +2058,7 @@ class TestSegmentDownload:
                 dump_fansly_calls(segment_route.calls)
 
     def test_download_ts_handles_http_exception(
-        self, tmp_path, monkeypatch, fansly_api_with_respx
+        self, tmp_path, monkeypatch, respx_fansly_api
     ):
         """Segment get_with_ngsw raises → inner download_ts except fires.
 
@@ -2072,7 +2066,7 @@ class TestSegmentDownload:
         function. When ALL segments fail via exceptions, missing_segments
         detection raises M3U8Error.
         """
-        config = self._make_config_with_segments(fansly_api_with_respx)
+        config = self._make_config_with_segments(respx_fansly_api)
         output_path = tmp_path / "video.mp4"
 
         playlist_text = (
