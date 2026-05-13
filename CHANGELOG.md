@@ -15,6 +15,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-05-12
+
+WebSocket gateway refactor, livestream/daemon hardening, and production
+fixes surfaced by the tests-to-100 fixture migration.
+
+### Added
+
+- WebSocket event classification: known no-op events (e.g. service=1,2
+  post-like broadcasts) now identify concretely in trace logs instead
+  of being labeled "unknown event".
+- H.264 High-profile mux path for IVS livestream recordings;
+  `daemon/livestream_watcher.py` split from the parent module.
+
+### Changed
+
+- WebSocket subsystem collapsed: subprocess `FanslyWebSocket` is the
+  single production class — the threading variant and the separate
+  gateway layer have been folded in.
+- `cors_options_request` in `get_with_ngsw` / `get_with_ngsw_sync` is
+  gated on `add_fansly_headers`. CDN downloads (which pass
+  `add_fansly_headers=False`) no longer fire OPTIONS preflight — saves
+  one round-trip per file and removes an anti-detection fingerprint
+  real browsers don't produce on CORS-simple GETs.
+- Gallery image linking switched to `Gallery.__side_mutations__["images"]`
+  (SGC v0.12+) via direct `gallery.images = ...` assignment — one
+  batched `addGalleryImages` per gallery save instead of N
+  `imageUpdate(gallery_ids=...)` calls.
+- WS ping/pong pairs removed from trace logs (2 events per 20s
+  saturated slow-period logs).
+- Daemon simulator no longer pins to the active state; home-feed limbo
+  state fixed.
+- `_resolve_variant_url` (livestream) made async; was previously blocking.
+
+### Fixed
+
+- Config schema validation issue.
+- IVS muxing issues and logging-level mismatches in livestream
+  recording.
+- Stale `gallery_ids` re-submission via `imageUpdate` causing
+  intermittent ~18% flake on stash gallery integration tests; the new
+  gallery-side relationship path (see Changed) avoids re-submitting
+  the image's full `gallery_ids` list and so the FK validation can't
+  fail on cleaned-up gallery refs.
+
+### Dependencies
+
+- Pin `asyncpg<0.31` (downgrade 0.31.0 → 0.30.0). asyncpg 0.31.0 has a
+  Cython teardown SIGSEGV regression on Python 3.13 under high-worker
+  pytest configurations. Add asyncpg-stubs 0.30.2 for typing coverage.
+- Poetry deps refresh.
+
 ## [0.13.6] - 2026-05-09
 
 Livestream recorder overwrite-protection on broadcast reconnects.
@@ -555,7 +606,8 @@ since v0.11.0 shipped (a "v0.12" line was never cut as a distinct release).
   abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes
   (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.7...HEAD
+[0.13.7]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...v0.13.7
 [0.13.6]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.5...v0.13.6
 [0.13.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.4...v0.13.5
 [0.13.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.3...v0.13.4
