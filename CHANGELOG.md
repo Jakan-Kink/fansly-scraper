@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-05-13
+
+Patch release completing the #94 scope-respect coverage that v0.14.0 only partially addressed.
+
+### Fixed
+
+- `daemon.runner._handle_work_item` now hoists the creator-scope check to the dispatch point. v0.14.0's inline checks only covered `_handle_messages_item` and `_handle_full_creator_item`; the other five `_WORK_DISPATCH` handlers (`RedownloadCreatorMedia`, `CheckCreatorAccess`, `DownloadStoriesOnly`, `DownloadTimelineOnly`, `MarkMessagesDeleted`) ran unfiltered. WS events captured via `bootstrap_daemon_ws` during batch-mode initial sync drained through those unfiltered handlers, causing downloads from creators outside the operator's `-u` / `targeted_creator.usernames` whitelist even with `daemon_mode: false`.
+- `daemon.livestream_watcher._poll_and_diff` now filters live creators against `config.is_username_in_scope` before spawning recording tasks. Pre-fix the watcher recorded every followed creator currently live regardless of the operator's whitelist.
+- `FanslyConfig.monitoring_livestream_recording_enabled` dataclass default flipped `True` → `False` to match the v0.14.0 schema-side flip. Schema→config sync overwrites this in normal YAML loads, so the mismatch only bled through in tests and programmatic `FanslyConfig()` construction.
+
+### Changed
+
+- Scope predicate hoisted to `FanslyConfig.is_username_in_scope(str | None)`. Synchronous, type-validated, no metadata-store touch. Callers that already hold a username (livestream watcher, payload-driven entry points) use it directly. The id-based `daemon.runner._is_creator_in_scope` is now a thin shim that resolves id → username via the local Account store, then delegates — kept permanently since WS events only carry account ids.
+
 ## [0.14.1] - 2026-05-13
 
 Patch release for a render-policy regression in v0.14.0's nested `LoggingSection` schema.
@@ -306,7 +320,8 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.7...v0.14.0
 [0.13.7]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.6...v0.13.7
