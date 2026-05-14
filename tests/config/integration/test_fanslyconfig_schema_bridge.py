@@ -107,7 +107,7 @@ def test_round_trip_save_and_reload(
     load_config(fresh_config)
 
     # Mutate attributes
-    fresh_config.user_names = {"alice", "bob"}
+    fresh_config.user_names = {"alice", "bobby"}
     fresh_config.pg_host = "save-test-host"
     fresh_config.pg_port = 5555
     fresh_config.timeline_retries = 7
@@ -124,7 +124,7 @@ def test_round_trip_save_and_reload(
     second_config = FanslyConfig(program_version="0.13.0")
     load_config(second_config)
 
-    assert second_config.user_names == {"alice", "bob"}
+    assert second_config.user_names == {"alice", "bobby"}
     assert second_config.pg_host == "save-test-host"
     assert second_config.pg_port == 5555
     assert second_config.timeline_retries == 7
@@ -929,11 +929,11 @@ def test_user_names_cli_does_not_overwrite_yaml_list(
     """``-u alice`` targets alice this run; YAML's full creator list stays."""
     yaml_path = config_dir / "config.yaml"
     schema = ConfigSchema()
-    schema.targeted_creator.usernames = ["alice", "bob", "carol"]
+    schema.targeted_creator.usernames = ["alice", "bobby", "carol"]
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
-    assert fresh_config.user_names == {"alice", "bob", "carol"}
+    assert fresh_config.user_names == {"alice", "bobby", "carol"}
 
     _handle_user_settings(
         _full_args_namespace(use_following=False, users=["alice"]),
@@ -943,7 +943,7 @@ def test_user_names_cli_does_not_overwrite_yaml_list(
 
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bob", "carol"], (
+    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby", "carol"], (
         "CLI -u must target a subset for this run only; YAML's full list stays "
         "as the persisted authoritative set"
     )
@@ -954,9 +954,9 @@ def test_uf_protects_user_names_from_refresh_following_overwrite(
 ) -> None:
     """``-uf`` blocks daemon's ``_refresh_following`` from overwriting YAML.
 
-    Scenario: user authored ``usernames: [alice, bob]`` in YAML, runs with
+    Scenario: user authored ``usernames: [alice, bobby]`` in YAML, runs with
     ``-uf`` (use-following mode), and during the daemon run
-    ``_refresh_following`` fetches the live following list = [alice, bob,
+    ``_refresh_following`` fetches the live following list = [alice, bobby,
     carol, dave] and assigns it to ``config.user_names``. Without protection,
     the next ``_save_config`` would clobber the user's curated list with the
     API-fetched superset.
@@ -967,7 +967,7 @@ def test_uf_protects_user_names_from_refresh_following_overwrite(
     """
     yaml_path = config_dir / "config.yaml"
     schema = ConfigSchema()
-    schema.targeted_creator.usernames = ["alice", "bob"]
+    schema.targeted_creator.usernames = ["alice", "bobby"]
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
@@ -977,12 +977,12 @@ def test_uf_protects_user_names_from_refresh_following_overwrite(
     assert fresh_config.use_following is True
 
     # Simulate ``_refresh_following`` setting user_names to the fetched list.
-    fresh_config.user_names = {"alice", "bob", "carol", "dave"}
+    fresh_config.user_names = {"alice", "bobby", "carol", "dave"}
 
     # Save and verify YAML still has the original curated list, not the fetch.
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bob"], (
+    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby"], (
         "When -uf is active, the daemon's auto-fetched following list must NOT "
         "propagate to YAML; the user's curated usernames: list stays sacred"
     )
@@ -994,7 +994,7 @@ def test_ufp_protects_user_names_from_refresh_following_overwrite(
     """``-ufp`` (combined flag) provides the same user_names protection as ``-uf``."""
     yaml_path = config_dir / "config.yaml"
     schema = ConfigSchema()
-    schema.targeted_creator.usernames = ["alice", "bob"]
+    schema.targeted_creator.usernames = ["alice", "bobby"]
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
@@ -1005,8 +1005,8 @@ def test_ufp_protects_user_names_from_refresh_following_overwrite(
     assert fresh_config.use_following is True
     assert fresh_config.use_pagination_duplication is True
 
-    fresh_config.user_names = {"alice", "bob", "carol", "dave"}
+    fresh_config.user_names = {"alice", "bobby", "carol", "dave"}
 
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bob"]
+    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby"]

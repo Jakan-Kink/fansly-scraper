@@ -29,8 +29,16 @@ from daemon.bootstrap import (
     drain_backfill,
     shutdown_bootstrap,
 )
-from daemon.handlers import DownloadTimelineOnly, FullCreatorDownload
+from daemon.handlers import (
+    CheckCreatorAccess,
+    DownloadStoriesOnly,
+    DownloadTimelineOnly,
+    FullCreatorDownload,
+    RedownloadCreatorMedia,
+)
+from daemon.runner import _WORK_DISPATCH
 from daemon.simulator import ActivitySimulator
+from tests.fixtures.metadata import AccountFactory
 
 
 def _make_bootstrap(
@@ -219,6 +227,148 @@ class TestDrainBackfillExceptionBookkeeping:
             "backfill complete" in m and "0 processed" in m and "3 failed" in m
             for m in info_messages
         )
+
+
+class TestDrainBackfillScopeHoistEndToEnd:
+    """End-to-end: ``drain_backfill`` → real ``_handle_work_item`` → v0.14.2
+    scope hoist.
+
+    The unit test ``TestHandleWorkItemScopeHoist`` (in
+    ``test_runner_wiring.py``) pins the hoist's per-item behavior.
+    THIS test pins the integration: that ``drain_backfill`` actually
+    drives the hoist for every item it pulls off the queue, so the
+    full ``bootstrap_daemon_ws → drain_backfill → _handle_work_item``
+    pipeline filters out-of-scope work — which is the exact path #94
+    surfaced (WS events captured during batch-mode sync drained
+    through unfiltered handlers).
+
+    Patches ``daemon.runner._WORK_DISPATCH`` with recorder funcs so
+    the test never tries to do real downloads. Does NOT patch
+    ``daemon.bootstrap._handle_work_item`` — the real handler runs
+    with the v0.14.2 hoist intact.
+    """
+
+    @pytest.mark.asyncio
+    async def test_drain_filters_out_of_scope_items_dispatches_in_scope(
+        self,
+        config_wired,
+        entity_store,
+        saved_account,
+        monkeypatch,
+    ):
+        """Mixed-scope queue: in-scope items reach handlers, out-of-scope
+        items are dropped at the hoist. drain_backfill's ``processed``
+        count includes BOTH (a skipped item is "processed without
+        exception" from drain's perspective — pinning that nuance).
+        """
+        # Set up scope: alice in, carolyn out.
+        in_scope_account = saved_account  # already in store
+        out_of_scope_account = AccountFactory.build(username="carolyn")
+        await entity_store.save(out_of_scope_account)
+
+        config_wired.use_following = False
+        config_wired.user_names = {in_scope_account.username}
+
+        # Mixed queue: every WorkItem type that carries a creator id,
+        # half for the in-scope creator, half for the out-of-scope one.
+        in_scope_items = [
+            FullCreatorDownload(creator_id=in_scope_account.id),
+            RedownloadCreatorMedia(creator_id=in_scope_account.id),
+            CheckCreatorAccess(creator_id=in_scope_account.id),
+            DownloadStoriesOnly(creator_id=in_scope_account.id),
+            DownloadTimelineOnly(creator_id=in_scope_account.id),
+        ]
+        out_of_scope_items = [
+            FullCreatorDownload(creator_id=out_of_scope_account.id),
+            RedownloadCreatorMedia(creator_id=out_of_scope_account.id),
+            CheckCreatorAccess(creator_id=out_of_scope_account.id),
+            DownloadStoriesOnly(creator_id=out_of_scope_account.id),
+            DownloadTimelineOnly(creator_id=out_of_scope_account.id),
+        ]
+        bootstrap = _make_bootstrap(items=in_scope_items + out_of_scope_items)
+
+        dispatched: list = []
+
+        async def _record(_c, item):
+            dispatched.append(item)
+
+        # Patch the dispatch table with recorder funcs. The real
+        # _handle_work_item still runs (including the v0.14.2 scope
+        # hoist); only the leaf handlers are replaced.
+        monkeypatch.setattr(
+            "daemon.runner._WORK_DISPATCH", dict.fromkeys(_WORK_DISPATCH, _record)
+        )
+
+        processed = await drain_backfill(config_wired, bootstrap)
+
+        # Every queued item gets pulled off — drain_backfill counts each
+        # as "processed" regardless of whether the hoist filtered it.
+        assert processed == 10, (
+            f"drain should count all 10 items as processed (filtered != "
+            f"failed); got {processed}"
+        )
+        # Queue fully drained.
+        assert bootstrap.queue.empty()
+
+        # Only the in-scope items reached the recorders.
+        assert len(dispatched) == 5, (
+            f"only 5 in-scope items should reach handlers; "
+            f"got {len(dispatched)}: {[type(i).__name__ for i in dispatched]}"
+        )
+        dispatched_creator_ids = {
+            getattr(item, "creator_id", None) for item in dispatched
+        }
+        assert dispatched_creator_ids == {in_scope_account.id}, (
+            f"only the in-scope creator should be dispatched to; "
+            f"got {dispatched_creator_ids}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_drain_under_use_following_lets_every_item_through(
+        self,
+        config_wired,
+        entity_store,
+        saved_account,
+        monkeypatch,
+    ):
+        """``-uf`` / ``-ufp`` mode: hoist short-circuits True for any
+        creator. Every item drained reaches its handler.
+
+        Pins the contract that the e2e drain pipeline doesn't introduce
+        any extra filtering on top of the hoist — ``-uf`` should mean
+        what it says.
+        """
+        other_account = AccountFactory.build(username="dianne")
+        await entity_store.save(other_account)
+
+        config_wired.use_following = True
+        config_wired.user_names = None
+
+        bootstrap = _make_bootstrap(
+            items=[
+                FullCreatorDownload(creator_id=saved_account.id),
+                FullCreatorDownload(creator_id=other_account.id),
+                DownloadStoriesOnly(creator_id=saved_account.id),
+                DownloadStoriesOnly(creator_id=other_account.id),
+            ]
+        )
+
+        dispatched: list = []
+
+        async def _record(_c, item):
+            dispatched.append(item)
+
+        monkeypatch.setattr(
+            "daemon.runner._WORK_DISPATCH", dict.fromkeys(_WORK_DISPATCH, _record)
+        )
+
+        processed = await drain_backfill(config_wired, bootstrap)
+
+        assert processed == 4
+        assert len(dispatched) == 4
+        # Both accounts represented in dispatched items.
+        creator_ids = {item.creator_id for item in dispatched}
+        assert creator_ids == {saved_account.id, other_account.id}
 
 
 # ---------------------------------------------------------------------------

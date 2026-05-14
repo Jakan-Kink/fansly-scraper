@@ -3,7 +3,7 @@
 This module provides custom logging handlers for advanced log management.
 The main handler class SizeTimeRotatingHandler supports:
 - Combined size and time-based log rotation
-- Multiple compression formats (gz, 7z, lzha)
+- Multiple compression formats (gz, bz2, xz)
 - UTC time support
 - Configurable backup count and intervals
 - Proper cleanup and compression
@@ -12,9 +12,11 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides the handler implementation.
 """
 
+import bz2
 import contextlib
 import gzip
 import logging
+import lzma
 import os
 import shutil
 import sys
@@ -23,6 +25,17 @@ from datetime import UTC, datetime
 from logging.handlers import BaseRotatingHandler
 from pathlib import Path
 from typing import Any
+
+
+# Compression registry: name → (file extension, stdlib module). All three
+# modules expose the same ``.open(filename, mode='wb')`` interface so one
+# atomic-write path covers every format. To add a format, append the
+# ``(ext, module)`` pair and update the schema's ``Compression`` literal.
+_COMPRESSORS: dict[str, tuple[str, Any]] = {
+    "gz": (".gz", gzip),
+    "bz2": (".bz2", bz2),
+    "xz": (".xz", lzma),
+}
 
 
 class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
@@ -36,7 +49,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         maxBytes: Maximum file size in bytes before rotation
         backupCount: Number of backup files to keep
         utc: Whether to use UTC time for rotation calculations
-        compression: Compression format to use ('gz', '7z', 'lzha')
+        compression: Compression format to use ('gz', 'bz2', 'xz')
         interval: Time interval between rotations in seconds
         rolloverAt: Timestamp for next scheduled rotation
         when: Time unit for rotation ('s', 'm', 'h', 'd', 'w')
@@ -70,8 +83,11 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         self.maxBytes = maxBytes
         self.backupCount = backupCount
         self.utc = utc
-        if compression and compression not in ["gz", "7z", "lzha"]:
-            raise ValueError(f"Unsupported compression type: {compression}")
+        if compression and compression not in _COMPRESSORS:
+            raise ValueError(
+                f"Unsupported compression type: {compression}. "
+                f"Supported: {sorted(_COMPRESSORS)}"
+            )
         self.compression = compression
         self.keep_uncompressed = (
             keep_uncompressed  # Number of uncompressed files to keep
@@ -178,19 +194,19 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             finally:
                 self.stream = None  # type: ignore[assignment]
 
-        # Remove oldest backup if it exists
+        # Every known extension, not just the currently-configured one —
+        # legacy files from a prior compression setting still need to roll.
+        known_exts: list[str] = [ext for ext, _ in _COMPRESSORS.values()]
+
+        # Remove oldest backup if it exists (uncompressed + every known
+        # compressed variant).
         if self.backupCount > 0:
             oldest = f"{self.baseFilename}.{self.backupCount}"
-            oldest_path = Path(oldest)
-            oldest_gz = Path(f"{oldest}.gz")
-            # Ignore errors when removing old backup files
-            with contextlib.suppress(OSError):
-                if oldest_path.exists():
-                    oldest_path.unlink()
-            # Ignore errors when removing old compressed backup files
-            with contextlib.suppress(OSError):
-                if oldest_gz.exists():
-                    oldest_gz.unlink()
+            for variant_ext in ("", *known_exts):
+                path = Path(f"{oldest}{variant_ext}")
+                with contextlib.suppress(OSError):
+                    if path.exists():
+                        path.unlink()
 
         # Rotate log files. Each rename is wrapped in suppress(FileNotFoundError)
         # to handle the TOCTOU race when multiple processes (e.g. xdist workers)
@@ -201,19 +217,23 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             dfn = f"{self.baseFilename}.{i + 1}"
             sfn_path = Path(sfn)
             dfn_path = Path(dfn)
-            sfn_gz = Path(f"{sfn}.gz")
-            dfn_gz = Path(f"{dfn}.gz")
 
             if sfn_path.exists():
                 with contextlib.suppress(FileNotFoundError):
                     if dfn_path.exists():
                         dfn_path.unlink()  # pragma: no cover - defensive check, destination cleared in cleanup
                     sfn_path.rename(dfn_path)
-            elif sfn_gz.exists():
-                with contextlib.suppress(FileNotFoundError):
-                    if dfn_gz.exists():
-                        dfn_gz.unlink()
-                    sfn_gz.rename(dfn_gz)
+            else:
+                # Try each known compressed extension; one match max per index.
+                for variant_ext in known_exts:
+                    sfn_compressed = Path(f"{sfn}{variant_ext}")
+                    if sfn_compressed.exists():
+                        dfn_compressed = Path(f"{dfn}{variant_ext}")
+                        with contextlib.suppress(FileNotFoundError):
+                            if dfn_compressed.exists():
+                                dfn_compressed.unlink()
+                            sfn_compressed.rename(dfn_compressed)
+                        break
 
             # Check if the rotated file should be compressed
             if dfn_path.exists() and self.compression:
@@ -290,75 +310,44 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if self.keep_uncompressed > 0 and file_num < self.keep_uncompressed:
             return
 
-        if self.compression == "gz":
-            compressed_path = f"{filepath}.gz"
-            temp_path = f"{compressed_path}.tmp"
+        ext, module = _COMPRESSORS[self.compression]
+        compressed_path = f"{filepath}{ext}"
+        temp_path = f"{compressed_path}.tmp"
 
+        try:
+            # First compress to a temporary file
             try:
-                # First compress to a temporary file
-                try:
-                    with (
-                        filepath_path.open("rb") as f_in,
-                        gzip.open(temp_path, "wb") as f_out,
-                    ):
-                        shutil.copyfileobj(f_in, f_out)
-                except OSError as e:
-                    if "No such file or directory" in str(e):
-                        # File was deleted while we were reading it
-                        return
+                with (
+                    filepath_path.open("rb") as f_in,
+                    module.open(temp_path, "wb") as f_out,
+                ):
+                    shutil.copyfileobj(f_in, f_out)
+            except OSError as e:
+                if "No such file or directory" in str(e):
+                    # File was deleted while we were reading it
+                    return
+                raise
+
+            # Then atomically move the temp file to final location
+            try:
+                Path(temp_path).replace(compressed_path)
+            except OSError:
+                # Another process might have created the file
+                if Path(compressed_path).exists():
+                    Path(temp_path).unlink(missing_ok=True)
+                else:
                     raise
 
-                # Then atomically move the temp file to final location
-                try:
-                    Path(temp_path).replace(compressed_path)
-                except OSError:
-                    # Another process might have created the file
-                    if Path(compressed_path).exists():
-                        Path(temp_path).unlink(missing_ok=True)
-                    else:
-                        raise
-
-                # Finally try to remove the original
+            # Finally try to remove the original
+            with contextlib.suppress(OSError):
+                filepath_path.unlink(missing_ok=True)
+        except Exception:
+            # Clean up any partial files
+            for path in [temp_path, compressed_path]:
                 with contextlib.suppress(OSError):
-                    filepath_path.unlink(missing_ok=True)
-            except Exception:
-                # Clean up any partial files
-                for path in [temp_path, compressed_path]:
-                    with contextlib.suppress(OSError):
-                        Path(path).unlink(missing_ok=True)
-                # Always re-raise the exception after cleanup
-                raise
-        elif self.compression == "7z":
-            try:
-                shutil.make_archive(
-                    filepath,
-                    "7z",
-                    root_dir=filepath_path.parent,
-                    base_dir=filepath_path.name,
-                )
-                filepath_path.unlink()
-            except Exception:
-                archive_path = Path(f"{filepath}.7z")
-                if archive_path.exists():
-                    archive_path.unlink()
-                raise
-        elif self.compression == "lzha":
-            try:
-                shutil.make_archive(
-                    filepath,
-                    "zip",
-                    root_dir=filepath_path.parent,
-                    base_dir=filepath_path.name,
-                )
-                filepath_path.unlink()
-            except Exception:
-                archive_path = Path(f"{filepath}.zip")
-                if archive_path.exists():
-                    archive_path.unlink()
-                raise
-        else:
-            # This should never happen due to validation in __init__, but be defensive
-            raise ValueError(f"Unsupported compression type: {self.compression}")
+                    Path(path).unlink(missing_ok=True)
+            # Always re-raise the exception after cleanup
+            raise
 
 
 class SizeTimeRotatingHandler:
@@ -390,7 +379,7 @@ class SizeTimeRotatingHandler:
             when: Rotation interval unit ('s', 'm', 'h', 'd', 'w')
             interval: Number of units between rotations
             utc: Use UTC time for rotation timing
-            compression: Compression format ('gz', '7z', 'lzha')
+            compression: Compression format ('gz', 'bz2', 'xz')
             keep_uncompressed: Number of recent files to keep uncompressed
             encoding: File encoding
             log_level: Logging level (default: INFO)

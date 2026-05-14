@@ -559,7 +559,7 @@ def setup_handlers() -> None:
             wrapper.handler.db_logger_name = "database_logger"  # debug tag
         handler_id = logger.add(
             wrapper.write,
-            format=entry.format or g.default_format or default_format,
+            format=default_format,
             level=get_log_level(level_logger_name, default_level),
             filter=filter,
             backtrace=True,
@@ -577,7 +577,7 @@ def setup_handlers() -> None:
             return
         handler_id = logger.add(  # type: ignore[call-overload]
             sink=console_sink,
-            format=entry.format or g.default_format or format_record,
+            format=format_record,
             level=get_log_level(level_logger_name, "INFO"),
             filter=filter,
             colorize=use_colorize,

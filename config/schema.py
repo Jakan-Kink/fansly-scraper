@@ -153,6 +153,19 @@ class _BaseSection(BaseModel):
         return data
 
 
+# Fansly's own client-side username validator (``verifyUsername`` at
+# ``main_beautified.js:50717``) accepts ``[a-zA-Z0-9_-]`` of length 4-20.
+# The JS source uses a literal allow-list string with an unintentional
+# typo (``...xzy...`` instead of ``...xyz...``); functionally harmless
+# because the JS checks via ``indexOf`` (membership, not ordering). We
+# replicate the *intent* with a corrected character set.
+_FANSLY_USERNAME_ALLOWED_CHARS: frozenset[str] = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+)
+_FANSLY_USERNAME_MIN_LEN: int = 4
+_FANSLY_USERNAME_MAX_LEN: int = 20
+
+
 class TargetedCreatorSection(_BaseSection):
     """Settings for the creator(s) to download.
 
@@ -188,6 +201,40 @@ class TargetedCreatorSection(_BaseSection):
         if isinstance(v, str):
             coerced = [name.strip() for name in v.split(",") if name.strip()]
             return coerced or None
+        return v
+
+    @field_validator("usernames", mode="after")
+    @classmethod
+    def _validate_username_format(cls, v: list[str] | None) -> list[str] | None:
+        """Enforce Fansly's own username rules at config-load time.
+
+        Catches operator typos (``usernames: [bob with spaces]``,
+        accidental emoji, too-short / too-long) at load with a clear
+        ``ValidationError`` rather than silently as "creator never
+        matches the predicate at runtime". Mirrors the client-side
+        check at ``main_beautified.js:50717``.
+
+        Rules (verified 2026-05-14 against the JS source):
+          - Length: ``4 <= len <= 20`` chars
+          - Charset: ``[a-zA-Z0-9_-]`` (alphanumeric, underscore, hyphen)
+        """
+        if v is None:
+            return None
+        for username in v:
+            length = len(username)
+            if length < _FANSLY_USERNAME_MIN_LEN or length > _FANSLY_USERNAME_MAX_LEN:
+                raise ValueError(
+                    f"username {username!r} has length {length}; Fansly "
+                    f"requires {_FANSLY_USERNAME_MIN_LEN}-"
+                    f"{_FANSLY_USERNAME_MAX_LEN} characters"
+                )
+            bad_chars = sorted(set(username) - _FANSLY_USERNAME_ALLOWED_CHARS)
+            if bad_chars:
+                raise ValueError(
+                    f"username {username!r} contains characters Fansly "
+                    f"rejects: {bad_chars!r}. Allowed: alphanumeric "
+                    f"(A-Z, a-z, 0-9), underscore (_), hyphen (-)"
+                )
         return v
 
 
@@ -313,7 +360,7 @@ class CacheSection(_BaseSection):
 
 # ── Logging type aliases ────────────────────────────────────────
 LogLevel = Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-RotationWhen = Literal["s", "m", "h", "d", "midnight"]
+RotationWhen = Literal["s", "m", "h", "d", "w"]
 Compression = Literal["gz", "bz2", "xz"]
 
 
@@ -324,9 +371,10 @@ class ConsoleLoggerEntry(_BaseSection):
     file-only level.
     """
 
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"format"})
+
     enabled: bool = True
     level: LogLevel | None = None
-    format: str | None = None
 
     @field_validator("level")
     @classmethod
@@ -338,6 +386,29 @@ class ConsoleLoggerEntry(_BaseSection):
         return v
 
 
+def _coerce_int_with_commas(value: Any) -> Any:
+    """Strip thousand-separator commas from a string before int parsing.
+
+    Operators commonly write large byte sizes with grouping commas
+    (``max_size: 209,715,200`` for 200 MiB) — YAML reads the
+    comma-bearing token as a string rather than a native int, and
+    Pydantic's strict int parser then rejects it. Accepting the
+    comma-stripped form is a pure parser concession: ``209,715,200``
+    becomes ``209715200`` and the rest of validation proceeds.
+
+    Non-string values (real ints, None, anything else) pass through
+    unchanged so the regular Pydantic int validator handles them.
+    """
+    if isinstance(value, str):
+        # Only strip if the result is a clean integer — leave malformed
+        # strings (e.g. "100MB", "abc,def") for the default int parser
+        # to reject with its own clearer error.
+        candidate = value.replace(",", "")
+        if candidate.lstrip("-").isdigit():
+            return candidate
+    return value
+
+
 class FileLoggerEntry(_BaseSection):
     """Rotating-file logger.
 
@@ -347,10 +418,11 @@ class FileLoggerEntry(_BaseSection):
     through to the matching ``default_*`` on ``LoggingGlobalSection``.
     """
 
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"format"})
+
     enabled: bool = True
     filename: str
     level: LogLevel | None = None
-    format: str | None = None
     max_size: int | None = None
     rotation_when: RotationWhen | None = None
     rotation_interval: int | None = None
@@ -358,6 +430,11 @@ class FileLoggerEntry(_BaseSection):
     backup_count: int | None = None
     compression: Compression | None = None
     keep_uncompressed: int | None = None
+
+    @field_validator("max_size", "rotation_interval", "backup_count", mode="before")
+    @classmethod
+    def _strip_commas_on_int(cls, v: Any) -> Any:
+        return _coerce_int_with_commas(v)
 
 
 class MainLogEntry(FileLoggerEntry):
@@ -400,14 +477,13 @@ class LoggingGlobalSection(_BaseSection):
     trace file sink at TRACE without overriding peer handlers.
     """
 
-    # ``debug`` was retired in v0.14: it duplicated ``default_level: DEBUG``
-    # at YAML level and ``-v`` at runtime, with no behavioral difference.
-    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"verbose", "debug"})
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"verbose", "debug", "default_format"}
+    )
 
     directory: str | None = Field(default=None, json_schema_extra=_ALWAYS)
     trace: bool = False
     default_level: LogLevel = "INFO"
-    default_format: str | None = None
     default_max_size: int | None = 100 * 1024 * 1024  # 100 MB
     default_rotation_when: RotationWhen | None = "h"
     default_rotation_interval: int = 1
@@ -415,6 +491,17 @@ class LoggingGlobalSection(_BaseSection):
     default_backup_count: int | None = 5
     default_compression: Compression | None = "gz"
     default_keep_uncompressed: int = 2
+
+    @field_validator(
+        "default_max_size",
+        "default_rotation_interval",
+        "default_backup_count",
+        "default_keep_uncompressed",
+        mode="before",
+    )
+    @classmethod
+    def _strip_commas_on_int(cls, v: Any) -> Any:
+        return _coerce_int_with_commas(v)
 
 
 class LoggingSection(_BaseSection):

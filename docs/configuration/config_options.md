@@ -253,10 +253,11 @@ cache:
 
 Eight named loggers plus a `global` defaults block. Two console handlers
 and six rotating-file handlers. Each entry has its own `enabled` /
-`level` / `format`; file entries additionally have orthogonal size and
-time rotation axes (both can be active simultaneously — size cap _and_
-hourly rotation, whichever trips first). Per-entry `null` fields fall
-through to the corresponding `global.default_*`.
+`level`; file entries additionally have orthogonal size and time
+rotation axes (both can be active simultaneously — size cap _and_
+hourly rotation, whichever trips first). Per-entry `null` rotation
+fields fall through to the corresponding `global.default_*`. Format
+strings are source-only — see the `Retired fields` callout below.
 
 ```yaml
 logging:
@@ -292,9 +293,8 @@ logging:
 | `directory`                 | `null`                | Log root directory. `null` → application default (`~/.fansly-downloader-ng/logs`)               |
 | `trace`                     | `false`               | Persistent trace toggle — linked bi-directionally with `trace.enabled`; setting either flips both. Opens the `trace.log` sink at TRACE; peer handlers stay at their configured level. (For a uniform TRACE floor across every handler, use the runtime `-vv` flag instead.) |
 | `default_level`             | `"INFO"`              | Fallback level for any handler whose `level` is `null`                                          |
-| `default_format`            | `null`                | Fallback log format (loguru format string) for any handler whose `format` is `null`             |
 | `default_max_size`          | `104857600` (100 MiB) | Size axis cap. `null` disables size-based rotation                                              |
-| `default_rotation_when`     | `"h"`                 | Time axis interval unit: `s`, `m`, `h`, `d`, or `midnight`. `null` disables time-based rotation |
+| `default_rotation_when`     | `"h"`                 | Time axis interval unit: `s`, `m`, `h`, `d`, or `w`. `null` disables time-based rotation        |
 | `default_rotation_interval` | `1`                   | Count of `default_rotation_when` units between rotations                                        |
 | `default_utc`               | `true`                | Whether the time axis uses UTC                                                                  |
 | `default_backup_count`      | `5`                   | Retention: number of rotated files kept. `null` retains forever                                 |
@@ -305,11 +305,10 @@ logging:
 
 **Console handlers** (`rich_handler`, `stash_console`):
 
-| YAML key  | Default                   | Description                                                         |
-| --------- | ------------------------- | ------------------------------------------------------------------- |
-| `enabled` | `true`                    | Disable to drop the handler entirely                                |
-| `level`   | `null` → `default_level`  | Per-handler level floor. `TRACE` is rejected on console (file-only) |
-| `format`  | `null` → `default_format` | Per-handler format override                                         |
+| YAML key  | Default                  | Description                                                         |
+| --------- | ------------------------ | ------------------------------------------------------------------- |
+| `enabled` | `true`                   | Disable to drop the handler entirely                                |
+| `level`   | `null` → `default_level` | Per-handler level floor. `TRACE` is rejected on console (file-only) |
 
 **File handlers** (`main_log`, `json`, `stash_file`, `db`, `trace`, `websocket`):
 
@@ -318,7 +317,6 @@ logging:
 | `enabled`           | `true` (`false` for `trace`)         | Disable to drop the handler                                                                                                                                                          |
 | `filename`          | per-handler default                  | Output filename (joined with `global.directory`). Defaults: `fansly_downloader_ng.log`, `fansly_downloader_ng_json.log`, `stash.log`, `sqlalchemy.log`, `trace.log`, `websocket.log` |
 | `level`             | `null` → `default_level`             | Per-handler level floor                                                                                                                                                              |
-| `format`            | `null` → `default_format`            | Per-handler format override                                                                                                                                                          |
 | `max_size`          | `null` → `default_max_size`          | Size cap in bytes. `null` disables the size axis                                                                                                                                     |
 | `rotation_when`     | `null` → `default_rotation_when`     | Time interval unit. `null` disables the time axis                                                                                                                                    |
 | `rotation_interval` | `null` → `default_rotation_interval` | Count of time units                                                                                                                                                                  |
@@ -350,6 +348,11 @@ These keys are silently dropped (no migration):
   default for handlers whose `level` is `null`)
 - `logging.global.verbose` — older alias for the same toggle, also
   retired
+- `logging.global.default_format`, `<entry>.format` (every console and
+  file entry) — format strings are source-only. The per-handler defaults
+  live in `config/logging.py`; the console handler's default is a
+  callable that escapes braces / angle brackets and collapses grapheme
+  clusters, which a YAML string override would silently degrade.
 
 ---
 
@@ -442,21 +445,36 @@ recorder that polls the IVS HLS manifest for new segments.
 ### `monitoring` — three-tier cadence
 
 The simulator runs a three-tier state machine (`active` → `idle` →
-`hidden` → `active`); each state has its own duration window and per-
-resource poll intervals. Defaults match the values in Fansly's `main.js`
-(see [monitoring-cadence](../reference/monitoring-cadence.md)) — diverging
-from those values measurably risks creating an anti-detection fingerprint,
-so tune within narrow operational windows rather than aggressively.
+`hidden` → `active`). Only the `active` → `idle` transition models a
+real-browser concept (user-inactivity timer); `idle` → `hidden` and
+`hidden` → `active` model discrete visibility events (user switches
+tab away / back) that don't naturally fire in a headless daemon, so
+the daemon approximates them with timed windows.
 
-| Field                          | Type  | Default | Semantics                                                              |
-| ------------------------------ | ----- | ------- | ---------------------------------------------------------------------- |
-| `active_duration_minutes`      | `int` | `60`    | Minutes in `active` state before transitioning to `idle`               |
-| `idle_duration_minutes`        | `int` | `120`   | Minutes in `idle` before transitioning to `hidden`                     |
-| `hidden_duration_minutes`      | `int` | `300`   | Minutes in `hidden` before terminating the run                         |
-| `timeline_poll_active_seconds` | `int` | `180`   | Home-timeline poll interval while `active` (3 min — matches `main.js`) |
-| `timeline_poll_idle_seconds`   | `int` | `600`   | Home-timeline poll interval while `idle` (10 min — matches `main.js`)  |
-| `story_poll_active_seconds`    | `int` | `30`    | Story-state poll interval while `active` (matches `main.js`)           |
-| `story_poll_idle_seconds`      | `int` | `300`   | Story-state poll interval while `idle` (5 min — matches `main.js`)     |
+The poll-interval values (`timeline_poll_*`, `story_poll_*`) mirror
+real `main.js` cadence; the duration values are heuristic operational
+windows. Tune within narrow ranges — visibly machine-precise rotation
+across many hours could itself become an anti-detection fingerprint.
+See [monitoring-cadence](../reference/monitoring-cadence.md) for the
+real-browser cadences each value is derived from (or, for the
+duration windows, approximates) and the broader anti-detection
+rationale.
+
+| Field                          | Type  | Default | Semantics                                            |
+| ------------------------------ | ----- | ------- | ---------------------------------------------------- |
+| `active_duration_minutes`      | `int` | `60`    | Minutes in `active` before rotating to `idle`        |
+| `idle_duration_minutes`        | `int` | `120`   | Minutes in `idle` before rotating to `hidden`        |
+| `hidden_duration_minutes`      | `int` | `300`   | Minutes in `hidden` before rotating back to `active` |
+| `timeline_poll_active_seconds` | `int` | `180`   | Home-timeline poll interval while `active`           |
+| `timeline_poll_idle_seconds`   | `int` | `600`   | Home-timeline poll interval while `idle`             |
+| `story_poll_active_seconds`    | `int` | `30`    | Story-state poll interval while `active`             |
+| `story_poll_idle_seconds`      | `int` | `300`   | Story-state poll interval while `idle`               |
+
+WS events delivered during the `hidden` phase wake the simulator back
+to `active` immediately — that part matches real-browser behavior
+(tab unhide triggers reconnect + refresh). The
+`hidden_duration_minutes` ceiling is the fallback for when no WS event
+arrives during the entire hidden window.
 
 Jitter (0-10 s for timeline polls, 0-2 s for story polls) is added on top
 of each base interval so the daemon's traffic pattern doesn't look

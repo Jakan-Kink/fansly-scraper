@@ -176,33 +176,126 @@ def test_secret_str_round_trip(tmp_path: Path) -> None:
 
 def test_usernames_accepts_list_from_yaml(tmp_path: Path) -> None:
     """Native YAML list of usernames is preserved as-is."""
-    yaml_content = "targeted_creator:\n  usernames:\n    - alice\n    - bob\n"
+    yaml_content = "targeted_creator:\n  usernames:\n    - alice\n    - bobby\n"
     cfg_path = tmp_path / "users.yaml"
     cfg_path.write_text(yaml_content, encoding="utf-8")
 
     schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.targeted_creator.usernames == ["alice", "bob"]
+    assert schema.targeted_creator.usernames == ["alice", "bobby"]
 
 
 def test_usernames_coerces_comma_string(tmp_path: Path) -> None:
     """Comma-separated string (legacy config.ini format) is split into a list.
 
     This matters during the one-shot .ini → YAML migration: the old config
-    stored username as `username = alice, bob, carol`. That string goes
+    stored username as `username = alice, bobby, carol`. That string goes
     through the validator and comes out as a proper list.
     """
-    yaml_content = "targeted_creator:\n  usernames: alice, bob, carol\n"
+    yaml_content = "targeted_creator:\n  usernames: alice, bobby, carol\n"
     cfg_path = tmp_path / "users.yaml"
     cfg_path.write_text(yaml_content, encoding="utf-8")
 
     schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.targeted_creator.usernames == ["alice", "bob", "carol"]
+    assert schema.targeted_creator.usernames == ["alice", "bobby", "carol"]
 
 
 def test_usernames_comma_string_strips_whitespace_and_empty() -> None:
     """Validator trims whitespace and drops empty entries (e.g. trailing commas)."""
-    section = TargetedCreatorSection(usernames="  alice  , , bob ,")  # type: ignore[arg-type]
-    assert section.usernames == ["alice", "bob"]
+    section = TargetedCreatorSection(usernames="  alice  , , bobby ,")  # type: ignore[arg-type]
+    assert section.usernames == ["alice", "bobby"]
+
+
+class TestUsernameFormatValidator:
+    """Coverage for the Fansly-rules username validator on
+    ``TargetedCreatorSection.usernames``.
+
+    Mirrors the client-side ``verifyUsername`` at
+    ``main_beautified.js:50717``: length 4-20, charset
+    ``[a-zA-Z0-9_-]``. Catches operator typos at config-load time
+    instead of letting them fail silently at runtime as "creator
+    never matches the predicate".
+    """
+
+    def test_valid_usernames_pass(self) -> None:
+        """A mix of legal usernames — boundaries, casing, digits,
+        underscore, hyphen — all load without error.
+        """
+        section = TargetedCreatorSection(
+            usernames=[
+                "alice",  # lowercase
+                "ALICE",  # uppercase
+                "MixedCase",  # mixed
+                "user_123",  # underscore + digits
+                "user-name",  # hyphen
+                "1234",  # all digits at min length (Fansly allows numeric)
+                "abcd",  # exactly min length 4
+                "a" * 20,  # exactly max length 20
+                "_legit_underscores_",  # underscores at boundaries
+                "-edge-case-",  # hyphens at boundaries (Fansly allows)
+            ]
+        )
+        assert section.usernames is not None
+        assert len(section.usernames) == 10
+
+    def test_length_below_minimum_rejected(self) -> None:
+        """Three chars or fewer fails with a length-message
+        ValidationError. Pin both ``"abc"`` (3) and ``"a"`` (1) so
+        single-char hostile input doesn't slip past.
+        """
+        for too_short in ("a", "ab", "abc"):
+            with pytest.raises(ValidationError, match=r"length"):
+                TargetedCreatorSection(usernames=[too_short])
+
+    def test_length_above_maximum_rejected(self) -> None:
+        """21+ chars fails with a length-message ValidationError."""
+        too_long = "a" * 21
+        with pytest.raises(ValidationError, match=r"length"):
+            TargetedCreatorSection(usernames=[too_long])
+
+    def test_emoji_rejected(self) -> None:
+        """Empirical case from the user — emoji chars rejected by
+        Fansly's client validator and now by ours too.
+        """
+        with pytest.raises(ValidationError, match=r"rejects"):
+            TargetedCreatorSection(usernames=["alice🫖bob"])
+
+    def test_space_rejected(self) -> None:
+        """Spaces are the most common operator typo — ``bob with spaces``
+        in YAML — and Fansly rejects them.
+        """
+        with pytest.raises(ValidationError, match=r"rejects"):
+            TargetedCreatorSection(usernames=["bob with spaces"])
+
+    def test_punctuation_rejected(self) -> None:
+        """Various non-allowed punctuation that operators might
+        accidentally include.
+        """
+        for bad in ("alice.bob", "alice@bob", "alice/bob", "alice+bob"):
+            with pytest.raises(ValidationError, match=r"rejects"):
+                TargetedCreatorSection(usernames=[bad])
+
+    def test_one_bad_entry_in_otherwise_valid_list_rejects_whole_load(
+        self,
+    ) -> None:
+        """Any single invalid entry rejects the entire load — no
+        partial-list silent-skip. The error message names the
+        offending username so the operator can find it in YAML.
+        """
+        with pytest.raises(ValidationError, match=r"'bad-entry-with-\$'"):
+            TargetedCreatorSection(
+                usernames=["alice", "bobby", "bad-entry-with-$", "carol"]
+            )
+
+    def test_none_and_empty_list_pass_through(self) -> None:
+        """Null / empty cases are valid (fresh scaffold, unrestricted
+        edge case for legacy / test-time configs).
+        """
+        # Explicit None
+        assert TargetedCreatorSection(usernames=None).usernames is None
+        # Empty list — the comma-string coerce returns None for "",
+        # but a real [] should pass straight through the after-validator.
+        section = TargetedCreatorSection(usernames=[])
+        assert section.usernames == []
 
 
 # ---------------------------------------------------------------------------
@@ -652,6 +745,89 @@ def test_logging_per_handler_rotation_override() -> None:
     assert sec.main_log.backup_count is None
     assert sec.stash_file.backup_count is None
     assert sec.global_.default_backup_count == 5
+
+
+def test_logging_retired_format_keys_load_cleanly_no_migration() -> None:
+    """``format`` and ``default_format`` are in ``_DROPPED_FIELDS``:
+    YAMLs carrying them load cleanly; the keys are silently stripped
+    before ``extra="forbid"`` runs. No migration to a replacement
+    field — production format defaults live in ``config/logging.py``.
+    """
+    sec = LoggingSection.model_validate(
+        {
+            "global": {
+                "default_format": "[{time}] [{level}] {message}",
+                "default_level": "DEBUG",  # other globals still respected
+            },
+            "rich_handler": {"format": "{message}", "level": "INFO"},
+            "main_log": {"format": "[{time}] {message}", "level": "WARNING"},
+            "trace": {"format": "trace: {message}", "enabled": True},
+        }
+    )
+    # Surviving fields applied:
+    assert sec.global_.default_level == "DEBUG"
+    assert sec.rich_handler.level == "INFO"
+    assert sec.main_log.level == "WARNING"
+    assert sec.trace.enabled is True
+
+    # Retired ``format`` keys silently dropped — the attribute no longer
+    # exists on the entry classes at all.
+    assert not hasattr(sec.global_, "default_format")
+    assert not hasattr(sec.rich_handler, "format")
+    assert not hasattr(sec.main_log, "format")
+    assert not hasattr(sec.trace, "format")
+
+
+def test_rotation_when_accepts_w_rejects_midnight() -> None:
+    """``rotation_when`` accepts ``s``/``m``/``h``/``d``/``w`` — matching what
+    ``textio.logging.SizeAndTimeRotatingFileHandler._compute_interval``
+    actually implements. ``midnight`` was previously accepted at the
+    schema layer but crashed at handler-construction time, leaving
+    operators with broken-on-startup configs.
+    """
+    for valid in ("s", "m", "h", "d", "w"):
+        sec = LoggingSection.model_validate(
+            {"global": {"default_rotation_when": valid}}
+        )
+        assert sec.global_.default_rotation_when == valid
+
+    with pytest.raises(ValidationError, match=r"midnight"):
+        LoggingSection.model_validate({"global": {"default_rotation_when": "midnight"}})
+
+    with pytest.raises(ValidationError, match=r"midnight"):
+        LoggingSection.model_validate({"main_log": {"rotation_when": "midnight"}})
+
+
+def test_logging_int_fields_tolerate_thousand_separator_commas() -> None:
+    """Operators write large byte sizes with grouping commas in YAML;
+    the schema strips them before int validation rather than rejecting
+    the load.
+
+    YAML reads ``209,715,200`` as a string (commas disqualify native int
+    parsing); pre-fix Pydantic's strict int validator then rejected the
+    string with ``int_parsing``. The before-validator strips commas
+    when the comma-stripped result is a clean integer, leaving
+    malformed strings (e.g. ``"100MB"``) for the default parser to
+    reject with its own clearer error.
+    """
+    sec = LoggingSection.model_validate(
+        {
+            "global": {"default_max_size": "1,073,741,824"},  # 1 GiB
+            "main_log": {"max_size": "209,715,200"},  # 200 MiB
+            "json": {"max_size": 100_000_000},  # native int — unchanged
+            "trace": {"max_size": "5,000", "backup_count": "1,000"},
+        }
+    )
+    assert sec.global_.default_max_size == 1_073_741_824
+    assert sec.main_log.max_size == 209_715_200
+    assert sec.json_.max_size == 100_000_000
+    assert sec.trace.max_size == 5_000
+    assert sec.trace.backup_count == 1_000
+
+    # Malformed strings still raise — comma-stripping doesn't bypass
+    # the underlying int parser, just normalises the input shape.
+    with pytest.raises(ValidationError, match="int_parsing"):
+        LoggingSection.model_validate({"main_log": {"max_size": "100MB"}})
 
 
 def test_dump_renders_only_set_or_always_fields_at_every_nesting_level(

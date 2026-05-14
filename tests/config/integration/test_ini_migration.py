@@ -121,7 +121,7 @@ def test_migration_preserves_comma_separated_usernames(tmp_path: Path) -> None:
         ini_path,
         """
         [TargetedCreator]
-        username = alice, bob, charlie
+        username = alice, bobby, charlie
 
         [MyAccount]
         Authorization_Token = ReplaceMe
@@ -150,11 +150,11 @@ def test_migration_preserves_comma_separated_usernames(tmp_path: Path) -> None:
 
     schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts1")
 
-    assert schema.targeted_creator.usernames == ["alice", "bob", "charlie"]
+    assert schema.targeted_creator.usernames == ["alice", "bobby", "charlie"]
 
     # Confirm the list round-trips through YAML correctly
     schema2 = ConfigSchema.load_yaml(yaml_path)
-    assert schema2.targeted_creator.usernames == ["alice", "bob", "charlie"]
+    assert schema2.targeted_creator.usernames == ["alice", "bobby", "charlie"]
 
 
 # ---------------------------------------------------------------------------
@@ -482,8 +482,8 @@ def test_migration_from_legacy_ini_fixture(tmp_path: Path) -> None:
 
     schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts7")
 
-    # Usernames: "alice, bob" → list
-    assert schema.targeted_creator.usernames == ["alice", "bob"]
+    # Usernames: "alice, bobby" → list
+    assert schema.targeted_creator.usernames == ["alice", "bobby"]
 
     # Account credentials
     assert schema.my_account.authorization_token.get_secret_value() == "tok_abc123"
