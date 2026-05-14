@@ -10,6 +10,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-05-14
+
+Post-launch cleanup of the per-handler logging schema introduced
+yesterday in v0.14.0. Several values the schema accepted weren't
+reachable from production (and vice versa) — operators using a
+value that one side accepted but the other didn't were hitting
+validation errors or runtime crashes. Plus config-load validators
+catching operator typos.
+
+### Fixed
+
+- `logging.<entry>.rotation_when`: schema and production now agree
+  on `s/m/h/d/w`. `w` (weekly) reachable from YAML for the first
+  time; `midnight` (which crashed at handler construction) rejected
+  at YAML load.
+- `logging.<entry>.compression`: schema and production now agree on
+  `gz/bz2/xz`, all three implemented for real via stdlib `gzip` /
+  `bz2` / `lzma`. `bz2` and `xz` were YAML-accepted but crashed at
+  rotation; `7z` and `lzha` were handler-accepted but broken
+  (`shutil.make_archive` has no `7z`; `lzha` silently made `.zip`).
+
+### Added
+
+- `targeted_creator.usernames`: validator enforces Fansly's
+  client-side rules (length 4-20, charset `[a-zA-Z0-9_-]`).
+  Operator typos surface at YAML load instead of at runtime.
+- Logging int fields tolerate thousand-separator commas
+  (`max_size: 209,715,200`).
+
+### Removed
+
+- `logging.<entry>.format` and `logging.global.default_format`
+  (both introduced yesterday in v0.14.0). Format strings are now
+  source-only; the console handler's default is a callable that
+  a YAML string override would silently degrade.
+
 ## [0.14.2] - 2026-05-13
 
 Patch release completing the #94 scope-respect coverage that v0.14.0 only partially addressed.
@@ -320,7 +356,8 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.13.7...v0.14.0
