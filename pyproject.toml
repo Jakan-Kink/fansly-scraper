@@ -45,7 +45,7 @@ sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<0.31.0"
+asyncpg = ">=0.31.0,<0.32.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
@@ -76,7 +76,7 @@ pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
 mkdocs = ">=1.6.1,<2.0.0"
-pymdown-extensions = ">=10.21.2,<11.0.0"
+pymdown-extensions = ">=10.21.3,<11.0.0"
 
 [tool.poetry.group.typing]
 optional = true
@@ -107,7 +107,7 @@ pytest-xdist = ">=3.6.1"
 coverage = {extras = ["toml"], version = ">=7.8,<8.0"}
 pytest-loguru = ">=0.4.0"
 factory-boy = ">=3.3.3"
-pytest-rerunfailures = ">=16.1"
+pytest-rerunfailures = ">=16.2"
 respx = ">=0.22.0,<1.0.0"
 
 
