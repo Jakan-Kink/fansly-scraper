@@ -514,3 +514,134 @@ class TestBackgroundTasks:
         running_task.cancel.assert_called_once()
         done_task.cancel.assert_not_called()
         assert unit_config._background_tasks == []
+
+
+class TestIsUsernameInScope:
+    """Coverage for ``FanslyConfig.is_username_in_scope`` — the cross-cutting
+    scope predicate hoisted to the config layer in v0.14.2.
+
+    The predicate is synchronous and string-based on purpose: callers that
+    only hold a creator_id resolve to username themselves (the daemon
+    keeps a private id-shim that walks the metadata store), so the
+    predicate itself never has to poll metadata. These tests pin that
+    contract.
+    """
+
+    def _fresh(self) -> FanslyConfig:
+        """Bare-state FanslyConfig for predicate-only assertions."""
+        return FanslyConfig(program_version="test")
+
+    def test_use_following_short_circuits_true_for_any_username(self):
+        """When ``-uf`` / ``-ufp`` is on, every followed creator is in scope.
+
+        Covers the first branch of the predicate. ``user_names`` is
+        intentionally empty too — under ``-uf`` the operator's curated
+        list is overridden by the full following set.
+        """
+        cfg = self._fresh()
+        cfg.use_following = True
+        cfg.user_names = None
+        assert cfg.is_username_in_scope("alice") is True
+        # Even None / empty short-circuit True under -uf — there's no
+        # whitelist to fail against.
+        assert cfg.is_username_in_scope(None) is True
+        assert cfg.is_username_in_scope("") is True
+
+    def test_unrestricted_when_user_names_empty(self):
+        """Empty ``user_names`` + ``use_following=False`` → unrestricted.
+
+        Edge case for legacy / test-time configs that haven't populated
+        the whitelist. The predicate degrades to "act on everything"
+        rather than "act on nothing" — matches the pre-hoist behavior
+        of the id-based shim.
+        """
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = None
+        assert cfg.is_username_in_scope("alice") is True
+
+        cfg.user_names = set()
+        assert cfg.is_username_in_scope("alice") is True
+
+    def test_listed_username_in_scope(self):
+        """Operator-listed usernames pass the scope check."""
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = {"alice", "bob"}
+        assert cfg.is_username_in_scope("alice") is True
+        assert cfg.is_username_in_scope("bob") is True
+
+    def test_unlisted_username_out_of_scope(self):
+        """Followed creators NOT in ``user_names`` fail the scope check.
+
+        This is the #94 reporter's exact case — they had `usernames: [xx]`
+        and follow many other creators; the predicate must return False
+        for every non-listed username.
+        """
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = {"alice", "bob"}
+        assert cfg.is_username_in_scope("carol") is False
+        assert cfg.is_username_in_scope("eve") is False
+
+    def test_case_insensitive_match(self):
+        """Case normalization on both sides — operator may have any
+        casing in YAML, payloads may have any casing on the wire.
+        """
+        cfg = self._fresh()
+        cfg.user_names = {"Alice", "BOB"}
+        assert cfg.is_username_in_scope("alice") is True
+        assert cfg.is_username_in_scope("ALICE") is True
+        assert cfg.is_username_in_scope("bob") is True
+        assert cfg.is_username_in_scope("Bob") is True
+
+    def test_none_or_empty_username_out_of_scope_when_restricted(self):
+        """Missing username with a populated whitelist → False, not True.
+
+        Prevents a misuse where a caller passes ``account.username``
+        that turned out to be None and accidentally lets the work
+        through. Under ``-uf`` / unrestricted, the missing-username
+        path was tested above (returns True via short-circuit); this
+        test pins the restricted case.
+        """
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = {"alice"}
+        assert cfg.is_username_in_scope(None) is False
+        assert cfg.is_username_in_scope("") is False
+
+    def test_non_string_input_raises_type_error(self):
+        """Type validator catches creator_id (int) mistakenly passed as username.
+
+        Migration hazard: callers used to invoke
+        ``_is_creator_in_scope(config, creator_id)`` (id-based). The new
+        ``is_username_in_scope(username)`` is str-based; a caller doing
+        ``config.is_username_in_scope(12345)`` out of muscle memory
+        should hit a TypeError at the entry point, not a confusing
+        ``AttributeError: 'int' object has no attribute 'lower'`` deep
+        inside the predicate. The error message points the caller at
+        the id-based shim explicitly.
+        """
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = {"alice"}
+        with pytest.raises(TypeError, match=r"expects str.*got int"):
+            cfg.is_username_in_scope(12345)
+        with pytest.raises(TypeError, match=r"expects str"):
+            cfg.is_username_in_scope([1, 2, 3])
+
+    def test_all_digit_username_is_a_real_username_not_an_id(self):
+        """Numeric-string usernames pass the predicate normally.
+
+        Fansly usernames can be entirely digits ("12345" as a real
+        operator-chosen username). The validator INTENTIONALLY does
+        not anti-validate "looks-like-an-id" content; content-based
+        rejection would break real operators whose targeted creators
+        chose all-digit usernames. Pins the contract that the
+        validator is a type-only gate.
+        """
+        cfg = self._fresh()
+        cfg.use_following = False
+        cfg.user_names = {"12345"}
+        assert cfg.is_username_in_scope("12345") is True
+        assert cfg.is_username_in_scope("54321") is False  # different digit string

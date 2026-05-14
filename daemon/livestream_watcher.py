@@ -164,7 +164,17 @@ async def _poll_and_diff(
     # Parse accounts from aggregationData (they carry the streaming.channel).
     accounts_raw: list[dict] = data.get("aggregationData", {}).get("accounts", [])
 
-    # Build a mapping of creator_id → StreamChannel for everyone currently live.
+    # Build a mapping of creator_id → StreamChannel for everyone currently
+    # live AND in scope for this invocation. Scope-filter using the username
+    # from the API payload directly — no metadata-store roundtrip per check,
+    # because the str-based predicate ``config.is_username_in_scope`` lives
+    # entirely off ``config.user_names`` + ``config.use_following``.
+    #
+    # Fixes the #94 livestream half: pre-fix, the watcher spawned a
+    # recording task for every creator returned by
+    # ``/streaming/followingstreams/online`` (every followed creator who
+    # was live), ignoring the operator's ``targeted_creator.usernames``
+    # / ``-u`` whitelist.
     currently_live: dict[int, tuple[str, StreamChannel]] = {}
     for raw_account in accounts_raw:
         streaming_raw = raw_account.get("streaming")
@@ -182,6 +192,14 @@ async def _poll_and_diff(
             continue
         creator_id = int(streaming_info.accountId)
         username = raw_account.get("username", str(creator_id))
+        if not config.is_username_in_scope(username):
+            logger.debug(
+                "daemon.livestream_watcher: live creator {} ({}) out of scope "
+                "— skipping",
+                username,
+                creator_id,
+            )
+            continue
         currently_live[creator_id] = (username, streaming_info.channel)
 
     with _recordings_lock:

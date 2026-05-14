@@ -31,10 +31,13 @@ import respx
 from daemon.bootstrap import DaemonBootstrap
 from daemon.filters import should_process_creator
 from daemon.handlers import (
+    CheckCreatorAccess,
     DownloadMessagesForGroup,
     DownloadStoriesOnly,
     DownloadTimelineOnly,
     FullCreatorDownload,
+    MarkMessagesDeleted,
+    RedownloadCreatorMedia,
     WorkItem,
 )
 from daemon.polling import poll_home_timeline, poll_story_states
@@ -44,6 +47,7 @@ from daemon.runner import (
     _handle_full_creator_item,
     _handle_stories_only_item,
     _handle_timeline_only_item,
+    _handle_work_item,
     _is_creator_in_scope,
     _make_ws_handler,
     _process_timeline_candidate,
@@ -307,6 +311,183 @@ class TestIsCreatorInScope:
         config_wired.user_names = {"alice"}
 
         assert await _is_creator_in_scope(config_wired, snowflake_id()) is False
+
+
+class TestHandleWorkItemScopeHoist:
+    """Coverage for the v0.14.2 dispatch-level scope hoist (#94).
+
+    Pre-v0.14.2, only ``_handle_messages_item`` and
+    ``_handle_full_creator_item`` checked scope inline. The other five
+    dispatch entries (``RedownloadCreatorMedia``, ``CheckCreatorAccess``,
+    ``DownloadStoriesOnly``, ``DownloadTimelineOnly``,
+    ``MarkMessagesDeleted``) ran unfiltered — which is how the #94
+    reporter saw downloads triggered for non-listed creators even in
+    batch mode (``daemon_mode: false``, ``use_following: false``,
+    ``usernames: [xx]``): WS events captured during the initial sync
+    drained through ``drain_backfill`` → ``_handle_work_item`` → those
+    five unfiltered handlers.
+
+    The fix hoists the scope check into ``_handle_work_item`` itself,
+    so every WorkItem type dispatched through ``_WORK_DISPATCH`` is
+    scope-gated. ``MarkMessagesDeleted`` has no creator field and
+    falls through unfiltered by design (idempotent: marks
+    already-downloaded message rows; no-op for never-downloaded
+    out-of-scope creators).
+    """
+
+    @pytest.mark.asyncio
+    async def test_out_of_scope_blocks_every_id_carrying_workitem_type(
+        self, config_wired, entity_store, saved_account, monkeypatch
+    ):
+        """Six of seven WorkItem types carry a creator/sender id; the hoist
+        rejects all six when the creator is out of ``user_names``.
+
+        ``saved_account`` is in the store but its username is NOT in
+        ``user_names``; the predicate resolves id→username (via the
+        shim) and returns False. The hoist short-circuits before any
+        handler in ``_WORK_DISPATCH`` runs.
+        """
+        config_wired.use_following = False
+        config_wired.user_names = {"someone_else"}  # NOT saved_account.username
+
+        # Replace each handler with a recorder. If the hoist works, none
+        # of these get called for the out-of-scope creator.
+        calls: list[str] = []
+
+        async def _record(name: str, _config, _item):
+            calls.append(name)
+
+        recorders = {
+            cls: (lambda _c, _i, _n=cls.__name__: _record(_n, _c, _i))
+            for cls in _WORK_DISPATCH
+        }
+        monkeypatch.setattr("daemon.runner._WORK_DISPATCH", recorders)
+
+        # Items carrying creator_id directly:
+        id_items: list[WorkItem] = [
+            FullCreatorDownload(creator_id=saved_account.id),
+            RedownloadCreatorMedia(creator_id=saved_account.id),
+            CheckCreatorAccess(creator_id=saved_account.id),
+            DownloadStoriesOnly(creator_id=saved_account.id),
+            DownloadTimelineOnly(creator_id=saved_account.id),
+            # sender_id field, not creator_id — getattr handles both:
+            DownloadMessagesForGroup(
+                group_id=snowflake_id(), sender_id=saved_account.id
+            ),
+        ]
+
+        for item in id_items:
+            await _handle_work_item(config_wired, item)
+
+        # The hoist blocked every dispatch — recorders never fired.
+        assert calls == [], (
+            f"hoist failed to block out-of-scope items; recorders fired: {calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_in_scope_passes_through_to_handler(
+        self, config_wired, entity_store, saved_account, monkeypatch
+    ):
+        """The positive case: in-scope creator reaches its handler.
+
+        With ``user_names`` containing the creator's username, the hoist
+        lets the dispatch proceed and the recorder fires once per item.
+        """
+        config_wired.use_following = False
+        config_wired.user_names = {saved_account.username}
+
+        calls: list[type] = []
+
+        async def _record(_c, item):
+            calls.append(type(item))
+
+        recorders = dict.fromkeys(_WORK_DISPATCH, _record)
+        monkeypatch.setattr("daemon.runner._WORK_DISPATCH", recorders)
+
+        await _handle_work_item(
+            config_wired, FullCreatorDownload(creator_id=saved_account.id)
+        )
+        await _handle_work_item(
+            config_wired, RedownloadCreatorMedia(creator_id=saved_account.id)
+        )
+        await _handle_work_item(
+            config_wired, CheckCreatorAccess(creator_id=saved_account.id)
+        )
+
+        assert calls == [
+            FullCreatorDownload,
+            RedownloadCreatorMedia,
+            CheckCreatorAccess,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mark_messages_deleted_falls_through_unfiltered(
+        self, config_wired, entity_store, monkeypatch
+    ):
+        """``MarkMessagesDeleted`` has no creator_id/sender_id field — the
+        hoist's ``getattr(item, ..., None)`` returns None, the scope
+        check is skipped, the handler runs.
+
+        Semantic justification: the work item operates on already-downloaded
+        Message rows by id. For messages from out-of-scope creators we
+        never downloaded the message in the first place, so the deletion
+        marker is a no-op against the local archive — idempotent and safe.
+        """
+        config_wired.use_following = False
+        config_wired.user_names = {"someone_else"}
+
+        called = False
+
+        async def _record(_c, _i):
+            nonlocal called
+            called = True
+
+        recorders = dict.fromkeys(_WORK_DISPATCH, _record)
+        monkeypatch.setattr("daemon.runner._WORK_DISPATCH", recorders)
+
+        await _handle_work_item(
+            config_wired,
+            MarkMessagesDeleted(message_ids=(snowflake_id(), snowflake_id())),
+        )
+
+        assert called is True, (
+            "MarkMessagesDeleted should fall through the scope hoist — "
+            "no creator/sender field means no scope predicate input"
+        )
+
+    @pytest.mark.asyncio
+    async def test_use_following_lets_every_item_through(
+        self, config_wired, entity_store, saved_account, monkeypatch
+    ):
+        """Under ``-uf`` / ``-ufp``, every WorkItem reaches its handler.
+
+        The predicate short-circuits True for any creator under
+        ``use_following=True``, so the hoist is a no-op in that mode.
+        Pins the contract that ``-uf`` doesn't accidentally start
+        filtering things it shouldn't.
+        """
+        config_wired.use_following = True
+        config_wired.user_names = None
+
+        calls: list[type] = []
+
+        async def _record(_c, item):
+            calls.append(type(item))
+
+        recorders = dict.fromkeys(_WORK_DISPATCH, _record)
+        monkeypatch.setattr("daemon.runner._WORK_DISPATCH", recorders)
+
+        # Use a snowflake id that's NOT in the store at all — under -uf
+        # the predicate doesn't even look up the account.
+        unknown_id = snowflake_id()
+        await _handle_work_item(
+            config_wired, FullCreatorDownload(creator_id=unknown_id)
+        )
+        await _handle_work_item(
+            config_wired, DownloadStoriesOnly(creator_id=unknown_id)
+        )
+
+        assert calls == [FullCreatorDownload, DownloadStoriesOnly]
 
 
 # ---------------------------------------------------------------------------

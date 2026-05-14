@@ -63,6 +63,7 @@ from .core import (
 from .daemon import (
     RecordingSimulator,
     StubSimulator,
+    isolate_active_recordings,
 )
 from .database import (
     config,
@@ -248,6 +249,7 @@ mod_config_fixtures = [
 mod_daemon_fakes = [
     "RecordingSimulator",
     "StubSimulator",
+    "isolate_active_recordings",
 ]
 
 mod_download_factories = [

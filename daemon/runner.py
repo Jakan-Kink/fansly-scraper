@@ -197,28 +197,37 @@ async def _resolve_creator_name(creator_id: int) -> str | None:
 
 
 async def _is_creator_in_scope(config: FanslyConfig, creator_id: int) -> bool:
-    """Return True when the creator is in scope for this daemon invocation.
+    """Id-based scope check for daemon WS-dispatch entry points.
 
-    When daemon was invoked with ``-u user1,user2`` (not ``-uf``), only process
-    WorkItems for those specific creators. For ``-uf`` mode, all following-list
-    creators are in scope.
+    Resolves *creator_id* → username via the local Account store, then
+    delegates the actual scope decision to the canonical sync predicate
+    ``config.is_username_in_scope``. The id-to-username resolution lives
+    here (in the daemon layer, where WS payloads carry account ids) so
+    the config-layer predicate stays str-only and never has to poll
+    metadata.
+
+    Callers that already hold the username (livestream watcher, any
+    payload that ships username inline) should skip this wrapper and
+    call ``config.is_username_in_scope(username)`` directly — that path
+    avoids the store lookup entirely.
 
     Args:
         config: FanslyConfig instance.
         creator_id: Fansly account ID to check.
 
     Returns:
-        True when the creator is in scope; False otherwise.
+        True when the creator is in scope; False otherwise (including
+        the "unknown creator — not in local Account store" case).
     """
     if config.use_following:
         return True
     if not config.user_names:
-        return True  # unrestricted edge case
+        return True
     store = get_store()
     account: Account | None = await store.get(Account, creator_id)
-    if account is None or not account.username:
+    if account is None:
         return False  # unknown creator — skip
-    return account.username.lower() in {n.lower() for n in config.user_names}
+    return config.is_username_in_scope(account.username)
 
 
 async def _handle_messages_item(
@@ -540,6 +549,29 @@ async def _handle_work_item(config: FanslyConfig, item: WorkItem) -> None:
     if handler is None:
         logger.warning("daemon.runner: unhandled WorkItem type {}", type(item).__name__)
         return
+
+    # Single-point scope filter (#94): every WorkItem that carries a creator
+    # id passes through this gate before reaching its handler. Six of seven
+    # WorkItem subclasses expose ``creator_id``; ``DownloadMessagesForGroup``
+    # exposes ``sender_id`` instead — getattr handles both shapes without
+    # special-casing. ``MarkMessagesDeleted`` has neither and falls through
+    # unfiltered (idempotent — operates on already-downloaded message rows,
+    # no-op for never-downloaded out-of-scope creators).
+    #
+    # Hoisting the check here means future WorkItem types added to
+    # ``_WORK_DISPATCH`` get scope filtering automatically. The inline
+    # checks in ``_handle_messages_item`` / ``_handle_full_creator_item``
+    # are now redundant but kept as defense-in-depth in case a caller
+    # bypasses ``_handle_work_item`` and invokes a handler directly.
+    creator_id = getattr(item, "creator_id", None) or getattr(item, "sender_id", None)
+    if creator_id is not None and not await _is_creator_in_scope(config, creator_id):
+        logger.debug(
+            "daemon.runner: {} for creator {} out of scope — skipping",
+            type(item).__name__,
+            creator_id,
+        )
+        return
+
     await handler(config, item)
 
 
