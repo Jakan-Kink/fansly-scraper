@@ -718,10 +718,11 @@ are overwritten on the next session-setup pass).</p>
 <h2 id="logging"><code>logging</code><a class="headerlink" href="#logging" title="Permanent link">&para;</a></h2>
 <p>Eight named loggers plus a <code>global</code> defaults block. Two console handlers
 and six rotating-file handlers. Each entry has its own <code>enabled</code> /
-<code>level</code> / <code>format</code>; file entries additionally have orthogonal size and
-time rotation axes (both can be active simultaneously — size cap <em>and</em>
-hourly rotation, whichever trips first). Per-entry <code>null</code> fields fall
-through to the corresponding <code>global.default_*</code>.</p>
+<code>level</code>; file entries additionally have orthogonal size and time
+rotation axes (both can be active simultaneously — size cap <em>and</em>
+hourly rotation, whichever trips first). Per-entry <code>null</code> rotation
+fields fall through to the corresponding <code>global.default_*</code>. Format
+strings are source-only — see the <code>Retired fields</code> callout below.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">logging</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">global</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">~/.fansly-downloader-ng/logs</span>
@@ -773,11 +774,6 @@ through to the corresponding <code>global.default_*</code>.</p>
 <td>Fallback level for any handler whose <code>level</code> is <code>null</code></td>
 </tr>
 <tr>
-<td><code>default_format</code></td>
-<td><code>null</code></td>
-<td>Fallback log format (loguru format string) for any handler whose <code>format</code> is <code>null</code></td>
-</tr>
-<tr>
 <td><code>default_max_size</code></td>
 <td><code>104857600</code> (100 MiB)</td>
 <td>Size axis cap. <code>null</code> disables size-based rotation</td>
@@ -785,7 +781,7 @@ through to the corresponding <code>global.default_*</code>.</p>
 <tr>
 <td><code>default_rotation_when</code></td>
 <td><code>"h"</code></td>
-<td>Time axis interval unit: <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, or <code>midnight</code>. <code>null</code> disables time-based rotation</td>
+<td>Time axis interval unit: <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, or <code>w</code>. <code>null</code> disables time-based rotation</td>
 </tr>
 <tr>
 <td><code>default_rotation_interval</code></td>
@@ -835,11 +831,6 @@ through to the corresponding <code>global.default_*</code>.</p>
 <td><code>null</code> → <code>default_level</code></td>
 <td>Per-handler level floor. <code>TRACE</code> is rejected on console (file-only)</td>
 </tr>
-<tr>
-<td><code>format</code></td>
-<td><code>null</code> → <code>default_format</code></td>
-<td>Per-handler format override</td>
-</tr>
 </tbody>
 </table>
 <p><strong>File handlers</strong> (<code>main_log</code>, <code>json</code>, <code>stash_file</code>, <code>db</code>, <code>trace</code>, <code>websocket</code>):</p>
@@ -866,11 +857,6 @@ through to the corresponding <code>global.default_*</code>.</p>
 <td><code>level</code></td>
 <td><code>null</code> → <code>default_level</code></td>
 <td>Per-handler level floor</td>
-</tr>
-<tr>
-<td><code>format</code></td>
-<td><code>null</code> → <code>default_format</code></td>
-<td>Per-handler format override</td>
 </tr>
 <tr>
 <td><code>max_size</code></td>
@@ -958,6 +944,11 @@ flat entries into the nested shape:</p>
   default for handlers whose <code>level</code> is <code>null</code>)</li>
 <li><code>logging.global.verbose</code> — older alias for the same toggle, also
   retired</li>
+<li><code>logging.global.default_format</code>, <code>&lt;entry&gt;.format</code> (every console and
+  file entry) — format strings are source-only. The per-handler defaults
+  live in <code>config/logging.py</code>; the console handler's default is a
+  callable that escapes braces / angle brackets and collapses grapheme
+  clusters, which a YAML string override would silently degrade.</li>
 </ul>
 <hr />
 <h2 id="stash_context"><code>stash_context</code><a class="headerlink" href="#stash_context" title="Permanent link">&para;</a></h2>
@@ -1153,11 +1144,19 @@ recorder that polls the IVS HLS manifest for new segments.</p>
 </table>
 <h3 id="monitoring-three-tier-cadence"><code>monitoring</code> — three-tier cadence<a class="headerlink" href="#monitoring-three-tier-cadence" title="Permanent link">&para;</a></h3>
 <p>The simulator runs a three-tier state machine (<code>active</code> → <code>idle</code> →
-<code>hidden</code> → <code>active</code>); each state has its own duration window and per-
-resource poll intervals. Defaults match the values in Fansly's <code>main.js</code>
-(see <a href="../../reference/monitoring-cadence/">monitoring-cadence</a>) — diverging
-from those values measurably risks creating an anti-detection fingerprint,
-so tune within narrow operational windows rather than aggressively.</p>
+<code>hidden</code> → <code>active</code>). Only the <code>active</code> → <code>idle</code> transition models a
+real-browser concept (user-inactivity timer); <code>idle</code> → <code>hidden</code> and
+<code>hidden</code> → <code>active</code> model discrete visibility events (user switches
+tab away / back) that don't naturally fire in a headless daemon, so
+the daemon approximates them with timed windows.</p>
+<p>The poll-interval values (<code>timeline_poll_*</code>, <code>story_poll_*</code>) mirror
+real <code>main.js</code> cadence; the duration values are heuristic operational
+windows. Tune within narrow ranges — visibly machine-precise rotation
+across many hours could itself become an anti-detection fingerprint.
+See <a href="../../reference/monitoring-cadence/">monitoring-cadence</a> for the
+real-browser cadences each value is derived from (or, for the
+duration windows, approximates) and the broader anti-detection
+rationale.</p>
 <table>
 <thead>
 <tr>
@@ -1172,46 +1171,51 @@ so tune within narrow operational windows rather than aggressively.</p>
 <td><code>active_duration_minutes</code></td>
 <td><code>int</code></td>
 <td><code>60</code></td>
-<td>Minutes in <code>active</code> state before transitioning to <code>idle</code></td>
+<td>Minutes in <code>active</code> before rotating to <code>idle</code></td>
 </tr>
 <tr>
 <td><code>idle_duration_minutes</code></td>
 <td><code>int</code></td>
 <td><code>120</code></td>
-<td>Minutes in <code>idle</code> before transitioning to <code>hidden</code></td>
+<td>Minutes in <code>idle</code> before rotating to <code>hidden</code></td>
 </tr>
 <tr>
 <td><code>hidden_duration_minutes</code></td>
 <td><code>int</code></td>
 <td><code>300</code></td>
-<td>Minutes in <code>hidden</code> before terminating the run</td>
+<td>Minutes in <code>hidden</code> before rotating back to <code>active</code></td>
 </tr>
 <tr>
 <td><code>timeline_poll_active_seconds</code></td>
 <td><code>int</code></td>
 <td><code>180</code></td>
-<td>Home-timeline poll interval while <code>active</code> (3 min — matches <code>main.js</code>)</td>
+<td>Home-timeline poll interval while <code>active</code></td>
 </tr>
 <tr>
 <td><code>timeline_poll_idle_seconds</code></td>
 <td><code>int</code></td>
 <td><code>600</code></td>
-<td>Home-timeline poll interval while <code>idle</code> (10 min — matches <code>main.js</code>)</td>
+<td>Home-timeline poll interval while <code>idle</code></td>
 </tr>
 <tr>
 <td><code>story_poll_active_seconds</code></td>
 <td><code>int</code></td>
 <td><code>30</code></td>
-<td>Story-state poll interval while <code>active</code> (matches <code>main.js</code>)</td>
+<td>Story-state poll interval while <code>active</code></td>
 </tr>
 <tr>
 <td><code>story_poll_idle_seconds</code></td>
 <td><code>int</code></td>
 <td><code>300</code></td>
-<td>Story-state poll interval while <code>idle</code> (5 min — matches <code>main.js</code>)</td>
+<td>Story-state poll interval while <code>idle</code></td>
 </tr>
 </tbody>
 </table>
+<p>WS events delivered during the <code>hidden</code> phase wake the simulator back
+to <code>active</code> immediately — that part matches real-browser behavior
+(tab unhide triggers reconnect + refresh). The
+<code>hidden_duration_minutes</code> ceiling is the fallback for when no WS event
+arrives during the entire hidden window.</p>
 <p>Jitter (0-10 s for timeline polls, 0-2 s for story polls) is added on top
 of each base interval so the daemon's traffic pattern doesn't look
 machine-precise.</p>
