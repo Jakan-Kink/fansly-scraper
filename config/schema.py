@@ -470,11 +470,14 @@ class LoggingGlobalSection(_BaseSection):
     hourly UTC time rotation, 5 backups, gzip compression, 2 most-recent
     kept uncompressed for live tail-ability.
 
-    ``trace`` is a file-only toggle — when true the trace handler is
-    enabled at TRACE; console handlers ignore it (console rejects TRACE
-    by schema validation). Runtime ``-vv`` flips the same switch and also
-    forces every other handler to TRACE; YAML toggle alone only opens the
-    trace file sink at TRACE without overriding peer handlers.
+    ``trace`` is the persistent equivalent of ``-vv``: when true, every
+    handler floors at TRACE (trace file sink + sqlalchemy + websocket +
+    main_log + json + stash + consoles). The two signals are equivalent
+    by design — use ``-vv`` for a one-off run, set ``global.trace: true``
+    in YAML for persistent trace verbosity. Per-entry ``level: TRACE``
+    on a file sink alone is otherwise clamped to DEBUG (defensive ceiling
+    against YAML typos); flipping ``global.trace: true`` lifts that
+    ceiling globally.
     """
 
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(

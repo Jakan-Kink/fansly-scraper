@@ -152,6 +152,44 @@ def test_get_log_level_with_trace_enabled(tmp_path):
         init_logging_config(config)
 
 
+def test_get_log_level_with_yaml_global_trace(tmp_path):
+    """YAML ``logging.global.trace=true`` floors every handler at TRACE.
+
+    Regression for bc4cc2a62 (May 2026 verbosity overhaul): the rewrite
+    deleted the pre-existing sqlalchemy/websocket TRACE bridges and
+    replaced them with a generic ``_trace_enabled`` check that only the
+    CLI ``-vv`` flag sets. The YAML toggle ``logging.global.trace=true``
+    never reached ``_trace_enabled``, so file handlers with explicit
+    ``level: TRACE`` got silently clamped to DEBUG, and TRACE-level
+    ``ws_logger.trace(...)`` calls disappeared without a sink.
+
+    The fix lifts ``schema_trace`` (= ``_config.logging.global_.trace``)
+    out of the ``"trace"`` branch into a top-of-function predicate that
+    OR'd with ``_trace_enabled`` in the generic floor check. Setting
+    YAML trace alone now matches ``-vv`` semantics across every handler.
+    """
+    from config.schema import LoggingSection  # circular guard
+
+    config = FanslyConfig(program_version="test")
+    # NOTE: do NOT set ``config.trace`` — this test exercises the YAML
+    # path explicitly. Only the schema toggle is enabled.
+    config.logging = LoggingSection()
+    config.logging.global_.trace = True
+    init_logging_config(config)
+
+    try:
+        assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("websocket") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
+    finally:
+        config.logging.global_.trace = False
+        init_logging_config(config)
+
+
 def test_get_log_level_with_debug_and_trace(tmp_path):
     """``-vv`` (debug + trace simultaneously) — TRACE wins over DEBUG."""
     config = FanslyConfig(program_version="test")
