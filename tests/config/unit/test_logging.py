@@ -126,85 +126,79 @@ def test_get_log_level_with_debug_enabled():
 
 
 def test_get_log_level_with_trace_enabled(tmp_path):
-    """``-vv`` / ``config.trace=True`` floors EVERY handler at TRACE.
-
-    Pre-v0.14 the trace toggle only floored ``trace`` + ``sqlalchemy`` +
-    ``websocket`` and left peer handlers at their schema-configured level.
-    The new semantic (per the v0.14 CLI redesign) is uniform: ``-vv`` is
-    an opt-in override applied across the board so operators get coherent
-    trace-level output everywhere, including the console.
-    """
+    """``-vv`` puts trace-capable sinks at TRACE; others cap at DEBUG."""
     config = FanslyConfig(program_version="test")
     config.trace = True
     init_logging_config(config)
 
     try:
-        # Every handler floors at TRACE under -vv / config.trace=True.
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
         assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
         assert get_log_level("websocket") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("textio") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("json") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("rich_handler") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("main_log") == _LEVEL_VALUES["DEBUG"]
     finally:
         config.trace = False
         init_logging_config(config)
 
 
 def test_get_log_level_with_yaml_global_trace(tmp_path):
-    """YAML ``logging.global.trace=true`` floors every handler at TRACE.
+    """YAML ``global.trace=true`` lifts the DEBUG clamp on whitelisted TRACE entries.
 
-    Regression for bc4cc2a62 (May 2026 verbosity overhaul): the rewrite
-    deleted the pre-existing sqlalchemy/websocket TRACE bridges and
-    replaced them with a generic ``_trace_enabled`` check that only the
-    CLI ``-vv`` flag sets. The YAML toggle ``logging.global.trace=true``
-    never reached ``_trace_enabled``, so file handlers with explicit
-    ``level: TRACE`` got silently clamped to DEBUG, and TRACE-level
-    ``ws_logger.trace(...)`` calls disappeared without a sink.
-
-    The fix lifts ``schema_trace`` (= ``_config.logging.global_.trace``)
-    out of the ``"trace"`` branch into a top-of-function predicate that
-    OR'd with ``_trace_enabled`` in the generic floor check. Setting
-    YAML trace alone now matches ``-vv`` semantics across every handler.
+    Regression for bc4cc2a62: the YAML toggle was ignored outside the
+    ``"trace"`` branch, so explicit ``websocket.level: TRACE`` got
+    clamped to DEBUG and TRACE records had no sink.
     """
     from config.schema import LoggingSection  # circular guard
 
     config = FanslyConfig(program_version="test")
-    # NOTE: do NOT set ``config.trace`` — this test exercises the YAML
-    # path explicitly. Only the schema toggle is enabled.
     config.logging = LoggingSection()
     config.logging.global_.trace = True
+    config.log_levels = {
+        "trace": "TRACE",
+        "websocket": "TRACE",
+        "sqlalchemy": "TRACE",
+        "stash_console": "INFO",
+        "stash_file": "INFO",
+        "textio": "INFO",
+        "json": "INFO",
+        "main_log": "TRACE",  # non-whitelisted; still clamps to DEBUG
+    }
     init_logging_config(config)
 
     try:
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
         assert get_log_level("websocket") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["INFO"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["INFO"]
+        assert get_log_level("textio") == _LEVEL_VALUES["INFO"]
+        assert get_log_level("json") == _LEVEL_VALUES["INFO"]
+        assert get_log_level("main_log") == _LEVEL_VALUES["DEBUG"]
     finally:
         config.logging.global_.trace = False
         init_logging_config(config)
 
 
 def test_get_log_level_with_debug_and_trace(tmp_path):
-    """``-vv`` (debug + trace simultaneously) — TRACE wins over DEBUG."""
+    """``-vv`` + ``-v`` together — trace whitelist still wins over DEBUG floor."""
     config = FanslyConfig(program_version="test")
     config.trace = True
     init_logging_config(config)
     set_debug_enabled(True)
 
     try:
-        # TRACE wins — debug floor is below trace floor.
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
         assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("textio") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("json") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_console") == _LEVEL_VALUES["TRACE"]
-        assert get_log_level("stash_file") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("websocket") == _LEVEL_VALUES["TRACE"]
+        assert get_log_level("textio") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("json") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("stash_console") == _LEVEL_VALUES["DEBUG"]
+        assert get_log_level("stash_file") == _LEVEL_VALUES["DEBUG"]
     finally:
         config.trace = False
         init_logging_config(config)

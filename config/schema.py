@@ -470,14 +470,9 @@ class LoggingGlobalSection(_BaseSection):
     hourly UTC time rotation, 5 backups, gzip compression, 2 most-recent
     kept uncompressed for live tail-ability.
 
-    ``trace`` is the persistent equivalent of ``-vv``: when true, every
-    handler floors at TRACE (trace file sink + sqlalchemy + websocket +
-    main_log + json + stash + consoles). The two signals are equivalent
-    by design — use ``-vv`` for a one-off run, set ``global.trace: true``
-    in YAML for persistent trace verbosity. Per-entry ``level: TRACE``
-    on a file sink alone is otherwise clamped to DEBUG (defensive ceiling
-    against YAML typos); flipping ``global.trace: true`` lifts that
-    ceiling globally.
+    ``trace`` is a YAML-persistent equivalent of ``-vv``: enables TRACE
+    on the trace-capable sinks (trace/sqlalchemy/websocket). All other
+    sinks cap at DEBUG. See ``config.logging._TRACE_CAPABLE_LOGGERS``.
     """
 
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(

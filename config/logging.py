@@ -715,65 +715,38 @@ def set_trace_enabled(enabled: bool) -> None:
     update_logging_config(_config, _debug_enabled)
 
 
+# Only these sinks may emit TRACE. All others clamp at DEBUG.
+_TRACE_CAPABLE_LOGGERS = frozenset({"trace", "sqlalchemy", "websocket"})
+
+
 def get_log_level(logger_name: str, default: str = "INFO") -> int:
-    """Get log level for a logger.
-
-    Precedence (highest first):
-        1. ``-vv`` / ``_trace_enabled`` OR YAML ``logging.global.trace=true``
-           — every handler floors at TRACE, including ``trace_logger`` and
-           the otherwise-default-INFO peers. The two signals are equivalent;
-           the only difference is persistence (CLI is per-run, YAML survives).
-        2. ``-v`` / ``_debug_enabled`` — every non-trace handler floors at
-           DEBUG; ``trace_logger`` stays disabled (CRITICAL).
-        3. Per-handler schema config (``config.log_levels[name]``), with
-           a DEBUG ceiling so users can't accidentally TRACE-spam non-trace
-           handlers via YAML.
-
-    Args:
-        logger_name: handler identity — "textio", "stash_console",
-            "stash_file", "sqlalchemy", "trace", "websocket", "json".
-        default: Fallback when neither overrides nor config provide one.
-
-    Returns:
-        Log level as integer (e.g., 5 for TRACE, 10 for DEBUG, 20 for INFO).
-    """
-    # YAML toggle for "every handler at TRACE". Equivalent to ``-vv`` for
-    # precedence purposes — operators who want persistent trace verbosity
-    # set ``logging.global.trace=true`` instead of typing ``-vv`` each run.
+    """Resolve effective level for a sink, honoring CLI and YAML overrides."""
     schema_trace = bool(
         _config
         and getattr(getattr(_config, "logging", None), "global_", None)
         and _config.logging.global_.trace
     )
+    is_trace_capable = logger_name in _TRACE_CAPABLE_LOGGERS
 
     if logger_name == "trace":
-        # Trace handler is dormant unless trace mode is on. CRITICAL is the
-        # canonical "effectively off" level for a loguru sink that should
-        # otherwise stay registered.
         return (
             _LEVEL_VALUES["TRACE"]
             if (_trace_enabled or schema_trace)
             else _LEVEL_VALUES["CRITICAL"]
         )
 
-    if _trace_enabled or schema_trace:
-        # ``-vv`` (per-run) or YAML ``global.trace=true`` (persistent) —
-        # every handler goes to TRACE. Console handlers' schema-level
-        # "no TRACE in YAML" rule doesn't apply here because this is a
-        # global opt-in, not a per-entry misconfiguration.
-        return _LEVEL_VALUES["TRACE"]
+    if _trace_enabled:
+        return _LEVEL_VALUES["TRACE"] if is_trace_capable else _LEVEL_VALUES["DEBUG"]
 
     if _debug_enabled:
         return _LEVEL_VALUES["DEBUG"]
 
-    # Get level name from config or use default
-    if _config is None:
-        level_name = default
-    else:
-        level_name = _config.log_levels.get(logger_name, default)
-
-    # Convert level name to integer and ensure minimum DEBUG level
+    level_name = _config.log_levels.get(logger_name, default) if _config else default
     level = _LEVEL_VALUES[level_name.upper()]
+
+    if schema_trace and is_trace_capable and level == _LEVEL_VALUES["TRACE"]:
+        return level
+
     return max(level, _LEVEL_VALUES["DEBUG"])
 
 
