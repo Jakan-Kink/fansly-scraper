@@ -31,6 +31,7 @@ from api.websocket_protocol import (
     MSG_PING,
     MSG_SERVICE_EVENT,
     MSG_SESSION,
+    SILENT_SERVICE_EVENTS,
 )
 from config.logging import websocket_logger as logger
 from helpers.timer import timing_jitter
@@ -46,6 +47,31 @@ if TYPE_CHECKING:
 # enough that shutdown observes cancellation/queue-death promptly, long
 # enough that the wakeup overhead is negligible (~2 wakes/sec/thread).
 _QUEUE_POLL_INTERVAL_S = 0.5
+
+
+def _is_silent_service_event(event_data: Any) -> bool:
+    """Return True when this service event is in ``SILENT_SERVICE_EVENTS``.
+
+    Silent events skip both the WS-layer DEBUG/TRACE log lines and the
+    dispatch into the daemon — same fast-path applied to MSG_PING.
+    Returns False on any malformed payload so a decode failure surfaces
+    via the normal log + dispatch path rather than being silently dropped.
+    """
+    if not isinstance(event_data, dict):
+        return False
+    service_id = event_data.get("serviceId")
+    if service_id is None:
+        return False
+    raw_inner = event_data.get("event")
+    try:
+        inner = (
+            json.loads(raw_inner) if isinstance(raw_inner, str) else (raw_inner or {})
+        )
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(inner, dict):
+        return False
+    return (service_id, inner.get("type")) in SILENT_SERVICE_EVENTS
 
 
 class _ChildWebSocket:
@@ -294,6 +320,20 @@ class _ChildWebSocket:
             message_type = data.get("t")
             message_data = data.get("d")
 
+            # Pre-decode service-event envelopes so the silent filter can
+            # match on (serviceId, inner.type) without re-parsing later.
+            # The decoded dict is reused in the MSG_SERVICE_EVENT branch
+            # below, so this is a one-time outer decode, not a duplicate.
+            service_event_data: Any = None
+            if message_type == MSG_SERVICE_EVENT:
+                service_event_data = (
+                    json.loads(message_data)
+                    if isinstance(message_data, str)
+                    else message_data
+                )
+                if _is_silent_service_event(service_event_data):
+                    return
+
             if message_type != MSG_PING:
                 # Type at DEBUG, payload at TRACE — payloads can carry DM
                 # bodies, accountIds, and other PII that should not land in
@@ -324,16 +364,11 @@ class _ChildWebSocket:
 
             # JS: 1e4 === r → handleServiceEvent(decodeMessage("ServiceEvent", t.d))
             elif message_type == MSG_SERVICE_EVENT:
-                event_data = (
-                    json.loads(message_data)
-                    if isinstance(message_data, str)
-                    else message_data
-                )
                 if MSG_SERVICE_EVENT in self._event_handlers:
                     handler = self._event_handlers[MSG_SERVICE_EVENT]
                     # Marshal to main loop so handler-side state (EntityStore,
                     # StashClient, asyncpg pool) stays single-threaded.
-                    await self._dispatch_event(handler, event_data)
+                    await self._dispatch_event(handler, service_event_data)
 
             # JS: 10001 === r → iterate t.d array, recursively handleText each
             elif message_type == MSG_BATCH:

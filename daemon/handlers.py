@@ -450,7 +450,9 @@ _NOOP_DESCRIPTIONS: dict[tuple[int, int], str] = {
     (2, 2): "media like (engagement signal, no download work)",
     (4, 1): "message delivered / sent acknowledgement",
     (4, 2): "message read-receipt acknowledgement",
-    (5, 22): "typing announce (real-time typing indicator, no action needed)",
+    # (5, 22) typing-announce is silenced at the WS layer — see
+    # SILENT_SERVICE_EVENTS in api/websocket_protocol.py. It never
+    # reaches this dispatcher.
 }
 
 
@@ -502,6 +504,7 @@ _GATHERING_DESCRIPTIONS: dict[tuple[int, int], str] = {
     (8, 1): "online status change",
     # NotificationService (svc=9) — inner notification.type carries serviceId*1000+N
     (9, 1): "notification created (inner type code = serviceId*1000+N)",
+    (9, 2): "notification read-state sync (data.beforeAnd = highwater ID)",
     (9, 100): "notifications loaded signal",
     (9, 101): "unread notification count changed",
     (9, 102): "notifications bulk update",

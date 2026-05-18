@@ -165,3 +165,13 @@ def service_name(service_id: int) -> str:
 def format_event_label(service_id: int, event_type: int) -> str:
     """Return ``"<ServiceName> svc=<id> type=<type>"`` for log lines."""
     return f"{service_name(service_id)} svc={service_id} type={event_type}"
+
+
+# Service events dropped at the WS layer with neither log nor dispatch —
+# matches the MSG_PING fast-path. Entries are invisible to the daemon
+# *including* simulator interrupts (see INTERRUPT_EVENTS).
+SILENT_SERVICE_EVENTS: frozenset[tuple[int, int]] = frozenset(
+    {
+        (SVC_MESSAGE, 22),
+    }
+)

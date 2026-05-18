@@ -109,6 +109,8 @@ Complete enum from `main.js` EventService.ServiceIds:
 
 Connection states: `CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4`
 
+This enum is reverse-engineered from `main.js` (the public client) — it covers services the SPA needs to address directly. Backend-only services don't appear in the enum but DO appear referenced through the `n * 1000 + k` compound-code convention used elsewhere in the protocol (see `notification.type` and `transaction.type`). One such hidden service: **svc=58, type=0 = billing-service debit issued**, observed as `transaction.type=58000` for both subscription and PPV debits. Apply the same decode to any opaque integer that looks compound-shaped (e.g., 14001 → OrderService(14)+1).
+
 ### Complete Event Type Schema (from main.js handleEvent methods)
 
 ### serviceId=1 — PostService
@@ -139,6 +141,13 @@ Connection states: `CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4`
 | 999  | —       | `onCacheClear`              | Cache invalidation signal |
 
 A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=3, type=58000).
+
+The inner `order.type` field discriminates bundle vs. child:
+
+- `order.type=1` — child media item within a bundle. `accountMediaBundleId` is set on these.
+- `order.type=2` — the bundle (or a stand-alone media item) as a whole.
+
+A single bundle purchase fans out into one `(2, 7) order.type=2` for the bundle + one `(2, 7) order.type=1` per child media item + a terminating `(2, 8)` for the bundle. Wire order within the burst is racy — don't depend on child-vs-parent arrival order.
 
 #### PPV Order Payload (type=7)
 
@@ -190,13 +199,19 @@ Unlike subscriptions (where `subscription.historyId == wallet.transaction.correl
 
 - `1` = Delivered (message reached recipient's client)
 - `2` = Read (recipient opened/viewed the message)
+- `3` = Observed once (1/44 ackCommand samples), fired immediately after a welcome-PPV DM arrived while the operator was active in the thread. Hypothesis: "delivered-while-foregrounded" — needs more samples to confirm.
 
 Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipients[]`.
 
+`userId` is the party **whose client emitted the ACK** — i.e., the *receiver* of the messages in `messageIds[]`, not the sender. `userId == self` means self read/received a message from the other party; `userId != self` means the other party read/received a message self sent (Fansly fans these back to the sender's WS for delivery/read-indicator UX). Daemon dispatch keys off the message-creation event `(5, 1)` rather than these ACKs; the `userId` discrimination matters mainly for analytics or anti-detection symmetry, not content archiving.
+
 `messageIds[]` carries one or more IDs — a single ACK frame may batch
 read receipts for multiple messages at once (observed: a single `type=2`
-ack covering two earlier message IDs when the recipient opened the
-thread after both arrived). Don't assume single-element arrays.
+ack covering up to 3+ unread message IDs when the recipient finally
+opens the thread). Don't assume single-element arrays. **Don't assume
+ordering either**: live capture showed `messageIds` arriving as
+`[first, third, second]` — neither chronological by send-time nor
+sorted by Snowflake ID. Treat the array as an unordered set.
 
 ### serviceId=5 — MessageService
 
@@ -287,6 +302,8 @@ Reaction type codes (from CSS asset definitions in main.js):
 }
 ```
 
+The daemon drops `(5, 22)` at the WS layer via `SILENT_SERVICE_EVENTS` in `api/websocket_protocol.py` — neither logged nor dispatched (same fast-path as `MSG_PING`). Typing announces fire every ~3s while the operator types and carry no daemon-actionable signal; silencing avoids ~5 log lines per event during typing bursts. Other WS consumers (creator tools, analytics) would re-enable by removing the entry from that set.
+
 ### serviceId=6 — WalletService
 
 | Type | Key           | Callback                    | Description                                                      |
@@ -330,6 +347,7 @@ Transaction type codes:
 | Type | Key            | Callback                 | Description                 |
 | ---- | -------------- | ------------------------ | --------------------------- |
 | 1    | `notification` | `onNotificationCreate`   | Notification created        |
+| 2    | `data`         | _(inline handler)_       | Read-state sync: notifications ≤ `data.beforeAnd` marked read (multi-device fan-out). `data.type` is a class filter; `""` = all classes. |
 | 100  | —              | `onNotificationsLoaded`  | Notifications loaded signal |
 | 101  | —              | `onUnacknowledgedUpdate` | Unread count changed        |
 | 102  | —              | `onNotificationsUpdate`  | Notifications updated       |
@@ -686,7 +704,7 @@ t+4.8s  svc=6  type=2  Wallet balance updated         (-12000, walletVersion++)
 t+5.7s  svc=5  type=1  Auto-welcome message           (creator's automated DM)
 ```
 
-All events are correlated via `correlationId` ↔ `historyId` chains.
+All events are correlated via `correlationId` ↔ `historyId` chains. The above timeline is the *backend pipeline's emit order*; wire-order can race within the ~1s burst (live captures have shown wallet events arriving before/after the subscription confirmation, and child-media `(2, 7)` events arriving before their parent bundle `(2, 7)`). Daemon dispatch keys off the terminal confirmation (`svc=15 type=5 status=3` for subs, `svc=2 type=7` for PPV) — order-agnostic by design.
 
 ## Full PPV Media Purchase Flow (observed)
 

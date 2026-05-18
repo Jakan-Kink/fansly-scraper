@@ -24,6 +24,7 @@ import logging
 import pytest
 from loguru import logger as loguru_logger
 
+from api.websocket_protocol import SILENT_SERVICE_EVENTS
 from daemon.handlers import (
     _GATHERING_DESCRIPTIONS,
     _NOOP_DESCRIPTIONS,
@@ -315,7 +316,11 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
     ),
     pytest.param(4, 1, {"foo": "bar"}, id="noop_message_delivered_ack"),
     pytest.param(4, 2, {"foo": "bar"}, id="noop_message_read_receipt_ack"),
-    # Phase 5: svc=5 type=22 typing-announce — intentional noop (fires every 3-5 s)
+    # svc=5 type=22 typing-announce is silenced at the WS layer (see
+    # SILENT_SERVICE_EVENTS in api/websocket_protocol.py) so it never
+    # reaches dispatch_ws_event in production. The case stays here to
+    # assert the defensive fallback (unknown key → None) still holds
+    # if it ever did reach this layer.
     pytest.param(
         5,
         22,
@@ -326,7 +331,7 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
                 "lastAnnounce": 0,
             }
         },
-        id="noop_typing_announce",
+        id="ws_silenced_typing_announce_defensive_fallback",
     ),
     # ── Empty / unknown events ──
     pytest.param(5, 10, {"message": {}}, id="message_deleted_empty_payload"),
@@ -495,17 +500,22 @@ def test_dispatch_never_emits_download_timeline_only(
 
 
 # ---------------------------------------------------------------------------
-# Phase 5: has_handler() recognises (5, 22) typing-announce as handled
+# Typing-announce (svc=5 type=22) is silenced at the WS layer
 # ---------------------------------------------------------------------------
 
 
-def test_has_handler_typing_announce() -> None:
-    """Phase 5: has_handler(5, 22) returns True.
+def test_typing_announce_silenced_at_ws_layer() -> None:
+    """(5, 22) is in SILENT_SERVICE_EVENTS — dropped before reaching the daemon.
 
-    Ensures the runner won't log “unknown/unhandled” for every typing-announce
-    event, which fires every 3-5 seconds and would flood the log.
+    Typing-announce fires every ~3 s while the operator types into Fansly's
+    web UI. We never want it dispatched (engagement-only, not in
+    INTERRUPT_EVENTS) nor logged at DEBUG/TRACE per occurrence. The WS
+    layer's silent fast-path (matches MSG_PING) drops it before any
+    log line fires.
     """
-    assert has_handler(5, 22) is True
+    assert (5, 22) in SILENT_SERVICE_EVENTS
+    # And consequently, the daemon dispatcher has no handler entry for it.
+    assert has_handler(5, 22) is False
 
 
 # ---------------------------------------------------------------------------
