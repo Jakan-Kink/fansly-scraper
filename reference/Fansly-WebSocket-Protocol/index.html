@@ -90,6 +90,8 @@
         </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#service-ids-within-serviceevent-t10000">Service IDs (within ServiceEvent t=10000)</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#protocol-convention-lifecycle-id-reuse">Protocol Convention: Lifecycle ID-Reuse</a>
         <ul>
     <li class="toctree-l3"><a class="reference internal" href="#complete-event-type-schema-from-mainjs-handleevent-methods">Complete Event Type Schema (from main.js handleEvent methods)</a>
     </li>
@@ -97,6 +99,8 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#serviceid2-mediaservice">serviceId=2 — MediaService</a>
         <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#media-like-type2">Media Like (type=2)</a>
+    </li>
     <li class="toctree-l4"><a class="reference internal" href="#ppv-order-payload-type7">PPV Order Payload (type=7)</a>
     </li>
     <li class="toctree-l4"><a class="reference internal" href="#ppv-correlation-chain-distinct-from-subscription">PPV Correlation Chain (distinct from subscription)</a>
@@ -112,6 +116,8 @@
     <li class="toctree-l4"><a class="reference internal" href="#new-message-type1">New Message (type=1)</a>
     </li>
     <li class="toctree-l4"><a class="reference internal" href="#message-reaction-type3">Message Reaction (type=3)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#message-deleted-type10">Message Deleted (type=10)</a>
     </li>
     <li class="toctree-l4"><a class="reference internal" href="#typing-indicator-type22">Typing Indicator (type=22)</a>
     </li>
@@ -152,6 +158,14 @@
     <li class="toctree-l3"><a class="reference internal" href="#serviceid32-storyservice">serviceId=32 — StoryService</a>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#serviceid42-pollsservice">serviceId=42 — PollsService</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#subscription-heartbeat-pattern-type20-type21">Subscription Heartbeat Pattern (type=20 / type=21)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#poll-vote-type10">Poll Vote (type=10)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#rest-side-poll-entity-context">REST-Side Poll Entity (context)</a>
+    </li>
+        </ul>
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#serviceid44-contentdiscoveryservice">serviceId=44 — ContentDiscoveryService</a>
     </li>
@@ -392,6 +406,15 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 1000  INTERNAL
 </code></pre></div>
 <p>Connection states: <code>CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4</code></p>
+<p>This enum is reverse-engineered from <code>main.js</code> (the public client) — it covers services the SPA needs to address directly. Backend-only services don't appear in the enum but DO appear referenced through the <code>n * 1000 + k</code> compound-code convention used elsewhere in the protocol (see <code>notification.type</code> and <code>transaction.type</code>). One such hidden service: <strong>svc=58, type=0 = billing-service debit issued</strong>, observed as <code>transaction.type=58000</code> for both subscription and PPV debits. Apply the same decode to any opaque integer that looks compound-shaped (e.g., 14001 → OrderService(14)+1).</p>
+<h2 id="protocol-convention-lifecycle-id-reuse">Protocol Convention: Lifecycle ID-Reuse<a class="headerlink" href="#protocol-convention-lifecycle-id-reuse" title="Permanent link">&para;</a></h2>
+<p>When a <code>(svc, A)</code> event creates a relationship/entity and a <code>(svc, B)</code> event ends or reverses it, the <strong>end event re-uses the same <code>id</code> as the create event</strong> rather than minting a new one. The protocol treats a relationship as one stable record whose state transitions are signalled by event-type, not by paired create/delete IDs.</p>
+<p>Confirmed instances:</p>
+<ul>
+<li><code>(3, 2)</code> follow → <code>(3, 3)</code> unfollow: same <code>follow.id</code>. Observed: a follow at <code>id=912858337152884736</code> was later removed; the unfollow carried that exact id.</li>
+<li><code>(42, 20)</code> poll-subscribe → <code>(42, 21)</code> poll-unsubscribe: same <code>pollSubscription.id</code>. Every observed sub/unsub pair shares an id.</li>
+</ul>
+<p>Likely to apply to other lifecycle pairs not yet captured: <code>(11, ?)</code> ignore/unignore, <code>(46, 20)</code> chat ban / matching unban, etc. Treat <code>(svc, A)</code> and <code>(svc, B)</code> events that point at the same <code>id</code> as state transitions on one record. An archiver should upsert by id and update state in place — not create paired delete-rows.</p>
 <h3 id="complete-event-type-schema-from-mainjs-handleevent-methods">Complete Event Type Schema (from main.js handleEvent methods)<a class="headerlink" href="#complete-event-type-schema-from-mainjs-handleevent-methods" title="Permanent link">&para;</a></h3>
 <h3 id="serviceid1-postservice">serviceId=1 — PostService<a class="headerlink" href="#serviceid1-postservice" title="Permanent link">&para;</a></h3>
 <table>
@@ -511,6 +534,38 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 </tbody>
 </table>
 <p>A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=3, type=58000).</p>
+<h4 id="media-like-type2">Media Like (type=2)<a class="headerlink" href="#media-like-type2" title="Permanent link">&para;</a></h4>
+<p>The <code>(2, 2)</code> payload carries an <code>accountId</code> (the liker), <code>accountMediaId</code>, plus an optional discovery-breadcrumb cluster — <code>locationType</code>, <code>locationCorrelationId</code>, <code>locationMetadata</code> — that's present only when the like originated from a discovery surface (FYP, tag-browse). Likes from profile pages or post-detail surfaces carry these as <code>null</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;like&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;liker-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;accountMediaId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;media-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;accountMediaBundleId&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;accountMediaAccess&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;locationType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;locationCorrelationId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;client-minted-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;locationMetadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;TIDS\&quot;:[\&quot;&lt;tag-id&gt;\&quot;],\&quot;TID\&quot;:\&quot;&lt;tag-id&gt;\&quot;}&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;like-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142878714</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Three observed shapes for the location cluster:</p>
+<ul>
+<li><strong>Tag-FYP with breadcrumbs</strong>: <code>locationType="0"</code>, <code>locationCorrelationId</code> set, <code>locationMetadata</code> carries populated <code>TIDS</code>/<code>TID</code>. Like came from clicking into a tag-discovery surface.</li>
+<li><strong>Discovery without breadcrumbs</strong>: <code>locationType="0"</code>, <code>locationCorrelationId</code> set, <code>locationMetadata="{\"TIDS\":[],\"TID\":null}"</code>. Like came from a discovery surface with no specific tag breadcrumb to carry (e.g., personalized FYP without tag-click context).</li>
+<li><strong>Non-discovery</strong>: all three location fields are <code>null</code>. Like came from a surface that doesn't emit discovery telemetry — profile page, post detail, vault.</li>
+</ul>
+<p><code>accountMediaAccess</code>: per-media viewability for the liker. <code>true</code> when the user owns/can-view the media (subscribed, free post, purchased PPV). <code>false</code> when they only saw a <code>previewId</code>-gated teaser. Not a per-creator-subscription flag — about this specific media item.</p>
+<p><code>locationCorrelationId</code> is <strong>client-minted</strong>: the SPA generates the id, sends it in the HTTP POST body, the response echoes it, and the WS broadcast carries it back unchanged. Lets the SPA stitch its own optimistic-UI update to the eventual WS confirmation.</p>
+<p>Daemon reaction: none. Likes are pure engagement signals — no content-state change.</p>
+<p>The inner <code>order.type</code> field discriminates bundle vs. child:</p>
+<ul>
+<li><code>order.type=1</code> — child media item within a bundle. <code>accountMediaBundleId</code> is set on these.</li>
+<li><code>order.type=2</code> — the bundle (or a stand-alone media item) as a whole.</li>
+</ul>
+<p>A single bundle purchase fans out into one <code>(2, 7) order.type=2</code> for the bundle + one <code>(2, 7) order.type=1</code> per child media item + a terminating <code>(2, 8)</code> for the bundle. Wire order within the burst is racy — don't depend on child-vs-parent arrival order.</p>
 <h4 id="ppv-order-payload-type7">PPV Order Payload (type=7)<a class="headerlink" href="#ppv-order-payload-type7" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span>
@@ -560,6 +615,17 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 </tr>
 </tbody>
 </table>
+<p>Unfollow payload (<code>type=3</code>) carries the <strong>same <code>id</code> as the original follow record</strong> plus a <code>createdAt</code> (the original follow's creation time, in milliseconds), <code>followerId</code>, and <code>accountId</code>. The <code>id</code> re-use means an archiver can join "unfollow → original follow event" by ID directly; the event is the original follow record being marked removed, not a new entity.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;follow&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;followerId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;follow-record-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779136747000</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="serviceid4-groupservice">serviceId=4 — GroupService<a class="headerlink" href="#serviceid4-groupservice" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -619,12 +685,18 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 <ul>
 <li><code>1</code> = Delivered (message reached recipient's client)</li>
 <li><code>2</code> = Read (recipient opened/viewed the message)</li>
+<li><code>3</code> = Observed once (1/44 ackCommand samples), fired immediately after a welcome-PPV DM arrived while the operator was active in the thread. Hypothesis: "delivered-while-foregrounded" — needs more samples to confirm.</li>
 </ul>
 <p>Fields: <code>groupId</code>, <code>messageIds[]</code>, <code>userId</code>, <code>userReadReceiptsEnabled</code>, <code>recipients[]</code>.</p>
+<p><code>userId</code> is the party <strong>whose client emitted the ACK</strong> — i.e., the <em>receiver</em> of the messages in <code>messageIds[]</code>, not the sender. <code>userId == self</code> means self read/received a message from the other party; <code>userId != self</code> means the other party read/received a message self sent (Fansly fans these back to the sender's WS for delivery/read-indicator UX). Daemon dispatch keys off the message-creation event <code>(5, 1)</code> rather than these ACKs; the <code>userId</code> discrimination matters mainly for analytics or anti-detection symmetry, not content archiving.</p>
 <p><code>messageIds[]</code> carries one or more IDs — a single ACK frame may batch
 read receipts for multiple messages at once (observed: a single <code>type=2</code>
-ack covering two earlier message IDs when the recipient opened the
-thread after both arrived). Don't assume single-element arrays.</p>
+ack covering up to 3+ unread message IDs when the recipient finally
+opens the thread). Don't assume single-element arrays. <strong>Don't assume
+ordering either</strong>: live capture showed <code>messageIds</code> arriving as
+<code>[first, third, second]</code> — neither chronological by send-time nor
+sorted by Snowflake ID. Treat the array as an unordered set.</p>
+<p><code>recipients[].readReceiptsEnabled</code> is <strong>per-user</strong>, not a global flag. Each entry in <code>recipients[]</code> carries its own boolean; the field reflects that specific user's account preference. Observed: one party with <code>true</code>, another with <code>false</code> in the same ACK. Consumers should not infer whether read receipts will fire for an inbound message based on the <em>actor's</em> <code>userReadReceiptsEnabled</code> alone — check the relevant recipient entry. (The top-level <code>userReadReceiptsEnabled</code> field is the actor's own setting, redundant with their <code>recipients[]</code> entry but more convenient for fast inspection.)</p>
 <h3 id="serviceid5-messageservice">serviceId=5 — MessageService<a class="headerlink" href="#serviceid5-messageservice" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -766,6 +838,34 @@ thread after both arrived). Don't assume single-element arrays.</p>
 </tr>
 </tbody>
 </table>
+<h4 id="message-deleted-type10">Message Deleted (type=10)<a class="headerlink" href="#message-deleted-type10" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;dataVersion&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;original message content&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;senderId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;correlationId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId or empty&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId or empty&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138794</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;interactions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;recipientId&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;readAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;deliveredAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138799404</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;likes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;deletedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142014</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The deletion event carries the <strong>full original message body</strong> (content, attachments, embeds, interactions, likes) — not just an ID + timestamp. An archiver missing the original <code>(5, 1)</code> can reconstruct from the deletion event, with the caveat that any subsequent reactions or edits between create and delete may not be present (the body reflects the state at deletion time).</p>
+<p><strong>Mixed timestamp precision</strong> within one payload: <code>message.createdAt</code> and <code>message.deletedAt</code> are integer seconds (<code>1779138794</code>), but <code>interactions[].deliveredAt</code> and <code>interactions[].readAt</code> are milliseconds (<code>1779138799404</code>). Consumers must be unit-aware per-field, not per-event. <code>_parse_timestamp</code> handles both correctly.</p>
+<p><code>correlationId</code> is observed as the string <code>"0"</code> for organic message-deletion events (creator-initiated single-message delete). Non-zero correlation may appear for cascade/batch deletes; not yet captured.</p>
+<p>Daemon dispatch: <code>_handle_message_deleted</code> produces a <code>MarkMessagesDeleted</code> WorkItem with <code>message_ids=(message.id,)</code> and <code>deleted_at_epoch=message.deletedAt</code>. The handler also reads <code>message.ids</code> and <code>message.messageIds</code> array forms as fallbacks, but those array shapes have not been observed in live traffic — single-<code>id</code> is the form Fansly emits for the captured deletions.</p>
 <h4 id="typing-indicator-type22">Typing Indicator (type=22)<a class="headerlink" href="#typing-indicator-type22" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span>
@@ -776,6 +876,7 @@ thread after both arrived). Don't assume single-element arrays.</p>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+<p>The daemon drops <code>(5, 22)</code> at the WS layer via <code>SILENT_SERVICE_EVENTS</code> in <code>api/websocket_protocol.py</code> — neither logged nor dispatched (same fast-path as <code>MSG_PING</code>). Typing announces fire every ~3s while the operator types and carry no daemon-actionable signal; silencing avoids ~5 log lines per event during typing bursts. Other WS consumers (creator tools, analytics) would re-enable by removing the entry from that set.</p>
 <h3 id="serviceid6-walletservice">serviceId=6 — WalletService<a class="headerlink" href="#serviceid6-walletservice" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -886,6 +987,12 @@ thread after both arrived). Don't assume single-element arrays.</p>
 <td><code>notification</code></td>
 <td><code>onNotificationCreate</code></td>
 <td>Notification created</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>data</code></td>
+<td><em>(inline handler)</em></td>
+<td>Read-state sync: notifications ≤ <code>data.beforeAnd</code> marked read (multi-device fan-out). <code>data.type</code> is a class filter; <code>""</code> = all classes.</td>
 </tr>
 <tr>
 <td>100</td>
@@ -1372,13 +1479,13 @@ thread after both arrived). Don't assume single-element arrays.</p>
 <td>20</td>
 <td><code>pollSubscription</code></td>
 <td><code>onPollSubscribe</code></td>
-<td>Subscribed to poll updates (viewport enter)</td>
+<td>Subscription created (initial or 30s renewal)</td>
 </tr>
 <tr>
 <td>21</td>
 <td><code>pollSubscription</code></td>
 <td><code>onPollUnsubscribe</code></td>
-<td>Unsubscribed from poll updates (viewport leave)</td>
+<td>Subscription torn down (true leave or renewal cleanup)</td>
 </tr>
 <tr>
 <td>50</td>
@@ -1388,6 +1495,77 @@ thread after both arrived). Don't assume single-element arrays.</p>
 </tr>
 </tbody>
 </table>
+<h4 id="subscription-heartbeat-pattern-type20-type21">Subscription Heartbeat Pattern (type=20 / type=21)<a class="headerlink" href="#subscription-heartbeat-pattern-type20-type21" title="Permanent link">&para;</a></h4>
+<p>The naive "viewport enter" / "viewport leave" reading of <code>(42, 20)</code> / <code>(42, 21)</code> is <strong>misleading</strong>. Live capture (5+ consecutive cycles on a single dwell) shows:</p>
+<div class="highlight"><pre><span></span><code>t+0       (42, 20) sub  id=A
+t+30s     (42, 20) sub  id=B          # new sub fires WHILE id=A still active
+t+30.5s   (42, 21) unsub id=A         # old sub torn down ~0.5s after new sub
+t+60s     (42, 20) sub  id=C          # next renewal
+t+60.5s   (42, 21) unsub id=B
+...
+</code></pre></div>
+<p>Subscriptions are renewed on a <strong>~30 second cycle</strong> as long as the user dwells on the poll-bearing post. Each renewal mints a NEW <code>pollSubscription.id</code>; the previous subscription's <code>unsub</code> fires ~0.5s after the new one is registered. So a single dwell of N seconds produces ⌈N/30⌉ subscribe events and N⌈/30⌉ unsubscribe events — <strong>not</strong> one of each.</p>
+<p>Distinguishing renewal from true leave: if a new <code>(42, 20)</code> for the same <code>pollId</code> arrives within ~1s of a <code>(42, 21)</code>, it's a renewal cycle (still in viewport). If no new sub follows, that unsub is the true viewport-leave.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;pollSubscription&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;subscription-record-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779143185450</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The matching unsub mirrors the same fields except <code>createdAt</code> is omitted, and the <code>id</code> matches the original subscription (see <em>Lifecycle ID-Reuse</em>):</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;pollSubscription&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;subscription-record-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h4 id="poll-vote-type10">Poll Vote (type=10)<a class="headerlink" href="#poll-vote-type10" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;pollVote&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;optionId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;vote-id&gt;&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Note: no <code>createdAt</code> field in the vote payload. The vote <code>id</code> is a Snowflake (time-ordered) so wall-clock timing is recoverable from the id itself.</p>
+<h4 id="rest-side-poll-entity-context">REST-Side Poll Entity (context)<a class="headerlink" href="#rest-side-poll-entity-context" title="Permanent link">&para;</a></h4>
+<p>The underlying poll being subscribed to is fetched via REST (a <code>/api/.../polls</code> endpoint, not WS). Shape:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779139234</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;updatedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id-1&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Yes&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;voteCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id-2&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;No&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;voteCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;permissions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;permissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">&quot;accountPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;4\&quot;:\&quot;{\\\&quot;subscriptionTierId\\\&quot;:\\\&quot;651898882694848512\\\&quot;}\&quot;}&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;whitelisted&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;accountPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;access&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><code>option.id</code> is <code>poll.id + 1</code>, <code>+ 2</code>, ... (Snowflake-sequential within the poll). <code>permissions.accountPermissionFlags.metadata</code> is a <strong>JSON-encoded JSON string</strong> keyed by flag-bit, with the inner value carrying tier-gating data (e.g., <code>subscriptionTierId</code> for tier-gated polls). The top-level <code>accountPermissionFlags: 6</code> is a bitmask matching <code>permissions.accountPermissionFlags.flags</code>.</p>
 <h3 id="serviceid44-contentdiscoveryservice">serviceId=44 — ContentDiscoveryService<a class="headerlink" href="#serviceid44-contentdiscoveryservice" title="Permanent link">&para;</a></h3>
 <p>Parsed but no specific action taken in frontend — events are consumed silently.</p>
 <h3 id="serviceid45-streamingservice">serviceId=45 — StreamingService<a class="headerlink" href="#serviceid45-streamingservice" title="Permanent link">&para;</a></h3>
@@ -1716,7 +1894,7 @@ t+4.8s  svc=6  type=3  Sub debit              $12.00  (wallet → null, type=580
 t+4.8s  svc=6  type=2  Wallet balance updated         (-12000, walletVersion++)
 t+5.7s  svc=5  type=1  Auto-welcome message           (creator&#39;s automated DM)
 </code></pre></div>
-<p>All events are correlated via <code>correlationId</code> ↔ <code>historyId</code> chains.</p>
+<p>All events are correlated via <code>correlationId</code> ↔ <code>historyId</code> chains. The above timeline is the <em>backend pipeline's emit order</em>; wire-order can race within the ~1s burst (live captures have shown wallet events arriving before/after the subscription confirmation, and child-media <code>(2, 7)</code> events arriving before their parent bundle <code>(2, 7)</code>). Daemon dispatch keys off the terminal confirmation (<code>svc=15 type=5 status=3</code> for subs, <code>svc=2 type=7</code> for PPV) — order-agnostic by design.</p>
 <h2 id="full-ppv-media-purchase-flow-observed">Full PPV Media Purchase Flow (observed)<a class="headerlink" href="#full-ppv-media-purchase-flow-observed" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>t-Xm  svc=5  type=1   New message (creator)        DM with attachment offering locked media
                                                    attachments[0].contentId = &lt;media-id&gt;
