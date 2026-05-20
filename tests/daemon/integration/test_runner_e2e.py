@@ -130,6 +130,21 @@ class TestRunDaemonE2E:
                 )
             )
 
+            # WS is a spawn'd subprocess (api/websocket.py); auth must land
+            # before the poll cycle, or shutdown races in-flight handshake.
+            try:
+                await asyncio.wait_for(ws_server.auth_event.wait(), timeout=10.0)
+            except TimeoutError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                for log_line in captured_logs:
+                    print(log_line)
+                pytest.fail(
+                    "WebSocket never authenticated within 10s — "
+                    "subprocess spawn / connect / handshake stalled"
+                )
+                return
+
             # Poll until MonitorState row appears (real DB write by mark_creator_processed)
             state = await _wait_for_monitor_state()
             if state is None:
