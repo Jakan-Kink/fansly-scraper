@@ -111,36 +111,80 @@ Connection states: `CONNECTING=1, AUTHORIZING=2, CONNECTED=3, DISCONNECTED=4`
 
 This enum is reverse-engineered from `main.js` (the public client) — it covers services the SPA needs to address directly. Backend-only services don't appear in the enum but DO appear referenced through the `n * 1000 + k` compound-code convention used elsewhere in the protocol (see `notification.type` and `transaction.type`). One such hidden service: **svc=58, type=0 = billing-service debit issued**, observed as `transaction.type=58000` for both subscription and PPV debits. Apply the same decode to any opaque integer that looks compound-shaped (e.g., 14001 → OrderService(14)+1).
 
+## Protocol Convention: Lifecycle ID-Reuse
+
+When a `(svc, A)` event creates a relationship/entity and a `(svc, B)` event ends or reverses it, the **end event re-uses the same `id` as the create event** rather than minting a new one. The protocol treats a relationship as one stable record whose state transitions are signalled by event-type, not by paired create/delete IDs.
+
+Confirmed instances:
+
+- `(3, 2)` follow → `(3, 3)` unfollow: same `follow.id`. Observed: a follow at `id=912858337152884736` was later removed; the unfollow carried that exact id.
+- `(42, 20)` poll-subscribe → `(42, 21)` poll-unsubscribe: same `pollSubscription.id`. Every observed sub/unsub pair shares an id.
+
+Likely to apply to other lifecycle pairs not yet captured: `(11, ?)` ignore/unignore, `(46, 20)` chat ban / matching unban, etc. Treat `(svc, A)` and `(svc, B)` events that point at the same `id` as state transitions on one record. An archiver should upsert by id and update state in place — not create paired delete-rows.
+
 ### Complete Event Type Schema (from main.js handleEvent methods)
 
 ### serviceId=1 — PostService
 
-| Type | Key        | Callback              | Description                          |
-| ---- | ---------- | --------------------- | ------------------------------------ |
-| 1    | `post`     | _(inline handler)_    | **New post created** — injected into home/sub/list timelines |
-| 2    | `like`     | `onLikeCreate`        | Post liked                           |
-| 3    | `like`     | `onLikeRemove`        | Post unliked                         |
-| 4    | `updates`  | `onPostUpdate`        | Post stats updated (likeCount, replyCount, tipAmount) |
-| 5    | `post`     | _(inline handler)_    | Post deleted — removed from all timelines |
-| 8    | `post`     | _(inline handler)_    | Post content updated — triggers re-fetch |
-| 9    | `wallPost` | `onWallPostCreate`    | Post added to wall (+ queued if post not yet cached) |
-| 10   | `wallPost` | `onWallPostDelete`    | Post removed from wall               |
-| 101  | `wall`     | `onWallCreate`        | New wall created                     |
-| 102  | `wall`     | `onWallDelete`        | Wall deleted                         |
+| Type | Key        | Callback           | Description                                                  |
+| ---- | ---------- | ------------------ | ------------------------------------------------------------ |
+| 1    | `post`     | _(inline handler)_ | **New post created** — injected into home/sub/list timelines |
+| 2    | `like`     | `onLikeCreate`     | Post liked                                                   |
+| 3    | `like`     | `onLikeRemove`     | Post unliked                                                 |
+| 4    | `updates`  | `onPostUpdate`     | Post stats updated (likeCount, replyCount, tipAmount)        |
+| 5    | `post`     | _(inline handler)_ | Post deleted — removed from all timelines                    |
+| 8    | `post`     | _(inline handler)_ | Post content updated — triggers re-fetch                     |
+| 9    | `wallPost` | `onWallPostCreate` | Post added to wall (+ queued if post not yet cached)         |
+| 10   | `wallPost` | `onWallPostDelete` | Post removed from wall                                       |
+| 101  | `wall`     | `onWallCreate`     | New wall created                                             |
+| 102  | `wall`     | `onWallDelete`     | Wall deleted                                                 |
 
 **PostService type=1 is critical for the monitoring daemon** — new posts from followed creators arrive via WebSocket, not just polling. The inline handler adds the post to homeTimeline, homeSubscribeTimeline, and all matching listTimelines in real-time. Posts not on the default wall show a toast: "This Post won't appear in Home feeds."
 
 ### serviceId=2 — MediaService
 
-| Type | Key     | Callback                    | Description               |
-| ---- | ------- | --------------------------- | ------------------------- |
-| 2    | `like`  | _(main handler)_            | Media liked               |
+| Type | Key     | Callback                    | Description                          |
+| ---- | ------- | --------------------------- | ------------------------------------ |
+| 2    | `like`  | _(main handler)_            | Media liked                          |
 | 5    | `media` | `onMediaUpdate`             | Media updated (re-encoded/processed) |
-| 7    | `order` | `onAccountMediaOrderCreate` | PPV media purchased       |
-| 8    | `order` | _(main handler)_            | PPV bundle purchased      |
-| 999  | —       | `onCacheClear`              | Cache invalidation signal |
+| 7    | `order` | `onAccountMediaOrderCreate` | PPV media purchased                  |
+| 8    | `order` | _(main handler)_            | PPV bundle purchased                 |
+| 999  | —       | `onCacheClear`              | Cache invalidation signal            |
 
 A PPV purchase (type=7/8) is immediately followed by a wallet debit (svc=6 type=3, type=58000).
+
+#### Media Like (type=2)
+
+The `(2, 2)` payload carries an `accountId` (the liker), `accountMediaId`, plus an optional discovery-breadcrumb cluster — `locationType`, `locationCorrelationId`, `locationMetadata` — that's present only when the like originated from a discovery surface (FYP, tag-browse). Likes from profile pages or post-detail surfaces carry these as `null`.
+
+```json
+{
+  "type": 2,
+  "like": {
+    "accountId": "<liker-accountId>",
+    "accountMediaId": "<media-id>",
+    "accountMediaBundleId": null,
+    "accountMediaAccess": true,
+    "locationType": "0",
+    "locationCorrelationId": "<client-minted-id>",
+    "locationMetadata": "{\"TIDS\":[\"<tag-id>\"],\"TID\":\"<tag-id>\"}",
+    "id": "<like-id>",
+    "createdAt": 1779142878714
+  }
+}
+```
+
+Three observed shapes for the location cluster:
+
+- **Tag-FYP with breadcrumbs**: `locationType="0"`, `locationCorrelationId` set, `locationMetadata` carries populated `TIDS`/`TID`. Like came from clicking into a tag-discovery surface.
+- **Discovery without breadcrumbs**: `locationType="0"`, `locationCorrelationId` set, `locationMetadata="{\"TIDS\":[],\"TID\":null}"`. Like came from a discovery surface with no specific tag breadcrumb to carry (e.g., personalized FYP without tag-click context).
+- **Non-discovery**: all three location fields are `null`. Like came from a surface that doesn't emit discovery telemetry — profile page, post detail, vault.
+
+`accountMediaAccess`: per-media viewability for the liker. `true` when the user owns/can-view the media (subscribed, free post, purchased PPV). `false` when they only saw a `previewId`-gated teaser. Not a per-creator-subscription flag — about this specific media item.
+
+`locationCorrelationId` is **client-minted**: the SPA generates the id, sends it in the HTTP POST body, the response echoes it, and the WS broadcast carries it back unchanged. Lets the SPA stitch its own optimistic-UI update to the eventual WS confirmation.
+
+Daemon reaction: none. Likes are pure engagement signals — no content-state change.
 
 The inner `order.type` field discriminates bundle vs. child:
 
@@ -183,17 +227,31 @@ Unlike subscriptions (where `subscription.historyId == wallet.transaction.correl
 | 2    | `follow` | _(main handler)_ | Follow — adds permission flag 2 to all content |
 | 3    | `follow` | _(main handler)_ | Unfollow — removes permission flag 2           |
 
+Unfollow payload (`type=3`) carries the **same `id` as the original follow record** plus a `createdAt` (the original follow's creation time, in milliseconds), `followerId`, and `accountId`. The `id` re-use means an archiver can join "unfollow → original follow event" by ID directly; the event is the original follow record being marked removed, not a new entity.
+
+```json
+{
+  "type": 3,
+  "follow": {
+    "followerId": "<self-accountId>",
+    "accountId": "<creator-accountId>",
+    "id": "<follow-record-id>",
+    "createdAt": 1779136747000
+  }
+}
+```
+
 ### serviceId=4 — GroupService
 
-| Type | Key                            | Callback              | Description                    |
-| ---- | ------------------------------ | --------------------- | ------------------------------ |
-| 2    | `ackCommand`                   | _(main handler)_      | Message delivery/read receipt  |
-| 3    | `like`                         | `onMessageLikeAdd`    | Message reaction added         |
+| Type | Key                            | Callback              | Description                              |
+| ---- | ------------------------------ | --------------------- | ---------------------------------------- |
+| 2    | `ackCommand`                   | _(main handler)_      | Message delivery/read receipt            |
+| 3    | `like`                         | `onMessageLikeAdd`    | Message reaction added                   |
 | 4    | `like` / `userSettings`        | `onMessageLikeRemove` | Reaction removed / user settings changed |
-| 6    | `groupUser`                    | `onGroupUserAdd`      | User added to group            |
-| 7    | `groupUser`                    | `onGroupUserRemove`   | User removed from group        |
-| 8    | `id`                           | `onGroupCreate`       | Group created                  |
-| 9    | `groupUserSettingsChangeEvent` | _(inline handler)_    | Group user settings changed    |
+| 6    | `groupUser`                    | `onGroupUserAdd`      | User added to group                      |
+| 7    | `groupUser`                    | `onGroupUserRemove`   | User removed from group                  |
+| 8    | `id`                           | `onGroupCreate`       | Group created                            |
+| 9    | `groupUserSettingsChangeEvent` | _(inline handler)_    | Group user settings changed              |
 
 `ackCommand.type` values:
 
@@ -203,7 +261,7 @@ Unlike subscriptions (where `subscription.historyId == wallet.transaction.correl
 
 Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipients[]`.
 
-`userId` is the party **whose client emitted the ACK** — i.e., the *receiver* of the messages in `messageIds[]`, not the sender. `userId == self` means self read/received a message from the other party; `userId != self` means the other party read/received a message self sent (Fansly fans these back to the sender's WS for delivery/read-indicator UX). Daemon dispatch keys off the message-creation event `(5, 1)` rather than these ACKs; the `userId` discrimination matters mainly for analytics or anti-detection symmetry, not content archiving.
+`userId` is the party **whose client emitted the ACK** — i.e., the _receiver_ of the messages in `messageIds[]`, not the sender. `userId == self` means self read/received a message from the other party; `userId != self` means the other party read/received a message self sent (Fansly fans these back to the sender's WS for delivery/read-indicator UX). Daemon dispatch keys off the message-creation event `(5, 1)` rather than these ACKs; the `userId` discrimination matters mainly for analytics or anti-detection symmetry, not content archiving.
 
 `messageIds[]` carries one or more IDs — a single ACK frame may batch
 read receipts for multiple messages at once (observed: a single `type=2`
@@ -213,16 +271,18 @@ ordering either**: live capture showed `messageIds` arriving as
 `[first, third, second]` — neither chronological by send-time nor
 sorted by Snowflake ID. Treat the array as an unordered set.
 
+`recipients[].readReceiptsEnabled` is **per-user**, not a global flag. Each entry in `recipients[]` carries its own boolean; the field reflects that specific user's account preference. Observed: one party with `true`, another with `false` in the same ACK. Consumers should not infer whether read receipts will fire for an inbound message based on the _actor's_ `userReadReceiptsEnabled` alone — check the relevant recipient entry. (The top-level `userReadReceiptsEnabled` field is the actor's own setting, redundant with their `recipients[]` entry but more convenient for fast inspection.)
+
 ### serviceId=5 — MessageService
 
-| Type | Key                   | Callback              | Description              |
-| ---- | --------------------- | --------------------- | ------------------------ |
-| 1    | `message`             | `onMessageCreate`     | New message received     |
-| 2    | `messageAckEvent`     | _(inline handler)_    | Message ACK batch        |
-| 3    | `like`                | `onMessageLikeAdd`    | Message reaction added   |
-| 4    | `like`                | `onMessageLikeRemove` | Message reaction removed |
+| Type | Key                   | Callback              | Description                                        |
+| ---- | --------------------- | --------------------- | -------------------------------------------------- |
+| 1    | `message`             | `onMessageCreate`     | New message received                               |
+| 2    | `messageAckEvent`     | _(inline handler)_    | Message ACK batch                                  |
+| 3    | `like`                | `onMessageLikeAdd`    | Message reaction added                             |
+| 4    | `like`                | `onMessageLikeRemove` | Message reaction removed                           |
 | 10   | `message`             | _(inline handler)_    | Message deleted (type=3 cascades by correlationId) |
-| 22   | `typingAnnounceEvent` | `onTypingAnnounce`    | User is typing indicator |
+| 22   | `typingAnnounceEvent` | `onTypingAnnounce`    | User is typing indicator                           |
 
 #### New Message (type=1)
 
@@ -289,6 +349,41 @@ Reaction type codes (from CSS asset definitions in main.js):
 | 6           | 👍    | `emoji.thumbs-up`   |
 | 7           | 👎    | `emoji.thumbs-down` |
 
+#### Message Deleted (type=10)
+
+```json
+{
+  "type": 10,
+  "message": {
+    "id": "<messageId>",
+    "type": 1,
+    "dataVersion": 1,
+    "content": "<original message content>",
+    "groupId": "<groupId>",
+    "senderId": "<senderId>",
+    "correlationId": "0",
+    "inReplyTo": "<messageId or empty>",
+    "inReplyToRoot": "<messageId or empty>",
+    "createdAt": 1779138794,
+    "attachments": [],
+    "embeds": [],
+    "interactions": [
+      { "userId": "<recipientId>", "readAt": 0, "deliveredAt": 1779138799404 }
+    ],
+    "likes": [],
+    "deletedAt": 1779142014
+  }
+}
+```
+
+The deletion event carries the **full original message body** (content, attachments, embeds, interactions, likes) — not just an ID + timestamp. An archiver missing the original `(5, 1)` can reconstruct from the deletion event, with the caveat that any subsequent reactions or edits between create and delete may not be present (the body reflects the state at deletion time).
+
+**Mixed timestamp precision** within one payload: `message.createdAt` and `message.deletedAt` are integer seconds (`1779138794`), but `interactions[].deliveredAt` and `interactions[].readAt` are milliseconds (`1779138799404`). Consumers must be unit-aware per-field, not per-event. `_parse_timestamp` handles both correctly.
+
+`correlationId` is observed as the string `"0"` for organic message-deletion events (creator-initiated single-message delete). Non-zero correlation may appear for cascade/batch deletes; not yet captured.
+
+Daemon dispatch: `_handle_message_deleted` produces a `MarkMessagesDeleted` WorkItem with `message_ids=(message.id,)` and `deleted_at_epoch=message.deletedAt`. The handler also reads `message.ids` and `message.messageIds` array forms as fallbacks, but those array shapes have not been observed in live traffic — single-`id` is the form Fansly emits for the captured deletions.
+
 #### Typing Indicator (type=22)
 
 ```json
@@ -344,13 +439,13 @@ Transaction type codes:
 
 ### serviceId=9 — NotificationService
 
-| Type | Key            | Callback                 | Description                 |
-| ---- | -------------- | ------------------------ | --------------------------- |
-| 1    | `notification` | `onNotificationCreate`   | Notification created        |
+| Type | Key            | Callback                 | Description                                                                                                                              |
+| ---- | -------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `notification` | `onNotificationCreate`   | Notification created                                                                                                                     |
 | 2    | `data`         | _(inline handler)_       | Read-state sync: notifications ≤ `data.beforeAnd` marked read (multi-device fan-out). `data.type` is a class filter; `""` = all classes. |
-| 100  | —              | `onNotificationsLoaded`  | Notifications loaded signal |
-| 101  | —              | `onUnacknowledgedUpdate` | Unread count changed        |
-| 102  | —              | `onNotificationsUpdate`  | Notifications updated       |
+| 100  | —              | `onNotificationsLoaded`  | Notifications loaded signal                                                                                                              |
+| 101  | —              | `onUnacknowledgedUpdate` | Unread count changed                                                                                                                     |
+| 102  | —              | `onNotificationsUpdate`  | Notifications updated                                                                                                                    |
 
 Notification type codes (from notification filters in main.js):
 
@@ -383,14 +478,14 @@ Every `(9, 1)` notification carries two correlation IDs that point at different 
 
 Empirically observed mappings (other inner types follow the same shape but specific references are unconfirmed):
 
-| `notification.type` | `correlationGroupId` → | `correlationId` → | Paired direct event? |
-|---|---|---|---|
-| 5003 (Message Reaction) | `message.id` that was reacted to | `like.id` from the `(5, 3)` reaction | **Yes** — `(5, 3)` is also delivered to the local observer (group member) |
-| 15011 (Promotion) | creator's `accountId` (the promoter) | `promo.id` inside `subscriptionTiers[].plans[].promos[]` (see SubscriptionService below) | **No** — `(15, 11)` is not delivered to the local observer; the notification is the only signal |
+| `notification.type`     | `correlationGroupId` →               | `correlationId` →                                                                        | Paired direct event?                                                                            |
+| ----------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 5003 (Message Reaction) | `message.id` that was reacted to     | `like.id` from the `(5, 3)` reaction                                                     | **Yes** — `(5, 3)` is also delivered to the local observer (group member)                       |
+| 15011 (Promotion)       | creator's `accountId` (the promoter) | `promo.id` inside `subscriptionTiers[].plans[].promos[]` (see SubscriptionService below) | **No** — `(15, 11)` is not delivered to the local observer; the notification is the only signal |
 
-**Pairing depends on participation.** When the local observer is a *participant* in the underlying event (sender, buyer, group-member, etc.), the direct service event is fanned out to them alongside the notification. When the local observer is only a *target* of a creator-initiated action (promotion offer, etc.), only the notification arrives.
+**Pairing depends on participation.** When the local observer is a _participant_ in the underlying event (sender, buyer, group-member, etc.), the direct service event is fanned out to them alongside the notification. When the local observer is only a _target_ of a creator-initiated action (promotion offer, etc.), only the notification arrives.
 
-**Empirical note on the `15011` "Promotion used" table label above.** Observed in real traffic, `(9, 1)` type=15011 fires when a creator *activates or extends* a promotion offer, with `promo.uses=0` at notification time. The "used" label may be a Fansly-side misnomer or a stale revision of the protocol; the trigger semantics are closer to "promotion available."
+**Empirical note on the `15011` "Promotion used" table label above.** Observed in real traffic, `(9, 1)` type=15011 fires when a creator _activates or extends_ a promotion offer, with `promo.uses=0` at notification time. The "used" label may be a Fansly-side misnomer or a stale revision of the protocol; the trigger semantics are closer to "promotion available."
 
 **`notification.accountId`** is always the **recipient** of the notification feed (whose feed it lands in), not the actor of the triggering action. The actor lives on the direct event's payload when present, or has to be resolved from the persistent entity referenced by `correlationGroupId`.
 
@@ -447,7 +542,7 @@ The `subscriptionTiers` array on an `account` object (returned by REST timeline 
 }
 ```
 
-**Hierarchy:** *tier* > *plans* (different billing cycles for the same tier) > *promos* (discounted variants of a plan).
+**Hierarchy:** _tier_ > _plans_ (different billing cycles for the same tier) > _promos_ (discounted variants of a plan).
 
 - `(15, 5)` subscription events reference `subscriptionTier.id` and `plan.id`.
 - `(9, 1)` type=15011 promotion notifications reference `promo.id` via `correlationId` (see `(9, 1)` Correlation Semantics above).
@@ -525,12 +620,103 @@ Note: Story bundle purchases (type=8) are handled in the main `onServiceEvent` h
 
 ### serviceId=42 — PollsService
 
-| Type | Key                | Callback            | Description                                     |
-| ---- | ------------------ | ------------------- | ----------------------------------------------- |
-| 10   | `pollVote`         | `onPollVote`        | Poll vote cast                                  |
-| 20   | `pollSubscription` | `onPollSubscribe`   | Subscribed to poll updates (viewport enter)     |
-| 21   | `pollSubscription` | `onPollUnsubscribe` | Unsubscribed from poll updates (viewport leave) |
-| 50   | `polls`            | `onPollUpdate`      | Poll data/results updated                       |
+| Type | Key                | Callback            | Description                                            |
+| ---- | ------------------ | ------------------- | ------------------------------------------------------ |
+| 10   | `pollVote`         | `onPollVote`        | Poll vote cast                                         |
+| 20   | `pollSubscription` | `onPollSubscribe`   | Subscription created (initial or 30s renewal)          |
+| 21   | `pollSubscription` | `onPollUnsubscribe` | Subscription torn down (true leave or renewal cleanup) |
+| 50   | `polls`            | `onPollUpdate`      | Poll data/results updated                              |
+
+#### Subscription Heartbeat Pattern (type=20 / type=21)
+
+The naive "viewport enter" / "viewport leave" reading of `(42, 20)` / `(42, 21)` is **misleading**. Live capture (5+ consecutive cycles on a single dwell) shows:
+
+```
+t+0       (42, 20) sub  id=A
+t+30s     (42, 20) sub  id=B          # new sub fires WHILE id=A still active
+t+30.5s   (42, 21) unsub id=A         # old sub torn down ~0.5s after new sub
+t+60s     (42, 20) sub  id=C          # next renewal
+t+60.5s   (42, 21) unsub id=B
+...
+```
+
+Subscriptions are renewed on a **~30 second cycle** as long as the user dwells on the poll-bearing post. Each renewal mints a NEW `pollSubscription.id`; the previous subscription's `unsub` fires ~0.5s after the new one is registered. So a single dwell of N seconds produces ⌈N/30⌉ subscribe events and N⌈/30⌉ unsubscribe events — **not** one of each.
+
+Distinguishing renewal from true leave: if a new `(42, 20)` for the same `pollId` arrives within ~1s of a `(42, 21)`, it's a renewal cycle (still in viewport). If no new sub follows, that unsub is the true viewport-leave.
+
+```json
+{
+  "type": 20,
+  "pollSubscription": {
+    "accountId": "<self-accountId>",
+    "pollId": "<poll-id>",
+    "id": "<subscription-record-id>",
+    "createdAt": 1779143185450
+  }
+}
+```
+
+The matching unsub mirrors the same fields except `createdAt` is omitted, and the `id` matches the original subscription (see _Lifecycle ID-Reuse_):
+
+```json
+{
+  "type": 21,
+  "pollSubscription": {
+    "id": "<subscription-record-id>",
+    "accountId": "<self-accountId>",
+    "pollId": "<poll-id>"
+  }
+}
+```
+
+#### Poll Vote (type=10)
+
+```json
+{
+  "type": 10,
+  "pollVote": {
+    "accountId": "<self-accountId>",
+    "pollId": "<poll-id>",
+    "optionId": "<option-id>",
+    "id": "<vote-id>"
+  }
+}
+```
+
+Note: no `createdAt` field in the vote payload. The vote `id` is a Snowflake (time-ordered) so wall-clock timing is recoverable from the id itself.
+
+#### REST-Side Poll Entity (context)
+
+The underlying poll being subscribed to is fetched via REST (a `/api/.../polls` endpoint, not WS). Shape:
+
+```json
+{
+  "id": "<poll-id>",
+  "accountId": "<creator-accountId>",
+  "title": "",
+  "description": "",
+  "status": 0,
+  "version": 8,
+  "createdAt": 1779139234,
+  "updatedAt": null,
+  "options": [
+    { "id": "<option-id-1>", "title": "Yes", "voteCount": 7 },
+    { "id": "<option-id-2>", "title": "No", "voteCount": 1 }
+  ],
+  "permissions": {
+    "permissionFlags": [],
+    "accountPermissionFlags": {
+      "flags": 6,
+      "metadata": "{\"4\":\"{\\\"subscriptionTierId\\\":\\\"651898882694848512\\\"}\"}"
+    }
+  },
+  "whitelisted": false,
+  "accountPermissionFlags": 6,
+  "access": true
+}
+```
+
+`option.id` is `poll.id + 1`, `+ 2`, ... (Snowflake-sequential within the poll). `permissions.accountPermissionFlags.metadata` is a **JSON-encoded JSON string** keyed by flag-bit, with the inner value carrying tier-gating data (e.g., `subscriptionTierId` for tier-gated polls). The top-level `accountPermissionFlags: 6` is a bitmask matching `permissions.accountPermissionFlags.flags`.
 
 ### serviceId=44 — ContentDiscoveryService
 
@@ -704,7 +890,7 @@ t+4.8s  svc=6  type=2  Wallet balance updated         (-12000, walletVersion++)
 t+5.7s  svc=5  type=1  Auto-welcome message           (creator's automated DM)
 ```
 
-All events are correlated via `correlationId` ↔ `historyId` chains. The above timeline is the *backend pipeline's emit order*; wire-order can race within the ~1s burst (live captures have shown wallet events arriving before/after the subscription confirmation, and child-media `(2, 7)` events arriving before their parent bundle `(2, 7)`). Daemon dispatch keys off the terminal confirmation (`svc=15 type=5 status=3` for subs, `svc=2 type=7` for PPV) — order-agnostic by design.
+All events are correlated via `correlationId` ↔ `historyId` chains. The above timeline is the _backend pipeline's emit order_; wire-order can race within the ~1s burst (live captures have shown wallet events arriving before/after the subscription confirmation, and child-media `(2, 7)` events arriving before their parent bundle `(2, 7)`). Daemon dispatch keys off the terminal confirmation (`svc=15 type=5 status=3` for subs, `svc=2 type=7` for PPV) — order-agnostic by design.
 
 ## Full PPV Media Purchase Flow (observed)
 

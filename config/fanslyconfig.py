@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, SecretStr
 from stash_graphql_client import StashClient, StashContext
 
-from api import FanslyApi
 from api.rate_limiter import RateLimiter
 from api.rate_limiter_display import RateLimiterDisplay
 from config.modes import DownloadMode
@@ -24,6 +23,14 @@ from config.schema import (
 
 
 if TYPE_CHECKING:
+    # ``from api import FanslyApi`` would cause a circular-import failure
+    # under spawn-context subprocess unpickle: child imports api.websocket
+    # first (to resolve the pickled WS subprocess target), which triggers
+    # api/__init__ → api.fansly → api.websocket → config.logging → config →
+    # config.fanslyconfig → ``from api import FanslyApi`` ← partial-init
+    # ImportError. TYPE_CHECKING-only here + inline import at the one
+    # runtime callsite (``get_api``) avoids the loop.
+    from api import FanslyApi
     from metadata import Database
 
 
@@ -254,6 +261,8 @@ class FanslyConfig:
                 # Use empty string if token is invalid (for login flow)
                 # Otherwise use the valid unscrambled token
                 api_token = token if self.token_is_valid() else ""
+
+                from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
 
                 self._api = FanslyApi(
                     token=api_token,

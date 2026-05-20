@@ -4,7 +4,7 @@ The main entrypoint — ``main_integration_env`` — is a pytest fixture that
 yields a fully-configured ``MainIntegrationEnv`` dataclass inside:
 
 - an active ``respx.mock`` context (all Fansly HTTP requests are intercepted)
-- an active ``fake_websocket_session`` context (``websockets.client.connect``
+- an active ``fake_websocket_session`` context (``websockets.asyncio.client.connect``
   returns a FakeSocket whose first recv() completes auth)
 - baseline respx routes registered (CORS preflight, device/id, account/me,
   account-by-username for clientuser + testcreator)

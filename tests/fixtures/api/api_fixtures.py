@@ -8,7 +8,7 @@ edge boundaries faked at the appropriate layer:
 - Signed CDN media URLs — respx per-test ``url__startswith`` routes
 - ``*.live-video.net`` IVS — respx host-scoped routes (``respx_ivs_cdn``)
 - ``wss://wsv3.fansly.com`` WebSocket — ``fake_websocket_session()``
-  patches ``api.websocket.ws_client.connect`` so real ``FanslyWebSocket``
+  patches ``api.websocket.ws_connect`` so real ``FanslyWebSocket``
   code runs against an auto-authenticating ``FakeSocket``
 
 Reference pattern: ``tests/fixtures/stash/stash_api_fixtures.py``'s

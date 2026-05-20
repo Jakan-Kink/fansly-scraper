@@ -60,7 +60,7 @@ from errors import DaemonUnrecoverableError
 from tests.fixtures.api import (
     FakeWS,
     dump_fansly_calls,
-    make_fake_ws_factory,
+    make_ws_factory_for,
     mount_client_account_me_route,
     mount_empty_creator_pipeline,
     mount_empty_following_route,
@@ -121,7 +121,7 @@ class TestDaemonTaskScheduling:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_all_tasks_started_and_cancelled_on_shutdown(
-        self, config_wired, entity_store, fake_ws
+        self, config_wired, entity_store, ws_server
     ):
         """run_daemon starts 5 tasks; they all complete on shutdown signal.
 
@@ -142,17 +142,19 @@ class TestDaemonTaskScheduling:
             "daemon.runner.asyncio.create_task",
             side_effect=_patched_create_task,
         ):
-            # Run daemon but stop it after a short delay via injected stop_event
+            # Run daemon but stop it after WS authenticates via injected stop_event
             async def _run_and_stop():
                 task = asyncio.create_task(
                     run_daemon(
                         config_wired,
-                        ws_factory=make_fake_ws_factory(fake_ws),
+                        ws_factory=make_ws_factory_for(ws_server.base_url),
                         stop_event=stop_event,
                     )
                 )
-                # Give it a tick to set up, then trigger shutdown
-                await asyncio.sleep(0.05)
+                # Wait for the WS subprocess to authenticate before shutting
+                # down — gives spawn + handshake time the previous 0.05s
+                # sleep didn't have to provide because FakeWS was in-process.
+                await ws_server.wait_for_auth(timeout=10.0)
                 stop_event.set()
                 try:
                     await asyncio.wait_for(task, timeout=5.0)
@@ -172,7 +174,7 @@ class TestDaemonTaskScheduling:
         assert expected.issubset(set(task_names)), (
             f"Missing tasks: {expected - set(task_names)}"
         )
-        assert fake_ws.started, "WebSocket was not started"
+        assert ws_server.auth_event.is_set(), "WebSocket was not started"
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +194,7 @@ class TestRunDaemonBootstrapFallback:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_fallback_builds_fresh_ws_and_reuses_collaborators(
-        self, config_wired, entity_store, fake_ws, monkeypatch
+        self, config_wired, entity_store, ws_server, monkeypatch
     ):
         """ws_started=False → ws_factory called, queue/simulator reused."""
         shared_queue: asyncio.Queue[WorkItem] = asyncio.Queue()
@@ -223,12 +225,30 @@ class TestRunDaemonBootstrapFallback:
         task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=make_fake_ws_factory(fake_ws),
+                ws_factory=make_ws_factory_for(ws_server.base_url),
                 stop_event=stop_event,
                 bootstrap=bootstrap,
             )
         )
-        await asyncio.sleep(0.05)
+
+        # Wait for the fresh WS subprocess to authenticate (proves
+        # ws_factory was called and the WS started).
+        await ws_server.wait_for_auth(timeout=10.0)
+
+        # Push a real (15, 5) status=3 event over the wire. If the daemon
+        # registered the service-event handler on the fresh WS (budget-aware
+        # variant), this lands on shared_queue as a FullCreatorDownload
+        # WorkItem — proving both registration and wiring end-to-end.
+        ws_server.push_subscription_event(
+            subscription_id=str(snowflake_id()),
+            history_id=str(snowflake_id()),
+            subscriber_id="100",
+            creator_id="200",
+            status=3,
+            price_mills=10000,
+        )
+        await asyncio.sleep(0.2)  # let the event traverse the wire
+
         stop_event.set()
         try:
             await asyncio.wait_for(task, timeout=5.0)
@@ -236,11 +256,12 @@ class TestRunDaemonBootstrapFallback:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-        # Fresh WS was constructed via ws_factory and started.
-        assert fake_ws.started, "Fallback did not build + start a fresh WS"
-        # Handler was registered on the fresh WS (budget-aware variant).
-        assert fake_ws.MSG_SERVICE_EVENT in fake_ws._handlers, (
-            "Service-event handler was not registered on the fallback WS"
+        # Round-trip evidence the handler was registered AND wired:
+        # the pushed event landed on the bootstrap's shared queue
+        # (worker is stubbed and never drains).
+        assert shared_queue.qsize() >= 1, (
+            "Pushed (15, 5) event never reached the shared queue — "
+            "either ws_factory wasn't called or the handler wasn't registered"
         )
         # Bootstrap's queue is the same object the worker received.
         assert captured_queue, "Worker loop was not invoked"
@@ -1032,7 +1053,7 @@ class TestWsEventEnqueuesWork:
 
     @pytest.mark.asyncio
     async def test_ws_subscription_event_enqueues_full_creator_download(
-        self, config_wired, entity_store, fake_ws
+        self, config_wired, entity_store
     ):
         """svc=15 type=5 status=3 -> FullCreatorDownload in queue."""
         creator_id = snowflake_id()
@@ -2012,7 +2033,7 @@ class TestRunDaemonSigintHandler:
     """Capture the SIGINT handler installed by _run_daemon_body and exercise both branches."""
 
     async def _run_with_captured_sigint_handler(
-        self, config_wired, fake_ws, monkeypatch
+        self, config_wired, ws_server, monkeypatch
     ):
         """Install a capture for loop.add_signal_handler and start the daemon.
 
@@ -2035,7 +2056,7 @@ class TestRunDaemonSigintHandler:
         task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=make_fake_ws_factory(fake_ws),
+                ws_factory=make_ws_factory_for(ws_server.base_url),
                 stop_event=stop_event,
             )
         )
@@ -2049,11 +2070,11 @@ class TestRunDaemonSigintHandler:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_first_sigint_sets_stop_event_and_logs_info(
-        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+        self, config_wired, entity_store, ws_server, monkeypatch, caplog
     ):
         caplog.set_level(logging.INFO)
         task, captured, stop_event = await self._run_with_captured_sigint_handler(
-            config_wired, fake_ws, monkeypatch
+            config_wired, ws_server, monkeypatch
         )
 
         assert captured, "SIGINT handler was not installed by _run_daemon_body"
@@ -2073,11 +2094,11 @@ class TestRunDaemonSigintHandler:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_second_sigint_raises_keyboard_interrupt_and_logs_warning(
-        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+        self, config_wired, entity_store, ws_server, monkeypatch, caplog
     ):
         caplog.set_level(logging.WARNING)
         task, captured, _stop_event = await self._run_with_captured_sigint_handler(
-            config_wired, fake_ws, monkeypatch
+            config_wired, ws_server, monkeypatch
         )
 
         assert captured, "SIGINT handler was not installed by _run_daemon_body"
@@ -2108,7 +2129,7 @@ class TestRunDaemonInnerCancellation:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_inner_cancelled_error_is_caught_and_finally_runs(
-        self, config_wired, entity_store, fake_ws, monkeypatch
+        self, config_wired, entity_store, ws_server, monkeypatch
     ):
         async def _cancel_immediately(*_a, **_k):
             raise asyncio.CancelledError("simulated inner cancellation")
@@ -2119,7 +2140,7 @@ class TestRunDaemonInnerCancellation:
         task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=make_fake_ws_factory(fake_ws),
+                ws_factory=make_ws_factory_for(ws_server.base_url),
                 stop_event=stop_event,
             )
         )
@@ -2136,8 +2157,8 @@ class TestRunDaemonInnerCancellation:
         # The except (CancelledError, KeyboardInterrupt): pass branch swallows
         # the cancellation, so exit_code is EXIT_SUCCESS (0), NOT a re-raise.
         assert exit_code == 0
-        # WS was stopped via the finally block.
-        assert fake_ws.stopped
+        # WS was stopped via the finally block — connections closed.
+        assert len(ws_server.connections) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -2151,7 +2172,7 @@ class TestRunDaemonWorkerDrainTimeout:
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
     async def test_worker_drain_timeout_logs_and_cancels(
-        self, config_wired, entity_store, fake_ws, monkeypatch, caplog
+        self, config_wired, entity_store, ws_server, monkeypatch, caplog
     ):
         caplog.set_level(logging.WARNING)
         real_wait_for = asyncio.wait_for
@@ -2173,7 +2194,7 @@ class TestRunDaemonWorkerDrainTimeout:
         task = asyncio.create_task(
             run_daemon(
                 config_wired,
-                ws_factory=make_fake_ws_factory(fake_ws),
+                ws_factory=make_ws_factory_for(ws_server.base_url),
                 stop_event=stop_event,
             )
         )

@@ -1,6 +1,6 @@
 """Tests for api/websocket.py — FanslyWebSocket protocol handler.
 
-External boundary: websockets.client.connect (patched with FakeSocket).
+External boundary: websockets.asyncio.client.connect (patched with FakeSocket).
 Everything else — message dispatch, ping logic, reconnect, auth — runs real code.
 """
 
@@ -16,6 +16,7 @@ from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.frames import Close
 
 from api.websocket import _ChildWebSocket as FanslyWebSocket
+from tests.fixtures.api import make_child_ws_for
 from tests.fixtures.api.fake_websocket import FakeSocket
 
 
@@ -312,32 +313,33 @@ class TestErrorEvent:
 
 
 class TestConnectDisconnect:
-    """Lines 282-373: connect/disconnect with mocked websockets.client.connect."""
+    """connect/disconnect — happy path + auth-failure run against the
+    scripted-responder ``ws_server``; connection-injection failures
+    (raise on connect) stay patched because the scripted server can't
+    simulate them without a bogus port.
+    """
 
     @pytest.mark.asyncio
-    async def test_connect_and_disconnect(self):
+    async def test_connect_and_disconnect(self, ws_server):
         """Full connect → auth → ping loop start → disconnect cycle."""
-        ws = _make_ws()
-        fake = FakeSocket(recv_messages=[_auth_response()])
+        ws_server.set_session(id="123", websocket_session_id="456", account_id="789")
+        ws = make_child_ws_for(ws_server.base_url)
 
-        async def fake_connect(**kwargs):
-            return fake
-
-        with patch("api.websocket.ws_client.connect", side_effect=fake_connect):
-            await ws.connect()
+        await ws.connect()
 
         assert ws.connected is True
         assert ws.session_id == "123"
         assert ws._ping_task is not None
-        # Auth message was sent
-        assert len(fake.sent) == 1
-        auth_sent = json.loads(fake.sent[0])
-        assert auth_sent["t"] == 1
+
+        # Auth frame observable on the scripted responder
+        assert ws_server.auth_event.is_set()
+        auth_frames = ws_server.frames_of_type(1)
+        assert len(auth_frames) == 1
+        assert auth_frames[0]["t"] == 1
 
         await ws.disconnect()
         assert ws.connected is False
         assert ws.session_id is None
-        assert fake.closed is True
 
     @pytest.mark.asyncio
     async def test_connect_already_connected(self):
@@ -353,32 +355,33 @@ class TestConnectDisconnect:
         await ws.disconnect()  # no crash
 
     @pytest.mark.asyncio
-    async def test_connect_auth_failure(self):
+    async def test_connect_auth_failure(self, ws_server):
         """Auth response without session ID → RuntimeError."""
-        ws = _make_ws()
-        fake = FakeSocket(recv_messages=[_msg(1, json.dumps({"session": {}}))])
+        ws_server.auto_ack = False
+        # Manually queue a malformed t=1 with empty session dict
+        ws_server.push({"t": 1, "d": json.dumps({"session": {}})})
 
-        async def fake_connect(**kwargs):
-            return fake
+        ws = make_child_ws_for(ws_server.base_url)
 
-        with (
-            patch("api.websocket.ws_client.connect", side_effect=fake_connect),
-            pytest.raises(RuntimeError, match="Failed to authenticate"),
-        ):
+        with pytest.raises(RuntimeError, match="Failed to authenticate"):
             await ws.connect()
 
         assert ws.connected is False
 
     @pytest.mark.asyncio
     async def test_connect_exception(self):
-        """Connection failure → connected=False, exception propagates."""
+        """Connection failure → connected=False, exception propagates.
+
+        Stays patched: simulating ``raise OSError`` from the connect call
+        is failure-injection that the scripted responder doesn't provide.
+        """
         ws = _make_ws()
 
         async def fail_connect(**kwargs):
             raise OSError("refused")
 
         with (
-            patch("api.websocket.ws_client.connect", side_effect=fail_connect),
+            patch("api.websocket.ws_connect", side_effect=fail_connect),
             pytest.raises(OSError),
         ):
             await ws.connect()
@@ -390,18 +393,25 @@ class TestSendMessage:
     """Lines 558-569: send_message."""
 
     @pytest.mark.asyncio
-    async def test_send_message(self):
-        ws = _make_ws(enable_logging=True)
-        ws.connected = True
-        fake = FakeSocket()
-        ws.websocket = fake
+    async def test_send_message(self, ws_server):
+        """send_message encodes the envelope and writes it to the wire.
+
+        Drives a real connect + send through the scripted responder so
+        the encoded frame is observable via ``ws_server.received``.
+        """
+        ws = make_child_ws_for(ws_server.base_url, enable_logging=True)
+        await ws.connect()
 
         await ws.send_message(5, {"hello": "world"})
 
-        assert len(fake.sent) == 1
-        sent = json.loads(fake.sent[0])
-        assert sent["t"] == 5
-        assert json.loads(sent["d"]) == {"hello": "world"}
+        # Allow a tick for the send to land on the server
+        await asyncio.sleep(0.05)
+
+        type5_frames = ws_server.frames_of_type(5)
+        assert len(type5_frames) == 1
+        assert json.loads(type5_frames[0]["d"]) == {"hello": "world"}
+
+        await ws.disconnect()
 
     @pytest.mark.asyncio
     async def test_send_message_not_connected(self):
@@ -414,26 +424,27 @@ class TestPingLoop:
     """Lines 425-498: ping worker, start/stop, timeout detection."""
 
     @pytest.mark.asyncio
-    async def test_ping_sends_p(self):
-        """Ping loop sends 'p' to websocket (line 469)."""
-        ws = _make_ws(enable_logging=True)
-        fake = FakeSocket()
-        ws.websocket = fake
-        ws.connected = True
+    async def test_ping_sends_p(self, ws_server):
+        """Ping loop sends bare 'p' to websocket (line 469).
 
-        ws._start_ping_loop()
-        # Let the ping worker run one iteration
-        # Override the timing to be fast
+        Connect via the scripted responder so the ping loop runs against
+        the real wire; observe the bare 'p' via ``received_raw`` (non-JSON
+        frames don't land in the parsed ``received`` deque).
+        """
         with patch("api.websocket.timing_jitter", return_value=0.05):
-            ws._start_ping_loop()  # Already running → warning (line 433-434)
+            ws = make_child_ws_for(ws_server.base_url, enable_logging=True)
+            await ws.connect()
+
+            # connect() starts the ping loop. A second start should warn
+            # but not create a second task (lines 433-434).
+            ws._start_ping_loop()
+
             await asyncio.sleep(0.15)
 
-        ws.connected = False  # Signal the loop to exit
-        ws._stop_ping_loop()
-        await asyncio.sleep(0.05)
+            await ws.disconnect()
 
-        # Verify at least one 'p' was sent
-        assert "p" in fake.sent
+        # Verify at least one bare 'p' was sent to the wire
+        assert "p" in ws_server.received_raw
 
     @pytest.mark.asyncio
     async def test_ping_timeout_resets_connection(self):
@@ -647,7 +658,7 @@ class TestMaintainConnection:
             connect_count[0] += 1
             raise OSError("refused")
 
-        with patch("api.websocket.ws_client.connect", side_effect=fail_connect):
+        with patch("api.websocket.ws_connect", side_effect=fail_connect):
             await asyncio.wait_for(ws._maintain_connection(), timeout=5.0)
 
         assert connect_count[0] == 2  # Tried twice then stopped
@@ -662,7 +673,7 @@ class TestMaintainConnection:
             # Sleep long enough that the test's cancel arrives first
             await asyncio.sleep(60)
 
-        with patch("api.websocket.ws_client.connect", side_effect=hang_connect):
+        with patch("api.websocket.ws_connect", side_effect=hang_connect):
             task = asyncio.create_task(ws._maintain_connection())
             await asyncio.sleep(0.05)
             task.cancel()

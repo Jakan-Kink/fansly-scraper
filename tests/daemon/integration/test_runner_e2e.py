@@ -26,7 +26,7 @@ from loguru import logger
 from daemon.runner import run_daemon
 from daemon.simulator import ActivitySimulator
 from metadata.models import MonitorState
-from tests.fixtures.api import FakeWS, make_fake_ws_factory
+from tests.fixtures.api import make_ws_factory_for
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -45,15 +45,9 @@ TIMELINE_NEW_BASE_URL = "https://apiv3.fansly.com/api/v1/timelinenew/"
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def fake_ws() -> FakeWS:
-    """Provide a fresh FakeWS stub for each test."""
-    return FakeWS()
-
-
-# `saved_account` and `config_wired` come from the canonical fixtures
-# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
-# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
+# `saved_account`, `config_wired`, and `ws_server` come from the canonical
+# fixtures (tests/fixtures/metadata/, tests/fixtures/core/, tests/fixtures/api/
+# respectively) via the wildcard import in tests/conftest.py.
 # Per Cat L policy: don't redefine here.
 
 
@@ -72,7 +66,7 @@ class TestRunDaemonE2E:
         config_wired,
         entity_store,
         saved_account,
-        fake_ws,
+        ws_server,
     ) -> None:
         """run_daemon completes one full poll -> filter -> download -> persist cycle.
 
@@ -89,8 +83,8 @@ class TestRunDaemonE2E:
             what this test verifies.
 
         Assertions:
-          - fake_ws.started is True (WebSocket was started).
-          - fake_ws.stopped is True (WebSocket was stopped on shutdown).
+          - ws_server.auth_event.is_set() (WebSocket authenticated over real TCP).
+          - ws_server.connections is empty at end (WebSocket stopped on shutdown).
           - download_timeline stub was called exactly once.
           - MonitorState row exists for the creator with a recent lastCheckedAt
             (set by mark_creator_processed after FullCreatorDownload).
@@ -131,7 +125,7 @@ class TestRunDaemonE2E:
             task = asyncio.create_task(
                 run_daemon(
                     config_wired,
-                    ws_factory=make_fake_ws_factory(fake_ws),
+                    ws_factory=make_ws_factory_for(ws_server.base_url),
                     stop_event=stop_event,
                 )
             )
@@ -270,8 +264,12 @@ class TestRunDaemonE2E:
         # ── Assertions ────────────────────────────────────────────────────────
 
         # WebSocket lifecycle
-        assert fake_ws.started, "WebSocket was not started by run_daemon"
-        assert fake_ws.stopped, "WebSocket was not stopped on shutdown"
+        assert ws_server.auth_event.is_set(), (
+            "WebSocket never authenticated against the scripted responder"
+        )
+        assert len(ws_server.connections) == 0, (
+            f"WebSocket connections still open at end: {len(ws_server.connections)}"
+        )
 
         # download_timeline was triggered (spy event was set)
         assert download_called.is_set(), (

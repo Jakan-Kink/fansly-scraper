@@ -22,6 +22,7 @@ from config.args import (
     parse_args,
 )
 from config.logging import init_logging_config
+from config.modes import DownloadMode
 from errors import ConfigError
 
 
@@ -546,3 +547,70 @@ def test_handle_monitoring_settings_daemon_and_full_pass(
     assert config_with_path.monitoring_session_baseline == datetime(
         2000, 1, 1, tzinfo=UTC
     )
+
+
+# ---------------------------------------------------------------------------
+# --stash-only x daemon_mode cross-flag handling in map_args_to_config
+# ---------------------------------------------------------------------------
+
+
+def test_stash_only_alone_leaves_daemon_off(config_with_path, args) -> None:
+    """--stash-only with no daemon flags: stash-only set, daemon stays off."""
+    config_with_path.daemon_mode = False
+    args.stash_only = True
+    args.daemon_mode = False
+
+    map_args_to_config(args, config_with_path)
+
+    assert config_with_path.download_mode == DownloadMode.STASH_ONLY
+    assert config_with_path.daemon_mode is False
+    assert "daemon_mode" not in config_with_path._ephemeral_overrides
+
+
+def test_stash_only_with_yaml_daemon_silently_disables(config_with_path, args) -> None:
+    """--stash-only + YAML daemon_mode=true: daemon force-off for this run.
+
+    The YAML-default case (operator has daemon_mode in config.yaml, invokes
+    --stash-only as a one-shot override) silently disables the daemon and
+    records an ephemeral override so YAML isn't written back.
+    """
+    # Simulate YAML having daemon_mode=true; no CLI --daemon flag.
+    config_with_path.daemon_mode = True
+    args.stash_only = True
+    args.daemon_mode = False
+
+    map_args_to_config(args, config_with_path)
+
+    assert config_with_path.download_mode == DownloadMode.STASH_ONLY
+    assert config_with_path.daemon_mode is False
+    assert "daemon_mode" in config_with_path._ephemeral_overrides
+
+
+def test_stash_only_with_cli_daemon_raises_conflict(config_with_path, args) -> None:
+    """--stash-only + --daemon together: ConfigError, no silent drop.
+
+    Explicit operator-error: both flags typed on the CLI is operationally
+    meaningless and should refuse rather than silently dropping one.
+    """
+    config_with_path.daemon_mode = False
+    args.stash_only = True
+    args.daemon_mode = True
+
+    with pytest.raises(ConfigError, match="--stash-only and --daemon"):
+        map_args_to_config(args, config_with_path)
+
+
+def test_daemon_without_stash_only_unaffected(config_with_path, args) -> None:
+    """--daemon alone (no --stash-only): daemon_mode stays on, no override flag.
+
+    Regression check — the cross-flag logic must not fire when stash-only
+    isn't the active download mode.
+    """
+    config_with_path.daemon_mode = False
+    args.stash_only = False
+    args.daemon_mode = True
+
+    map_args_to_config(args, config_with_path)
+
+    assert config_with_path.daemon_mode is True
+    assert "daemon_mode" not in config_with_path._ephemeral_overrides

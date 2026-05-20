@@ -76,7 +76,7 @@ async def test_main_completes_per_mode_with_empty_content(
     - setup + validation (lines 278-298)
     - Database reuse (config._database from ``config_with_database``)
     - API setup + WebSocket bootstrap — real FanslyApi, WebSocket mocked
-      at the ``api.websocket.ws_client.connect`` leaf boundary
+      at the ``api.websocket.ws_connect`` leaf boundary
     - Client-account-into-DB (lines 342-344)
     - Per-creator iteration hitting every download-mode branch
 

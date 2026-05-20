@@ -21,7 +21,7 @@ from collections.abc import Callable
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any
 
-from websockets import client as ws_client
+from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosedOK, WebSocketException
 
 from api.websocket_protocol import (
@@ -500,11 +500,19 @@ class _ChildWebSocket:
         logger.info("Connecting to WebSocket: {}", connection_url)
 
         try:
-            ssl_context = self._create_ssl_context()
+            # Only pass ssl_context for wss:// URIs. The new
+            # ``websockets.asyncio.client.connect`` raises on ssl= with a
+            # ws:// URI (legacy silently ignored it). Production is wss://;
+            # test scripted-responders use ws://.
+            ssl_context: ssl.SSLContext | None = (
+                self._create_ssl_context()
+                if connection_url.startswith("wss://")
+                else None
+            )
 
-            # Prepare extra headers (matching browser request)
-            extra_headers = {
-                "User-Agent": self.user_agent,
+            # Prepare additional headers (matching browser request).
+            # User-Agent goes via the dedicated user_agent_header param.
+            additional_headers = {
                 "Origin": "https://fansly.com",
                 "Sec-Fetch-Dest": "empty",
                 "Sec-Fetch-Mode": "websocket",
@@ -516,12 +524,13 @@ class _ChildWebSocket:
             # Add cookies if provided
             cookie_header = self._create_cookie_header()
             if cookie_header:
-                extra_headers["Cookie"] = cookie_header
+                additional_headers["Cookie"] = cookie_header
 
             # Connect to WebSocket
-            self.websocket = await ws_client.connect(
+            self.websocket = await ws_connect(
                 uri=connection_url,
-                extra_headers=extra_headers,
+                user_agent_header=self.user_agent,
+                additional_headers=additional_headers,
                 ssl=ssl_context,
             )
 

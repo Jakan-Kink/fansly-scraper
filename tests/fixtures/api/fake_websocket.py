@@ -3,7 +3,7 @@
 Two distinct stubs live here, one per test surface:
 
 * ``FakeSocket`` is the **transport-level** fake — it stands in for the
-  ``websockets.client`` connection object that ``FanslyWebSocket.connect``
+  ``websockets.asyncio.client`` connection object that ``FanslyWebSocket.connect``
   receives. Use it when the test wants real ``FanslyWebSocket`` behavior
   (auth flow, ping/pong, message decoding) but no actual network.
 
@@ -27,7 +27,7 @@ Usage::
     async def fake_connect(**kwargs):
         return fake
 
-    with patch("api.websocket.ws_client.connect", side_effect=fake_connect):
+    with patch("api.websocket.ws_connect", side_effect=fake_connect):
         # call code that opens a WebSocket
         ...
 
@@ -59,7 +59,7 @@ _CLEAN_CLOSE_FRAME = Close(code=1000, reason="")
 
 
 class FakeSocket:
-    """Test double for a websockets.client connection.
+    """Test double for a websockets.asyncio.client connection.
 
     Records all sent messages and feeds back scripted recv responses from a
     queue. Once the queue is drained, ``recv()`` blocks until ``close()`` is
@@ -157,7 +157,7 @@ def fake_websocket_session(
 
     Production ``FanslyWebSocket.start_in_thread`` spawns a subprocess via
     ``multiprocessing.get_context("spawn")``. Patches applied to
-    ``ws_client.connect`` in the test (parent) process do NOT cross the
+    ``ws_connect`` in the test (parent) process do NOT cross the
     process boundary, so the only way to keep integration tests offline
     is to replace the parent class itself with a stub that never spawns.
 

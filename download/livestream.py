@@ -22,7 +22,6 @@ import asyncio
 import contextlib
 import re
 import shutil
-import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -45,10 +44,6 @@ from pathio.livestream import _build_output_path, _get_segments_base
 
 
 # ── Constants ─────────────────────────────────────────────────────────────
-
-# Seconds to wait after the first EXT-X-ENDLIST before finalising.
-# IVS emits ENDLIST for transient creator pauses, not just true end-of-stream.
-_ENDLIST_GRACE_SECONDS = 60.0
 
 # Maximum concurrent segment downloads per stream.
 _PARALLEL_SEGMENT_LIMIT = 5
@@ -367,9 +362,10 @@ async def _poll_segments_loop(
     ``EXT-X-PREFETCH`` hint lines (leading-edge segments that are still being
     written) are also collected to minimise the gap at the head of the window.
 
-    An ``EXT-X-ENDLIST`` tag is honoured only after a
-    ``_ENDLIST_GRACE_SECONDS`` window, because IVS emits it for transient
-    creator pauses as well as true end-of-broadcast.
+    An ``EXT-X-ENDLIST`` tag is terminal: AWS IVS only emits it at true
+    end-of-broadcast (transient interruptions surface as EventBridge
+    stream-health events, not playlist flags) and purges the playlist
+    resource shortly after, so we finalise immediately on first sight.
 
     Args:
         variant_url: IVS variant manifest URL (self-authenticating opaque path).
@@ -387,7 +383,6 @@ async def _poll_segments_loop(
     segments_collected: list[Path] = []
     durations: list[float] = []
     last_msn = -1
-    endlist_first_seen: float | None = None
 
     # Manifest requests go directly to AWS IVS/CloudFront — no Fansly auth.
     # Variant segment URLs are self-authenticating via their opaque path token.
@@ -422,30 +417,6 @@ async def _poll_segments_loop(
 
             resp_text = response.text
             playlist = m3u8.loads(resp_text, uri=variant_url)
-
-            # EXT-X-ENDLIST grace: IVS uses ENDLIST for transient pauses.
-            if playlist.is_endlist:
-                if endlist_first_seen is None:
-                    endlist_first_seen = time.monotonic()
-                    logger.info(
-                        "download.livestream: {} EXT-X-ENDLIST — {:.0f}s grace period",
-                        log_prefix,
-                        _ENDLIST_GRACE_SECONDS,
-                    )
-                elif time.monotonic() - endlist_first_seen > _ENDLIST_GRACE_SECONDS:
-                    logger.info(
-                        "download.livestream: {} EXT-X-ENDLIST persisted "
-                        ">{}s — finalising",
-                        log_prefix,
-                        _ENDLIST_GRACE_SECONDS,
-                    )
-                    break
-            elif endlist_first_seen is not None:
-                logger.info(
-                    "download.livestream: {} EXT-X-ENDLIST cleared — stream resumed",
-                    log_prefix,
-                )
-                endlist_first_seen = None
 
             playlist_msn: int = getattr(playlist, "media_sequence", 0) or 0
             jobs: list[tuple[int, str, Path, float]] = []
@@ -506,6 +477,13 @@ async def _poll_segments_loop(
                     len(segments_collected),
                     last_msn,
                 )
+
+            if playlist.is_endlist:
+                logger.info(
+                    "download.livestream: {} EXT-X-ENDLIST — stream ended, finalising",
+                    log_prefix,
+                )
+                break
 
             await asyncio.sleep(manifest_poll_interval)
 

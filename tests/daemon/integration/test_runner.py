@@ -19,10 +19,15 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from loguru import logger as _logger
 
 from daemon.runner import run_daemon
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
-from tests.fixtures.api import make_fake_ws_factory
+from tests.fixtures.api import (
+    dump_ws_server_state,
+    make_fake_ws_factory,
+    make_ws_factory_for,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -114,18 +119,22 @@ class TestWorkerDrainsOnShutdown:
     """Worker processes all in-flight items before shutdown completes."""
 
     @pytest.mark.asyncio
-    @pytest.mark.timeout(15)
+    @pytest.mark.timeout(20)
     async def test_worker_drains_3_items_on_sigint(
-        self, config_wired, entity_store, saved_account, fake_ws
+        self, config_wired, entity_store, saved_account, ws_server
     ):
         """Put 3 items in the queue, send SIGINT — all 3 are processed.
 
-        The daemon's finally block cancels pollers first, then waits up to
-        30 seconds for the worker to drain. We pre-load the queue before
-        shutdown and verify all items were processed.
+        Drives real ``(15, 5) status=3`` subscription-confirmed events
+        through the scripted-responder WS server (analogous to respx for
+        HTTP). The full WS connect / triple-JSON decode / dispatch path
+        runs against an in-process server; no synthetic handler call.
         """
         processed_ids: list[int] = []
         stop_event = asyncio.Event()
+        # Capture WS subprocess + runner logs for diagnosis if auth times out.
+        captured_logs: list[str] = []
+        sink_id = _logger.add(lambda m: captured_logs.append(str(m)), level="DEBUG")
 
         creator_ids = [saved_account.id, snowflake_id(), snowflake_id()]
 
@@ -133,49 +142,72 @@ class TestWorkerDrainsOnShutdown:
             if hasattr(item, "creator_id"):
                 processed_ids.append(item.creator_id)
 
-        with (
-            patch("daemon.runner._handle_work_item", side_effect=_spy_handle_work_item),
-            patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
-            patch("daemon.runner._refresh_following", new=AsyncMock()),
-        ):
-            daemon_task = asyncio.create_task(
-                run_daemon(
-                    config_wired,
-                    ws_factory=make_fake_ws_factory(fake_ws),
-                    stop_event=stop_event,
+        try:
+            with (
+                patch(
+                    "daemon.runner._handle_work_item", side_effect=_spy_handle_work_item
+                ),
+                patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
+                patch("daemon.runner._refresh_following", new=AsyncMock()),
+            ):
+                daemon_task = asyncio.create_task(
+                    run_daemon(
+                        config_wired,
+                        ws_factory=make_ws_factory_for(
+                            ws_server.base_url, enable_logging=True
+                        ),
+                        stop_event=stop_event,
+                    )
                 )
-            )
 
-            # Wait for daemon to start
-            await asyncio.sleep(0.05)
+                # Wait for WS to authenticate against the scripted server
+                try:
+                    await ws_server.wait_for_auth(timeout=10.0)
+                except TimeoutError:
+                    dump_ws_server_state(
+                        ws_server,
+                        daemon_task=daemon_task,
+                        captured_logs=captured_logs,
+                    )
+                    stop_event.set()
+                    daemon_task.cancel()
+                    await asyncio.gather(daemon_task, return_exceptions=True)
+                    raise
 
-            # Fire 3 WS events (subscription confirmed for 3 creators) —
-            # each enqueues a work item on the daemon's internal queue.
+                # Push 3 real (15, 5) status=3 subscription-confirmed events
+                # over the wire. Each one becomes a FullCreatorDownload work
+                # item on the daemon's internal queue after triple-JSON decode
+                # and dispatch.
+                for cid in creator_ids:
+                    ws_server.push_subscription_event(
+                        subscription_id=str(snowflake_id()),
+                        history_id=str(snowflake_id()),
+                        subscriber_id=str(saved_account.id),
+                        creator_id=str(cid),
+                        status=3,
+                        price_mills=10000,
+                    )
+
+                # Short delay to let items traverse the wire + worker drain start
+                await asyncio.sleep(0.2)
+
+                # Trigger shutdown directly via the injected stop_event
+                stop_event.set()
+
+                try:
+                    await asyncio.wait_for(daemon_task, timeout=10.0)
+                except TimeoutError:
+                    daemon_task.cancel()
+                    await asyncio.gather(daemon_task, return_exceptions=True)
+
+            # All 3 creator IDs should have been processed
             for cid in creator_ids:
-                await fake_ws.fire(
-                    service_id=15,
-                    event_type=5,
-                    inner={"subscription": {"accountId": cid, "status": 3}},
+                assert cid in processed_ids, (
+                    f"Creator {cid} was not processed before shutdown; "
+                    f"processed: {processed_ids}"
                 )
-
-            # Short delay to let items land in the queue
-            await asyncio.sleep(0.05)
-
-            # Trigger shutdown directly via the injected stop_event
-            stop_event.set()
-
-            try:
-                await asyncio.wait_for(daemon_task, timeout=10.0)
-            except TimeoutError:
-                daemon_task.cancel()
-                await asyncio.gather(daemon_task, return_exceptions=True)
-
-        # All 3 creator IDs should have been processed
-        for cid in creator_ids:
-            assert cid in processed_ids, (
-                f"Creator {cid} was not processed before shutdown; "
-                f"processed: {processed_ids}"
-            )
+        finally:
+            _logger.remove(sink_id)
 
 
 # ---------------------------------------------------------------------------

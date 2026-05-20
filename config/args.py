@@ -995,4 +995,23 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     _handle_unsigned_ints(args, config)
     _handle_monitoring_settings(args, config)
 
+    # Explicit CLI conflict: --stash-only and --daemon together is
+    # operationally meaningless (stash-only is one-shot; daemon has no
+    # new content to react to). Refuse rather than silently drop one.
+    if getattr(args, "stash_only", False) and getattr(args, "daemon_mode", False):
+        raise ConfigError(
+            "--stash-only and --daemon cannot be combined: stash-only is "
+            "a one-shot operation with no new content for the daemon to "
+            "monitor."
+        )
+
+    # Cross-flag override: --stash-only with daemon_mode enabled in YAML
+    # forces daemon off for THIS run only. Ephemeral override; YAML stays
+    # untouched and reverts on the next invocation without --stash-only.
+    # (The explicit-CLI-conflict raise above catches the --stash-only
+    # --daemon case; here we handle only the YAML-default case.)
+    if config.download_mode == DownloadMode.STASH_ONLY and config.daemon_mode:
+        config.daemon_mode = False
+        config._ephemeral_overrides.add("daemon_mode")
+
     return download_mode_set
