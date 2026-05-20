@@ -299,20 +299,20 @@ async def get_auth_token_from_leveldb_folder(
         )
 
     try:
-        db = plyvel.DB(leveldb_folder, compression="snappy")
+        # Context-manager form guarantees close() even on the broad-except
+        # fallthrough below. Previously a non-IOError exception (e.g.,
+        # JSONDecodeError on a malformed session value) would leave the DB
+        # open, and _DB.__del__ would block on flush+compaction at
+        # interpreter shutdown.
+        with plyvel.DB(leveldb_folder, compression="snappy") as db:
+            key = b"_https://fansly.com\x00\x01session_active_session"
+            value = db.get(key)
 
-        key = b"_https://fansly.com\x00\x01session_active_session"
-        value = db.get(key)
-
-        if value:
-            session_active_session = (
-                value.decode("utf-8").replace("\x00", "").replace("\x01", "")
-            )
-            auth_token = json.loads(session_active_session).get("token")
-            db.close()
-            return auth_token
-
-        db.close()
+            if value:
+                session_active_session = (
+                    value.decode("utf-8").replace("\x00", "").replace("\x01", "")
+                )
+                return json.loads(session_active_session).get("token")
 
     except plyvel._plyvel.IOError as e:
         error_message = str(e)

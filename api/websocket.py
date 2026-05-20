@@ -1179,6 +1179,15 @@ class FanslyWebSocket:
                 await self._drain_task
             self._drain_task = None
 
+        # Don't wait for queue feeder threads at interpreter exit. Without
+        # this, mp's atexit handler blocks for ~10s per queue when the
+        # subprocess is unresponsive to the stop command — the feeder is
+        # writing to a (now-broken) pipe. Call before join so even a
+        # non-responsive child doesn't strand the feeder.
+        for q in (self._cmd_q, self._evt_q):
+            if q is not None:
+                q.cancel_join_thread()
+
         await asyncio.to_thread(self._proc.join, join_timeout)
         if self._proc.is_alive():
             self._proc.terminate()

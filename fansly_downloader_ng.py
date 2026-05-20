@@ -18,6 +18,8 @@ from importlib.metadata import version as pkg_version
 from time import monotonic
 from types import FrameType
 
+from loguru import logger
+
 from config import (
     DownloadMode,
     FanslyConfig,
@@ -99,6 +101,30 @@ def _check_stash_library_version() -> None:
 
 
 _check_stash_library_version()
+
+
+# Tracks whether ``cleanup_database_sync`` has been registered via
+# ``atexit.register``. Two call sites (``main`` and ``_async_main``)
+# both want the registration; without this guard, both fire and the
+# atexit handler runs twice — producing the duplicate "Database cleanup
+# already performed (sync), skipping" lines at shutdown. Public
+# ``atexit._exithandlers`` introspection (the prior guard) is a CPython
+# internal that can change between versions; a module-level flag is
+# the durable form.
+_db_cleanup_atexit_registered = False
+
+
+def _register_db_cleanup_once(config: FanslyConfig) -> None:
+    """Register ``cleanup_database_sync`` exactly once per process.
+
+    Idempotent — call from any number of code paths; only the first call
+    in a given process actually touches ``atexit``.
+    """
+    global _db_cleanup_atexit_registered
+    if _db_cleanup_atexit_registered:
+        return
+    atexit.register(cleanup_database_sync, config)
+    _db_cleanup_atexit_registered = True
 
 
 async def _safe_cleanup_database(config: FanslyConfig) -> None:
@@ -330,7 +356,7 @@ async def main(config: FanslyConfig) -> int:
     config._database = Database(config)
     await config._database.create_entity_store()
     # Register cleanup function to ensure database is closed on exit
-    atexit.register(cleanup_database_sync, config)
+    _register_db_cleanup_once(config)
 
     # Set up and print API information
     await config.setup_api()
@@ -888,6 +914,15 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
 
         total_cleanup_time = time.time() - cleanup_start
         print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
+
+        # Drain loguru sink threads (enqueue=True backed sinks) before
+        # interpreter shutdown picks them up on its slower schedule.
+        # loguru.complete() returns an awaitable when any sink was added
+        # with async/thread args; otherwise None.
+        completion = logger.complete()
+        if completion is not None:
+            with contextlib.suppress(Exception):
+                await completion
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).
@@ -900,11 +935,10 @@ async def _async_main(config: FanslyConfig) -> int:
     exit_code = EXIT_SUCCESS
 
     try:
-        # Ensure we have an exit handler registered early
-        if not hasattr(atexit, "_exithandlers") or not any(
-            h[0].__name__ == "cleanup_database_sync" for h in atexit._exithandlers
-        ):
-            atexit.register(cleanup_database_sync, config)
+        # Ensure we have an exit handler registered early (idempotent —
+        # ``main`` also registers, but the helper guards against duplicates).
+        if not _db_cleanup_atexit_registered:
+            _register_db_cleanup_once(config)
             print_info("Registered database cleanup exit handler")
 
         # Run main program

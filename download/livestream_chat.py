@@ -21,7 +21,7 @@ from loguru import logger
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from api.websocket import _ChildWebSocket
-from api.websocket_protocol import MSG_SERVICE_EVENT
+from api.websocket_protocol import CHAT_URL, MSG_SERVICE_EVENT
 from config.fanslyconfig import FanslyConfig
 from fileio.livestream import _append_lines
 
@@ -108,8 +108,10 @@ async def _chat_ws_loop(
 ) -> None:
     """Maintain a dedicated WebSocket connection for live chat capture.
 
-    Authenticates to ``wss://wsv3.fansly.com``, joins *chat_room_id* via
-    ``MSG_CHAT_ROOM`` (t=46001), then receives ``MSG_SERVICE_EVENT``
+    Authenticates to ``wss://chatws.fansly.com`` (the **dedicated chat
+    endpoint** — ``t=46001`` joins and ``(46, 10)`` chat messages do NOT
+    flow on the main ``wsv3.fansly.com`` event bus), joins *chat_room_id*
+    via ``MSG_CHAT_ROOM`` (t=46001), then receives ``MSG_SERVICE_EVENT``
     (t=10000) messages with ``serviceId=46, type=10`` and feeds each
     ``chatRoomMessage`` payload into *recorder*.
 
@@ -148,6 +150,7 @@ async def _chat_ws_loop(
                 else _ChildWebSocket(
                     token=token,
                     user_agent=user_agent,
+                    base_url=CHAT_URL,
                     ping_timeout_enabled=False,
                 )
             )
