@@ -13,19 +13,29 @@ import asyncio
 import contextlib
 import json
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
-from api.websocket import FanslyWebSocket
+from api.websocket import _ChildWebSocket
+from api.websocket_protocol import MSG_SERVICE_EVENT
 from config.fanslyconfig import FanslyConfig
 from fileio.livestream import _append_lines
 
 
 # Seconds before reconnecting the chat WebSocket after a connection error.
 _CHAT_WS_RECONNECT_DELAY = 5.0
+
+# Maximum consecutive construction-time failures (constructor / handler
+# registration / pre-connect setup) before giving up. Connect-time and
+# recv-time failures don't count — those are operational/network and should
+# keep retrying forever. Five attempts at the 5 s reconnect cadence is ~25 s,
+# long enough to rule out a one-off pre-connect transient but short enough
+# to surface a real config/code bug before it spins silently for hours.
+_MAX_CONSTRUCTION_FAILURES = 5
 
 
 # Maps chatRoomId → ChatRecorder for active recordings.
@@ -93,6 +103,8 @@ async def _chat_ws_loop(
     recorder: ChatRecorder,
     stop_event: asyncio.Event,
     log_prefix: str,
+    *,
+    ws_factory: Callable[[], _ChildWebSocket] | None = None,
 ) -> None:
     """Maintain a dedicated WebSocket connection for live chat capture.
 
@@ -105,45 +117,70 @@ async def _chat_ws_loop(
     main-WS ``route_ws_chat_message`` path remains active in parallel;
     ``ChatRecorder``'s dedup prevents double-writes.
 
+    Uses ``_ChildWebSocket`` directly (in-process) rather than the
+    subprocess-backed ``FanslyWebSocket`` wrapper — chat WS doesn't need
+    GIL isolation (no heartbeat deadlines; ``ping_timeout_enabled=False``
+    below) and the loop calls ``ws.websocket.recv()`` / ``_handle_message``
+    which are ``_ChildWebSocket``-only methods.
+
     Runs until *stop_event* fires.
+
+    Args:
+        ws_factory: Optional zero-arg callable returning a
+            :class:`_ChildWebSocket`. When omitted, production constructs
+            one against the default URL using ``config.token`` and
+            ``config.user_agent``. Tests pass a factory pointing at the
+            in-process ``ws_server`` fixture (mirrors the daemon-runner
+            ``ws_factory`` injection pattern).
     """
     token = config.token or ""
     user_agent = config.user_agent or ""
 
+    construction_failures = 0
+
     while not stop_event.is_set():
-        ws = FanslyWebSocket(
-            token=token,
-            user_agent=user_agent,
-            ping_timeout_enabled=False,
-        )
-
-        async def _on_service_event(data: dict | str) -> None:
-            try:
-                envelope = json.loads(data) if isinstance(data, str) else data
-                if envelope.get("serviceId") != 46:
-                    return
-                raw_event = envelope.get("event")
-                event = (
-                    json.loads(raw_event)
-                    if isinstance(raw_event, str)
-                    else (raw_event or {})
-                )
-                if event.get("type") != 10:
-                    return
-                chat_msg = event.get("chatRoomMessage")
-                if isinstance(chat_msg, dict):
-                    await recorder.ingest(chat_msg)
-            except Exception as exc:
-                logger.debug(
-                    "download.livestream_chat: {} chat WS event error: {}",
-                    log_prefix,
-                    exc,
-                )
-
-        ws.register_handler(ws.MSG_SERVICE_EVENT, _on_service_event)
-
+        ws: _ChildWebSocket | None = None
+        connect_attempted = False
         try:
+            ws = (
+                ws_factory()
+                if ws_factory is not None
+                else _ChildWebSocket(
+                    token=token,
+                    user_agent=user_agent,
+                    ping_timeout_enabled=False,
+                )
+            )
+
+            async def _on_service_event(data: dict | str) -> None:
+                try:
+                    envelope = json.loads(data) if isinstance(data, str) else data
+                    if envelope.get("serviceId") != 46:
+                        return
+                    raw_event = envelope.get("event")
+                    event = (
+                        json.loads(raw_event)
+                        if isinstance(raw_event, str)
+                        else (raw_event or {})
+                    )
+                    if event.get("type") != 10:
+                        return
+                    chat_msg = event.get("chatRoomMessage")
+                    if isinstance(chat_msg, dict):
+                        await recorder.ingest(chat_msg)
+                except Exception as exc:
+                    logger.debug(
+                        "download.livestream_chat: {} chat WS event error: {}",
+                        log_prefix,
+                        exc,
+                    )
+
+            ws.register_handler(MSG_SERVICE_EVENT, _on_service_event)
+
+            connect_attempted = True
             await ws.connect()
+            assert ws.websocket is not None  # noqa: S101  # nosec B101  type narrowing post-connect
+            construction_failures = 0
             await ws.join_chat_room(chat_room_id)
             logger.info(
                 "download.livestream_chat: {} chat WS connected | room={}",
@@ -167,13 +204,25 @@ async def _chat_ws_loop(
             if not stop_event.is_set():
                 await asyncio.sleep(_CHAT_WS_RECONNECT_DELAY)
         except Exception as exc:
-            logger.warning(
-                "download.livestream_chat: {} chat WS unexpected error: {}",
+            logger.opt(exception=exc).warning(
+                "download.livestream_chat: {} chat WS unexpected error: {!r}",
                 log_prefix,
                 exc,
             )
+            if not connect_attempted:
+                construction_failures += 1
+                if construction_failures >= _MAX_CONSTRUCTION_FAILURES:
+                    logger.error(
+                        "download.livestream_chat: {} chat WS giving up after {}"
+                        " consecutive construction-time failures — likely a code"
+                        " or config bug, not a transient",
+                        log_prefix,
+                        construction_failures,
+                    )
+                    break
             if not stop_event.is_set():
                 await asyncio.sleep(_CHAT_WS_RECONNECT_DELAY)
         finally:
-            with contextlib.suppress(Exception):
-                await ws.disconnect()
+            if ws is not None:
+                with contextlib.suppress(Exception):
+                    await ws.disconnect()

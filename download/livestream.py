@@ -176,6 +176,19 @@ async def _record_stream(
             monitor_task = asyncio.create_task(_forward_stops())
             chat_task: asyncio.Task | None = None
             if channel.chatRoomId is not None and recorder is not None:
+
+                def _surface_chat_task_failure(task: asyncio.Task) -> None:
+                    if task.cancelled():
+                        return
+                    exc = task.exception()
+                    if exc is None:
+                        return
+                    logger.opt(exception=exc).error(
+                        "download.livestream: {} chat WS task crashed: {!r}",
+                        log_prefix,
+                        exc,
+                    )
+
                 chat_task = asyncio.create_task(
                     _chat_ws_loop(
                         config,
@@ -185,6 +198,7 @@ async def _record_stream(
                         log_prefix,
                     )
                 )
+                chat_task.add_done_callback(_surface_chat_task_failure)
             try:
                 segments, durations = await _poll_segments_loop(
                     variant_url,

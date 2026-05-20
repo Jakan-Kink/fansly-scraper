@@ -135,10 +135,18 @@ class FakeFanslyWSServer:
     # (``ConnectionClosedOK``) on its first ``recv()``. Use to test
     # client behaviour on server-initiated disconnect.
     close_on_connect: bool = False
+    # Chat-room IDs the server has seen MSG_CHAT_ROOM (t=46001) joins for.
+    # Populated from the ``d.chatRoomId`` field of each incoming join
+    # frame. Stored as str because the production wire shape sends them
+    # stringified (api/websocket.py:792).
+    joined_chat_rooms: set[str] = field(default_factory=set)
     _session: _SessionInfo = field(default_factory=_SessionInfo)
     _outbound: asyncio.Queue[str] = field(default_factory=asyncio.Queue)
     _pusher_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     auth_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # Set whenever ANY chat-room join arrives. For per-room waits, test
+    # code can poll ``joined_chat_rooms`` after this event fires.
+    chat_room_join_event: asyncio.Event = field(default_factory=asyncio.Event)
 
     # ---- session / handshake config ----------------------------------
 
@@ -741,6 +749,45 @@ class FakeFanslyWSServer:
             },
         )
 
+    # ── ChatRoomService (svc=46) ─────────────────────────────────────
+
+    def push_chat_message(
+        self,
+        *,
+        chat_room_id: str | int,
+        message: dict[str, Any],
+    ) -> None:
+        """Queue a ``(46, 10)`` chat-room message event.
+
+        Wraps *message* in the ``chatRoomMessage`` envelope production
+        ``_chat_ws_loop`` looks for (``download/livestream_chat.py:131-135``).
+        The wire shape is::
+
+            {"t": 10000, "d": <json-str of {
+                "serviceId": 46,
+                "event": <json-str of {
+                    "type": 10,
+                    "chatRoomId": "<id>",
+                    "chatRoomMessage": {<message>}
+                }>
+            }>}
+
+        Args:
+            chat_room_id: The chat room the message belongs to. Stringified
+                on the wire per Fansly convention.
+            message: The chat-message dict — must include an ``id`` field
+                or ``ChatRecorder.ingest`` will silently drop it
+                (livestream_chat.py:53-55).
+        """
+        self.push_service_event(
+            service_id=46,
+            inner={
+                "type": 10,
+                "chatRoomId": str(chat_room_id),
+                "chatRoomMessage": message,
+            },
+        )
+
     # ---- assertion helpers -------------------------------------------
 
     async def wait_for_auth(self, timeout: float = 2.0) -> dict[str, Any]:  # noqa: ASYNC109 - public test helper; timeout kwarg is idiomatic
@@ -754,6 +801,36 @@ class FakeFanslyWSServer:
             if frame.get("t") == T_SESSION:
                 return frame
         raise AssertionError("auth_event was set but no t=1 frame in received")
+
+    async def wait_for_chat_room_joined(
+        self,
+        chat_room_id: str | int,
+        timeout: float = 5.0,  # noqa: ASYNC109 - public test helper; timeout kwarg is idiomatic
+    ) -> None:
+        """Block until a MSG_CHAT_ROOM join arrives for *chat_room_id*.
+
+        Poll-based because multiple chat rooms may join the same connection;
+        ``chat_room_join_event`` only signals "any join landed" — not which
+        room. Raises ``asyncio.TimeoutError`` if the target room's join
+        doesn't arrive within ``timeout`` seconds.
+        """
+        target = str(chat_room_id)
+        deadline = asyncio.get_running_loop().time() + timeout
+        while target not in self.joined_chat_rooms:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"chat room {target} never joined within {timeout}s "
+                    f"(joined rooms: {sorted(self.joined_chat_rooms)})"
+                )
+            # Wait either for the next join event OR for the per-tick
+            # poll interval, whichever fires first.
+            self.chat_room_join_event.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    self.chat_room_join_event.wait(),
+                    timeout=min(remaining, 0.1),
+                )
 
     def frames_of_type(self, t: int) -> list[dict[str, Any]]:
         """All received frames matching ``t``, in arrival order."""
@@ -806,6 +883,23 @@ class FakeFanslyWSServer:
                     # Bare pong — same wire shape the client expects in
                     # ``_handle_message`` for MSG_PING (no ``d`` field).
                     self.push_raw(json.dumps({"t": T_PING}))
+                elif t == T_CHAT_ROOM:
+                    # Production sends ``{"t": 46001, "d": "{\"chatRoomId\":
+                    # \"<id>\"}"}`` (api/websocket.py:790-793 — send_message
+                    # JSON-stringifies the ``d`` field). Parse the inner
+                    # payload and track the joined room. No reply is sent —
+                    # chat-room joins are fire-and-forget per Fansly's
+                    # production protocol.
+                    d_raw = frame.get("d")
+                    try:
+                        d_dict = json.loads(d_raw) if isinstance(d_raw, str) else d_raw
+                    except json.JSONDecodeError:
+                        d_dict = None
+                    if isinstance(d_dict, dict):
+                        room_id = d_dict.get("chatRoomId")
+                        if room_id is not None:
+                            self.joined_chat_rooms.add(str(room_id))
+                            self.chat_room_join_event.set()
         finally:
             pusher.cancel()
             if connection in self.connections:
