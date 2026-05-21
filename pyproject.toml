@@ -38,7 +38,7 @@ rich = ">=13.7.0,<16.0.0"
 strenum = ">=0.4.15,<0.6.0"
 websockets = ">=15.0.0"
 alembic = ">=1.17.0"
-greenlet = ">=3.2.1"
+greenlet = ">=3.5.1"
 aiomultiprocess = ">=0.9.1"
 toml = ">=0.10.2"
 sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
