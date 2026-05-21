@@ -860,8 +860,18 @@ def _mux_ivs_segments(
         return False
     finally:
         if output is not None:
-            with contextlib.suppress(Exception):
+            try:
                 output.close()
+            except Exception as exc:
+                # MP4 writes the moov atom on close(); a swallowed close
+                # error leaves the file at 0 bytes, which the post-close
+                # size check below then reports as "output file missing
+                # or empty" — burying the actual PyAV/ffmpeg cause.
+                logger.opt(exception=exc).error(
+                    "download.livestream: {} output.close() failed — {!r}",
+                    log_prefix,
+                    exc,
+                )
 
     # Verify output has both streams.
     if not output_path.exists() or output_path.stat().st_size == 0:

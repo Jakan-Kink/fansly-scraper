@@ -73,6 +73,33 @@ class TestSizeAndTimeRotatingFileHandlerInit:
         assert backup.exists()
         handler.close()
 
+    def test_no_rollover_on_init_empty_old_file(self, tmp_path):
+        """Empty file with stale mtime does NOT trigger rollover on init.
+
+        Regression: ``_check_rollover_on_init`` previously rolled any file
+        whose mtime was older than the interval, regardless of size. That
+        produced a backup slot consumed by a zero-byte file when the
+        daemon restarted after an idle period with no log activity since
+        the prior cycle.
+        """
+        log_file = tmp_path / "test.log"
+        log_file.touch()  # empty file
+
+        old_time = time.time() - 7200  # 2 hours ago, > 1h interval
+        os.utime(log_file, (old_time, old_time))
+
+        handler = SizeAndTimeRotatingFileHandler(
+            filename=str(log_file),
+            when="h",
+            interval=1,
+            backupCount=2,
+        )
+        backup = Path(f"{log_file}.1")
+        assert not backup.exists(), (
+            "empty file with stale mtime should NOT roll on init"
+        )
+        handler.close()
+
     def test_rollover_on_init_large_file(self, tmp_path):
         """File exceeding maxBytes triggers rollover on init (line 133-135)."""
         log_file = tmp_path / "test.log"

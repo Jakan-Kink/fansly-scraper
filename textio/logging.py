@@ -144,10 +144,15 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             if self.utc:
                 current_time = datetime.now(UTC).timestamp()
 
-            # Check if the file exceeds the time interval
-            if current_time - last_modified_time >= self.interval or (
-                self.maxBytes > 0 and file_stat.st_size >= self.maxBytes
-            ):
+            # Roll the existing file if either threshold is exceeded.
+            # The time branch gates on size > 0: an empty file that's
+            # outlived its interval (e.g., daemon shut down before
+            # anything was logged this cycle) has no content worth
+            # preserving and should not consume a backup slot.
+            if (
+                file_stat.st_size > 0
+                and current_time - last_modified_time >= self.interval
+            ) or (self.maxBytes > 0 and file_stat.st_size >= self.maxBytes):
                 self.doRollover()
         else:
             # If the file doesn't exist, set the next rollover time
