@@ -1006,15 +1006,25 @@ def _run_ws_subprocess(
                     task.cancel()
             # Close the websocket so any in-flight recv() returns and
             # _listen_loop exits, instead of blocking on the 60s timeout.
+            # Bounded — websockets.asyncio's default close-handshake timeout
+            # is 10s; we don't need to eat that on shutdown.
             if ws.websocket is not None:
-                with contextlib.suppress(Exception):
-                    await ws.websocket.close()
+                with contextlib.suppress(Exception, TimeoutError):
+                    await asyncio.wait_for(ws.websocket.close(), timeout=2.0)
             for task in (status_task, consumer_task, maintain_task):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
 
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_supervisor())
+
+    # Symmetric to FanslyWebSocket.stop_thread on the parent: don't wait
+    # for child-side feeder threads to drain at process exit. mp's
+    # in-child atexit will block on undelivered items otherwise, even
+    # though the parent has already torn down its end of the pipes.
+    for q in (cmd_q, evt_q):
+        with contextlib.suppress(Exception):
+            q.cancel_join_thread()
 
 
 # ---------------------------------------------------------------------------

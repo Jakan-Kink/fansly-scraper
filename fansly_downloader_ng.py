@@ -918,11 +918,19 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         # Drain loguru sink threads (enqueue=True backed sinks) before
         # interpreter shutdown picks them up on its slower schedule.
         # loguru.complete() returns an awaitable when any sink was added
-        # with async/thread args; otherwise None.
+        # with async/thread args; otherwise None. Bounded so a hung sink
+        # can't block shutdown indefinitely — exceptions / timeout are
+        # logged but don't propagate (we're already in cleanup).
         completion = logger.complete()
         if completion is not None:
-            with contextlib.suppress(Exception):
-                await completion
+            try:
+                await asyncio.wait_for(completion, timeout=2.0)
+            except TimeoutError:
+                print_warning(
+                    "logger.complete() timed out after 2s — sinks may not have fully drained"
+                )
+            except Exception as exc:
+                print_warning(f"logger.complete() failed: {exc!r}")
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).
