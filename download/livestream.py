@@ -8,12 +8,15 @@ salvage.  The watcher loop in ``daemon.livestream_watcher`` calls
 PyAV mux notes
 --------------
 IVS segments share PIDs across the broadcast but stream **positions**
-swap between segments — pinning by ``stream.id`` (PID) rather than
-position is required for templating to produce a valid output.  Output
-streams are templated via :py:meth:`av.OutputContainer.add_stream_from_template`
-so codec extradata (H.264 SPS/PPS in ``avcC``) is preserved; without
-this, decoders fall back to Baseline-profile defaults and break on
-High-profile bitstreams.
+swap between segments — pinning by ``stream.id`` (PID) is required for
+correct per-packet routing. Output streams are created via
+``add_stream_from_template(input_stream)`` so codecpar (including
+SPS/PPS extradata that PyAV's MPEG-TS demuxer populates in codecpar
+even though ``codec_context.extradata`` reads empty) is copied to the
+output, producing a correct avcC sample description at close().
+**Do not** assign ``output_stream.time_base`` explicitly after the
+template — the override conflicts with PyAV's MP4 muxer's internal
+timestamp scale and produces EINVAL on every muxed packet.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import asyncio
 import contextlib
 import re
 import shutil
+import threading
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -31,6 +35,7 @@ import m3u8
 from av import AudioStream, VideoStream
 from loguru import logger
 
+from config import trace_logger
 from config.fanslyconfig import FanslyConfig
 from download.livestream_chat import (
     ChatRecorder,
@@ -504,7 +509,10 @@ async def _poll_segments_loop(
     return segments_collected, durations
 
 
-async def _salvage_orphan_segments(config: FanslyConfig) -> None:
+async def _salvage_orphan_segments(
+    config: FanslyConfig,
+    stop_event: asyncio.Event | None = None,
+) -> None:
     """Mux ``.ts`` segment dirs left behind by prior aborted recordings.
 
     At startup the watcher scans ``_get_segments_base(config)`` for any
@@ -541,60 +549,94 @@ async def _salvage_orphan_segments(config: FanslyConfig) -> None:
         len(orphan_dirs),
     )
 
-    for orphan_dir in orphan_dirs:
-        stem = orphan_dir.name[: -len("_segments")]
-        log_prefix = f"[salvage:{stem}]"
+    # Bridge the async stop_event into a threading.Event so the in-thread
+    # mux loop can poll it. Without this, the mux runs to completion even
+    # after the user interrupts — which makes shutdown wait ~14-30s per
+    # orphan dir while the user is staring at a hung-looking process.
+    mux_stop = threading.Event()
+    bridge_task: asyncio.Task | None = None
+    if stop_event is not None:
 
-        sidecar = orphan_dir / "output_path.txt"
-        if not sidecar.exists():
-            logger.debug(
-                "download.livestream: {} no output_path.txt sidecar — skipping",
-                log_prefix,
+        async def _bridge() -> None:
+            await stop_event.wait()
+            mux_stop.set()
+
+        bridge_task = asyncio.create_task(_bridge())
+
+    try:
+        for orphan_dir in orphan_dirs:
+            if stop_event is not None and stop_event.is_set():
+                logger.info(
+                    "download.livestream: salvage interrupted — "
+                    "{} orphan dir(s) remaining preserved",
+                    len(orphan_dirs) - orphan_dirs.index(orphan_dir),
+                )
+                return
+            stem = orphan_dir.name[: -len("_segments")]
+            log_prefix = f"[salvage:{stem}]"
+
+            sidecar = orphan_dir / "output_path.txt"
+            if not sidecar.exists():
+                logger.debug(
+                    "download.livestream: {} no output_path.txt sidecar — skipping",
+                    log_prefix,
+                )
+                continue
+            output_path = Path(sidecar.read_text(encoding="utf-8").strip())
+
+            # Already completed by a prior salvage run.
+            _exists = await asyncio.to_thread(output_path.exists)
+            _size = (
+                (await asyncio.to_thread(output_path.stat)).st_size if _exists else 0
             )
-            continue
-        output_path = Path(sidecar.read_text(encoding="utf-8").strip())
+            if _exists and _size > 0:
+                logger.info(
+                    "download.livestream: {} output already exists — removing orphan dir",
+                    log_prefix,
+                )
+                shutil.rmtree(orphan_dir, ignore_errors=True)
+                continue
 
-        # Already completed by a prior salvage run.
-        _exists = await asyncio.to_thread(output_path.exists)
-        _size = (await asyncio.to_thread(output_path.stat)).st_size if _exists else 0
-        if _exists and _size > 0:
+            segments = sorted(orphan_dir.glob("segment_*.ts"))
+            if not segments:
+                logger.warning(
+                    "download.livestream: {} orphan dir is empty — removing",
+                    log_prefix,
+                )
+                shutil.rmtree(orphan_dir, ignore_errors=True)
+                continue
+
             logger.info(
-                "download.livestream: {} output already exists — removing orphan dir",
+                "download.livestream: {} muxing {} orphan segment(s) → {}",
                 log_prefix,
+                len(segments),
+                output_path.name,
             )
-            shutil.rmtree(orphan_dir, ignore_errors=True)
-            continue
 
-        segments = sorted(orphan_dir.glob("segment_*.ts"))
-        if not segments:
-            logger.warning(
-                "download.livestream: {} orphan dir is empty — removing",
+            # Durations are unknown; IVS TARGETDURATION is 6 s.
+            durations = [6.0] * len(segments)
+            success = await asyncio.to_thread(
+                _mux_ivs_segments,
+                segments,
+                durations,
+                output_path,
                 log_prefix,
+                mux_stop,
             )
-            shutil.rmtree(orphan_dir, ignore_errors=True)
-            continue
 
-        logger.info(
-            "download.livestream: {} muxing {} orphan segment(s) → {}",
-            log_prefix,
-            len(segments),
-            output_path.name,
-        )
-
-        # Durations are unknown; IVS TARGETDURATION is 6 s.
-        durations = [6.0] * len(segments)
-        success = await asyncio.to_thread(
-            _mux_ivs_segments, segments, durations, output_path, log_prefix
-        )
-
-        if success:
-            shutil.rmtree(orphan_dir, ignore_errors=True)
-        else:
-            logger.error(
-                "download.livestream: {} salvage mux failed — segments preserved at {}",
-                log_prefix,
-                orphan_dir,
-            )
+            if success:
+                shutil.rmtree(orphan_dir, ignore_errors=True)
+            else:
+                logger.error(
+                    "download.livestream: {} salvage mux failed — segments preserved at {}",
+                    log_prefix,
+                    orphan_dir,
+                )
+    finally:
+        if bridge_task is not None:
+            bridge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await bridge_task
 
 
 async def _download_segment(
@@ -627,11 +669,12 @@ async def _download_segment(
         return True
 
 
-def _mux_ivs_segments(
+def _mux_ivs_segments(  # noqa: PLR0911  # multiple early-exit paths for failure modes + interrupt
     segments: list[Path],
     _durations: list[float],
     output_path: Path,
     log_prefix: str,
+    stop_event: threading.Event | None = None,
 ) -> bool:
     """PID-based PyAV mux of IVS ``.ts`` segments into a single MP4.
 
@@ -661,10 +704,10 @@ def _mux_ivs_segments(
         return False
 
     # ── PID discovery ────────────────────────────────────────────────────
+    # IVS segments swap stream positions between segments — PID matching
+    # is required. Probe up to _MAX_PROBE_SEGMENTS until both PIDs found.
     audio_pid: int | None = None
     video_pid: int | None = None
-    audio_codec: str | None = None
-    video_codec: str | None = None
 
     n_probe = min(_MAX_PROBE_SEGMENTS, len(segments))
     for probe_idx in range(n_probe):
@@ -687,18 +730,12 @@ def _mux_ivs_segments(
             for stream in probe_container.streams:
                 if isinstance(stream, VideoStream) and video_pid is None:
                     video_pid = stream.id
-                    video_codec = (
-                        stream.codec_context.name if stream.codec_context else None
-                    )
                 elif isinstance(stream, AudioStream) and audio_pid is None:
                     audio_pid = stream.id
-                    audio_codec = (
-                        stream.codec_context.name if stream.codec_context else None
-                    )
         finally:
             probe_container.close()
 
-    if not audio_pid or not video_pid or not audio_codec or not video_codec:
+    if not audio_pid or not video_pid:
         logger.error(
             "download.livestream: {} could not identify audio+video PIDs "
             "after probing {} segments — aborting mux",
@@ -708,12 +745,10 @@ def _mux_ivs_segments(
         return False
 
     logger.info(
-        "download.livestream: {} PIDs — video={} ({}), audio={} ({})",
+        "download.livestream: {} PIDs — video={}, audio={}",
         log_prefix,
         hex(video_pid),
-        video_codec,
         hex(audio_pid),
-        audio_codec,
     )
 
     # ── Mux ──────────────────────────────────────────────────────────────
@@ -725,10 +760,42 @@ def _mux_ivs_segments(
     video_pts_offset = 0
     audio_pts_offset = 0
 
-    try:
-        output = av.open(str(output_path), "w")
+    # Diagnostic counters — break out skip causes (the empty-output
+    # failure mode produced "X segments processed, file is 0 bytes"
+    # with no actionable signal; this carries the per-skip-reason
+    # breakdown to trace-logger so an investigator can see exactly
+    # which path swallowed packets).
+    total_muxed_video = 0
+    total_muxed_audio = 0
+    total_skipped_pts_none = 0
+    total_skipped_dts_none = 0
+    total_skipped_corrupt = 0
+    total_skipped_mux_exc = 0
+    first_skip_examples: list[str] = []
+    skip_examples_cap = 10
 
-        for seg_path in segments:
+    try:
+        # Explicit format="mp4" — extension-based detection works in
+        # most cases but explicit is safer and matches the MMsD HLS-mux
+        # pattern that empirically resolves the same EINVAL failure mode.
+        output = av.open(str(output_path), "w")
+        trace_logger.trace(
+            "download.livestream: {} output opened — path={} segments={}",
+            log_prefix,
+            output_path,
+            len(segments),
+        )
+
+        for seg_idx, seg_path in enumerate(segments):
+            if stop_event is not None and stop_event.is_set():
+                logger.info(
+                    "download.livestream: {} mux interrupted at seg[{}/{}] — "
+                    "segments preserved",
+                    log_prefix,
+                    seg_idx + 1,
+                    len(segments),
+                )
+                return False
             try:
                 input_container = av.open(
                     str(seg_path),
@@ -748,9 +815,30 @@ def _mux_ivs_segments(
                 continue
 
             try:
+                seg_size = seg_path.stat().st_size
+                streams_summary = ",".join(
+                    f"id={s.id:#x}/{s.type}/"
+                    f"{s.codec_context.name if s.codec_context else '?'}"
+                    for s in input_container.streams
+                )
+                trace_logger.trace(
+                    "download.livestream: {} seg[{}/{}] {} ({}B) open ok — streams=[{}]",
+                    log_prefix,
+                    seg_idx + 1,
+                    len(segments),
+                    seg_path.name,
+                    seg_size,
+                    streams_summary,
+                )
+
                 input_video = None
                 input_audio = None
                 for stream in input_container.streams:
+                    # Defensive: skip streams without codec_context (e.g.
+                    # the data PID 0x102 on IVS segments). Matches the
+                    # MMsD HLS-mux guard.
+                    if not stream.codec_context:
+                        continue
                     if stream.id == video_pid:
                         input_video = stream
                     elif stream.id == audio_pid:
@@ -769,72 +857,165 @@ def _mux_ivs_segments(
                     continue
 
                 if output_video_stream is None:
+                    # Template-from-input copies codecpar (including the
+                    # 51-byte SPS/PPS extradata that PyAV's MPEG-TS
+                    # demuxer DOES populate in codecpar even though
+                    # `codec_context.extradata` reads empty). Do NOT set
+                    # `output_stream.time_base` after this — overriding
+                    # PyAV's default conflicts with the MP4 muxer's
+                    # internal timestamp scale and the muxer rejects
+                    # every packet with EINVAL.
                     output_video_stream = output.add_stream_from_template(input_video)
                     output_audio_stream = output.add_stream_from_template(input_audio)
 
-                seg_video_first_pts: int | None = None
-                seg_audio_first_pts: int | None = None
+                # H.264 with B-frames has dts < pts on the first packet
+                # (decode-before-display reorder buffer). Rebasing by pts
+                # alone produces negative dts, which the MP4 muxer rejects
+                # with ArgumentError(22). Use min(pts, dts) — for video it
+                # tracks dts (the smaller one); for audio it's equal since
+                # AAC has no reorder.
+                seg_video_first_ts: int | None = None
+                seg_audio_first_ts: int | None = None
                 seg_video_max_pts = video_pts_offset
                 seg_audio_max_pts = audio_pts_offset
                 seg_video_last_dur = 0
                 seg_audio_last_dur = 0
                 skipped_packets = 0
+                seg_muxed_video = 0
+                seg_muxed_audio = 0
 
                 for packet in input_container.demux(input_video, input_audio):
                     pkt_pts = packet.pts
                     pkt_dts = packet.dts
                     if pkt_pts is None or pkt_dts is None or packet.is_corrupt:
+                        if pkt_pts is None:
+                            total_skipped_pts_none += 1
+                        if pkt_dts is None:
+                            total_skipped_dts_none += 1
+                        if packet.is_corrupt:
+                            total_skipped_corrupt += 1
+                        if len(first_skip_examples) < skip_examples_cap:
+                            first_skip_examples.append(
+                                f"{seg_path.name}: stream_id={packet.stream.id} "
+                                f"pts={pkt_pts} dts={pkt_dts} corrupt={packet.is_corrupt}"
+                            )
                         skipped_packets += 1
                         continue
                     try:
                         if packet.stream is input_video:
-                            if seg_video_first_pts is None:
-                                seg_video_first_pts = pkt_pts
-                            packet.pts = (
-                                pkt_pts - seg_video_first_pts + video_pts_offset
-                            )
-                            packet.dts = (
-                                pkt_dts - seg_video_first_pts + video_pts_offset
-                            )
+                            if seg_video_first_ts is None:
+                                seg_video_first_ts = min(pkt_pts, pkt_dts)
+                            packet.pts = pkt_pts - seg_video_first_ts + video_pts_offset
+                            packet.dts = pkt_dts - seg_video_first_ts + video_pts_offset
                             seg_video_max_pts = max(seg_video_max_pts, packet.pts)
                             if packet.duration:
                                 seg_video_last_dur = packet.duration
                             packet.stream = output_video_stream
                             output.mux(packet)
+                            seg_muxed_video += 1
                         elif packet.stream is input_audio:
-                            if seg_audio_first_pts is None:
-                                seg_audio_first_pts = pkt_pts
-                            packet.pts = (
-                                pkt_pts - seg_audio_first_pts + audio_pts_offset
-                            )
-                            packet.dts = (
-                                pkt_dts - seg_audio_first_pts + audio_pts_offset
-                            )
+                            if seg_audio_first_ts is None:
+                                seg_audio_first_ts = min(pkt_pts, pkt_dts)
+                            packet.pts = pkt_pts - seg_audio_first_ts + audio_pts_offset
+                            packet.dts = pkt_dts - seg_audio_first_ts + audio_pts_offset
                             seg_audio_max_pts = max(seg_audio_max_pts, packet.pts)
                             if packet.duration:
                                 seg_audio_last_dur = packet.duration
                             packet.stream = output_audio_stream
                             output.mux(packet)
-                    except (OSError, av.error.FFmpegError):
+                            seg_muxed_audio += 1
+                    except (OSError, av.error.FFmpegError) as exc:
+                        total_skipped_mux_exc += 1
+                        if len(first_skip_examples) < skip_examples_cap:
+                            # Capture packet state at failure — names whether
+                            # the rejection is about pts/dts ordering, packet
+                            # size, stream identity, or something else.
+                            pkt_stream = getattr(packet, "stream", None)
+                            pkt_stream_idx = (
+                                getattr(pkt_stream, "index", "?")
+                                if pkt_stream is not None
+                                else "None"
+                            )
+                            first_skip_examples.append(
+                                f"{seg_path.name}: mux exc — {exc!r} "
+                                f"packet[stream_idx={pkt_stream_idx} "
+                                f"pts={packet.pts} dts={packet.dts} "
+                                f"dur={packet.duration} size={packet.size} "
+                                f"keyframe={packet.is_keyframe}]"
+                            )
                         skipped_packets += 1
 
                 # Advance global PTS offset for next segment (continuous timeline).
                 video_pts_offset = seg_video_max_pts + seg_video_last_dur
                 audio_pts_offset = seg_audio_max_pts + seg_audio_last_dur
 
+                total_muxed_video += seg_muxed_video
+                total_muxed_audio += seg_muxed_audio
+                trace_logger.trace(
+                    "download.livestream: {} seg[{}/{}] {} done — muxed v={} a={} "
+                    "skipped={} first_ts v={} a={} max_pts v={} a={}",
+                    log_prefix,
+                    seg_idx + 1,
+                    len(segments),
+                    seg_path.name,
+                    seg_muxed_video,
+                    seg_muxed_audio,
+                    skipped_packets,
+                    seg_video_first_ts,
+                    seg_audio_first_ts,
+                    seg_video_max_pts,
+                    seg_audio_max_pts,
+                )
+
                 if skipped_packets:
                     total_skipped_packets += skipped_packets
 
             except Exception as exc:
-                logger.warning(
-                    "download.livestream: {} segment {} mux failed — {}",
+                # Per-segment failures go to TRACE — at 339-690 segments
+                # per mux, WARNING-per-segment dominates the log. The
+                # end-of-mux "skipped N/M segments" WARNING and the
+                # >25%-skipped ERROR carry the operator-visible signal.
+                # First few exceptions captured to first_skip_examples
+                # so an investigator turning on TRACE sees the cause.
+                trace_logger.trace(
+                    "download.livestream: {} segment {} mux failed — {!r}",
                     log_prefix,
                     seg_path.name,
                     exc,
                 )
+                if len(first_skip_examples) < skip_examples_cap:
+                    first_skip_examples.append(
+                        f"{seg_path.name}: segment-level exc — {exc!r}"
+                    )
                 skipped_segments += 1
             finally:
                 input_container.close()
+
+        # Mux-level summary always emitted — operators investigating an
+        # empty-output failure can grep this single line for the totals.
+        trace_logger.trace(
+            "download.livestream: {} mux summary — segments_processed={}/{} "
+            "muxed v={} a={} total_skipped={} "
+            "(pts_none={} dts_none={} corrupt={} mux_exc={})",
+            log_prefix,
+            len(segments) - skipped_segments,
+            len(segments),
+            total_muxed_video,
+            total_muxed_audio,
+            total_skipped_packets,
+            total_skipped_pts_none,
+            total_skipped_dts_none,
+            total_skipped_corrupt,
+            total_skipped_mux_exc,
+        )
+        if first_skip_examples:
+            trace_logger.trace(
+                "download.livestream: {} first {} skip examples:",
+                log_prefix,
+                len(first_skip_examples),
+            )
+            for example in first_skip_examples:
+                trace_logger.trace("download.livestream: {}   {}", log_prefix, example)
 
         if skipped_segments > 0:
             skip_pct = (skipped_segments / len(segments)) * 100
@@ -860,6 +1041,13 @@ def _mux_ivs_segments(
         return False
     finally:
         if output is not None:
+            pre_close_size = output_path.stat().st_size if output_path.exists() else 0
+            trace_logger.trace(
+                "download.livestream: {} pre-close — output_path={} size={}B",
+                log_prefix,
+                output_path,
+                pre_close_size,
+            )
             try:
                 output.close()
             except Exception as exc:
@@ -872,12 +1060,28 @@ def _mux_ivs_segments(
                     log_prefix,
                     exc,
                 )
+            post_close_size = output_path.stat().st_size if output_path.exists() else 0
+            trace_logger.trace(
+                "download.livestream: {} post-close — size={}B (delta={})",
+                log_prefix,
+                post_close_size,
+                post_close_size - pre_close_size,
+            )
 
     # Verify output has both streams.
     if not output_path.exists() or output_path.stat().st_size == 0:
         logger.error(
-            "download.livestream: {} output file missing or empty",
+            "download.livestream: {} output file missing or empty — "
+            "muxed v={} a={} skipped={} (pts_none={} dts_none={} "
+            "corrupt={} mux_exc={})",
             log_prefix,
+            total_muxed_video,
+            total_muxed_audio,
+            total_skipped_packets,
+            total_skipped_pts_none,
+            total_skipped_dts_none,
+            total_skipped_corrupt,
+            total_skipped_mux_exc,
         )
         return False
 

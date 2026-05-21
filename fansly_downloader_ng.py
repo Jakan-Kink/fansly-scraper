@@ -8,6 +8,8 @@ import asyncio
 import atexit
 import base64
 import contextlib
+import faulthandler
+import os
 import signal
 import sys
 import threading
@@ -931,6 +933,16 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
                 )
             except Exception as exc:
                 print_warning(f"logger.complete() failed: {exc!r}")
+
+        # Task #6 — post-cleanup shutdown-delay diagnostic. When
+        # FDNG_SHUTDOWN_TRACE=1, dump all thread tracebacks every 1s after
+        # this point. The first dump fires 1s from now, well after
+        # "Final cleanup complete" — so anything still showing up names
+        # what's holding the interpreter past atexit. Opt-in via env var
+        # so normal runs aren't noisy. Output goes to stderr.
+        if os.environ.get("FDNG_SHUTDOWN_TRACE") == "1":
+            faulthandler.dump_traceback_later(1, repeat=True)
+            print_info("FDNG_SHUTDOWN_TRACE=1 — installing 1s repeating stack dump")
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).

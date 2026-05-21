@@ -116,7 +116,9 @@ async def _watcher_loop(
     interval = config.monitoring_livestream_poll_interval_seconds
 
     # Recover any segment dirs left behind by prior aborted recordings.
-    await _salvage_orphan_segments(config)
+    # Pass stop_event so a Ctrl+C during startup salvage doesn't sit for
+    # 14-30s per orphan dir before shutdown can proceed.
+    await _salvage_orphan_segments(config, stop_event)
 
     while not stop_event.is_set():
         try:
