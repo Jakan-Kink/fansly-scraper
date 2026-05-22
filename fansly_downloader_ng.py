@@ -934,6 +934,23 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             except Exception as exc:
                 print_warning(f"logger.complete() failed: {exc!r}")
 
+        # Close all loguru sinks explicitly. Each enqueue=True sink owns
+        # an mp.Queue + writer thread + POSIX semaphore; leaving them to
+        # the interpreter's _Py_Finalize phase costs ~1s per sink in
+        # sequential native cleanup (py-spy verified — 7 sinks → 8s
+        # post-atexit). logger.remove() forces the close here, where the
+        # cost is observable in user code instead of opaque C-land
+        # teardown. Use print() after this — loguru sinks are gone.
+        remove_start = time.time()
+        print_info("Closing log sinks…")
+        try:
+            logger.remove()
+        except Exception as exc:
+            print(f"💡 logger.remove() failed: {exc!r}", flush=True)
+        else:
+            remove_elapsed = time.time() - remove_start
+            print(f"💡 Log sinks closed in {remove_elapsed:.2f}s", flush=True)
+
         # Task #6 — post-cleanup shutdown-delay diagnostic. When
         # FDNG_SHUTDOWN_TRACE=1, dump all thread tracebacks every 1s after
         # this point. The first dump fires 1s from now, well after
@@ -942,7 +959,10 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         # so normal runs aren't noisy. Output goes to stderr.
         if os.environ.get("FDNG_SHUTDOWN_TRACE") == "1":
             faulthandler.dump_traceback_later(1, repeat=True)
-            print_info("FDNG_SHUTDOWN_TRACE=1 — installing 1s repeating stack dump")
+            print(
+                "💡 FDNG_SHUTDOWN_TRACE=1 — installing 1s repeating stack dump",
+                flush=True,
+            )
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).
@@ -992,13 +1012,16 @@ async def _async_main(config: FanslyConfig) -> int:
             # Run cleanup with global timeout
             print_info("Starting final cleanup process...")
             await cleanup_with_global_timeout(config)
-            print_info("Cleanup completed successfully")
+            # cleanup_with_global_timeout() calls logger.remove() near
+            # the end; loguru sinks are gone by the time we get here.
+            # Use print() for the success line so it actually appears.
+            print("💡 Cleanup completed successfully", flush=True)
         except asyncio.CancelledError:
-            print_error("Cleanup was cancelled!")
+            print("❌ Cleanup was cancelled!", flush=True, file=sys.stderr)
             sys.exit(1)
         except Exception as e:
-            print_error(f"Fatal error during cleanup: {e}")
-            print_error(traceback.format_exc())
+            print(f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr)
+            print(traceback.format_exc(), flush=True, file=sys.stderr)
             sys.exit(1)
 
     return exit_code
