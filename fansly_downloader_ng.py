@@ -1045,6 +1045,23 @@ if __name__ == "__main__":
             # On Windows, CTRL_C_EVENT is more reliable than SIGINT
             signal.signal(signal.CTRL_C_EVENT, _handle_interrupt)  # type: ignore
 
+    # Shutdown phase timing — bracket each step from cleanup-complete to
+    # process-exit so we can name which native finalizer costs the 3-8s.
+    # Plain print() because loguru sinks may be gone by here. Cheap to
+    # remove once the offending phase is identified and fixed.
+    _shutdown_t0: list[float | None] = [None]  # list so closures can mutate
+
+    def _shutdown_phase(label: str) -> None:
+        now = time.time()
+        if _shutdown_t0[0] is None:
+            _shutdown_t0[0] = now
+            delta = 0.0
+        else:
+            delta = now - _shutdown_t0[0]
+        print(f"💡 shutdown +{delta:.3f}s — {label}", flush=True)
+
+    atexit.register(lambda: _shutdown_phase("atexit fired"))
+
     try:
         # Get event loop
         loop = asyncio.new_event_loop()
@@ -1052,6 +1069,7 @@ if __name__ == "__main__":
 
         # Run async main without debug mode to prevent task execution messages
         exit_code = asyncio.run(_async_main(config))
+        _shutdown_phase("asyncio.run() returned")
 
         # Exit with code
         sys.exit(exit_code)
@@ -1061,11 +1079,13 @@ if __name__ == "__main__":
         print_error(traceback.format_exc())
         sys.exit(UNEXPECTED_ERROR)
     finally:
+        _shutdown_phase("entering outer finally")
         # Clean up event loop
         with contextlib.suppress(Exception):
             if not loop.is_closed():
                 loop.stop()
                 loop.close()
+        _shutdown_phase("loop closed; falling through to Py_Finalize")
 
         # # Force exit after 5 seconds
         # print_warning("Forcing program exit in 5 seconds...")
