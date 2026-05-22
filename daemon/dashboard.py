@@ -181,16 +181,15 @@ class DaemonDashboard:
         # Centiseconds for 100ms resolution without integer truncation
         total_ticks = max(1, int(duration * 10))
 
-        # Task was pre-created in __aenter__. Reset its counters + swap
-        # in the current description/total in one update call. No
-        # add_task here — that path creates churn in Rich's Live diff
-        # that produces duplicate-bar artifacts in tmux scrollback.
-        self._progress.update_task(
+        # Task was pre-created in __aenter__. Route through reset_task so
+        # Rich's Task.finished_time is cleared each iteration; plain
+        # update() only clears it when ``total`` changes, so a fixed-duration
+        # loop (simulator tick, following refresh) would render "00:00"
+        # forever after the first natural timeout.
+        self._progress.reset_task(
             task_name,
-            advance=0,
-            description=description,
             total=total_ticks,
-            completed=0,
+            description=description,
         )
 
         events: Iterable[asyncio.Event] = (

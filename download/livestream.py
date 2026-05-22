@@ -50,9 +50,6 @@ from pathio.livestream import _build_output_path, _get_segments_base
 
 # ── Constants ─────────────────────────────────────────────────────────────
 
-# Maximum concurrent segment downloads per stream.
-_PARALLEL_SEGMENT_LIMIT = 5
-
 # Maximum number of PyAV probe segments when identifying audio/video PIDs.
 _MAX_PROBE_SEGMENTS = 5
 
@@ -330,7 +327,9 @@ async def _resolve_variant_url(master_url: str) -> str | None:
     base_uri = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+        async with httpx.AsyncClient(
+            http2=True, follow_redirects=True, timeout=15.0
+        ) as client:
             response = await client.get(master_url, headers=_IVS_MASTER_HEADERS)
             response.raise_for_status()
     except Exception as exc:
@@ -465,21 +464,11 @@ async def _poll_segments_loop(
                 jobs.append((seg_msn, abs_uri, seg_path, 6.0))
 
             if jobs:
-                sem = asyncio.Semaphore(_PARALLEL_SEGMENT_LIMIT)
-
-                async def _bounded(
-                    seg_url: str,
-                    seg_path: Path,
-                    _c: httpx.AsyncClient = client,
-                    _s: asyncio.Semaphore = sem,
-                ) -> bool:
-                    async with _s:
-                        return await _download_segment(
-                            _c, seg_url, seg_path, log_prefix
-                        )
-
                 results = await asyncio.gather(
-                    *(_bounded(u, p) for _, u, p, _ in jobs),
+                    *(
+                        _download_segment(client, u, p, log_prefix)
+                        for _, u, p, _ in jobs
+                    ),
                     return_exceptions=True,
                 )
 

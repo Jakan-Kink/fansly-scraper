@@ -313,6 +313,57 @@ class TestWaitWithCountdown:
         assert 0.18 <= elapsed <= 0.8, f"Expected ~0.2s duration, got {elapsed:.2f}s"
 
     @pytest.mark.asyncio
+    async def test_fixed_duration_loop_does_not_get_stuck_at_zero_remaining(
+        self, progress_manager
+    ):
+        """After a natural timeout, the next iteration's countdown must not show 00:00.
+
+        Rich's Task.finished_time, once set, makes time_remaining short-circuit
+        to 0.0 — TimeRemainingColumn then renders "00:00". Plain
+        Progress.update() only clears finished_time when ``total`` changes.
+        Fixed-duration loops (simulator tick, following refresh) keep the same
+        total each iteration, so without an explicit reset the bar gets stuck
+        at 00:00 from the second iteration onward.
+
+        Verified mid-tick because the early-return path at the end of
+        wait_with_countdown paints completed=total_ticks (which re-finishes
+        the task). The bug manifests *during* the next countdown, not after.
+        """
+        dashboard = DaemonDashboard(progress=progress_manager)
+        stop_event = asyncio.Event()
+
+        async with dashboard:
+            # First iteration: run to natural timeout — bar hits 100% →
+            # Rich marks the task finished.
+            await dashboard.wait_with_countdown(
+                TASK_SIMULATOR, "Simulator tick", 0.15, stop_event
+            )
+            task_id = progress_manager.active_tasks[TASK_SIMULATOR]
+            task = progress_manager._groups["daemon"]._tasks[task_id]
+            assert task.finished_time is not None, (
+                "Setup precondition: first iteration should finish the bar"
+            )
+
+            # Second iteration: SAME duration. Start the wait as a background
+            # task, peek at the task state mid-countdown, then signal stop.
+            wait_task = asyncio.create_task(
+                dashboard.wait_with_countdown(
+                    TASK_SIMULATOR, "Simulator tick", 5.0, stop_event
+                )
+            )
+            try:
+                await asyncio.sleep(0.05)
+                task_mid = progress_manager._groups["daemon"]._tasks[task_id]
+                assert task_mid.finished_time is None, (
+                    "Mid-countdown: re-entering wait_with_countdown must reset "
+                    "finished_time; otherwise TimeRemainingColumn renders 00:00"
+                )
+                assert task_mid.time_remaining is None or task_mid.time_remaining > 0
+            finally:
+                stop_event.set()
+                await wait_task
+
+    @pytest.mark.asyncio
     async def test_waiters_are_cleaned_up_after_return(self, progress_manager):
         """The internal stop/refresh waiters are cancelled once the wait returns.
 

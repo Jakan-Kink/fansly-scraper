@@ -544,6 +544,30 @@ class ProgressManager:
                 update_kwargs.update(kwargs)
                 self._get_group(name).update(self.active_tasks[name], **update_kwargs)
 
+    def reset_task(
+        self,
+        name: str,
+        total: float | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Reset a task to a fresh, unfinished state.
+
+        Unlike ``update_task(completed=0, total=...)``, this routes through
+        Rich's ``Progress.reset()`` which clears ``finished_time``. Without
+        that clear, ``Task.time_remaining`` short-circuits to ``0.0`` after
+        the bar has hit 100% once, so ``TimeRemainingColumn`` renders
+        ``00:00`` on every subsequent iteration of a re-used countdown task.
+        """
+        with self._lock:
+            if name not in self.active_tasks:
+                return
+            reset_kwargs: dict[str, Any] = {"completed": 0}
+            if total is not None:
+                reset_kwargs["total"] = total
+            if description is not None:
+                reset_kwargs["description"] = description
+            self._get_group(name).reset(self.active_tasks[name], **reset_kwargs)
+
     def _remove_task_unlocked(self, name: str) -> None:
         """Remove a task without acquiring the lock. Caller must hold _lock."""
         if name in self.active_tasks:

@@ -159,11 +159,22 @@ class FanslyApi:
         async_retry_transport = RetryTransport(
             transport=async_base_transport, retry=retry
         )
+        # max_keepalive_connections raised from default 10 → 20: this client
+        # talks to Fansly's apiv3 + multiple CDN edges + WS HTTP upgrade,
+        # and a 10-slot keepalive pool was at risk of evicting hot connections
+        # under burst load. keepalive_expiry raised from 5s → 30s so brief
+        # idle gaps (rate-limiter waits, segment-download stalls) don't cost
+        # a reconnect when activity resumes.
         self.http_session = httpx.AsyncClient(
             transport=async_retry_transport,
             timeout=30.0,
             follow_redirects=True,
             cookies=self._cookies,
+            limits=httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=100,
+                keepalive_expiry=30.0,
+            ),
         )
 
         # Sync client for thread-pool callers — httpx.AsyncClient is not thread-safe across loops.
@@ -267,11 +278,19 @@ class FanslyApi:
             sync_retry_transport = RetryTransport(
                 transport=sync_base_transport, retry=self._segment_retry
             )
+            # Same limits rationale as http_session — m3u8 segment downloads
+            # hit one CDN host repeatedly so a larger keepalive pool + longer
+            # expiry directly reduces handshake churn.
             self._segment_session = httpx.Client(
                 transport=sync_retry_transport,
                 timeout=30.0,
                 follow_redirects=True,
                 cookies=self._cookies,
+                limits=httpx.Limits(
+                    max_keepalive_connections=20,
+                    max_connections=100,
+                    keepalive_expiry=30.0,
+                ),
             )
         return self._segment_session
 
