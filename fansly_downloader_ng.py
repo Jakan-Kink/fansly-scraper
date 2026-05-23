@@ -81,6 +81,7 @@ from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
+from metadata.subscriptions import process_subscriptions_response
 from textio import (
     input_enter_continue,
     json_output,
@@ -414,6 +415,29 @@ async def main(config: FanslyConfig) -> int:
                 except Exception as e:
                     print_error(f"Error in session scope: {e}")
                     raise
+                await asyncio.sleep(timing_jitter(0.4, 0.75))
+
+                print_info("Getting subscriptions list...")
+                try:
+                    subs_response = await config.get_api().get_subscriptions()
+                    if subs_response.status_code == 200:
+                        subs_data = config.get_api().get_json_response_contents(
+                            subs_response
+                        )
+                        added = await process_subscriptions_response(subs_data)
+                        if added:
+                            print_info(
+                                f"Detected access-change for {added} "
+                                f"creator(s) from subscriptions update."
+                            )
+                    else:
+                        print_warning(
+                            f"Subscriptions fetch returned status "
+                            f"{subs_response.status_code}; skipping access-change "
+                            f"detection from /subscriptions."
+                        )
+                except Exception as e:
+                    print_warning(f"Failed to process subscriptions: {e}")
                 await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 if usernames:

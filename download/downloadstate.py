@@ -29,6 +29,8 @@ class DownloadState(GlobalState):
     # by download.account.get_creator_account_info before merge.
     # Timeline/wall download paths short-circuit when this is True.
     creator_content_unchanged: bool = False
+    creator_access_changed: bool = False
+    creator_access_change_reason: str | None = None
 
     # History
     recent_audio_media_ids: set = field(default_factory=set)

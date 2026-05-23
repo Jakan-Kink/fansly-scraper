@@ -52,6 +52,7 @@ async def process_wall_data(
         page_type="wall",
         page_id=wall_id,
         cursor=before_cursor if before_cursor != "0" else None,
+        bypass=state.creator_access_changed,
     )
 
     await process_wall_posts(
@@ -124,15 +125,21 @@ async def download_wall(
     # structure are both identical to DB → no activity since last run,
     # no need to scan this wall. Set by download.account.get_creator_account_info.
     # Gated by config.respect_timeline_stats so users can force a full scan.
-    if config.respect_timeline_stats and state.creator_content_unchanged:
+    if (
+        config.respect_timeline_stats
+        and state.creator_content_unchanged
+        and not state.creator_access_changed
+    ):
         print_info(
             f"Creator counts and wall structure unchanged — skipping wall {wall_info}"
         )
         return
 
     if (
-        config.use_duplicate_threshold or config.use_pagination_duplication
-    ) and state.fetched_timeline_duplication:
+        (config.use_duplicate_threshold or config.use_pagination_duplication)
+        and state.fetched_timeline_duplication
+        and not state.creator_access_changed
+    ):
         print_info(
             "Deduplication is enabled and the timeline has been fetched before. "
             "Only new media items will be downloaded."

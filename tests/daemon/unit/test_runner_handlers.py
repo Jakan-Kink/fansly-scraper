@@ -24,7 +24,9 @@ happy paths live in test_runner_wiring.py.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import UTC, datetime
 
 import pytest
 
@@ -40,6 +42,7 @@ from daemon.handlers import (
 )
 from daemon.runner import (
     ErrorBudget,
+    _collect_ppv_targeted_media_ids,
     _handle_check_access_item,
     _handle_full_creator_item,
     _handle_mark_messages_deleted,
@@ -52,7 +55,16 @@ from daemon.runner import (
     _make_ws_handler,
     _resolve_creator_name,
 )
-from metadata import Message
+from metadata import (
+    Account,
+    AccountMedia,
+    AccountMediaBundle,
+    Media,
+    Message,
+    Subscription,
+)
+from metadata.models import get_store
+from metadata.subscriptions import _access_changed_accounts
 from tests.fixtures.daemon import RecordingSimulator
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MessageFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -779,3 +791,245 @@ class TestOnServiceEvent:
         assert any(
             "WS event unknown / unhandled" in m and "svc=99999" in m for m in debug
         )
+
+
+# ---------------------------------------------------------------------------
+# _on_service_event — subscription side-effect paths
+# (15, 5) embedded sub + (9, 1) inner-type 150XX unwrap + version guard
+# ---------------------------------------------------------------------------
+
+
+def _sub_payload(
+    sub_id: int,
+    account_id: int,
+    *,
+    status: int = 3,
+    tier_id: int | None = None,
+    version: int | None = None,
+) -> dict:
+    """Shape mirrors the WS-embedded subscription payload (same as
+    /subscriptions row, verified against subscriptions-2.json capture)."""
+    return {
+        "id": str(sub_id),
+        "accountId": str(account_id),
+        "subscriptionTierId": str(tier_id or snowflake_id()),
+        "subscriptionTierName": "Bronze",
+        "subscriptionTierColor": "#878787",
+        "planId": str(snowflake_id()),
+        "promoId": "0",
+        "giftCodeId": None,
+        "status": status,
+        "price": 5000,
+        "renewPrice": 5000,
+        "renewCorrelationId": str(snowflake_id()),
+        "autoRenew": 1,
+        "billingCycle": 30,
+        "duration": 30,
+        "renewDate": 1772040349000,
+        "renewDatexD": 1772040349000,
+        "createdAt": 1772040349000,
+        "updatedAt": 1772040350000,
+        "endsAt": 1779729949000,
+        "promoPrice": None,
+        "promoDuration": None,
+        "promoStatus": None,
+        "promoStartsAt": None,
+        "promoEndsAt": None,
+        "version": version,
+    }
+
+
+class TestOnServiceEventSubscription:
+    """svc=15 type=5/102 and svc=9 type=1 with inner-type 15XXX side-effects."""
+
+    def _make_handler(self):
+        sim = RecordingSimulator()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = ErrorBudget(timeout_seconds=3600)
+        handler = _make_ws_handler(sim, queue, budget)
+        return sim, queue, budget, handler
+
+    @pytest.mark.asyncio
+    async def test_subscription_event_persists_and_flags_access_change(
+        self, entity_store
+    ):
+        """(15, 5) with embedded sub → Subscription row upserted, registry
+        entry written. Also still queues the FullCreatorDownload work item
+        from the existing dispatcher path — pre-dispatch side-effect doesn't
+        suppress the WorkItem."""
+        _sim, queue, _budget, handler = self._make_handler()
+
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        await entity_store.save(Account(id=creator_id, username=f"sub_{creator_id}"))
+
+        envelope = {
+            "serviceId": 15,
+            "event": json.dumps(
+                {"type": 5, "subscription": _sub_payload(sub_id, creator_id)}
+            ),
+        }
+        await handler(envelope)
+
+        cached = get_store().get_from_cache(Subscription, sub_id)
+        assert cached is not None
+        assert cached.status == 3
+        assert _access_changed_accounts.get(creator_id) == "sub-activated"
+        # Existing dispatch path still queued the FullCreatorDownload.
+        assert not queue.empty()
+        item = await queue.get()
+        assert item.creator_id == creator_id
+
+    @pytest.mark.asyncio
+    async def test_notification_unwrap_dispatches_subscription_handler(
+        self, entity_store
+    ):
+        """(9, 1) with notification.type=15007 SubExpired + embedded sub →
+        runner unwraps to synthetic (15, 7), apply_subscription_ws_event
+        runs against the embedded payload. Validates the
+        notification_inner_to_service_event divmod path end-to-end."""
+        _sim, _queue, _budget, handler = self._make_handler()
+
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        await entity_store.save(Account(id=creator_id, username=f"notif_{creator_id}"))
+
+        envelope = {
+            "serviceId": 9,
+            "event": json.dumps(
+                {
+                    "type": 1,
+                    "notification": {
+                        "type": 15007,  # SubExpired inner type → svc=15 type=7
+                        "subscription": _sub_payload(sub_id, creator_id),
+                    },
+                }
+            ),
+        }
+        await handler(envelope)
+
+        cached = get_store().get_from_cache(Subscription, sub_id)
+        assert cached is not None
+        # status=3 → sub-activated. (We don't separately model SubExpired
+        # because the payload's own status field is authoritative.)
+        assert _access_changed_accounts.get(creator_id) == "sub-activated"
+
+    @pytest.mark.asyncio
+    async def test_subscription_event_version_guarded(self, entity_store):
+        """Cached sub at version=5; incoming (15, 5) with version=4 → guard
+        skips the upsert, cached row unchanged, no registry write. Mirrors
+        the Fansly client's version-merge behavior (main.js line 21084)."""
+        _sim, _queue, _budget, handler = self._make_handler()
+
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        tier_id = snowflake_id()
+        await entity_store.save(Account(id=creator_id, username=f"ver_{creator_id}"))
+        await entity_store.save(
+            Subscription(
+                id=sub_id,
+                accountId=creator_id,
+                status=3,
+                subscriptionTierId=tier_id,
+                version=5,
+            )
+        )
+
+        envelope = {
+            "serviceId": 15,
+            "event": json.dumps(
+                {
+                    "type": 5,
+                    "subscription": _sub_payload(
+                        sub_id, creator_id, tier_id=tier_id, version=4
+                    ),
+                }
+            ),
+        }
+        await handler(envelope)
+
+        cached = get_store().get_from_cache(Subscription, sub_id)
+        assert cached.version == 5
+        # Steady-state cached + stale event → no access-change written.
+        assert creator_id not in _access_changed_accounts
+
+
+# ---------------------------------------------------------------------------
+# _collect_ppv_targeted_media_ids — bundle expansion + standalone passthrough
+# ---------------------------------------------------------------------------
+
+
+class TestCollectPpvTargetedMediaIds:
+    """Targeted-PPV refresh resolution: WorkItem fields → AM-id list."""
+
+    @pytest.mark.asyncio
+    async def test_standalone_am_passthrough(self):
+        """A WorkItem carrying just account_media_id returns that single id."""
+        am_id = snowflake_id()
+        item = RedownloadCreatorMedia(creator_id=snowflake_id(), account_media_id=am_id)
+        assert await _collect_ppv_targeted_media_ids(item) == [am_id]
+
+    @pytest.mark.asyncio
+    async def test_bundle_expands_to_constituent_am_ids(self, entity_store):
+        """A WorkItem carrying account_media_bundle_id resolves the cached
+        bundle's accountMedia relationship into the list of constituent AM
+        ids. Single + bundle ids dedup against each other when both supplied."""
+        store = get_store()
+        creator_id = snowflake_id()
+        bundle_id = snowflake_id()
+        am_ids = [snowflake_id() for _ in range(3)]
+        await store.save(Account(id=creator_id, username=f"ppv_{creator_id}"))
+
+        am_objs = []
+        for am_id in am_ids:
+            media_id = snowflake_id()
+            await store.save(Media(id=media_id, accountId=creator_id))
+            await store.save(
+                AccountMedia(
+                    id=am_id,
+                    accountId=creator_id,
+                    mediaId=media_id,
+                    createdAt=datetime.now(UTC),
+                )
+            )
+            am_objs.append(store.get_from_cache(AccountMedia, am_id))
+
+        bundle = AccountMediaBundle(
+            id=bundle_id, accountId=creator_id, createdAt=datetime.now(UTC)
+        )
+        bundle.accountMedia = am_objs
+        await store.save(bundle)
+
+        # Bundle alone → all 3 constituents.
+        item = RedownloadCreatorMedia(
+            creator_id=creator_id, account_media_bundle_id=bundle_id
+        )
+        result = await _collect_ppv_targeted_media_ids(item)
+        assert sorted(result) == sorted(am_ids)
+
+        # Standalone + bundle (one constituent overlaps) → no duplicates.
+        item = RedownloadCreatorMedia(
+            creator_id=creator_id,
+            account_media_id=am_ids[0],
+            account_media_bundle_id=bundle_id,
+        )
+        result = await _collect_ppv_targeted_media_ids(item)
+        assert sorted(result) == sorted(am_ids)
+
+    @pytest.mark.asyncio
+    async def test_unknown_bundle_yields_empty_list(self, entity_store):
+        """Bundle id with no cached row → empty list. Caller falls back to
+        the full re-walk rather than firing a targeted refresh with no
+        targets."""
+        item = RedownloadCreatorMedia(
+            creator_id=snowflake_id(),
+            account_media_bundle_id=snowflake_id(),  # not in cache
+        )
+        assert await _collect_ppv_targeted_media_ids(item) == []
+
+    @pytest.mark.asyncio
+    async def test_no_targets_returns_empty_list(self):
+        """WorkItem with neither account_media_id nor bundle_id → empty list
+        (legacy/unknown payload — falls back to full re-walk)."""
+        item = RedownloadCreatorMedia(creator_id=snowflake_id())
+        assert await _collect_ppv_targeted_media_ids(item) == []

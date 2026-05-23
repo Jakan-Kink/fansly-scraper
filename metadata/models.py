@@ -1946,6 +1946,174 @@ class Group(FanslyObject):
     messages: list[Message] = Field(default_factory=list)
 
 
+class SubscriptionPromo(FanslyObject):
+    """A promo discount attached to a SubscriptionPlan.
+
+    Persisted so promo lifecycle events (svc=15 type=11 / inner type 15011)
+    received over the WS can be correlated with cached state.
+    """
+
+    __table_name__: ClassVar[str] = "subscription_promos"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "planId",
+        "status",
+        "price",
+        "duration",
+        "maxUses",
+        "maxUsesBefore",
+        "newSubscribersOnly",
+        "description",
+        "startsAt",
+        "endsAt",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "plan": belongs_to("SubscriptionPlan", fk_column="planId"),
+    }
+
+    planId: SnowflakeId
+    status: int | None = None
+    price: int | None = None
+    duration: int | None = None
+    maxUses: int | None = None
+    maxUsesBefore: datetime | None = None
+    newSubscribersOnly: int | None = None
+    description: str | None = None
+    startsAt: datetime | None = None
+    endsAt: datetime | None = None
+
+    plan: SubscriptionPlan | UnsetType | None = UNSET  # type: ignore[name-defined]
+
+
+class SubscriptionPlan(FanslyObject):
+    """A creator's offered subscription plan.
+
+    From /api/v1/subscriptions response subscriptionPlans[] — the catalog
+    of plans creators sell. Distinct from Subscription (a user's purchase).
+    """
+
+    __table_name__: ClassVar[str] = "subscription_plans"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "accountId",
+        "subscriptionTierId",
+        "billingCycle",
+        "price",
+        "useAmounts",
+        "promos",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="accountId"),
+        "promos": has_many("SubscriptionPromo", fk_column="planId"),
+    }
+
+    accountId: SnowflakeId
+    subscriptionTierId: SnowflakeId | None = None
+    billingCycle: int | None = None
+    price: int | None = None
+    useAmounts: int | None = None
+
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+    promos: list[SubscriptionPromo] = Field(default_factory=list)
+
+
+class Subscription(FanslyObject):
+    """A user's subscription to a creator.
+
+    Multi-row per accountId (allows resub-after-expiry creating new rows
+    if Fansly ever changes behavior; current observed behavior is in-place
+    update). Status: 3=active, 5=expired; other values seen but not catalogued.
+    Renewal extends endsAt + advances updatedAt on the same row.
+
+    `renewDatexD` is preserved alongside `renewDate` — appears in API
+    responses with the same value, may diverge in future schema revisions.
+    """
+
+    __table_name__: ClassVar[str] = "subscriptions"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "accountId",
+        "subscriptionTierId",
+        "subscriptionTierName",
+        "subscriptionTierColor",
+        "planId",
+        "promoId",
+        "giftCodeId",
+        "status",
+        "price",
+        "renewPrice",
+        "renewCorrelationId",
+        "autoRenew",
+        "billingCycle",
+        "duration",
+        "renewDate",
+        "renewDatexD",
+        "createdAt",
+        "updatedAt",
+        "endsAt",
+        "promoPrice",
+        "promoDuration",
+        "promoStatus",
+        "promoStartsAt",
+        "promoEndsAt",
+        "version",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="accountId"),
+    }
+
+    accountId: SnowflakeId
+    subscriptionTierId: SnowflakeId | None = None
+    subscriptionTierName: str | None = None
+    subscriptionTierColor: str | None = None
+    planId: SnowflakeId | None = None
+    promoId: str | None = None
+    giftCodeId: str | None = None
+    status: int | None = None
+    price: int | None = None
+    renewPrice: int | None = None
+    renewCorrelationId: str | None = None
+    autoRenew: int | None = None
+    billingCycle: int | None = None
+    duration: int | None = None
+    renewDate: datetime | None = None
+    renewDatexD: datetime | None = None
+    createdAt: datetime | None = None
+    updatedAt: datetime | None = None
+    endsAt: datetime | None = None
+    promoPrice: int | None = None
+    promoDuration: int | None = None
+    promoStatus: int | None = None
+    promoStartsAt: datetime | None = None
+    promoEndsAt: datetime | None = None
+    version: int | None = None
+
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+
+
+class FollowEvent(FanslyObject):
+    """Append-only audit row recording a follow-state observation.
+
+    Inserted only on transition (no prior row OR latest row's following_state
+    differs from current observation). Used to drive creator_access_changed
+    when following flips False→True.
+    """
+
+    __table_name__: ClassVar[str] = "follow_events"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "accountId",
+        "observed_at",
+        "following_state",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="accountId"),
+    }
+
+    id: int | None = None  # auto-increment
+    accountId: SnowflakeId
+    observed_at: datetime
+    following_state: bool
+
+    account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
+
+
 class Account(FanslyObject):
     """A Fansly account — the hub entity connecting all content."""
 
@@ -1972,6 +2140,8 @@ class Account(FanslyObject):
         "stories",
         "timelineStats",
         "mediaStoryState",
+        "subscriptions",
+        "follow_events",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
         "avatar": has_one_through(
@@ -2004,6 +2174,8 @@ class Account(FanslyObject):
         "stories": has_many("MediaStory", fk_column="accountId"),
         "timelineStats": has_one("TimelineStats", fk_column="accountId"),
         "mediaStoryState": has_one("MediaStoryState", fk_column="accountId"),
+        "subscriptions": has_many("Subscription", fk_column="accountId"),
+        "follow_events": has_many("FollowEvent", fk_column="accountId"),
     }
     # Inverse-only fields — no DB column, no __relationships__ entry
     _WRITE_EXCLUDED: ClassVar[set[str]] = {
@@ -2039,6 +2211,52 @@ class Account(FanslyObject):
     posts: list[Post] = Field(default_factory=list)
     sent_messages: list[Message] = Field(default_factory=list)
     received_messages: list[Message] = Field(default_factory=list)
+    subscriptions: list[Subscription] = Field(default_factory=list)
+    follow_events: list[FollowEvent] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_embedded_subscription(cls, data: Any) -> Any:
+        """Normalize the API's singular ``subscription`` field into the
+        plural ``subscriptions`` list our model has_many declares.
+
+        /api/v1/account?usernames= responses embed a singular ``subscription``
+        dict (the active sub, same shape as a /api/v1/subscriptions row) when
+        the user is subscribed. Without this coercion ``extra="ignore"``
+        drops it silently because the field name + cardinality mismatch
+        the declared has_many. Idempotent: merge by sub.id so repeat
+        observations don't duplicate the entry.
+        """
+        if not isinstance(data, dict):
+            return data
+        sub = data.get("subscription")
+        if not isinstance(sub, dict) or "id" not in sub:
+            return data
+        existing = data.get("subscriptions") or []
+        if not isinstance(existing, list):
+            return data
+        if not any(
+            isinstance(s, dict) and s.get("id") == sub.get("id") for s in existing
+        ):
+            data["subscriptions"] = [*existing, sub]
+        return data
+
+    @property
+    def current_subscription(self) -> Subscription | None:
+        """Derived view: most recent active subscription (status=3), if any.
+
+        Returns None when no active subscription exists. Mirrors the
+        embedded ``subscription`` (singular) field shape from /account_info,
+        but computed from the has_many list to keep history intact.
+        Uses ``datetime.min`` (UTC-aware) as a tie-breaker when both
+        ``updatedAt`` and ``createdAt`` are None on a row so ``max()``
+        never compares ``datetime`` against ``None``.
+        """
+        active = [s for s in self.subscriptions if s.status == 3]
+        if not active:
+            return None
+        _epoch = datetime.min.replace(tzinfo=UTC)
+        return max(active, key=lambda s: s.updatedAt or s.createdAt or _epoch)
 
     def __repr__(self) -> str:
         return f"<Account {self.id}: {self.username}>"

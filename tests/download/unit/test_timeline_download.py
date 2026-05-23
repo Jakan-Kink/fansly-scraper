@@ -46,6 +46,7 @@ from errors import DuplicateCountError
 from metadata import Post
 from metadata.models import get_store
 from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -1394,3 +1395,80 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
     # Must not raise — the DuplicatePageError is caught by the timeline
     # loop and logged as info_highlight, then broken out of.
     await download_timeline(config, state)
+
+
+@pytest.mark.asyncio
+async def test_download_timeline_access_changed_bypasses_unchanged_probe(
+    respx_fansly_api, entity_store, mock_config, monkeypatch
+):
+    """state.creator_access_changed=True must defeat the page-1 probe AND
+    the fetched_timeline_duplication early-return — both short-circuits
+    rely on cache-as-truth, but an access change means the cache may be
+    missing newly-unlocked media. Asserts the loop actually entered (at
+    least one timeline page fetched) and the unchanged-probe duplicate
+    credit did NOT fire.
+    """
+    config = mock_config
+    config.use_duplicate_threshold = True
+    config.use_pagination_duplication = True
+    config.timeline_retries = 0
+    config.timeline_delay_seconds = 0
+
+    creator_id = snowflake_id()
+    post_id = snowflake_id()
+
+    account = AccountFactory.build(id=creator_id, username=f"acc_chg_{creator_id}")
+    await entity_store.save(account)
+    cached_post = PostFactory.build(id=post_id, accountId=creator_id)
+    await entity_store.save(cached_post)
+
+    state = DownloadState()
+    state.creator_id = creator_id
+    state.creator_name = f"acc_chg_{creator_id}"
+    # Both legacy short-circuits enabled — would normally skip the loop:
+    state.creator_content_unchanged = True
+    state.fetched_timeline_duplication = True
+    # Access change overrides both.
+    state.creator_access_changed = True
+    state.creator_access_change_reason = "sub-activated"
+    state.total_timeline_pictures = 10
+    state.total_timeline_videos = 5
+
+    timeline_route = respx.get(
+        url__startswith=respx_fansly_api.TIMELINE_NEW_ENDPOINT.format(creator_id)
+    ).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_timeline_response(
+                    posts=[
+                        {
+                            "id": post_id,
+                            "accountId": creator_id,
+                            "fypFlags": 0,
+                            "createdAt": 1700000000,
+                        }
+                    ],
+                ),
+            ),
+            httpx.Response(200, json=_timeline_response(posts=[])),
+        ]
+    )
+    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+
+    async def _noop(_):
+        return None
+
+    monkeypatch.setattr("download.common.input_enter_continue", _noop)
+    monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
+    monkeypatch.setattr("download.media.input_enter_continue", _noop)
+
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_access_changed_bypass")
+
+    assert timeline_route.call_count >= 1
+    # Skip path's duplicate-credit didn't fire (would have set 15).
+    assert state.duplicate_count != 15

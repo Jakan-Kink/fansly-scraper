@@ -24,6 +24,7 @@ from .models import (
     ContentType,
     FanslyObject,
     FanslyRecord,
+    FollowEvent,
     Group,
     Hashtag,
     Media,
@@ -37,6 +38,9 @@ from .models import (
     PostMention,
     SnowflakeId,
     StubTracker,
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionPromo,
     TimelineStats,
     Wall,
     get_store,
@@ -56,6 +60,12 @@ from .stub_tracker import (
     register_stub,
     remove_stub,
 )
+from .subscriptions import (
+    apply_subscription_snapshot,
+    apply_subscription_ws_event,
+    process_subscriptions_response,
+    record_follow_observation,
+)
 from .wall import process_account_walls, process_wall_posts
 
 
@@ -69,6 +79,7 @@ __all__ = [
     "DatabaseLogger",
     "FanslyObject",
     "FanslyRecord",
+    "FollowEvent",
     "Group",
     "HasAttachments",
     "HasPreview",
@@ -87,8 +98,13 @@ __all__ = [
     "SnowflakeId",
     "SortDirection",
     "StubTracker",
+    "Subscription",
+    "SubscriptionPlan",
+    "SubscriptionPromo",
     "TimelineStats",
     "Wall",
+    "apply_subscription_snapshot",
+    "apply_subscription_ws_event",
     "clear_missing_relationships",
     "count_stubs",
     "extract_hashtags",
@@ -109,8 +125,10 @@ __all__ = [
     "process_messages_metadata",
     "process_pinned_posts",
     "process_post_hashtags",
+    "process_subscriptions_response",
     "process_timeline_posts",
     "process_wall_posts",
+    "record_follow_observation",
     "register_stub",
     "remove_stub",
 ]

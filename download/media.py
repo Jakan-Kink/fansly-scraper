@@ -24,7 +24,7 @@ from helpers.timer import timing_jitter
 from media import parse_media_info
 from metadata import process_media_download
 from metadata.media import process_media_info
-from metadata.models import Media, get_store
+from metadata.models import AccountMedia, AccountMediaBundle, Media, get_store
 from pathio import get_media_save_path, set_create_directory_for_download
 from textio import (
     input_enter_continue,
@@ -98,6 +98,77 @@ async def fetch_and_process_media(
         for m in all_media
         if m.download_url and (not m.is_preview or config.download_media_previews)
     ]
+
+
+async def refresh_locked_account_media(
+    config: FanslyConfig,
+    creator_id: int,
+) -> int:
+    """Re-fetch AccountMedia / AccountMediaBundle for ``creator_id`` whose
+    access state could have flipped after a subscription / follow change.
+
+    Filter — only rows that can actually transition state:
+        AccountMedia:        deleted=False AND access=False
+        AccountMediaBundle:  deleted=False AND access=False
+                             AND purchased=False AND whitelisted=False
+
+    Bundle's own access/purchased/whitelisted columns are not refreshed
+    directly (no dedicated bundle endpoint); we re-fetch the bundle's
+    constituent AccountMedia and trust the bundle's own state to refresh
+    on the next natural pagination encounter.
+
+    Returns:
+        Number of AccountMedia IDs queued for refresh (post-dedup).
+    """
+    store = get_store()
+
+    locked_am = store.filter(
+        AccountMedia,
+        lambda am, cid=creator_id: (
+            am.accountId == cid and not am.deleted and not am.access
+        ),
+    )
+    locked_bundles = store.filter(
+        AccountMediaBundle,
+        lambda b, cid=creator_id: (
+            b.accountId == cid
+            and not b.deleted
+            and not b.access
+            and not b.purchased
+            and not b.whitelisted
+        ),
+    )
+
+    refresh_ids: set[int] = {am.id for am in locked_am}
+    for bundle in locked_bundles:
+        for am in bundle.accountMedia or []:
+            if am.id is not None:
+                refresh_ids.add(am.id)
+
+    if not refresh_ids:
+        return 0
+
+    print_info(
+        f"Refreshing {len(refresh_ids)} locked AccountMedia for creator "
+        f"{creator_id} (access-change detected)."
+    )
+
+    api = config.get_api()
+    for ids in batch_list(sorted(refresh_ids), config.BATCH_SIZE):
+        media_ids_str = ",".join(str(mid) for mid in ids)
+        try:
+            response = await api.get_account_media(media_ids_str)
+            response.raise_for_status()
+            media_infos = api.get_json_response_contents(response)
+            await process_media_info(config, {"batch": media_infos})
+        except Exception:
+            print_error(
+                f"AM refresh batch failed for creator {creator_id};"
+                f"\n{traceback.format_exc()}",
+                44,
+            )
+
+    return len(refresh_ids)
 
 
 def _validate_media(media: Media) -> None:

@@ -1,12 +1,13 @@
 """Test pagination duplication detection functionality."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from download.common import check_page_duplicates
 from errors import DuplicatePageError
-from metadata.models import Account, Post, Wall
+from metadata.models import Account, Message, Post, Wall
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -242,3 +243,111 @@ async def test_check_page_duplicates_wall_nonexistent(
     assert "wall" in str(exc_info.value)
     assert str(wall_id) in str(exc_info.value)
     assert "123" in str(exc_info.value)
+
+
+async def test_check_page_duplicates_messages_all_existing_raises(
+    mock_config, entity_store, messages_page_data
+):
+    """All messages on the page already cached → DuplicatePageError; the
+    error message uses the messages-specific noun, not "posts"."""
+    mock_config.use_pagination_duplication = True
+
+    account_id = snowflake_id()
+    sender_id = messages_page_data["messages"][0]["senderId"]
+    await entity_store.save(Account(id=account_id, username="msg_dup_test"))
+    await entity_store.save(Account(id=sender_id, username="msg_sender"))
+
+    for msg in messages_page_data["messages"]:
+        await entity_store.save(
+            Message(
+                id=msg["id"],
+                senderId=sender_id,
+                content="x",
+                createdAt=datetime.now(UTC),
+            )
+        )
+
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        await check_page_duplicates(
+            config=mock_config,
+            page_data=messages_page_data,
+            page_type="messages",
+            page_id=str(snowflake_id()),
+            cursor="500",
+        )
+
+    msg = str(exc_info.value)
+    assert "messages" in msg
+    assert "All messages on messages" in msg
+    assert "500" in msg
+
+
+async def test_check_page_duplicates_messages_new_messages_no_raise(
+    mock_config, entity_store, messages_page_data
+):
+    """Mix of cached + new messages → returns silently (we still have new
+    content to process)."""
+    mock_config.use_pagination_duplication = True
+
+    sender_id = messages_page_data["messages"][0]["senderId"]
+    await entity_store.save(Account(id=sender_id, username="msg_partial"))
+    first_msg = messages_page_data["messages"][0]
+    await entity_store.save(
+        Message(
+            id=first_msg["id"],
+            senderId=sender_id,
+            content="cached",
+            createdAt=datetime.now(UTC),
+        )
+    )
+
+    await check_page_duplicates(
+        config=mock_config,
+        page_data=messages_page_data,
+        page_type="messages",
+        cursor="500",
+    )
+
+
+async def test_check_page_duplicates_bypass_skips_all_page_types(
+    mock_config, entity_store, timeline_data, messages_page_data
+):
+    """bypass=True suppresses the raise across every supported page_type
+    even when every item is cached AND use_pagination_duplication is on —
+    the access-changed contract relies on this short-circuit."""
+    mock_config.use_pagination_duplication = True
+
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    sender_id = messages_page_data["messages"][0]["senderId"]
+    await entity_store.save(Account(id=account_id, username="bypass_test"))
+    await entity_store.save(Account(id=sender_id, username="bypass_sender"))
+    await entity_store.save(Wall(id=wall_id, name="W", accountId=account_id))
+    for post in timeline_data["posts"]:
+        await entity_store.save(Post(id=post["id"], accountId=account_id))
+    for msg in messages_page_data["messages"]:
+        await entity_store.save(
+            Message(
+                id=msg["id"],
+                senderId=sender_id,
+                content="x",
+                createdAt=datetime.now(UTC),
+            )
+        )
+
+    for page_type, page_data, page_id in (
+        ("timeline", timeline_data, account_id),
+        ("wall", timeline_data, wall_id),
+        ("messages", messages_page_data, sender_id),
+    ):
+        await check_page_duplicates(
+            config=mock_config,
+            page_data=page_data,
+            page_type=page_type,
+            page_id=str(page_id),
+            cursor="100",
+            bypass=True,
+        )

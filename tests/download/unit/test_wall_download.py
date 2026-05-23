@@ -479,6 +479,55 @@ class TestDownloadWall:
 
         await download_wall(config, state, wall_id)
 
+    @pytest.mark.asyncio
+    async def test_access_changed_bypasses_unchanged_and_fetched_short_circuits(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path, monkeypatch
+    ):
+        """state.creator_access_changed=True overrides BOTH the
+        creator_content_unchanged early-return AND the
+        fetched_timeline_duplication early-return. Without the bypass these
+        would skip the loop with zero HTTP calls; with the bypass we expect
+        at least one wall-page fetch (loop entered, paginating fully).
+        """
+        config = self._make_config(mock_config, tmp_path)
+        config.use_duplicate_threshold = True
+        config.use_pagination_duplication = True
+        config.respect_timeline_stats = True
+        creator_id = snowflake_id()
+        wall_id = snowflake_id()
+        state = self._make_state(creator_id)
+        # Both legacy short-circuits enabled — would normally skip the loop:
+        state.creator_content_unchanged = True
+        state.fetched_timeline_duplication = True
+        # Access change overrides both.
+        state.creator_access_changed = True
+        state.creator_access_change_reason = "sub-activated"
+
+        await entity_store.save(Account(id=creator_id, username=f"wall_{creator_id}"))
+        await entity_store.save(Wall(id=wall_id, name="W", accountId=creator_id))
+
+        route = respx.get(url__startswith=FANSLY_API).mock(
+            side_effect=[
+                _ok(_wall_response(creator_id, post_count=1, media_count=0)),
+                _ok(_wall_response(creator_id, post_count=0, media_count=0)),
+            ]
+        )
+        monkeypatch.setattr("download.wall.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            "download.common.asyncio.sleep", AsyncMock(return_value=None)
+        )
+
+        try:
+            await download_wall(config, state, wall_id)
+        finally:
+            dump_fansly_calls(
+                route.calls, "test_access_changed_bypasses_short_circuits"
+            )
+
+        # Loop entered: at least one wall-page fetched. Without the bypass
+        # both early-returns would short-circuit before any HTTP call.
+        assert route.call_count >= 1
+
 
 # ---------------------------------------------------------------------------
 # Edge coverage — short-circuit + raise + outer exception paths
