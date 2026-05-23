@@ -1,6 +1,7 @@
 """Utility fixtures for cleanup and test management."""
 
 from .cleanup_fixtures import (
+    cleanup_access_changed_accounts,
     cleanup_fansly_websockets,
     cleanup_global_config_state,
     cleanup_http_sessions,
@@ -19,6 +20,7 @@ from .test_isolation import get_unique_test_id, get_worker_id, snowflake_id
 
 __all__ = [
     "SyncExecutor",
+    "cleanup_access_changed_accounts",
     "cleanup_fansly_websockets",
     "cleanup_global_config_state",
     "cleanup_http_sessions",

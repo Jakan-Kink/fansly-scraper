@@ -64,6 +64,7 @@ class FanslyApi:
     CHATROOMS_SETTINGS_ENDPOINT: ClassVar[str] = f"{BASE_URL}chatrooms/settings"
     MEDIA_STORY_VIEW_ENDPOINT: ClassVar[str] = f"{BASE_URL}mediastory/view"
     MESSAGING_GROUPS_ENDPOINT: ClassVar[str] = f"{BASE_URL}messaging/groups"
+    SUBSCRIPTIONS_ENDPOINT: ClassVar[str] = f"{BASE_URL}subscriptions"
     MESSAGE_ENDPOINT: ClassVar[str] = f"{BASE_URL}message"
     DEVICE_ID_ENDPOINT: ClassVar[str] = f"{BASE_URL}device/id"
     LOGIN_ENDPOINT: ClassVar[str] = f"{BASE_URL}login?ngsw-bypass=true"
@@ -809,6 +810,35 @@ class FanslyApi:
         return await self.get_with_ngsw(
             url=self.MESSAGE_ENDPOINT,
             params=params,
+        )
+
+    async def get_subscriptions(self) -> httpx.Response:
+        """GET /api/v1/subscriptions — the authenticated user's full
+        subscription history (active + expired) plus the catalog of
+        SubscriptionPlans + nested SubscriptionPromos that the subscribed
+        creators offer.
+
+        Used at session start to populate the Subscription / SubscriptionPlan /
+        SubscriptionPromo tables and detect access-change transitions.
+        """
+        return await self.get_with_ngsw(
+            url=self.SUBSCRIPTIONS_ENDPOINT,
+        )
+
+    async def get_subscriptions_by_ids(
+        self, subscription_ids: list[int | str]
+    ) -> httpx.Response:
+        """GET /api/v1/subscriptions?ids=<csv> — targeted refresh of N
+        Subscription rows by ID. Mirrors the Fansly client's
+        ``getSubscriptionsByIds`` (main.js line 20902).
+
+        Cheaper than ``get_subscriptions()`` when a WS event names a
+        specific sub.id and we only want that row refreshed.
+        """
+        ids_str = ",".join(str(sid) for sid in subscription_ids)
+        return await self.get_with_ngsw(
+            url=self.SUBSCRIPTIONS_ENDPOINT,
+            params={"ids": ids_str},
         )
 
     async def get_device_id_info(self) -> httpx.Response:

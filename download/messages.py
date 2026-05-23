@@ -3,12 +3,23 @@
 from asyncio import sleep
 
 from config import FanslyConfig
+from errors import DuplicatePageError
 from helpers.timer import timing_jitter
 from metadata import get_store, process_groups_response, process_messages_metadata
 from metadata.models import Account
-from textio import input_enter_continue, print_error, print_info, print_warning
+from textio import (
+    input_enter_continue,
+    print_error,
+    print_info,
+    print_info_highlight,
+    print_warning,
+)
 
-from .common import get_unique_media_ids, process_download_accessible_media
+from .common import (
+    check_page_duplicates,
+    get_unique_media_ids,
+    process_download_accessible_media,
+)
 from .downloadstate import DownloadState
 from .media import fetch_and_process_media
 from .types import DownloadType
@@ -157,6 +168,20 @@ async def _download_group_message_loop(
 
         # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
         messages = config.get_api().get_json_response_contents(messages_response)
+
+        try:
+            await check_page_duplicates(
+                config=config,
+                page_data=messages,
+                page_type="messages",
+                page_id=group_id,
+                cursor=msg_cursor if msg_cursor != "0" else None,
+                bypass=state.creator_access_changed,
+            )
+        except DuplicatePageError as e:
+            print_info_highlight(str(e))
+            e._handled = True
+            return
 
         await process_messages_metadata(config, state, messages)
 

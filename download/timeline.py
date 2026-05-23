@@ -50,6 +50,7 @@ async def process_timeline_data(
         page_type="timeline",
         page_id=state.creator_id,
         cursor=timeline_cursor if timeline_cursor != 0 else None,
+        bypass=state.creator_access_changed,
     )
 
     await process_timeline_posts(
@@ -104,11 +105,17 @@ async def download_timeline(
     timeline_cursor = 0
     attempts = 0
 
-    probe_pending = config.respect_timeline_stats and state.creator_content_unchanged
+    probe_pending = (
+        config.respect_timeline_stats
+        and state.creator_content_unchanged
+        and not state.creator_access_changed
+    )
 
     if (
-        config.use_duplicate_threshold or config.use_pagination_duplication
-    ) and state.fetched_timeline_duplication:
+        (config.use_duplicate_threshold or config.use_pagination_duplication)
+        and state.fetched_timeline_duplication
+        and not state.creator_access_changed
+    ):
         print_info(
             "Skipping Timeline download as the fetchedAt time matches the last pass."
         )

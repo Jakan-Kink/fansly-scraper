@@ -72,6 +72,50 @@ def create_mock_json_response(
     )
 
 
+def build_creator_account_info_response(
+    creator_id: int,
+    username: str,
+    *,
+    following: bool = True,
+    subscription: dict[str, Any] | None = None,
+    image_count: int = 10,
+    video_count: int = 5,
+) -> dict[str, Any]:
+    """Build a ``/api/v1/account?usernames=...`` (creator-info) response.
+
+    Shape verified against ``json/account_two_ids.json`` capture:
+    - ``id`` is a string (Snowflake serialized as str).
+    - ``subscribed`` + ``subscription`` keys are omitted when the user
+      isn't subscribed to this creator (not ``None`` — the keys are
+      genuinely absent in real responses).
+    - When subscribed, ``subscription`` is the full Subscription record
+      (same shape returned by ``/api/v1/subscriptions``).
+    - ``createdAt`` is unix epoch milliseconds.
+
+    Pydantic's ``extra="ignore"`` skips additional fields the real API
+    carries (avatar, banner, statusId, lastSeenAt, subscriptionTiers,
+    permissions, etc.) — they're not needed for access-change detection.
+    """
+    account: dict[str, Any] = {
+        "id": str(creator_id),
+        "username": username,
+        "following": following,
+        "createdAt": 1700000000000,
+        "timelineStats": {
+            "accountId": str(creator_id),
+            "imageCount": image_count,
+            "videoCount": video_count,
+        },
+    }
+    if subscription is not None:
+        account["subscribed"] = True
+        account["subscription"] = subscription
+    return {
+        "success": "true",
+        "response": [account],
+    }
+
+
 @pytest.fixture
 def mock_fansly_account_response():
     """Provide a sample Fansly account API response for testing."""
@@ -382,6 +426,7 @@ def dump_fansly_calls(calls, label: str = "Fansly API calls") -> None:
 
 
 __all__ = [
+    "build_creator_account_info_response",
     "create_mock_json_response",
     "dump_fansly_calls",
     "fansly_api_factory",

@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 
 from metadata import ContentType
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 from .metadata_factories import (
     ACCOUNT_ID_BASE,
@@ -384,6 +385,24 @@ def test_account_media(session_sync, test_account, test_media):
     session_sync.commit()
     session_sync.refresh(account_media)
     return account_media
+
+
+@pytest.fixture
+def messages_page_data():
+    """API-shaped /api/v1/message page payload with 3 messages sharing one sender.
+
+    Used by tests that exercise check_page_duplicates(page_type="messages")
+    and the message-pagination dedup loop.
+    """
+    sender_id = snowflake_id()
+    account_id = snowflake_id()
+    return {
+        "messages": [
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+        ],
+    }
 
 
 @pytest.fixture

@@ -183,6 +183,10 @@ async def process_account_data(
     Walls still need async processing (stale-wall deletion, wall_posts junction).
     """
     from .stub_tracker import remove_stub  # noqa: PLC0415, I001  # circular: metadata.stub_tracker → metadata.account via models
+    from .subscriptions import (  # noqa: PLC0415  # circular: metadata.subscriptions → metadata.account via models
+        _access_changed_accounts,
+        apply_subscription_snapshot,
+    )
     from .wall import process_account_walls  # noqa: PLC0415  # circular: metadata.wall → metadata.account
 
     store = get_store()
@@ -190,6 +194,13 @@ async def process_account_data(
 
     if "id" not in data:
         return
+
+    # Pop embedded singular `subscription` BEFORE Account.model_validate so
+    # the model's has_many resolver doesn't pre-cache the new Subscription
+    # row — that would defeat the snapshot-vs-cache transition detection
+    # by making prev_state == new_state at the apply_subscription_snapshot
+    # call below.
+    embedded_sub = data.pop("subscription", None)
 
     account = Account.model_validate(data)
 
@@ -200,6 +211,16 @@ async def process_account_data(
         await store.save(account.timelineStats)
     if account.mediaStoryState:
         await store.save(account.mediaStoryState)
+
+    # Subscription FKs to Account → run AFTER store.save(account) so the
+    # subscriptions.accountId FK satisfies. The snapshot-diff detector
+    # sees a cache miss for the sub.id (no other code path validated it
+    # yet) and bootstrap-activation fires correctly on first observation.
+    if isinstance(embedded_sub, dict):
+        transition = await apply_subscription_snapshot(embedded_sub)
+        if transition is not None:
+            account_id, reason = transition
+            _access_changed_accounts[account_id] = reason
 
     # Walls need async processing (stale-wall deletion logic)
     if "walls" in data:

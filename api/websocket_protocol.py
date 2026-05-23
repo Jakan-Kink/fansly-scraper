@@ -167,6 +167,19 @@ def format_event_label(service_id: int, event_type: int) -> str:
     return f"{service_name(service_id)} svc={service_id} type={event_type}"
 
 
+def notification_inner_to_service_event(inner_type: int) -> tuple[int, int]:
+    """Map a NotificationService inner ``notification.type`` code (e.g.
+    ``15007``) to the synthetic ``(service_id, event_type)`` pair it encodes
+    (``(15, 7)``).
+
+    Inner notification codes are constructed as ``serviceId * 1000 + N``
+    (see NOTIFICATION_TYPES above and Fansly main.js dispatch). This helper
+    lets the runner unwrap a ``(9, 1)`` notification event into the underlying
+    event pair so dispatch tables don't have to learn the encoding.
+    """
+    return divmod(inner_type, 1000)
+
+
 # Service events dropped at the WS layer with neither log nor dispatch —
 # matches the MSG_PING fast-path. Entries are invisible to the daemon
 # *including* simulator interrupts (see INTERRUPT_EVENTS).
