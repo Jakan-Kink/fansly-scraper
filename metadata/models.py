@@ -2059,6 +2059,21 @@ class Subscription(FanslyObject):
         "account": belongs_to("Account", fk_column="accountId"),
     }
 
+    @model_validator(mode="before")
+    @classmethod
+    def _stringify_id_fields(cls, data: Any) -> Any:
+        # Fansly returns promoId / giftCodeId / renewCorrelationId as ints
+        # in embedded Account.subscription payloads (0 for absent promo,
+        # Snowflake-shaped gift code and correlation IDs); DB columns are
+        # String, so coerce before strict Pydantic typing rejects int → str.
+        if not isinstance(data, dict):
+            return data
+        for field in ("promoId", "giftCodeId", "renewCorrelationId"):
+            v = data.get(field)
+            if v is not None and not isinstance(v, str):
+                data[field] = str(v)
+        return data
+
     accountId: SnowflakeId
     subscriptionTierId: SnowflakeId | None = None
     subscriptionTierName: str | None = None

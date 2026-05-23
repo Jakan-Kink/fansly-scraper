@@ -631,3 +631,61 @@ def test_current_subscription_handles_mixed_none_timestamps():
     # Empty list → None.
     account.subscriptions = []
     assert account.current_subscription is None
+
+
+def test_subscription_coerces_int_id_fields_to_string():
+    """Fansly returns promoId / giftCodeId / renewCorrelationId as ints in
+    embedded Account.subscription payloads (observed in production:
+    promoId=0, gift code / correlation IDs as Snowflake-shaped ints).
+    The DB columns are String, so the model_validator must stringify
+    before strict Pydantic typing rejects int → str.
+    """
+    creator_id = snowflake_id()
+    sub_id = snowflake_id()
+
+    # Exact shape from production error log (2026-05-23): int promoId=0,
+    # giftCodeId as Snowflake, renewCorrelationId as Snowflake.
+    sub = Subscription.model_validate(
+        {
+            "id": sub_id,
+            "accountId": creator_id,
+            "status": 3,
+            "promoId": 0,
+            "giftCodeId": 904016029032665088,
+            "renewCorrelationId": 851005063466864640,
+        }
+    )
+
+    assert sub.promoId == "0"
+    assert sub.giftCodeId == "904016029032665088"
+    assert sub.renewCorrelationId == "851005063466864640"
+
+    # None / missing must still pass through untouched.
+    sub_null = Subscription.model_validate(
+        {
+            "id": snowflake_id(),
+            "accountId": creator_id,
+            "status": 3,
+            "promoId": None,
+            "giftCodeId": None,
+            "renewCorrelationId": None,
+        }
+    )
+    assert sub_null.promoId is None
+    assert sub_null.giftCodeId is None
+    assert sub_null.renewCorrelationId is None
+
+    # Already-string values must be preserved verbatim.
+    sub_str = Subscription.model_validate(
+        {
+            "id": snowflake_id(),
+            "accountId": creator_id,
+            "status": 3,
+            "promoId": "promo_abc",
+            "giftCodeId": "gift_xyz",
+            "renewCorrelationId": "corr_123",
+        }
+    )
+    assert sub_str.promoId == "promo_abc"
+    assert sub_str.giftCodeId == "gift_xyz"
+    assert sub_str.renewCorrelationId == "corr_123"
