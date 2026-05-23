@@ -162,7 +162,7 @@ async def test_download_messages_success_full_real_pipeline(
 
     # Two message pages: first has a message, second is empty → IndexError
     # break at ``_download_group_message_loop:183`` (cursor advance).
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -179,7 +179,7 @@ async def test_download_messages_success_full_real_pipeline(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -199,7 +199,7 @@ async def test_download_messages_success_full_real_pipeline(
             httpx.Response(200, json=_messages_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -257,7 +257,7 @@ async def test_download_messages_no_group_for_creator_warns_and_exits(
 
     # The response has a group, but it contains a different user —
     # production code iterates members, never finds creator_id, returns.
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -296,7 +296,7 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
     config.download_directory = tmp_path
     config.interactive = False
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -327,7 +327,7 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
     creator_id = snowflake_id()
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -344,7 +344,7 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -384,7 +384,7 @@ async def test_download_messages_for_group_with_creator_info_preset(
     state.creator_id = creator_id
     state.creator_name = f"dg_{creator_id}"
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -401,7 +401,7 @@ async def test_download_messages_for_group_with_creator_info_preset(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(200, json=_messages_response())]
     )
 
@@ -437,7 +437,7 @@ async def test_download_messages_for_group_groups_api_non_200_returns_early(
 
     # 500 is in httpx_retries' status_forcelist — provide enough responses
     # to exhaust retries.
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[httpx.Response(500, text="server boom")] * 5
     )
 
@@ -462,7 +462,7 @@ async def test_download_messages_for_group_missing_group_warns_and_returns(
     creator_id = snowflake_id()
     known_group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -505,7 +505,7 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
     creator_id = snowflake_id()
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -522,7 +522,7 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(200, json=_messages_response())]
     )
 
@@ -572,7 +572,7 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     )
     await entity_store.save(account)
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -592,7 +592,7 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     )
     # 403 on /message → loop exits at line 149-156 BEFORE reaching
     # set_create_directory_for_download (which would crash on creator_name=None).
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -631,7 +631,7 @@ async def test_download_messages_for_group_cannot_identify_creator_warns(
 
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -692,7 +692,7 @@ async def test_download_messages_skipped_downloads_summary(
     state.creator_id = creator_id
     state.creator_name = f"skip_{creator_id}"
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -709,7 +709,7 @@ async def test_download_messages_skipped_downloads_summary(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -732,7 +732,7 @@ async def test_download_messages_skipped_downloads_summary(
             httpx.Response(200, json=_messages_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,

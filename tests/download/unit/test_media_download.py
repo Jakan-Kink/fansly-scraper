@@ -16,6 +16,7 @@ from download.media import (
 from download.types import DownloadType
 from errors import MediaError
 from metadata.models import Media
+from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -116,7 +117,9 @@ class TestFetchAndProcessMedia:
             "access": True,
         }
 
-        respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
+        route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -138,12 +141,16 @@ class TestFetchAndProcessMedia:
             download_url="https://cdn.fansly.com/img.jpg",
         )
 
-        with (
-            patch("download.media.process_media_info", new_callable=AsyncMock),
-            patch("download.media.parse_media_info", return_value=fake_media),
-            patch("download.media.input_enter_continue", new_callable=AsyncMock),
-        ):
-            result = await fetch_and_process_media(mock_config, state, [am_id])
+        try:
+            with (
+                patch("download.media.process_media_info", new_callable=AsyncMock),
+                patch("download.media.parse_media_info", return_value=fake_media),
+                patch("download.media.input_enter_continue", new_callable=AsyncMock),
+            ):
+                result = await fetch_and_process_media(mock_config, state, [am_id])
+        finally:
+            dump_fansly_calls(route.calls, "fetches_and_filters")
+
         assert isinstance(result, list)
         assert len(result) == 1
 
@@ -153,7 +160,9 @@ class TestFetchAndProcessMedia:
         mock_config.BATCH_SIZE = 50
         mock_config.interactive = False
 
-        respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
+        route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -177,13 +186,19 @@ class TestFetchAndProcessMedia:
         state = DownloadState()
         state.download_type = DownloadType.COLLECTIONS
 
-        with (
-            patch("download.media.process_media_info", new_callable=AsyncMock),
-            patch(
-                "download.media.parse_media_info", side_effect=ValueError("bad media")
-            ),
-            patch("download.media.input_enter_continue", new_callable=AsyncMock),
-        ):
-            result = await fetch_and_process_media(mock_config, state, [snowflake_id()])
+        try:
+            with (
+                patch("download.media.process_media_info", new_callable=AsyncMock),
+                patch(
+                    "download.media.parse_media_info",
+                    side_effect=ValueError("bad media"),
+                ),
+                patch("download.media.input_enter_continue", new_callable=AsyncMock),
+            ):
+                result = await fetch_and_process_media(
+                    mock_config, state, [snowflake_id()]
+                )
+        finally:
+            dump_fansly_calls(route.calls, "parse_error_caught")
 
         assert isinstance(result, list)

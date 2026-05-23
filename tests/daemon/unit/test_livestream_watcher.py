@@ -25,13 +25,9 @@ import pytest
 import respx
 
 import daemon.livestream_watcher as watcher_module
+from api.fansly import FanslyApi
 from daemon.livestream_watcher import _poll_and_diff
 from tests.fixtures.api import dump_fansly_calls
-
-
-STREAMING_ONLINE_URL = (
-    "https://apiv3.fansly.com/api/v1/streaming/followingstreams/online"
-)
 
 
 def _streaming_account(account_id: int, username: str) -> dict:
@@ -110,7 +106,9 @@ class TestPollAndDiffScopeFilter:
 
         monkeypatch.setattr(watcher_module, "_record_stream", _fake_record_stream)
 
-        route = respx.get(url__startswith=STREAMING_ONLINE_URL).mock(
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -178,7 +176,9 @@ class TestPollAndDiffScopeFilter:
 
         monkeypatch.setattr(watcher_module, "_record_stream", _fake_record_stream)
 
-        route = respx.get(url__startswith=STREAMING_ONLINE_URL).mock(
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -237,9 +237,9 @@ class TestPollAndDiffScopeFilter:
 
         monkeypatch.setattr(watcher_module, "_record_stream", _fake_record_stream)
 
-        route = respx.get(url__startswith=STREAMING_ONLINE_URL).mock(
-            side_effect=[httpx.Response(200, json={})]
-        )
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(side_effect=[httpx.Response(200, json={})])
 
         stop_event = asyncio.Event()
         try:

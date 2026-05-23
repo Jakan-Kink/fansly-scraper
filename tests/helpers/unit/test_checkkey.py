@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import respx
 
+from api.fansly import FanslyApi
 from helpers.checkkey import (
     _extract_checkkey_ast_fallback,
     _extract_checkkey_regex,
@@ -716,10 +717,10 @@ class TestGuessCheckKey:
         html = '<script src="main.abc123.js"></script>'
         js_content = 'this.checkKey_ = "test";'
 
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=[httpx.Response(200, text=html)]
         )
-        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+        mainjs_route = respx.get(f"{FanslyApi.FANSLY_HOST}/main.abc123.js").mock(
             side_effect=[httpx.Response(200, text=js_content)]
         )
         try:
@@ -737,7 +738,7 @@ class TestGuessCheckKey:
 
     def test_homepage_non_200(self, mock_shutdown, respx_fansly_api):
         """Homepage returns non-200 → default key."""
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=[httpx.Response(503, text="down")]
         )
         try:
@@ -750,7 +751,7 @@ class TestGuessCheckKey:
 
     def test_no_main_js_in_html(self, mock_shutdown, respx_fansly_api):
         """main.js URL not found in HTML → default key."""
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=[httpx.Response(200, text="<html>no scripts</html>")]
         )
         try:
@@ -764,10 +765,10 @@ class TestGuessCheckKey:
     def test_main_js_non_200(self, mock_shutdown, respx_fansly_api):
         """Lines 784-788: main.js download fails → default key."""
         html = '<script src="main.abc123.js"></script>'
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=[httpx.Response(200, text=html)]
         )
-        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+        mainjs_route = respx.get(f"{FanslyApi.FANSLY_HOST}/main.abc123.js").mock(
             side_effect=[httpx.Response(404, text="not found")]
         )
         try:
@@ -782,10 +783,10 @@ class TestGuessCheckKey:
     def test_extraction_returns_none(self, mock_shutdown, respx_fansly_api):
         """Lines 800-807: extraction returns None → fall back to default."""
         html = '<script src="main.abc123.js"></script>'
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=[httpx.Response(200, text=html)]
         )
-        mainjs_route = respx.get("https://fansly.com/main.abc123.js").mock(
+        mainjs_route = respx.get(f"{FanslyApi.FANSLY_HOST}/main.abc123.js").mock(
             side_effect=[httpx.Response(200, text="var x;")]
         )
         try:
@@ -803,7 +804,7 @@ class TestGuessCheckKey:
 
     def test_network_error(self, mock_shutdown, respx_fansly_api):
         """httpx.RequestError → default key."""
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=httpx.ConnectError("connection refused")
         )
         try:
@@ -816,7 +817,7 @@ class TestGuessCheckKey:
 
     def test_unexpected_exception(self, mock_shutdown, respx_fansly_api):
         """Unexpected error → default key."""
-        homepage_route = respx.get("https://fansly.com/").mock(
+        homepage_route = respx.get(f"{FanslyApi.FANSLY_HOST}/").mock(
             side_effect=RuntimeError("boom")
         )
         try:
@@ -853,13 +854,17 @@ class TestJsBridgeShutdown:
                 return_value="oybZy8-fySzis-bubayf",
             ),
         ):
-            respx.get("https://fansly.com").mock(
+            homepage_route = respx.get(FanslyApi.FANSLY_HOST).mock(
                 side_effect=[httpx.Response(200, text=html)]
             )
-            respx.get("https://fansly.com/main.abc123.js").mock(
+            mainjs_route = respx.get(f"{FanslyApi.FANSLY_HOST}/main.abc123.js").mock(
                 side_effect=[httpx.Response(200, text=js_content)]
             )
-            guess_check_key("Mozilla/5.0")
+            try:
+                guess_check_key("Mozilla/5.0")
+            finally:
+                dump_fansly_calls(homepage_route.calls, "bridge-success-homepage")
+                dump_fansly_calls(mainjs_route.calls, "bridge-success-mainjs")
 
         mock_connection.stop.assert_called_once()
 
@@ -869,8 +874,13 @@ class TestJsBridgeShutdown:
             respx.mock,
             patch("helpers.checkkey.connection") as mock_connection,
         ):
-            respx.get("https://fansly.com").mock(side_effect=httpx.ConnectError("boom"))
-            guess_check_key("Mozilla/5.0")
+            homepage_route = respx.get(FanslyApi.FANSLY_HOST).mock(
+                side_effect=httpx.ConnectError("boom")
+            )
+            try:
+                guess_check_key("Mozilla/5.0")
+            finally:
+                dump_fansly_calls(homepage_route.calls, "bridge-network-error")
 
         mock_connection.stop.assert_called_once()
 
@@ -880,8 +890,13 @@ class TestJsBridgeShutdown:
             respx.mock,
             patch("helpers.checkkey.connection") as mock_connection,
         ):
-            respx.get("https://fansly.com").mock(side_effect=RuntimeError("boom"))
-            guess_check_key("Mozilla/5.0")
+            homepage_route = respx.get(FanslyApi.FANSLY_HOST).mock(
+                side_effect=RuntimeError("boom")
+            )
+            try:
+                guess_check_key("Mozilla/5.0")
+            finally:
+                dump_fansly_calls(homepage_route.calls, "bridge-unexpected-exc")
 
         mock_connection.stop.assert_called_once()
 
@@ -899,14 +914,18 @@ class TestJsBridgeShutdown:
             ),
         ):
             mock_connection.stop.side_effect = RuntimeError("bridge already stopped")
-            respx.get("https://fansly.com").mock(
+            homepage_route = respx.get(FanslyApi.FANSLY_HOST).mock(
                 side_effect=[httpx.Response(200, text=html)]
             )
-            respx.get("https://fansly.com/main.abc123.js").mock(
+            mainjs_route = respx.get(f"{FanslyApi.FANSLY_HOST}/main.abc123.js").mock(
                 side_effect=[httpx.Response(200, text=js_content)]
             )
-            # Should NOT raise despite connection.stop throwing
-            result = guess_check_key("Mozilla/5.0")
+            try:
+                # Should NOT raise despite connection.stop throwing
+                result = guess_check_key("Mozilla/5.0")
+            finally:
+                dump_fansly_calls(homepage_route.calls, "bridge-stop-exc-homepage")
+                dump_fansly_calls(mainjs_route.calls, "bridge-stop-exc-mainjs")
 
         assert result == "oybZy8-fySzis-bubayf"
         mock_connection.stop.assert_called_once()

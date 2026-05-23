@@ -18,7 +18,10 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op_with_vars
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -68,7 +71,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method - should return None early without calling API
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_no_id")
 
         # Verify result and no API calls
         assert result is None
@@ -112,7 +118,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_found")
 
         # Verify result
         assert result is not None
@@ -147,7 +156,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_not_found")
 
         # Verify result
         assert result is None
@@ -187,9 +199,14 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_title(
-            post, "Test Title", studio
-        )
+        try:
+            result = await respx_stash_processor._get_gallery_by_title(
+                post, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_title_not_found_methods"
+            )
 
         # Verify result
         assert result is None
@@ -276,9 +293,14 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_title(
-            post, "Test Title", studio
-        )
+        try:
+            result = await respx_stash_processor._get_gallery_by_title(
+                post, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_title_found_methods"
+            )
 
         # Verify result
         assert result is not None
@@ -325,7 +347,12 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_code(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_code(post)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_code_not_found_methods"
+            )
 
         # Verify result
         assert result is None
@@ -381,7 +408,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_code(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_code(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_found_methods")
 
         # Verify result
         assert result is not None
@@ -462,7 +492,10 @@ class TestGalleryLookupMethods:
 
         # Call method
         url = "https://example.com/gallery/123"
-        result = await respx_stash_processor._get_gallery_by_url(post, url)
+        try:
+            result = await respx_stash_processor._get_gallery_by_url(post, url)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_found_methods")
 
         # Verify result
         assert result is not None
@@ -558,7 +591,12 @@ class TestGalleryLookupMethods:
 
         # Call method
         url = "https://example.com/gallery/456"
-        result = await respx_stash_processor._get_gallery_by_url(post, url)
+        try:
+            result = await respx_stash_processor._get_gallery_by_url(post, url)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_url_with_item_update"
+            )
 
         # Verify result
         assert result is not None
@@ -665,7 +703,12 @@ class TestHashtagProcessing:
         )
 
         # Call method
-        result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        try:
+            result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_hashtags_to_tags_existing_tags"
+            )
 
         # Verify result
         assert len(result) == 2
@@ -719,7 +762,12 @@ class TestHashtagProcessing:
         )
 
         # Call method
-        result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        try:
+            result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_hashtags_to_tags_create_new"
+            )
 
         # Verify result
         assert len(result) == 1

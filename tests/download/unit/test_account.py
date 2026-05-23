@@ -79,7 +79,7 @@ class TestGetAccountResponse:
         state = DownloadState()
         state.creator_name = None  # Client account
 
-        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
+        route = respx.get(url__startswith=FanslyApi.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -178,7 +178,7 @@ class TestExtractAccountData:
 
     def test_extract_client_account_data(self, respx_fansly_api, mock_config):
         """Test extracting client account data — real response + real JSON pipeline."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account/me")
+        request = httpx.Request("GET", FanslyApi.ACCOUNT_ME_ENDPOINT)
         response = httpx.Response(
             200,
             json={
@@ -202,7 +202,9 @@ class TestExtractAccountData:
 
     def test_extract_creator_account_data(self, respx_fansly_api, mock_config):
         """Test extracting creator account data — real response + real JSON pipeline."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             request=request,
@@ -236,7 +238,9 @@ class TestExtractAccountData:
 
     def test_extract_unauthorized_error(self, respx_fansly_api, mock_config):
         """Test handling of unauthorized error — real 401 response."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             status_code=401,
             json={"error": "Unauthorized"},
@@ -254,7 +258,9 @@ class TestExtractAccountData:
 
     def test_extract_missing_creator_error(self, respx_fansly_api, mock_config):
         """Test handling of missing creator error — real empty-list response."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             json={"success": "true", "response": []},
@@ -269,7 +275,9 @@ class TestExtractAccountData:
 
     def test_extract_malformed_response(self, respx_fansly_api, mock_config):
         """Test handling of malformed response — real Response with non-standard shape."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             json={"success": "true", "response": {"invalid": "data"}},

@@ -212,7 +212,7 @@ async def test_download_timeline_success_full_real_pipeline(
         },
     }
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -243,7 +243,7 @@ async def test_download_timeline_success_full_real_pipeline(
     # fetch_and_process_media → get_account_media against this endpoint.
     # The response is a list of AccountMedia rows — same shape as the
     # timeline's accountMedia entries (with nested "media" dict for FK).
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -324,7 +324,7 @@ async def test_download_timeline_empty_media_retries_and_exhausts(
             }
         ],
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(200, json=empty_media_response),
             httpx.Response(200, json=empty_media_response),
@@ -408,7 +408,7 @@ async def test_download_timeline_skips_when_probe_confirms_unchanged(
     state.total_timeline_pictures = 10
     state.total_timeline_videos = 5
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         return_value=httpx.Response(
             200,
             json=_timeline_response(
@@ -463,7 +463,7 @@ async def test_download_timeline_probe_falsified_persists_limbo_post(
     state.total_timeline_pictures = 0
     state.total_timeline_videos = 0
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -527,7 +527,7 @@ async def test_download_timeline_key_error_on_malformed_response(
     # which raises KeyError. KeyError propagates out of the outer try at
     # timeline.py:139 and hits the ``except KeyError`` handler at line 219
     # → print_error + (non-interactive) break.
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[httpx.Response(200, json={"success": True})]
     )
 
@@ -576,7 +576,7 @@ async def test_download_timeline_should_continue_false_breaks_loop(
     # directly from the patch.
     state.duplicate_count = 100
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -622,7 +622,7 @@ async def test_download_timeline_should_continue_false_breaks_loop(
             )
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -721,7 +721,7 @@ async def test_download_timeline_debug_mode_prints_timeline_object(
             ],
         },
     }
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -747,7 +747,7 @@ async def test_download_timeline_debug_mode_prints_timeline_object(
             httpx.Response(200, json=_timeline_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[httpx.Response(200, json=_account_media_response([am_entry]))]
     )
 
@@ -822,7 +822,7 @@ async def test_download_timeline_batch_duplicate_prints_skipped_count(
             ],
         },
     }
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -848,7 +848,7 @@ async def test_download_timeline_batch_duplicate_prints_skipped_count(
             httpx.Response(200, json=_timeline_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[httpx.Response(200, json=_account_media_response([am_entry]))]
     )
 
@@ -905,7 +905,7 @@ async def test_download_timeline_generic_exception_logs_and_breaks(
     state.creator_id = creator_id
     state.creator_name = f"exc_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[RuntimeError("simulated API explosion")]
     )
 
@@ -965,7 +965,7 @@ async def test_download_timeline_cursor_index_error_breaks_cleanly(
             ],
         },
     }
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -983,7 +983,7 @@ async def test_download_timeline_cursor_index_error_breaks_cleanly(
             )
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[httpx.Response(200, json=_account_media_response([am_entry]))]
     )
 
@@ -1044,7 +1044,7 @@ async def test_download_timeline_cursor_advance_generic_exception_wraps_as_api_e
             ],
         },
     }
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -1069,7 +1069,7 @@ async def test_download_timeline_cursor_advance_generic_exception_wraps_as_api_e
             )
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[httpx.Response(200, json=_account_media_response([am_entry]))]
     )
 
@@ -1127,7 +1127,7 @@ async def test_download_timeline_non_200_2xx_response_skips_block_and_re_polls(
     state.creator_id = creator_id
     state.creator_name = f"two04_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             # iter 1: 204 No Content. raise_for_status passes (2xx),
             # but `if status_code == 200` is False → skip success block →
@@ -1246,7 +1246,7 @@ async def test_download_timeline_interactive_key_error_continues_loop(
 
     # Provide multiple fallback responses so the loop can exit naturally
     # after KeyError → continue → empty-retry-exhaust.
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(200, json={"success": True}),  # triggers KeyError
             *[httpx.Response(200, json=_timeline_response()) for _ in range(5)],
@@ -1289,7 +1289,7 @@ async def test_download_timeline_interactive_generic_exception_continues_loop(
     state.creator_id = creator_id
     state.creator_name = f"iexc_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             RuntimeError("simulated API explosion"),
             *[httpx.Response(200, json=_timeline_response()) for _ in range(5)],
@@ -1351,7 +1351,7 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
     # Confirm cache seed.
     assert get_store().get_from_cache(Post, post_id) is not None
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)).mock(
         side_effect=[
             httpx.Response(
                 200,

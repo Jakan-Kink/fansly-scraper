@@ -34,6 +34,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from daemon.filters import MAX_FILTER_PAGES, should_process_creator
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
 from tests.fixtures.metadata.metadata_factories import (
@@ -43,10 +44,12 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ---------------------------------------------------------------------------
-# URL constant -- use url__startswith because ngsw-bypass param is appended
+# URL alias — use url__startswith because ngsw-bypass param is appended.
+# Test routes use ``TIMELINE_URL`` as a creator-agnostic prefix; the actual
+# /timelinenew/{creator_id}/... paths inherit from this prefix.
 # ---------------------------------------------------------------------------
 
-TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timelinenew/"
+TIMELINE_URL = FanslyApi.TIMELINE_NEW_ENDPOINT.format("")
 
 
 # ---------------------------------------------------------------------------

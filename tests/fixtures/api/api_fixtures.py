@@ -26,7 +26,7 @@ Usage:
     async def test_collections(respx_fansly_api):
         # respx_fansly_api yields a bootstrapped FanslyApi.
         # mock_config._api is wired automatically.
-        respx.get("https://apiv3.fansly.com/api/v1/account/media/orders/").mock(
+        respx.get(respx_fansly_api.ACCOUNT_MEDIA_ORDERS_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": {...}})]
         )
         # Use the yielded api directly OR mock_config._api — same instance.
@@ -184,9 +184,9 @@ def _mount_apiv3_bootstrap_routes() -> None:
     # and matches later-registered ones for the same URL).
     respx.route(
         method="OPTIONS",
-        url__startswith="https://apiv3.fansly.com",
+        url__startswith=FanslyApi.BASE_URL,
     ).mock(return_value=httpx.Response(200))
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/device/id?").mock(
+    respx.get(url__startswith=f"{FanslyApi.DEVICE_ID_ENDPOINT}?").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -194,7 +194,7 @@ def _mount_apiv3_bootstrap_routes() -> None:
             )
         ]
     )
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/me?").mock(
+    respx.get(url__startswith=f"{FanslyApi.ACCOUNT_ME_ENDPOINT}?").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -248,7 +248,7 @@ async def respx_fansly_api(
         @pytest.mark.asyncio
         async def test_timeline(respx_fansly_api):
             route = respx.get(
-                url__startswith="https://apiv3.fansly.com/api/v1/timeline"
+                url__startswith=respx_fansly_api.TIMELINE_HOME_ENDPOINT
             ).mock(side_effect=[httpx.Response(200, json={...})])
             try:
                 result = await respx_fansly_api.get_home_timeline()
@@ -272,7 +272,7 @@ async def respx_fansly_api(
         respx.clear()
         respx.route(
             method="OPTIONS",
-            url__startswith="https://apiv3.fansly.com",
+            url__startswith=FanslyApi.BASE_URL,
         ).mock(return_value=httpx.Response(200))
 
         try:

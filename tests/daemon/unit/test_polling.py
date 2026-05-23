@@ -40,6 +40,7 @@ import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
 from daemon.polling import poll_home_timeline, poll_story_states
 from metadata.models import Account, MonitorState, Post
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
@@ -47,11 +48,11 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ---------------------------------------------------------------------------
-# URL constants — use url__startswith because ngsw-bypass param is appended
+# URL aliases — use url__startswith because ngsw-bypass param is appended
 # ---------------------------------------------------------------------------
 
-HOME_TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timeline/home"
-STORY_STATES_URL = "https://apiv3.fansly.com/api/v1/mediastories/following"
+HOME_TIMELINE_URL = FanslyApi.TIMELINE_HOME_ENDPOINT
+STORY_STATES_URL = FanslyApi.MEDIA_STORIES_FOLLOWING_ENDPOINT
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - Windows only
     resource = None  # type: ignore[assignment]
 
 import fansly_downloader_ng as fdng
+from api.fansly import FanslyApi
 from config import FanslyConfig
 from download.downloadstate import DownloadState
 from errors import (
@@ -1421,7 +1422,7 @@ async def test_load_client_account_into_db_persists_real_account(
 
     # Real /api/v1/account?usernames=... boundary — see
     # mount_empty_creator_pipeline's account-route shape.
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,

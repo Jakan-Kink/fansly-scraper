@@ -22,6 +22,7 @@ from tests.fixtures import (
     create_graphql_response,
     create_studio_dict,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -185,8 +186,11 @@ class TestMediaProcessingWithRealData:
         # Create an empty result dictionary
         result = {"images": [], "scenes": []}
 
-        # Call _process_media with queried data
-        await respx_stash_processor._process_media(media, post, account, result)
+        try:
+            # Call _process_media with queried data
+            await respx_stash_processor._process_media(media, post, account, result)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_media_with_real_data")
 
         # Verify results
         assert len(result["images"]) == 1
@@ -382,12 +386,15 @@ class TestMediaProcessingWithRealData:
             side_effect=graphql_handler
         )
 
-        # Call process_creator_attachment with queried data - let real code flow execute
-        result = await respx_stash_processor.process_creator_attachment(
-            attachment=attachment,
-            item=post,
-            account=account,
-        )
+        try:
+            # Call process_creator_attachment with queried data - let real code flow execute
+            result = await respx_stash_processor.process_creator_attachment(
+                attachment=attachment,
+                item=post,
+                account=account,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_creator_attachment")
 
         # Verify results
         assert len(result["images"]) == 1

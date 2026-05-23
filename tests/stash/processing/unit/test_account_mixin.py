@@ -138,7 +138,10 @@ class TestAccountProcessingMixin:
         )
 
         # Call process_creator (no session= parameter)
-        result_account, performer = await respx_stash_processor.process_creator()
+        try:
+            result_account, performer = await respx_stash_processor.process_creator()
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_creator")
 
         # Verify results
         assert result_account.id == account.id
@@ -157,8 +160,11 @@ class TestAccountProcessingMixin:
         respx_stash_processor.state.creator_name = "nonexistent"
 
         # Call process_creator and expect error
-        with pytest.raises(ValueError) as excinfo:
-            await respx_stash_processor.process_creator()
+        try:
+            with pytest.raises(ValueError) as excinfo:
+                await respx_stash_processor.process_creator()
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_process_creator_no_account")
 
         # Verify error message
         assert "No account found for creator" in str(excinfo.value)
@@ -255,9 +261,12 @@ class TestAccountProcessingMixin:
             )
 
             # Call _update_performer_avatar (no session= parameter)
-            await respx_stash_processor._update_performer_avatar(
-                account, mock_performer
-            )
+            try:
+                await respx_stash_processor._update_performer_avatar(
+                    account, mock_performer
+                )
+            finally:
+                dump_graphql_calls(graphql_route.calls, "test_update_performer_avatar")
 
             # Verify GraphQL calls were made
             assert graphql_route.call_count == 2  # findImages + performerUpdate
@@ -292,7 +301,12 @@ class TestAccountProcessingMixin:
             ]
         )
 
-        performer = await respx_stash_processor._find_existing_performer(account)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_by_id"
+            )
 
         # Verify performer was found
         assert performer.id == "999"
@@ -328,7 +342,12 @@ class TestAccountProcessingMixin:
             ]
         )
 
-        performer = await respx_stash_processor._find_existing_performer(account)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_by_name"
+            )
 
         # Verify performer was found by username
         assert performer.id == "999"
@@ -362,7 +381,12 @@ class TestAccountProcessingMixin:
             ]
         )
 
-        performer = await respx_stash_processor._find_existing_performer(account)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_not_found"
+            )
 
         # Verify performer is None
         assert performer is None
@@ -435,7 +459,13 @@ class TestAccountProcessingMixin:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._get_or_create_performer(account)
+        try:
+            result = await respx_stash_processor._get_or_create_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_get_or_create_performer_found_by_alias_raw_syntax",
+            )
 
         # Verify performer was found (not created)
         assert result.id == "999"
@@ -512,12 +542,18 @@ class TestAccountProcessingMixin:
             return await self.context.client.create_performer(performer)
 
         # Patch the method
-        with patch.object(
-            respx_stash_processor,
-            "_get_or_create_performer",
-            new=lambda account: django_style_method(respx_stash_processor, account),
-        ):
-            result = await respx_stash_processor._get_or_create_performer(account)
+        try:
+            with patch.object(
+                respx_stash_processor,
+                "_get_or_create_performer",
+                new=lambda account: django_style_method(respx_stash_processor, account),
+            ):
+                result = await respx_stash_processor._get_or_create_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_get_or_create_performer_found_by_alias_django_style",
+            )
 
         # Verify performer was found (not created)
         assert result.id == "999"
@@ -565,7 +601,12 @@ class TestAccountProcessingMixin:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._get_or_create_performer(account)
+        try:
+            result = await respx_stash_processor._get_or_create_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_get_or_create_performer_found_by_url"
+            )
 
         # Verify performer was found by URL
         assert result.id == "888"
@@ -633,7 +674,13 @@ class TestAccountProcessingMixin:
             ]
         )
 
-        result = await respx_stash_processor._find_existing_performer(account)
+        try:
+            result = await respx_stash_processor._find_existing_performer(account)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_find_existing_performer_stash_id_returns_none",
+            )
 
         # Verify it tried stash_id first (failed), then username (succeeded)
         # Note: store.get() fails with exception when not found, triggers fallback

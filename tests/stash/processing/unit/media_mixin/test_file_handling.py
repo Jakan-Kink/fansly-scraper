@@ -7,6 +7,7 @@ import pytest
 import respx
 from stash_graphql_client.types import ImageFile, VideoFile
 
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_graphql_response,
@@ -242,7 +243,10 @@ class TestFileHandling:
         ]
 
         # Call method
-        results = await respx_stash_processor._find_stash_files_by_id(stash_files)
+        try:
+            results = await respx_stash_processor._find_stash_files_by_id(stash_files)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "find_stash_files_by_id")
 
         # Verify results structure
         assert len(results) == 2
@@ -306,7 +310,10 @@ class TestFileHandling:
         media_files = [("test123", "image/jpeg")]
 
         # Call method
-        results = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            results = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "find_stash_files_by_path")
 
         # Verify results
         assert isinstance(results, list)

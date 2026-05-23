@@ -11,7 +11,11 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_performers_result,
@@ -147,31 +151,7 @@ class TestMediaProcessing:
                 result=result,
             )
         finally:
-            print("\n" + "=" * 80)
-            print("DETAILED GRAPHQL CALL LOG")
-            print("=" * 80)
-            for index, call in enumerate(graphql_route.calls):
-                print(f"\nCall {index}:")
-                req_data = json.loads(call.request.content)
-                # Extract query type from GraphQL query
-                query_lines = req_data["query"].split("\n")
-                query_type = "unknown"
-                for query_line in query_lines:
-                    line = query_line.strip()
-                    if line.startswith(("query", "mutation")):
-                        # Extract operation name
-                        parts = line.split()
-                        if len(parts) > 1:
-                            query_type = parts[1].split("(")[0]
-                        break
-                print(f"  Request Type: {query_type}")
-                print(
-                    f"  Variables: {json.dumps(req_data.get('variables', {}), indent=4)}"
-                )
-                resp_data = call.response.json()
-                print(f"  Response Keys: {list(resp_data.get('data', {}).keys())}")
-                print(f"  Response: {json.dumps(resp_data, indent=4)[:500]}...")
-            print("=" * 80 + "\n")
+            dump_graphql_calls(graphql_route.calls, "process_media")
 
         # Verify result contains the image
         assert len(result["images"]) == 1
@@ -332,12 +312,15 @@ class TestMediaProcessing:
         result = {"images": [], "scenes": []}
 
         # Call method
-        await respx_stash_processor._process_media(
-            media=media,
-            item=item,
-            account=account,
-            result=result,
-        )
+        try:
+            await respx_stash_processor._process_media(
+                media=media,
+                item=item,
+                account=account,
+                result=result,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_media_with_stash_id")
 
         # Verify result contains the scene
         assert len(result["scenes"]) == 1
@@ -635,12 +618,15 @@ class TestMediaProcessing:
         result = {"images": [], "scenes": []}
 
         # Call method
-        await respx_stash_processor._process_media(
-            media=media,
-            item=item,
-            account=account,
-            result=result,
-        )
+        try:
+            await respx_stash_processor._process_media(
+                media=media,
+                item=item,
+                account=account,
+                result=result,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_media_with_variants")
 
         # Verify result contains image and BOTH scenes (parent + variant)
         assert len(result["images"]) == 1

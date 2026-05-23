@@ -21,6 +21,7 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
+from tests.fixtures.api import dump_fansly_calls
 
 
 class TestFanslyApi:
@@ -160,8 +161,10 @@ class TestFanslyApi:
         method in isolation requires a pre-bootstrap api.
         """
         api = fansly_api_factory()
-        respx.options(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(200)])
-        respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
+        options_route = respx.options(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": {}})]
         )
 
@@ -171,13 +174,18 @@ class TestFanslyApi:
         mock_ws_client.start_in_thread = MagicMock()
         mock_ws_client.stop_thread = AsyncMock()
 
-        with patch(
-            "api.fansly.FanslyWebSocket",
-            new=lambda **_kwargs: mock_ws_client,
-        ):
-            result = await api.setup_session()
-            assert result is True
-            assert api.session_id == "test_session_id"
+        try:
+            with patch(
+                "api.fansly.FanslyWebSocket",
+                new=lambda **_kwargs: mock_ws_client,
+            ):
+                result = await api.setup_session()
+        finally:
+            dump_fansly_calls(options_route.calls, "setup_session-options")
+            dump_fansly_calls(get_route.calls, "setup_session-get")
+
+        assert result is True
+        assert api.session_id == "test_session_id"
 
     def test_validate_json_response_success(self, fansly_api_factory):
         """Test validate_json_response with successful response"""
@@ -211,7 +219,7 @@ class TestFanslyApi:
     @pytest.mark.asyncio
     async def test_get_client_user_name(self, respx_fansly_api):
         """Test get_client_user_name success path - mocks Fansly API at edge"""
-        respx.get(respx_fansly_api.ACCOUNT_ME_ENDPOINT).mock(
+        route = respx.get(respx_fansly_api.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -223,7 +231,12 @@ class TestFanslyApi:
             ]
         )
 
-        assert await respx_fansly_api.get_client_user_name() == "test_user"
+        try:
+            result = await respx_fansly_api.get_client_user_name()
+        finally:
+            dump_fansly_calls(route.calls, "get_client_user_name")
+
+        assert result == "test_user"
 
     @pytest.mark.asyncio
     async def test_get_with_ngsw(self, respx_fansly_api):
@@ -233,9 +246,12 @@ class TestFanslyApi:
 
         get_route = respx.get(test_url).mock(side_effect=[httpx.Response(200)])
 
-        await respx_fansly_api.get_with_ngsw(
-            url=test_url, params=test_params, add_fansly_headers=True
-        )
+        try:
+            await respx_fansly_api.get_with_ngsw(
+                url=test_url, params=test_params, add_fansly_headers=True
+            )
+        finally:
+            dump_fansly_calls(get_route.calls, "get_with_ngsw")
 
         assert get_route.called
         get_request = get_route.calls.last.request
@@ -252,7 +268,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_creator_account_info("test_creator")
+        try:
+            await respx_fansly_api.get_creator_account_info("test_creator")
+        finally:
+            dump_fansly_calls(route.calls, "get_creator_account_info-single")
 
         assert route.called
         request = route.calls.last.request
@@ -273,7 +292,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_creator_account_info(["creator1", "creator2"])
+        try:
+            await respx_fansly_api.get_creator_account_info(["creator1", "creator2"])
+        finally:
+            dump_fansly_calls(route.calls, "get_creator_account_info-multiple")
 
         assert route.called
         request = route.calls.last.request
@@ -289,7 +311,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_account_info_by_id(123)
+        try:
+            await respx_fansly_api.get_account_info_by_id(123)
+        finally:
+            dump_fansly_calls(route.calls, "get_account_info_by_id-single")
 
         assert route.called
         request = route.calls.last.request
@@ -309,7 +334,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_account_info_by_id([123, 456])
+        try:
+            await respx_fansly_api.get_account_info_by_id([123, 456])
+        finally:
+            dump_fansly_calls(route.calls, "get_account_info_by_id-multiple")
 
         assert route.called
         request = route.calls.last.request
@@ -325,7 +353,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_media_collections()
+        try:
+            await respx_fansly_api.get_media_collections()
+        finally:
+            dump_fansly_calls(route.calls, "get_media_collections")
 
         assert route.called
         request = route.calls.last.request
@@ -341,7 +372,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_following_list("user123")
+        try:
+            await respx_fansly_api.get_following_list("user123")
+        finally:
+            dump_fansly_calls(route.calls, "get_following_list-default")
 
         assert route.called
         request = route.calls.last.request
@@ -360,9 +394,12 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_following_list(
-            "user123", limit=10, offset=5, before=1000, after=500
-        )
+        try:
+            await respx_fansly_api.get_following_list(
+                "user123", limit=10, offset=5, before=1000, after=500
+            )
+        finally:
+            dump_fansly_calls(route.calls, "get_following_list-with-params")
 
         assert route.called
         request = route.calls.last.request
@@ -385,7 +422,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_account_media("media123,media456")
+        try:
+            await respx_fansly_api.get_account_media("media123,media456")
+        finally:
+            dump_fansly_calls(route.calls, "get_account_media")
 
         assert route.called
         request = route.calls.last.request
@@ -398,7 +438,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_post("post123")
+        try:
+            await respx_fansly_api.get_post("post123")
+        finally:
+            dump_fansly_calls(route.calls, "get_post")
 
         assert route.called
         request = route.calls.last.request
@@ -413,7 +456,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_timeline("creator123", "cursor123")
+        try:
+            await respx_fansly_api.get_timeline("creator123", "cursor123")
+        finally:
+            dump_fansly_calls(route.calls, "get_timeline")
 
         assert route.called
         request = route.calls.last.request
@@ -432,7 +478,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
+        try:
+            await respx_fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
+        finally:
+            dump_fansly_calls(route.calls, "get_wall_posts")
 
         assert route.called
         request = route.calls.last.request
@@ -449,7 +498,10 @@ class TestFanslyApi:
             side_effect=[httpx.Response(200, json={"success": "true", "response": []})]
         )
 
-        await respx_fansly_api.get_group()
+        try:
+            await respx_fansly_api.get_group()
+        finally:
+            dump_fansly_calls(route.calls, "get_group")
 
         assert route.called
 
@@ -461,7 +513,10 @@ class TestFanslyApi:
         )
 
         test_params = {"param1": "value1"}
-        await respx_fansly_api.get_message(test_params)
+        try:
+            await respx_fansly_api.get_message(test_params)
+        finally:
+            dump_fansly_calls(route.calls, "get_message")
 
         assert route.called
         request = route.calls.last.request
@@ -485,7 +540,7 @@ class TestFanslyApi:
     @pytest.mark.asyncio
     async def test_update_device_id_expired(self, respx_fansly_api):
         """Test update_device_id refetches when timestamp expired"""
-        respx.get(url__startswith=respx_fansly_api.DEVICE_ID_ENDPOINT).mock(
+        route = respx.get(url__startswith=respx_fansly_api.DEVICE_ID_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -499,7 +554,11 @@ class TestFanslyApi:
         mock_callback = MagicMock()
         respx_fansly_api.on_device_updated = mock_callback
 
-        updated_id = await respx_fansly_api.update_device_id()
+        try:
+            updated_id = await respx_fansly_api.update_device_id()
+        finally:
+            dump_fansly_calls(route.calls, "update_device_id-expired")
+
         assert updated_id == "new_device_id"
         mock_callback.assert_called_once()
 
@@ -513,17 +572,23 @@ class TestFanslyApi:
         crash fixture setup before the test body runs.
         """
         api = fansly_api_factory()
-        respx.options(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(200)])
-        respx.get(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(401)])
+        options_route = respx.options(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(401)]
+        )
 
         def _explode(**_kwargs):
             raise RuntimeError("WS should not be instantiated on 401")
 
-        with (
-            patch("api.fansly.FanslyWebSocket", new=_explode),
-            pytest.raises(RuntimeError, match="Error during session setup"),
-        ):
-            await api.setup_session()
+        with patch("api.fansly.FanslyWebSocket", new=_explode):
+            try:
+                with pytest.raises(RuntimeError, match="Error during session setup"):
+                    await api.setup_session()
+            finally:
+                dump_fansly_calls(options_route.calls, "setup_session_error-options")
+                dump_fansly_calls(get_route.calls, "setup_session_error-get")
 
     def test_get_http_headers_with_session(self, fansly_api_factory):
         """Test get_http_headers includes session ID when available.

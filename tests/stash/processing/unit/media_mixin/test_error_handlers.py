@@ -11,6 +11,7 @@ import httpx
 import pytest
 import respx
 
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_scenes_result,
@@ -54,9 +55,14 @@ class TestErrorHandlers:
             ]
         )
 
-        result = await respx_stash_processor._find_stash_files_by_id(
-            stash_files=[("123", "image/jpeg")],
-        )
+        try:
+            result = await respx_stash_processor._find_stash_files_by_id(
+                stash_files=[("123", "image/jpeg")],
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_id_image_exception"
+            )
 
         assert graphql_route.call_count >= 1
         assert result == []
@@ -73,9 +79,14 @@ class TestErrorHandlers:
             ]
         )
 
-        result = await respx_stash_processor._find_stash_files_by_id(
-            stash_files=[("456", "video/mp4")],
-        )
+        try:
+            result = await respx_stash_processor._find_stash_files_by_id(
+                stash_files=[("456", "video/mp4")],
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_id_scene_exception"
+            )
 
         assert graphql_route.call_count >= 1
         assert result == []
@@ -87,7 +98,7 @@ class TestErrorHandlers:
         media_files = [("video_123", "video/mp4"), ("video_456", "video/mp4")]
 
         # Mock scene regex search
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -100,7 +111,12 @@ class TestErrorHandlers:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_no_images"
+            )
 
         # Should return empty list (no scenes found)
         assert result == []
@@ -113,7 +129,7 @@ class TestErrorHandlers:
         # Create image with no visual files
         image_dict = create_image_dict(id="999", visual_files=[])
 
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -126,7 +142,12 @@ class TestErrorHandlers:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_image_no_file"
+            )
 
         # Should return empty list (no valid files extracted)
         assert result == []
@@ -144,7 +165,7 @@ class TestErrorHandlers:
             create_image_dict(id="888", visual_files=[]),
         ]
 
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -157,7 +178,12 @@ class TestErrorHandlers:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_images_no_valid_files"
+            )
 
         # Should return empty list and log warning
         assert result == []
@@ -170,7 +196,7 @@ class TestErrorHandlers:
         media_files = [("video_123", "video/mp4"), ("video_456", "video/mp4")]
 
         # Mock regex search returning no results
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -183,7 +209,12 @@ class TestErrorHandlers:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_scenes_not_found"
+            )
 
         # Should return empty list and log warning
         assert result == []
@@ -198,7 +229,7 @@ class TestErrorHandlers:
         # Create scene that will cause processing error
         scene_dict = create_scene_dict(id="999", title="Test", files=[])  # No files
 
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -211,7 +242,12 @@ class TestErrorHandlers:
         )
 
         await respx_stash_processor.context.get_client()
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_scene_processing_error"
+            )
 
         # Should return empty list (scene had no files)
         assert result == []
@@ -247,7 +283,12 @@ class TestErrorHandlers:
             ]
         )
 
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "find_stash_files_by_path_regex_fallback"
+            )
 
         # Production made 2 GraphQL calls (initial + fallback batch).
         assert graphql_route.call_count == 2
@@ -277,7 +318,13 @@ class TestErrorHandlers:
             ]
         )
 
-        result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        try:
+            result = await respx_stash_processor._find_stash_files_by_path(media_files)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "find_stash_files_by_path_regex_fallback_also_fails",
+            )
 
         # Both calls fired (initial + 1 fallback batch).
         assert graphql_route.call_count == 2

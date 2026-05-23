@@ -21,6 +21,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -58,14 +59,19 @@ class TestProcessItemGallery:
 
         # Call method (no session= parameter)
         url_pattern = "https://test.com/{username}/post/{id}"
-        await respx_stash_processor._process_item_gallery(
-            item=post,
-            account=account,
-            performer=performer,
-            studio=studio,
-            item_type="post",
-            url_pattern=url_pattern,
-        )
+        try:
+            await respx_stash_processor._process_item_gallery(
+                item=post,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                url_pattern=url_pattern,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_item_gallery_no_attachments"
+            )
 
         # Method returns early, no API calls made
         assert len(graphql_route.calls) == 0, (
@@ -179,14 +185,17 @@ class TestProcessItemGallery:
 
         # Call method - let it execute fully to HTTP boundary (no session= parameter)
         url_pattern = "https://fansly.com/{username}/post/{id}"
-        await respx_stash_processor._process_item_gallery(
-            item=post,
-            account=account,
-            performer=performer,
-            studio=studio,
-            item_type="post",
-            url_pattern=url_pattern,
-        )
+        try:
+            await respx_stash_processor._process_item_gallery(
+                item=post,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                url_pattern=url_pattern,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_item_gallery_with_media")
 
         # Verify GraphQL calls were made
         assert len(graphql_route.calls) > 0, "Expected GraphQL calls to be made"
@@ -338,14 +347,19 @@ class TestProcessItemGallery:
             side_effect=[]  # No GraphQL calls expected
         )
 
-        await respx_stash_processor._process_item_gallery(
-            item=post,
-            account=account,
-            performer=performer,
-            studio=studio,
-            item_type="post",
-            url_pattern="https://test.com/{username}/post/{id}",
-        )
+        try:
+            await respx_stash_processor._process_item_gallery(
+                item=post,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                url_pattern="https://test.com/{username}/post/{id}",
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_item_gallery_non_media_attachments"
+            )
 
         # Gallery creation skipped because _has_media_content returned False
         assert len(graphql_route.calls) == 0
