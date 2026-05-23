@@ -335,6 +335,7 @@ async def test_async_main_registers_atexit_handler(config_with_database, caplog)
         return func
 
     with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("fansly_downloader_ng._db_cleanup_atexit_registered", False)
         mp.setattr("fansly_downloader_ng.main", _fake_main)
         mp.setattr("atexit.register", _capture_register)
         result = await _async_main(config)
@@ -1144,10 +1145,12 @@ async def test_cleanup_with_global_timeout_semaphore_exception(
 async def test_async_main_skips_atexit_when_already_registered(
     config_with_database, caplog, monkeypatch
 ):
-    """_async_main skips registering cleanup_database_sync if already in atexit chain.
+    """_async_main skips registering cleanup_database_sync when the
+    module-level ``_db_cleanup_atexit_registered`` flag is already set.
 
-    Covers the 812->819 branch: the ``any(...)`` check short-circuits
-    registration when a matching handler is already present.
+    Commit 5d7574fe1 replaced the brittle ``any(atexit._exithandlers...)``
+    introspection with the flag — so simulating "already registered" is
+    now a flag-flip, not a hand-rolled ``_exithandlers`` mutation.
     """
     caplog.set_level(logging.INFO)
     _clear_atexit_cleanup_handlers()
@@ -1159,16 +1162,9 @@ async def test_async_main_skips_atexit_when_already_registered(
         captured_registers.append((func, args, kwargs))
         return func
 
-    # Python 3.11+ removed the public ``atexit._exithandlers`` attribute;
-    # set it via monkeypatch with ``raising=False`` so the any() check in
-    # _async_main's atexit-skip branch has something to iterate over.
-    existing = getattr(atexit, "_exithandlers", [])
-    monkeypatch.setattr(
-        atexit,
-        "_exithandlers",
-        [*existing, (cleanup_database_sync, (config,), {})],
-        raising=False,
-    )
+    # Simulate a prior run/registration: set the module flag True so the
+    # ``if not _db_cleanup_atexit_registered:`` guard short-circuits.
+    monkeypatch.setattr("fansly_downloader_ng._db_cleanup_atexit_registered", True)
     monkeypatch.setattr("atexit.register", _capture_register)
 
     async def _fake_main(_cfg):

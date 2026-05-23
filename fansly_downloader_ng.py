@@ -958,19 +958,18 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             except Exception as exc:
                 print_warning(f"logger.complete() failed: {exc!r}")
 
-        # Close all loguru sinks explicitly. Each enqueue=True sink owns
-        # an mp.Queue + writer thread + POSIX semaphore; leaving them to
-        # the interpreter's _Py_Finalize phase costs ~1s per sink in
-        # sequential native cleanup (py-spy verified — 7 sinks → 8s
-        # post-atexit). logger.remove() forces the close here, where the
-        # cost is observable in user code instead of opaque C-land
-        # teardown. Use print() after this — loguru sinks are gone.
+        # Close enqueue=True sinks now — each owns an mp.Queue + writer
+        # thread + POSIX semaphore that costs ~1s/sink at _Py_Finalize
+        # (py-spy: 7 sinks → 8s post-atexit). Tracked-only so foreign
+        # handlers (pytest-loguru's caplog) survive. Use print() after.
         remove_start = time.time()
         print_info("Closing log sinks…")
         try:
-            logger.remove()
+            from config.logging import remove_tracked_handlers  # noqa: PLC0415, I001  # circular: config.logging imports FanslyConfig
+
+            remove_tracked_handlers()
         except Exception as exc:
-            print(f"💡 logger.remove() failed: {exc!r}", flush=True)
+            print(f"💡 remove_tracked_handlers() failed: {exc!r}", flush=True)
         else:
             remove_elapsed = time.time() - remove_start
             print(f"💡 Log sinks closed in {remove_elapsed:.2f}s", flush=True)
@@ -1036,16 +1035,18 @@ async def _async_main(config: FanslyConfig) -> int:
             # Run cleanup with global timeout
             print_info("Starting final cleanup process...")
             await cleanup_with_global_timeout(config)
-            # cleanup_with_global_timeout() calls logger.remove() near
-            # the end; loguru sinks are gone by the time we get here.
-            # Use print() for the success line so it actually appears.
+            # Our sinks are closed; print() reaches the console, the
+            # loguru emit reaches surviving handlers (caplog in tests).
             print("💡 Cleanup completed successfully", flush=True)
+            logger.opt(depth=1).log("INFO", "Cleanup completed successfully")
         except asyncio.CancelledError:
             print("❌ Cleanup was cancelled!", flush=True, file=sys.stderr)
+            logger.opt(depth=1).log("ERROR", "Cleanup was cancelled!")
             sys.exit(1)
         except Exception as e:
             print(f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr)
             print(traceback.format_exc(), flush=True, file=sys.stderr)
+            logger.opt(depth=1).log("ERROR", f"Fatal error during cleanup: {e}")
             sys.exit(1)
 
     return exit_code

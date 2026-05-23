@@ -267,6 +267,7 @@ class FakeVideoStream:
 
     def __init__(self, *, pid: int = 0x100, codec: str = "h264") -> None:
         self.id = pid
+        self.type = "video"
         self.codec_context = SimpleNamespace(name=codec)
 
 
@@ -275,6 +276,7 @@ class FakeAudioStream:
 
     def __init__(self, *, pid: int = 0x101, codec: str = "aac") -> None:
         self.id = pid
+        self.type = "audio"
         self.codec_context = SimpleNamespace(name=codec)
 
 

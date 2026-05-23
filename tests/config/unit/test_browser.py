@@ -401,15 +401,21 @@ def test_close_browser_by_name_no_process(mock_process_iter, mock_platform):
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
 async def test_get_auth_token_from_leveldb_success(mock_db_class):
-    """Test successfully getting auth token from LevelDB."""
+    """Test successfully getting auth token from LevelDB.
+
+    Production uses ``with plyvel.DB(...) as db:`` — wire __enter__ to
+    return the same mock so the as-bound name resolves to ``mock_db``.
+    Without this, MagicMock's default __enter__ returns a child mock and
+    the ``with`` block sees a different object than the test configured.
+    """
     mock_db = MagicMock()
     mock_db_class.return_value = mock_db
+    mock_db.__enter__.return_value = mock_db
     mock_db.get.return_value = b'{"token":"test-token"}'
 
     result = await get_auth_token_from_leveldb_folder("test/path")
 
     assert result == "test-token"
-    mock_db.close.assert_called_once()
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
@@ -418,12 +424,12 @@ async def test_get_auth_token_from_leveldb_no_token(mock_db_class):
     """Test when no token is found in LevelDB."""
     mock_db = MagicMock()
     mock_db_class.return_value = mock_db
+    mock_db.__enter__.return_value = mock_db
     mock_db.get.return_value = None
 
     result = await get_auth_token_from_leveldb_folder("test/path")
 
     assert result is None
-    mock_db.close.assert_called_once()
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
@@ -447,13 +453,16 @@ async def test_get_auth_token_from_leveldb_interactive_browser_locked(
     mock_close_browser, mock_await_enter, mock_db_class
 ):
     """Test interactive handling of browser lock error in LevelDB access."""
+    # Second-attempt mock supports the ``with`` context manager: __enter__
+    # returns the same mock so ``db.get(...)`` hits the configured bytes.
+    second_db = MagicMock()
+    second_db.__enter__.return_value = second_db
+    second_db.get.return_value = b'{"token":"test-token"}'
     mock_db_class.side_effect = [
         plyvel._plyvel.IOError(
             "Resource temporarily unavailable"
         ),  # First attempt fails
-        MagicMock(  # Second attempt succeeds
-            get=MagicMock(return_value=b'{"token":"test-token"}'), close=MagicMock()
-        ),
+        second_db,  # Second attempt succeeds
     ]
 
     result = await get_auth_token_from_leveldb_folder("test/path", interactive=True)
