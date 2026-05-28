@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from helpers.common import parse_timestamp
 from metadata.models import MonitorState, get_store
 
 
@@ -21,23 +22,6 @@ if TYPE_CHECKING:
 MAX_FILTER_PAGES = 3
 
 
-def _parse_created_at(raw: Any) -> datetime | None:
-    """Coerce a post's ``createdAt`` value to a UTC datetime, or None.
-
-    Fansly returns ``createdAt`` as milliseconds since epoch in raw API
-    responses, and ``convert_ids_to_int`` preserves that int form. The
-    ``_parse_timestamp`` heuristic (``> 1e10`` -- ms) is mirrored here so
-    we can reuse the exact same boundary the metadata-model validators
-    use, without importing the private helper.
-    """
-    if isinstance(raw, datetime):
-        return raw
-    if isinstance(raw, (int, float)):
-        ts = raw / 1000 if raw > 1e10 else raw
-        return datetime.fromtimestamp(ts, UTC)
-    return None
-
-
 def _is_newer_than_baseline(
     post: dict,
     baseline: datetime,
@@ -45,12 +29,15 @@ def _is_newer_than_baseline(
 ) -> bool:
     """Compare a post's createdAt to the baseline.
 
-    Returns True when the post is strictly newer than the baseline.
-    Returns True conservatively when the timestamp is unparseable so we
+    Returns True when the post is strictly newer than the baseline, and
+    True conservatively when the timestamp is missing or unparseable so we
     do not miss content.
     """
-    latest = _parse_created_at(post.get("createdAt", 0))
-    if latest is None:
+    try:
+        latest = parse_timestamp(post.get("createdAt", 0))
+    except (ValueError, TypeError):
+        latest = None
+    if not isinstance(latest, datetime):
         logger.warning(
             "daemon.filters: unrecognised createdAt for creator {} -- processing anyway",
             creator_id,

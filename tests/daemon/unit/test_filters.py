@@ -592,32 +592,8 @@ class TestShouldProcessCreator:
 
 
 # ---------------------------------------------------------------------------
-# Edge coverage — _parse_created_at, _is_newer_than_baseline, MonitorState load error
+# Edge coverage — _is_newer_than_baseline, MonitorState load error
 # ---------------------------------------------------------------------------
-
-
-class TestParseCreatedAtEdges:
-    """Lines 55-60: _parse_created_at branches — datetime passthrough + None fallback."""
-
-    def test_datetime_input_returned_as_is(self):
-        """Line 55-56: when raw is already a datetime, return it unchanged."""
-        from daemon.filters import _parse_created_at
-
-        ts = datetime(2026, 4, 15, 12, 0, 0, tzinfo=UTC)
-        result = _parse_created_at(ts)
-        assert result is ts
-
-    def test_string_input_returns_none(self):
-        """Line 60: string input → falls through both isinstance checks → None."""
-        from daemon.filters import _parse_created_at
-
-        assert _parse_created_at("2026-04-15") is None
-
-    def test_none_input_returns_none(self):
-        """Line 60: None input → falls through → None."""
-        from daemon.filters import _parse_created_at
-
-        assert _parse_created_at(None) is None
 
 
 class TestIsNewerThanBaselineUnparseable:
@@ -632,7 +608,7 @@ class TestIsNewerThanBaselineUnparseable:
         caplog.set_level(_logging.WARNING)
 
         baseline = datetime(2026, 4, 15, tzinfo=UTC)
-        # createdAt is a string — _parse_created_at returns None → conservative True
+        # "garbage" is not valid ISO -> parse_timestamp raises -> conservative True
         result = _is_newer_than_baseline(
             {"createdAt": "garbage"}, baseline, creator_id=12345
         )

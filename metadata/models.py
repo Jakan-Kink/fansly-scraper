@@ -31,6 +31,7 @@ from pydantic import (
 from stash_graphql_client.types.unset import UNSET, UnsetType
 
 from errors import StubNotImplementedError
+from helpers.common import parse_timestamp
 
 
 # ── Snowflake ID type ───────────────────────────────────────────────────
@@ -406,22 +407,6 @@ class ContentType(Enum):
     POLL = 42001
 
 
-# ── Timestamp / utility helpers ──────────────────────────────────────────
-
-
-def _parse_timestamp(v: Any) -> Any:
-    """Parse timestamp from int/float/string to datetime. Shared by validators."""
-    if v is None or isinstance(v, datetime):
-        return v
-    if isinstance(v, (int, float)):
-        if v > 1e10:
-            v = v / 1000
-        return datetime.fromtimestamp(v, UTC)
-    if isinstance(v, str):
-        return datetime.fromisoformat(v.replace("Z", "+00:00"))
-    return v
-
-
 # ── FanslyRecord — simple records without identity map ───────────────────
 
 
@@ -555,7 +540,7 @@ class FanslyObject(BaseModel):
                         "utf-8", errors="replace"
                     )
             elif isinstance(v, (int, float)) and k.endswith("At"):
-                data[k] = _parse_timestamp(v)
+                data[k] = parse_timestamp(v)
         return data
 
     # Fields excluded from DB writes (extended by subclasses): inverse-only
@@ -1056,7 +1041,7 @@ class FanslyObject(BaseModel):
                     and hasattr(field_info.annotation, "__args__")
                     and datetime in getattr(field_info.annotation, "__args__", ())
                 ):
-                    value = _parse_timestamp(value)  # noqa: PLW2901
+                    value = parse_timestamp(value)  # noqa: PLW2901
 
             current_value = getattr(instance, key, None)
             if current_value != value:
@@ -1111,7 +1096,7 @@ class PinnedPost(FanslyRecord):
     def _coerce_fields(cls, data: Any) -> Any:
         if isinstance(data, dict):
             if isinstance(data.get("createdAt"), (int, float)):
-                data = {**data, "createdAt": _parse_timestamp(data["createdAt"])}
+                data = {**data, "createdAt": parse_timestamp(data["createdAt"])}
             if "pos" in data and not isinstance(data["pos"], int):
                 data = {
                     **data,
@@ -1302,12 +1287,12 @@ class MonitorState(FanslyObject):
 
     creatorId: SnowflakeId
     lastHasActiveStories: bool | None = None
-    lastCheckedAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    lastCheckedAt: Annotated[datetime | None, BeforeValidator(parse_timestamp)] = None
     # lastRunAt and updatedAt also coerce int/float unix timestamps —
     # the daemon writes values straight from WS frame timestamps which
     # arrive as integer milliseconds.
-    lastRunAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
-    updatedAt: Annotated[datetime, BeforeValidator(_parse_timestamp)] = Field(
+    lastRunAt: Annotated[datetime | None, BeforeValidator(parse_timestamp)] = None
+    updatedAt: Annotated[datetime, BeforeValidator(parse_timestamp)] = Field(
         default_factory=lambda: datetime.now(UTC)
     )
 
@@ -2075,7 +2060,7 @@ class StreamSession(BaseModel):
     title: str | None = None
     status: int | None = None
     viewerCount: int | None = None
-    startedAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    startedAt: Annotated[datetime | None, BeforeValidator(parse_timestamp)] = None
     playbackUrl: str | None = None
 
 

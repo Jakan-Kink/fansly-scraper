@@ -15,6 +15,7 @@ import pytest
 from pydantic import Field as PydanticField
 
 from errors import StubNotImplementedError
+from helpers.common import parse_timestamp
 from metadata.models import (
     Account,
     AccountMediaBundle,
@@ -32,7 +33,6 @@ from metadata.models import (
     Post,
     RelationshipMetadata,
     TimelineStats,
-    _parse_timestamp,
     get_from_cache_by_type_name,
     get_store,
 )
@@ -420,53 +420,53 @@ class TestModelBehaviors:
         await a.save()  # No-op, should not error
 
 
-# ── _parse_timestamp + _coerce_api_types edge cases ────────────────────
+# ── parse_timestamp + _coerce_api_types edge cases ────────────────────
 
 
 class TestTimestampAndCoercion:
     """Covers 411 (None/datetime passthrough), 416-418 (string ISO timestamp),
     534 (non-dict early return), 543 (surrogate encoding failure)."""
 
-    def test_parse_timestamp_none_and_datetime_passthrough(self):
-        assert _parse_timestamp(None) is None
+    def testparse_timestamp_none_and_datetime_passthrough(self):
+        assert parse_timestamp(None) is None
         now = datetime.now(UTC)
-        assert _parse_timestamp(now) is now
+        assert parse_timestamp(now) is now
 
-    def test_parse_timestamp_iso_string(self):
-        result = _parse_timestamp("2024-01-15T12:00:00Z")
+    def testparse_timestamp_iso_string(self):
+        result = parse_timestamp("2024-01-15T12:00:00Z")
         assert isinstance(result, datetime)
         assert result.year == 2024
         assert result.month == 1
         assert result.day == 15
 
-        result2 = _parse_timestamp("2024-06-15T00:00:00+00:00")
+        result2 = parse_timestamp("2024-06-15T00:00:00+00:00")
         assert isinstance(result2, datetime)
 
-    def test_parse_timestamp_unrecognized_type_passthrough(self):
+    def testparse_timestamp_unrecognized_type_passthrough(self):
         sentinel = [1, 2, 3]
-        assert _parse_timestamp(sentinel) is sentinel
-        assert _parse_timestamp({"key": "val"}) == {"key": "val"}
-        assert _parse_timestamp(object) is object
+        assert parse_timestamp(sentinel) is sentinel
+        assert parse_timestamp({"key": "val"}) == {"key": "val"}
+        assert parse_timestamp(object) is object
 
-    def test_parse_timestamp_float_seconds_subsecond_precision(self):
+    def testparse_timestamp_float_seconds_subsecond_precision(self):
         """Fansly WS broadcasts Message.createdAt as float seconds with ms
         decimal (observed ``1778563256.288``). Must preserve sub-second precision."""
-        result = _parse_timestamp(1778563256.288)
+        result = parse_timestamp(1778563256.288)
         assert isinstance(result, datetime)
         assert result.year == 2026
         assert result.tzinfo is UTC
         # 0.288 seconds = 288_000 microseconds; allow ±1 µs for fp rounding.
         assert abs(result.microsecond - 288_000) <= 1
 
-    def test_parse_timestamp_int_vs_float_seconds_same_instant(self):
+    def testparse_timestamp_int_vs_float_seconds_same_instant(self):
         """Int seconds and float seconds with .0 fraction must produce equal datetimes."""
-        a = _parse_timestamp(1778544106)
-        b = _parse_timestamp(1778544106.0)
+        a = parse_timestamp(1778544106)
+        b = parse_timestamp(1778544106.0)
         assert a == b
 
-    def test_parse_timestamp_float_milliseconds_above_threshold(self):
+    def testparse_timestamp_float_milliseconds_above_threshold(self):
         """Float ms (above 1e10) should divide by 1000 and still keep sub-ms precision."""
-        result = _parse_timestamp(1778563256288.5)
+        result = parse_timestamp(1778563256288.5)
         assert isinstance(result, datetime)
         assert result.year == 2026
         # 288.5 ms → 288_500 µs.

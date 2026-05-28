@@ -29,7 +29,6 @@ from .logging import (
     update_logging_config,
 )
 from .modes import DownloadMode
-from .validation import validate_adjust_config
 
 
 from .args import map_args_to_config  # isort:skip
@@ -71,9 +70,17 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Lazy-load browser functions to avoid requiring optional plyvel dependency."""
+    """Lazy-load browser functions (optional plyvel dep) and validate_adjust_config.
+
+    validate_adjust_config lives in ``config.validation``, which imports textio;
+    importing it eagerly here re-enters the config <-> textio import cycle.
+    """
     if name in _BROWSER_FUNCTIONS:
         from . import browser  # noqa: PLC0415, I001  # lazy-load: browser pulls optional plyvel dep
 
         return getattr(browser, name)
+    if name == "validate_adjust_config":
+        from .validation import validate_adjust_config  # noqa: PLC0415  # textio cycle
+
+        return validate_adjust_config
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

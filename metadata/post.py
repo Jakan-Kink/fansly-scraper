@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from helpers.common import parse_timestamp
 from textio import json_output
 
 from .account import process_account_data, process_media_bundles_data
@@ -50,7 +50,7 @@ async def process_pinned_posts(
             {
                 "postId": post_id,
                 "pos": post["pos"],
-                "createdAt": datetime.fromtimestamp(post["createdAt"] / 1000, UTC),
+                "createdAt": parse_timestamp(post["createdAt"]),
             }
         )
 

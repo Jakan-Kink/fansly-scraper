@@ -30,18 +30,19 @@ Boundary policy:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import av
 import pytest
 
-import download.livestream as livestream_module
-from download.livestream import _record_stream
+from download.livestream import _record_stream, _salvage_orphan_segments
 from metadata.models import StreamChannel
+from pathio.livestream import _get_segments_base
 from tests.fixtures.api import (
-    FakeAudioStream,
-    FakeVideoStream,
+    IvsStreamFixture,
+    corrupt_ivs_segment,
     dump_fansly_calls,
-    make_ivs_av_open_fake,
+    make_synthetic_ivs_segment,
     wire_ivs_stream,
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -78,6 +79,61 @@ def _make_channel(
     )
 
 
+async def _drive_ivs_recording(
+    config_wired,
+    tmp_path,
+    *,
+    segment_bytes: bytes,
+    username: str = "ivs_creator",
+    total_segments: int = 5,
+) -> tuple[IvsStreamFixture, Path]:
+    """Wire a full IVS broadcast serving ``segment_bytes`` for every segment,
+    run ``_record_stream`` to completion, return (stream fixture, expected MP4
+    path). Shared by the happy-path and bad-packet scenarios so the real-PyAV
+    broadcast setup is written once.
+    """
+    creator_id = snowflake_id()
+    channel_id = snowflake_id()
+    stream_id = snowflake_id()
+
+    config_wired.download_directory = tmp_path / "downloads"
+    config_wired.temp_folder = tmp_path / "temp"
+    config_wired.download_directory.mkdir(parents=True, exist_ok=True)
+    config_wired.temp_folder.mkdir(parents=True, exist_ok=True)
+    # 0 = immediate yield via asyncio.sleep(0) — minimum poll interval.
+    config_wired.monitoring_livestream_manifest_poll_interval_seconds = 0
+    config_wired.use_folder_suffix = True
+
+    stream = wire_ivs_stream(
+        creator_id=creator_id,
+        username=username,
+        total_segments=total_segments,
+        chat_room_id=None,
+        segment_bytes=segment_bytes,
+    )
+    channel = _make_channel(
+        creator_id, stream.master_url, channel_id=channel_id, stream_id=stream_id
+    )
+    # startedAt=1_700_000_000_000 ms = 2023-11-14 22:13:20 UTC.
+    expected_output_path = (
+        config_wired.download_directory
+        / f"{username}_fansly"
+        / "Livestreams"
+        / f"{username}_20231114_221320_live.mp4"
+    )
+
+    rec_stop = asyncio.Event()
+    global_stop = asyncio.Event()
+    try:
+        await _record_stream(
+            config_wired, creator_id, username, channel, rec_stop, global_stop
+        )
+    finally:
+        dump_fansly_calls(stream.streaming_channel_route.calls, "streaming_channel")
+        dump_fansly_calls(stream.variant_route.calls, "variant_manifest")
+    return stream, expected_output_path
+
+
 # ── Tests ──────────────────────────────────────────────────────────────────
 
 
@@ -92,86 +148,22 @@ class TestRecordStreamHappyPath:
         respx_ivs_cdn,
         config_wired,
         tmp_path,
-        monkeypatch,
     ) -> None:
-        """Happy path: 5 segments + ENDLIST → mux → MP4 written, temp dir removed.
+        """Happy path: 5 real .ts segments + ENDLIST → real PyAV mux → MP4.
 
-        Asserts:
+        Drives the full lifecycle against REAL PyAV (no av.open fake): each
+        segment is a genuine H.264-High + AAC MPEG-TS chunk, so the muxed
+        output is a real MP4. Asserts:
           - Every wired respx route was called the expected number of times.
           - All 5 segment routes were called (every segment fetched once).
-          - Output MP4 exists with non-zero size after the mux completes.
+          - The output MP4 opens, carries video + audio, and preserves the
+            source's H.264 High profile (the add_stream_from_template
+            extradata copy — Constrained Baseline would mean the copy dropped).
           - Temp segment directory was removed on successful mux.
-          - The PyAV-fake output container saw mux() calls for every packet
-            the fake input containers yielded (6 packets per segment x
-            5 segments = 30 mux calls).
         """
-        creator_id = snowflake_id()
-        channel_id = snowflake_id()
-        stream_id = snowflake_id()
-        username = "ivs_creator"
-
-        # ── Configure paths + fast-poll interval ──────────────────────────
-        config_wired.download_directory = tmp_path / "downloads"
-        config_wired.temp_folder = tmp_path / "temp"
-        config_wired.download_directory.mkdir(parents=True, exist_ok=True)
-        config_wired.temp_folder.mkdir(parents=True, exist_ok=True)
-        # 0 = immediate yield via asyncio.sleep(0) — minimum poll interval.
-        config_wired.monitoring_livestream_manifest_poll_interval_seconds = 0
-        config_wired.use_folder_suffix = True
-
-        # ── Wire respx routes for one complete IVS broadcast ──────────────
-        stream = wire_ivs_stream(
-            creator_id=creator_id,
-            username=username,
-            total_segments=5,
-            chat_room_id=None,
+        stream, expected_output_path = await _drive_ivs_recording(
+            config_wired, tmp_path, segment_bytes=make_synthetic_ivs_segment()
         )
-
-        channel = _make_channel(
-            creator_id,
-            stream.master_url,
-            channel_id=channel_id,
-            stream_id=stream_id,
-        )
-
-        # ── Compute the predicted output path so the av-open fake can ────
-        # route the "w"-mode call to FakeAvOutputContainer.
-        # _build_output_path uses channel.stream.startedAt → datetime →
-        # strftime("%Y%m%d_%H%M%S") in UTC.
-        livestreams_dir = (
-            config_wired.download_directory / f"{username}_fansly" / "Livestreams"
-        )
-        # startedAt=1_700_000_000_000 ms = 2023-11-14 22:13:20 UTC.
-        expected_output_path = livestreams_dir / f"{username}_20231114_221320_live.mp4"
-
-        # ── Leaf-fake PyAV at av.open + symbol-swap stream classes ────────
-        monkeypatch.setattr(
-            av,
-            "open",
-            make_ivs_av_open_fake(
-                output_path=expected_output_path,
-                packets_per_stream=3,
-            ),
-        )
-        monkeypatch.setattr(livestream_module, "VideoStream", FakeVideoStream)
-        monkeypatch.setattr(livestream_module, "AudioStream", FakeAudioStream)
-
-        # ── Drive the recording ───────────────────────────────────────────
-        rec_stop = asyncio.Event()
-        global_stop = asyncio.Event()
-
-        try:
-            await _record_stream(
-                config_wired,
-                creator_id,
-                username,
-                channel,
-                rec_stop,
-                global_stop,
-            )
-        finally:
-            dump_fansly_calls(stream.streaming_channel_route.calls, "streaming_channel")
-            dump_fansly_calls(stream.variant_route.calls, "variant_manifest")
 
         # ── Assertions ────────────────────────────────────────────────────
 
@@ -188,13 +180,158 @@ class TestRecordStreamHappyPath:
         # Every segment fetched.
         stream.assert_all_segments_fetched()
 
-        # Output MP4 was written by FakeAvOutputContainer.close().
+        # Output is a real MP4 muxed by real PyAV.
         assert expected_output_path.exists(), (
             f"Output MP4 not written: {expected_output_path}"
         )
         assert expected_output_path.stat().st_size > 0
 
+        # Reopen with real PyAV: must carry video + audio and preserve the
+        # source's H.264 High profile. A dropped extradata copy would yield
+        # Constrained Baseline (or fail to open) — the bug this guards.
+        muxed = av.open(str(expected_output_path))
+        try:
+            assert muxed.streams.video, "muxed MP4 has no video stream"
+            assert muxed.streams.audio, "muxed MP4 has no audio stream"
+            assert muxed.streams.video[0].profile == "High", (
+                f"High profile not preserved in mux: {muxed.streams.video[0].profile}"
+            )
+            # Continuity: all 5 segments muxed sequentially into one stream,
+            # not just the first. A single 30-frame segment yields ~30 frames;
+            # a "only first segment muxed" regression would fail this.
+            video_frames = sum(
+                1 for pkt in muxed.demux(muxed.streams.video[0]) if pkt.size
+            )
+            assert video_frames > 2 * 30, (
+                f"expected multi-segment continuity, got {video_frames} frames"
+            )
+        finally:
+            muxed.close()
+
         # Temp segment dir removed on successful mux.
-        # Sidecar at temp_dir/output_path.txt is gone too.
         temp_dirs = list(config_wired.temp_folder.glob("*_segments"))
         assert temp_dirs == [], f"Temp segment dir should be cleaned up: {temp_dirs}"
+
+
+class TestRecordStreamBadPackets:
+    """TEI-flagged (corrupt) packets are dropped by the recorder's libav
+    ``+discardcorrupt`` path; the recording still produces a valid MP4."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_corrupt_packets_dropped_but_recording_survives(
+        self,
+        respx_fansly_api,
+        respx_ivs_cdn,
+        config_wired,
+        tmp_path,
+    ) -> None:
+        """Each segment carries 2 TEI-flagged packets (AWS IVS drops ~2 per
+        file). libav's +discardcorrupt drops them at demux — before the
+        recorder's Python skip-counter can see them — so the discriminating
+        proof is: the corrupt run muxes a valid MP4 with strictly fewer video
+        frames than a clean baseline (dropped, not catastrophic, not hung).
+
+        Relies on the >=30-frame segment default: below the GOP cliff the
+        corruption would drop the whole segment and the recording would stall.
+        """
+        clean_seg = make_synthetic_ivs_segment()
+        corrupt_seg = corrupt_ivs_segment(clean_seg, n_packets=2)
+
+        _, clean_path = await _drive_ivs_recording(
+            config_wired, tmp_path, segment_bytes=clean_seg, username="clean_ivs"
+        )
+        _, corrupt_path = await _drive_ivs_recording(
+            config_wired, tmp_path, segment_bytes=corrupt_seg, username="corrupt_ivs"
+        )
+
+        def _video_frames(path: Path) -> int:
+            container = av.open(str(path))
+            try:
+                return sum(
+                    1 for pkt in container.demux(container.streams.video[0]) if pkt.size
+                )
+            finally:
+                container.close()
+
+        assert clean_path.exists()
+        assert corrupt_path.exists()
+        clean_frames = _video_frames(clean_path)
+        corrupt_frames = _video_frames(corrupt_path)
+
+        # Survived (valid MP4 with frames) AND strictly fewer than clean —
+        # proving +discardcorrupt dropped the TEI packets without collapsing
+        # the segment (the catastrophic <=24-frame behaviour) or hanging.
+        assert 0 < corrupt_frames < clean_frames, (
+            f"clean={clean_frames} corrupt={corrupt_frames} "
+            "(expected 0 < corrupt < clean)"
+        )
+
+        # Corrupt output is still a well-formed MP4 with both streams.
+        muxed = av.open(str(corrupt_path))
+        try:
+            assert muxed.streams.video, "corrupt-run MP4 has no video stream"
+            assert muxed.streams.audio, "corrupt-run MP4 has no audio stream"
+        finally:
+            muxed.close()
+
+
+class TestRecordStreamSalvage:
+    """Orphan ``*_segments`` dirs left by a crashed recording are muxed to
+    their sidecar MP4 path on startup, then removed."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_salvage_muxes_orphan_segment_dir(
+        self,
+        config_wired,
+        tmp_path,
+    ) -> None:
+        """Fabricate an orphan segment dir (real synthetic .ts files + an
+        ``output_path.txt`` sidecar) and run ``_salvage_orphan_segments``: it
+        muxes the leftovers to the sidecar's MP4 (High profile preserved) and
+        cleans the orphan dir. No network — salvage is a pure local mux.
+        """
+        config_wired.download_directory = tmp_path / "downloads"
+        config_wired.temp_folder = tmp_path / "temp"
+        config_wired.download_directory.mkdir(parents=True, exist_ok=True)
+        config_wired.temp_folder.mkdir(parents=True, exist_ok=True)
+
+        segments_base = _get_segments_base(config_wired)
+        segments_base.mkdir(parents=True, exist_ok=True)
+
+        output_mp4 = (
+            config_wired.download_directory
+            / "ivs_creator_fansly"
+            / "Livestreams"
+            / "ivs_creator_20231114_221320_live.mp4"
+        )
+        output_mp4.parent.mkdir(parents=True, exist_ok=True)
+
+        # Orphan dir name = "<mp4 stem>_segments" (matches _record_stream).
+        orphan_dir = segments_base / f"{output_mp4.stem}_segments"
+        orphan_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(3):
+            (orphan_dir / f"segment_{i:06d}.ts").write_bytes(
+                make_synthetic_ivs_segment(seed=i)
+            )
+        (orphan_dir / "output_path.txt").write_text(str(output_mp4), encoding="utf-8")
+
+        await _salvage_orphan_segments(config_wired)
+
+        # Salvaged: orphan dir muxed to the sidecar MP4, High profile kept.
+        assert output_mp4.exists(), f"salvage did not produce {output_mp4}"
+        assert output_mp4.stat().st_size > 0
+        muxed = av.open(str(output_mp4))
+        try:
+            assert muxed.streams.video, "salvaged MP4 has no video stream"
+            assert muxed.streams.audio, "salvaged MP4 has no audio stream"
+            assert muxed.streams.video[0].profile == "High", (
+                "High profile not preserved in salvage mux: "
+                f"{muxed.streams.video[0].profile}"
+            )
+        finally:
+            muxed.close()
+
+        # Orphan dir cleaned up after a successful salvage.
+        assert not orphan_dir.exists(), "orphan segment dir not removed after salvage"

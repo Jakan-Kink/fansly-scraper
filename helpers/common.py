@@ -2,8 +2,30 @@
 
 import webbrowser
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+
+def parse_timestamp(v: Any) -> Any:
+    """Coerce a Fansly timestamp to a UTC datetime.
+
+    Accepts epoch milliseconds or seconds (int/float, disambiguated by the
+    ``> 1e10`` boundary), an ISO 8601 string, or an existing datetime.
+    Returns the value unchanged when it is None or an unrecognised type.
+
+    Shared by metadata model validators, daemon polling filters, and the
+    startup banner -- the single source for Fansly's epoch-ms convention.
+    """
+    if v is None or isinstance(v, datetime):
+        return v
+    if isinstance(v, (int, float)):
+        if v > 1e10:
+            v = v / 1000
+        return datetime.fromtimestamp(v, UTC)
+    if isinstance(v, str):
+        return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return v
 
 
 def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:

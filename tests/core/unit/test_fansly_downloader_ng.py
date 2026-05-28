@@ -192,13 +192,17 @@ def test_cleanup_database_no_database():
 
 
 def _clear_atexit_cleanup_handlers() -> None:
-    """Remove any pre-registered cleanup_database_sync entries from atexit.
+    """Reset cross-test state for the cleanup_database_sync atexit handler.
 
-    _async_main's atexit-registration check walks `atexit._exithandlers` and
-    skips registration if a handler with name `cleanup_database_sync` is
-    already there. Repeated test runs can leave stale entries from prior
-    tests; clearing them ensures each test observes a fresh state.
+    Production registers the handler once per process, guarded by the
+    module-level ``_db_cleanup_atexit_registered`` flag
+    (``_register_db_cleanup_once``). That flag is process-global, so a prior
+    test in any ``pytest-randomly`` order leaves it True and the next test's
+    ``_async_main`` skips registration. Reset it so each test sees a fresh
+    state, and strip any real cleanup_database_sync entry from
+    ``atexit._exithandlers`` so tests never leak a handler into the process.
     """
+    fdng._db_cleanup_atexit_registered = False
     if not hasattr(atexit, "_exithandlers"):
         return
     atexit._exithandlers = [
@@ -1143,10 +1147,11 @@ async def test_cleanup_with_global_timeout_semaphore_exception(
 async def test_async_main_skips_atexit_when_already_registered(
     config_with_database, caplog, monkeypatch
 ):
-    """_async_main skips registering cleanup_database_sync if already in atexit chain.
+    """_async_main skips registering cleanup_database_sync when already registered.
 
-    Covers the 812->819 branch: the ``any(...)`` check short-circuits
-    registration when a matching handler is already present.
+    The guard is the module-level ``_db_cleanup_atexit_registered`` flag
+    (``_register_db_cleanup_once``): when it is already True, registration is
+    short-circuited.
     """
     caplog.set_level(logging.INFO)
     _clear_atexit_cleanup_handlers()
@@ -1158,16 +1163,8 @@ async def test_async_main_skips_atexit_when_already_registered(
         captured_registers.append((func, args, kwargs))
         return func
 
-    # Python 3.11+ removed the public ``atexit._exithandlers`` attribute;
-    # set it via monkeypatch with ``raising=False`` so the any() check in
-    # _async_main's atexit-skip branch has something to iterate over.
-    existing = getattr(atexit, "_exithandlers", [])
-    monkeypatch.setattr(
-        atexit,
-        "_exithandlers",
-        [*existing, (cleanup_database_sync, (config,), {})],
-        raising=False,
-    )
+    # Simulate "already registered this process" via the production guard flag.
+    monkeypatch.setattr(fdng, "_db_cleanup_atexit_registered", True)
     monkeypatch.setattr("atexit.register", _capture_register)
 
     async def _fake_main(_cfg):
@@ -1421,7 +1418,7 @@ async def test_load_client_account_into_db_persists_real_account(
 
     # Real /api/v1/account?usernames=... boundary — see
     # mount_empty_creator_pipeline's account-route shape.
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(
+    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(  # noqa: API-LITERAL  # broad /api/v1/account* prefix (by-username + media), not one endpoint
         side_effect=[
             httpx.Response(
                 200,

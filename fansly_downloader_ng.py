@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 import traceback
-from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from time import monotonic
 from types import FrameType
@@ -76,7 +75,7 @@ from errors import (
     DownloadError,
 )
 from fileio.dedupe import dedupe_init
-from helpers.common import open_location
+from helpers.common import open_location, parse_timestamp
 from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
@@ -382,8 +381,7 @@ async def main(config: FanslyConfig) -> int:
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
     print_info(
-        f"Device ID: {api.device_id} "
-        f"({datetime.fromtimestamp(api.device_id_timestamp / 1000, tz=UTC)})"
+        f"Device ID: {api.device_id} ({parse_timestamp(api.device_id_timestamp)})"
     )
     print_info(f"Session ID: {api.session_id}")
     client_user_name = await api.get_client_user_name()

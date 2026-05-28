@@ -25,7 +25,11 @@ Wire-shape references (verified against ``download/livestream.py`` and
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
+
+import av
+import numpy as np
 
 
 # ── Default constants matching production code ─────────────────────────────
@@ -286,3 +290,116 @@ def make_sliding_window_scenario(
         manifests=manifests,
         segment_uris_in_order=all_uris,
     )
+
+
+# ── Synthetic real .ts segment (PyAV-encoded) ──────────────────────────────
+
+# 30 video frames: below ~24 a synthetic segment is effectively one GOP, so a
+# TEI-corrupted post-keyframe packet cascades to end-of-GOP and libav's
+# +discardcorrupt drops the WHOLE segment (catastrophic — nothing left to mux,
+# the recorder stalls). By >=30 there are intermediate recovery points, so only
+# the corrupted frames drop and the segment survives — keeping the "drop ~2
+# packets, still muxable" promise honest (AWS IVS drops ~2 boundary packets per
+# file). Deterministic cliff, verified on the MMsD IVS sibling: <=24 -> 8/8
+# catastrophic, 30 -> 0/8. Do NOT lower below 30.
+DEFAULT_SEGMENT_VIDEO_FRAMES = 30
+
+
+def make_synthetic_ivs_segment(
+    *,
+    n_video_frames: int = DEFAULT_SEGMENT_VIDEO_FRAMES,
+    width: int = 320,
+    height: int = 240,
+    fps: int = 25,
+    sample_rate: int = 48000,
+    seed: int = 0,
+) -> bytes:
+    """Encode a real H.264 **High**-profile + AAC MPEG-TS segment via PyAV.
+
+    Returns genuine ``.ts`` bytes (real SPS/PPS extradata, PIDs 0x100 video /
+    0x101 audio, one IDR-led GOP — the shape of a real IVS segment) for
+    real-PyAV mux tests. No creator content, so it is safe to (re)generate
+    in-process. High profile is explicit: ``preset=ultrafast`` silently drops
+    to Constrained Baseline, and the ``add_stream_from_template`` extradata
+    copy this suite guards is High-specific.
+
+    Args:
+        n_video_frames: Video frames (~= packets). Keep >=30: below the GOP
+            cliff (see DEFAULT_SEGMENT_VIDEO_FRAMES) TEI corruption drops the
+            whole segment instead of just the corrupted frames.
+        seed: Varies frame content so sequential segments differ.
+    """
+    buf = io.BytesIO()
+    out = av.open(buf, mode="w", format="mpegts")
+
+    vstream = out.add_stream("libx264", rate=fps)
+    vstream.width = width
+    vstream.height = height
+    vstream.pix_fmt = "yuv420p"
+    vstream.codec_context.options = {"profile": "high", "preset": "veryfast"}
+
+    astream = out.add_stream("aac", rate=sample_rate)
+
+    for i in range(n_video_frames):
+        shade = (seed * 16 + i * 8) % 256
+        arr = np.full((height, width, 3), shade, dtype=np.uint8)
+        arr[:, :, 1] = np.linspace(0, 255, width, dtype=np.uint8)[None, :]
+        for pkt in vstream.encode(av.VideoFrame.from_ndarray(arr, format="rgb24")):
+            out.mux(pkt)
+    for pkt in vstream.encode():
+        out.mux(pkt)
+
+    n_audio_frames = int(n_video_frames / fps * sample_rate / 1024) + 1
+    for _ in range(n_audio_frames):
+        aframe = av.AudioFrame.from_ndarray(
+            np.zeros((2, 1024), dtype=np.float32), format="fltp", layout="stereo"
+        )
+        aframe.sample_rate = sample_rate
+        for pkt in astream.encode(aframe):
+            out.mux(pkt)
+    for pkt in astream.encode():
+        out.mux(pkt)
+
+    out.close()
+    return buf.getvalue()
+
+
+# MPEG-TS packet size + sync byte + video PID emitted by make_synthetic_ivs_segment.
+_TS_PACKET_SIZE = 188
+_TS_SYNC_BYTE = 0x47
+_TS_VIDEO_PID = 0x100
+
+
+def corrupt_ivs_segment(
+    ts_bytes: bytes,
+    *,
+    n_packets: int = 2,
+    skip_leading: int = 4,
+) -> bytes:
+    """Mark ``n_packets`` video TS packets corrupt via the Transport Error
+    Indicator bit — models AWS IVS's ~2 dropped packets per file.
+
+    Sets the TEI bit (``byte1 |= 0x80``) on video-PID packets: a single bit
+    that libav's ``+discardcorrupt`` keys on, so the recorder drops those
+    frames at demux. Leading video packets (SPS/PPS + the IDR keyframe) are
+    skipped so the stream stays decodable apart from the dropped frames.
+
+    Args:
+        n_packets: How many video packets to flag corrupt.
+        skip_leading: Leading video packets to leave intact (keyframe + params).
+    """
+    ba = bytearray(ts_bytes)
+    seen = flipped = 0
+    for off in range(0, len(ba) - _TS_PACKET_SIZE, _TS_PACKET_SIZE):
+        if ba[off] != _TS_SYNC_BYTE:
+            continue
+        if ((ba[off + 1] & 0x1F) << 8) | ba[off + 2] != _TS_VIDEO_PID:
+            continue
+        seen += 1
+        if seen <= skip_leading:
+            continue
+        ba[off + 1] |= 0x80  # Transport Error Indicator
+        flipped += 1
+        if flipped >= n_packets:
+            break
+    return bytes(ba)
