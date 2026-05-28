@@ -1418,7 +1418,9 @@ async def test_load_client_account_into_db_persists_real_account(
 
     # Real /api/v1/account?usernames=... boundary — see
     # mount_empty_creator_pipeline's account-route shape.
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(  # noqa: API-LITERAL  # broad /api/v1/account* prefix (by-username + media), not one endpoint
+    respx.get(
+        url__startswith="https://apiv3.fansly.com/api/v1/account"
+    ).mock(  # CCH:api  # broad /api/v1/account* prefix (by-username + media), not one endpoint
         side_effect=[
             httpx.Response(
                 200,

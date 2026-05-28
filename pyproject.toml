@@ -134,9 +134,6 @@ line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-# Custom noqa codes from project hooks (not ruff lint codes) — tells ruff to
-# treat them as valid external directives instead of flagging RUF100/invalid.
-external = ["API-LITERAL"]
 # Enable flake8 rules (F, E, W), isort (I), pyupgrade (UP), and more
 select = [
     "E",      # pycodestyle errors
