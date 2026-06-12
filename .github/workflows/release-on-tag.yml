@@ -62,6 +62,22 @@ jobs:
           echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
           echo "Resolved tag=${tag} version=${version} prerelease=${prerelease}"
 
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          pyproject_version="$(python3 -c '
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          ')"
+          if [[ "${version}" != "${pyproject_version}" ]]; then
+            echo "::error::Tag version (${version}) does not match" \
+              "pyproject.toml [project].version (${pyproject_version})." \
+              "Run 'poetry version ${version}' and commit before tagging."
+            exit 1
+          fi
+          echo "pyproject.toml version matches tag: ${pyproject_version}"
+
       - name: Extract CHANGELOG.md section
         id: changelog
         run: |
