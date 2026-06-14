@@ -142,6 +142,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.open_folder_when_finished = opts.open_folder_when_finished
     config.separate_messages = opts.separate_messages
     config.separate_previews = opts.separate_previews
+    config.repair_previews = opts.repair_previews
     config.separate_timeline = opts.separate_timeline
     config.show_downloads = opts.show_downloads
     config.show_skipped_downloads = opts.show_skipped_downloads

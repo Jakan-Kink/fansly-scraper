@@ -143,3 +143,44 @@ class TestNormalizeFilename:
         filename = "2023-01-01_at_10-30_EST_id_99999.jpg"
         result = await normalize_filename(filename, config=config)
         assert result == filename
+
+    @pytest.mark.asyncio
+    async def test_normalize_rewrites_id_to_preview_for_known_preview(self, config):
+        """A preview id (per preview_ids) gets the preview_ marker.
+
+        Bug-era preview files are saved with an already-UTC name and the plain
+        `id_` marker; correction is membership-driven (no DB lookup needed on
+        this path).
+        """
+        mid = snowflake_id()
+        name = f"2026-01-02_at_03-04_UTC_id_{mid}.jpg"
+        result = await normalize_filename(name, config=config, preview_ids={mid})
+        assert result == f"2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg"
+
+    @pytest.mark.asyncio
+    async def test_normalize_leaves_non_preview_untouched(self, entity_store, config):
+        """A file whose id is not in preview_ids is left unchanged."""
+        mid = snowflake_id()
+        other = snowflake_id()
+        name = f"2026-01-02_at_03-04_UTC_id_{mid}.jpg"
+        result = await normalize_filename(name, config=config, preview_ids={other})
+        assert result == name
+
+    @pytest.mark.asyncio
+    async def test_normalize_leaves_already_preview_untouched(
+        self, entity_store, config
+    ):
+        """A file already carrying preview_ marker is not double-prefixed."""
+        mid = snowflake_id()
+        name = f"2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg"
+        result = await normalize_filename(name, config=config, preview_ids={mid})
+        assert result == name
+
+    @pytest.mark.asyncio
+    async def test_normalize_preview_skips_hash_pattern(self, entity_store, config):
+        """Hash-pattern filenames are returned unchanged even with preview_ids."""
+        name = "anything_hash2_deadbeef.jpg"
+        result = await normalize_filename(
+            name, config=config, preview_ids={snowflake_id()}
+        )
+        assert result == name

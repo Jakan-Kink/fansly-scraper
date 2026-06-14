@@ -9,7 +9,11 @@ from metadata import Media
 from metadata.models import get_store
 
 
-async def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:  # noqa: PLR0911 - Multiple validation checks with early returns
+async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with early returns
+    filename: str,
+    config: FanslyConfig | None = None,
+    preview_ids: set[int] | None = None,
+) -> str:
     """Normalize filename to handle timezone differences.
 
     Converts filenames with different timezone formats to a standard format:
@@ -22,6 +26,8 @@ async def normalize_filename(filename: str, config: FanslyConfig | None = None) 
     Args:
         filename: The filename to normalize
         config: Optional config object for database access
+        preview_ids: Optional set of Media ids that are persisted previews; an
+            `id_` marker for an id in this set is rewritten to `preview_id_`
 
     Returns:
         The normalized filename
@@ -39,6 +45,19 @@ async def normalize_filename(filename: str, config: FanslyConfig | None = None) 
 
     id_part = id_match.group(1)  # Includes preview_ if present
     extension = id_match.group(2)
+
+    # Preview-marker correction: a persisted-preview id saved under the plain
+    # `id_` marker (bug era) is rewritten to `preview_id_`. Both `filename` and
+    # `id_part` are corrected so every return branch (including the already-UTC
+    # early-return that bug-era files hit) emits the preview marker. Already-
+    # preview and non-preview ids are untouched; the hash early-return above is
+    # preserved.
+    if preview_ids and not id_part.startswith("preview_"):
+        numeric = re.search(r"id_(\d+)", id_part)
+        if numeric and int(numeric.group(1)) in preview_ids:
+            corrected = f"preview_{id_part}"
+            filename = filename.replace(id_part, corrected)
+            id_part = corrected
 
     # Extract timestamp
     dt_match = re.match(

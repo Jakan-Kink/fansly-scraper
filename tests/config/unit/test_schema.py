@@ -901,3 +901,26 @@ def test_dump_renders_only_set_or_always_fields_at_every_nesting_level(
             f"empty peer handler {empty_peer!r} rendered with no inner content:\n"
             f"{yaml_text}"
         )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (True, True),
+        (False, False),
+        ("dry-run", "dry-run"),
+        ("DRY-RUN", "dry-run"),
+        ("true", True),
+        ("yes", True),
+        ("off", False),
+    ],
+)
+def test_repair_previews_coercion(raw, expected):
+    section = OptionsSection(repair_previews=raw)
+    assert section.repair_previews == expected
+
+
+def test_repair_previews_rejects_garbage():
+    with pytest.raises(ValidationError, match=r"dry-run"):
+        OptionsSection(repair_previews="sometimes")
+

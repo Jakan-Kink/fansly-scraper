@@ -291,6 +291,7 @@ class OptionsSection(_BaseSection):
     open_folder_when_finished: bool = True
     separate_messages: bool = True
     separate_previews: bool = False
+    repair_previews: bool | Literal["dry-run"] = False
     separate_timeline: bool = True
     use_duplicate_threshold: bool = False
     use_pagination_duplication: bool = False
@@ -320,6 +321,25 @@ class OptionsSection(_BaseSection):
         """Accept any case spelling, e.g. 'normal', 'NORMAL', 'Normal'."""
         if isinstance(v, str):
             return DownloadMode(v.upper())
+        return v
+
+    @field_validator("repair_previews", mode="before")
+    @classmethod
+    def _coerce_repair_previews(cls, v: Any) -> bool | Literal["dry-run"]:
+        """Allow true/false or the literal "dry-run"; reject any other string."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s == "dry-run":
+                return "dry-run"
+            if s in {"true", "yes", "on", "1"}:
+                return True
+            if s in {"false", "no", "off", "0"}:
+                return False
+            raise ValueError(
+                f'repair_previews must be true, false, or "dry-run"; got {v!r}'
+            )
         return v
 
 

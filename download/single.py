@@ -2,6 +2,7 @@
 
 from config import FanslyConfig
 from fileio.dedupe import dedupe_init
+from fileio.preview_repair import repair_preview_folder_items
 from helpers.common import get_post_id_from_request, is_valid_post_id
 from metadata import process_timeline_posts
 from textio import input_enter_continue, print_error, print_info, print_warning
@@ -99,6 +100,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
             # Deferred deduplication init because directory may have changed
             # depending on post creator (!= configured creator)
             await dedupe_init(config, state)
+            await repair_preview_folder_items(config, state)
 
             all_media_ids = get_unique_media_ids(post_object)
             accessible = await fetch_and_process_media(

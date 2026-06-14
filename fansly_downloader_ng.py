@@ -75,6 +75,7 @@ from errors import (
     DownloadError,
 )
 from fileio.dedupe import dedupe_init
+from fileio.preview_repair import repair_preview_folder_items
 from helpers.common import open_location, parse_timestamp
 from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
@@ -469,6 +470,7 @@ async def main(config: FanslyConfig) -> int:
                             DownloadMode.STASH_ONLY,
                         ):
                             await dedupe_init(config, state)
+                            await repair_preview_folder_items(config, state)
 
                         if config.download_mode == DownloadMode.SINGLE:
                             await download_single_post(config, state)
