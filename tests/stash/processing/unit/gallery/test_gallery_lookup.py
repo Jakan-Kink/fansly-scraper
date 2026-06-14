@@ -495,8 +495,8 @@ class TestGalleryLookup:
             ]
         )
 
-        # Call without studio parameter
         try:
+            # Call without studio parameter
             gallery = await respx_stash_processor._get_gallery_by_title(
                 post_obj, "Test Title", None
             )

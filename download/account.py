@@ -11,9 +11,14 @@ from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
 from helpers.timer import timing_jitter
 from metadata import Account, TimelineStats, process_account_data
 from metadata.models import get_store
+from metadata.subscriptions import (
+    consume_access_change,
+    record_follow_observation,
+)
 from textio import json_output, print_error, print_info
 
 from .downloadstate import DownloadState
+from .media import refresh_locked_account_media
 
 
 def _validate_download_mode(config: FanslyConfig, state: DownloadState) -> None:
@@ -238,6 +243,10 @@ async def get_creator_account_info(
             (w.id, w.pos, w.name, w.description) for w in preloaded_account.walls
         )
 
+    prior_following = (
+        preloaded_account.following if preloaded_account is not None else None
+    )
+
     # process_account_data MERGES API data into preloaded cache
     # (overwrites fetchedAt etc.) — hence the pre-merge snapshots above.
     await process_account_data(config=config, data=account_data, state=state)
@@ -289,6 +298,29 @@ async def get_creator_account_info(
 
     if counts_match and walls_match:
         state.creator_content_unchanged = True
+
+    if config.full_pass:
+        state.creator_access_changed = True
+        state.creator_access_change_reason = "full-pass"
+    else:
+        reason = consume_access_change(account_id)
+        if reason is not None:
+            state.creator_access_changed = True
+            state.creator_access_change_reason = reason
+
+    current_following = bool(account.following)
+    follow_transitioned = await record_follow_observation(account_id, current_following)
+    if (
+        follow_transitioned
+        and current_following
+        and prior_following is not True
+        and not state.creator_access_changed
+    ):
+        state.creator_access_changed = True
+        state.creator_access_change_reason = "follow-transition"
+
+    if state.creator_access_changed:
+        await refresh_locked_account_media(config, account_id)
 
 
 async def _make_rate_limited_request(

@@ -16,7 +16,7 @@ from download.media import (
 from download.types import DownloadType
 from errors import MediaError
 from metadata.models import Media
-from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -117,7 +117,9 @@ class TestFetchAndProcessMedia:
             "access": True,
         }
 
-        route = respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
+        route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -158,7 +160,9 @@ class TestFetchAndProcessMedia:
         mock_config.BATCH_SIZE = 50
         mock_config.interactive = False
 
-        route = respx.get(f"{FanslyApi.BASE_URL}account/media").mock(
+        route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,

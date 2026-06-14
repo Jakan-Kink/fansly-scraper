@@ -41,7 +41,12 @@ import httpx
 from loguru import logger
 
 from api.websocket import FanslyWebSocket
-from api.websocket_protocol import MSG_SERVICE_EVENT, format_event_label, service_name
+from api.websocket_protocol import (
+    MSG_SERVICE_EVENT,
+    format_event_label,
+    notification_inner_to_service_event,
+    service_name,
+)
 from config.fanslyconfig import FanslyConfig
 from config.logging import websocket_logger as ws_logger
 from daemon.dashboard import (
@@ -74,6 +79,7 @@ from download.livestream_chat import route_ws_chat_message
 
 if TYPE_CHECKING:
     from daemon.bootstrap import DaemonBootstrap
+from download.common import process_download_accessible_media
 from download.core import (
     DownloadState,
     download_messages,
@@ -84,8 +90,14 @@ from download.core import (
     get_creator_account_info,
     get_following_accounts,
 )
+from download.media import fetch_and_process_media
+from download.types import DownloadType
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
-from metadata.models import Account, Message, get_store
+from metadata.models import Account, AccountMediaBundle, Message, get_store
+from metadata.subscriptions import (
+    _access_changed_accounts,
+    apply_subscription_ws_event,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -360,10 +372,49 @@ async def _handle_redownload_item(
         )
         return
 
-    logger.info(
-        "daemon.runner: PPV re-download for {} ({})", creator_name, item.creator_id
-    )
     state = DownloadState(creator_name=creator_name)
+    targeted_ids = await _collect_ppv_targeted_media_ids(item)
+    pending_reason = _access_changed_accounts.get(item.creator_id)
+
+    # Take the targeted shortcut only when this is a pure PPV — no other
+    # access-change reason from a sibling WS event (sub-activated,
+    # tier-upgraded, follow-transition) is pending for this creator. A
+    # non-PPV reason needs the full re-walk so its content surfaces;
+    # otherwise consume_access_change inside get_creator_account_info
+    # would pop the reason silently and the parallel FullCreatorDownload
+    # would see an empty registry → dedup short-circuit → re-walk dropped.
+    if targeted_ids and pending_reason in (None, "ppv-purchase"):
+        logger.info(
+            "daemon.runner: PPV targeted re-download for {} ({}) — {} media ids",
+            creator_name,
+            item.creator_id,
+            len(targeted_ids),
+        )
+        state.download_type = DownloadType.MESSAGES
+        try:
+            await get_creator_account_info(config, state)
+            accessible = await fetch_and_process_media(config, state, targeted_ids)
+            if accessible:
+                await process_download_accessible_media(config, state, accessible)
+        except Exception as exc:
+            logger.opt(exception=exc).error(
+                "daemon.runner: RedownloadCreatorMedia targeted path failed for {} - {}",
+                creator_name,
+                exc,
+            )
+            raise
+        return
+
+    logger.info(
+        "daemon.runner: PPV re-download for {} ({}) — full re-walk "
+        "(targeted={}, pending_reason={})",
+        creator_name,
+        item.creator_id,
+        bool(targeted_ids),
+        pending_reason,
+    )
+    # setdefault so we don't clobber a non-PPV reason already in the registry.
+    _access_changed_accounts.setdefault(item.creator_id, "ppv-purchase")
     try:
         await get_creator_account_info(config, state)
         await download_timeline(config, state)
@@ -377,6 +428,29 @@ async def _handle_redownload_item(
         raise
 
     await _run_incremental_stash(config, state)
+
+
+async def _collect_ppv_targeted_media_ids(item: RedownloadCreatorMedia) -> list[int]:
+    """Resolve a PPV WorkItem into the AccountMedia IDs it targets.
+
+    For a standalone AccountMedia: returns [account_media_id]. For a bundle:
+    returns the bundle's cached constituent AM ids (if the bundle is in
+    cache) plus the bundle's preview AM id (if any). Empty list when the
+    item carries no targeting hint or the bundle isn't cached yet — caller
+    falls back to the full re-walk in that case.
+    """
+    ids: list[int] = []
+    if item.account_media_id is not None:
+        ids.append(item.account_media_id)
+    if item.account_media_bundle_id is not None:
+        bundle = get_store().get_from_cache(
+            AccountMediaBundle, item.account_media_bundle_id
+        )
+        if bundle:
+            for am in bundle.accountMedia or []:
+                if am.id is not None and am.id not in ids:
+                    ids.append(am.id)
+    return ids
 
 
 async def _handle_check_access_item(
@@ -1199,6 +1273,45 @@ def _make_ws_handler(
                 if room_id is not None:
                     await route_ws_chat_message(room_id, chat_msg)
             return
+
+        # NotificationService (svc=9) type=1 — unwrap inner notification.type
+        # (serviceId*1000+N) into a synthetic (svc, type) pair so sub-related
+        # notifications dispatch through the same code path as direct events.
+        if service_id == 9 and event_type == 1:
+            notification = inner.get("notification")
+            if isinstance(notification, dict):
+                inner_type = notification.get("type")
+                if isinstance(inner_type, int):
+                    svc_synth, type_synth = notification_inner_to_service_event(
+                        inner_type
+                    )
+                    if svc_synth == 15:
+                        sub_payload = notification.get("subscription")
+                        if isinstance(sub_payload, dict):
+                            try:
+                                await apply_subscription_ws_event(sub_payload)
+                            except Exception:
+                                ws_logger.exception(
+                                    "daemon.runner: apply_subscription_ws_event "
+                                    "failed for unwrapped notification "
+                                    f"svc={svc_synth} type={type_synth}"
+                                )
+
+        # SubscriptionService (svc=15) type in {5, 102} — persist embedded
+        # subscription payload via version-guarded merge. The dispatcher
+        # below still runs to translate (15, 5) into a WorkItem for the
+        # FullCreatorDownload path; this just keeps our Subscription cache
+        # current ahead of any per-creator processing.
+        if service_id == 15 and event_type in (5, 102):
+            sub_payload = inner.get("subscription")
+            if isinstance(sub_payload, dict):
+                try:
+                    await apply_subscription_ws_event(sub_payload)
+                except Exception:
+                    ws_logger.exception(
+                        "daemon.runner: apply_subscription_ws_event failed "
+                        f"for svc={service_id} type={event_type}"
+                    )
 
         item = dispatch_ws_event(service_id, event_type, inner)
         if item is None:

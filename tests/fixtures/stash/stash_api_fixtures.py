@@ -260,7 +260,17 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
             first_line = query_str.strip().split("\n")[0] if query_str else "<empty>"
             variables = req_body.get("variables", {})
 
-            resp_body = call.response.json() if call.response else {}
+            # respx Call.response raises ValueError when the side_effect was an
+            # exception (e.g. httpx.ConnectError). Use optional_response to avoid
+            # the raise — it returns None in that case.
+            optional_response = getattr(call, "optional_response", None)
+            if optional_response is None:
+                resp_body = {}
+            else:
+                try:
+                    resp_body = optional_response.json()
+                except (ValueError, json.JSONDecodeError):
+                    resp_body = {}
             data_keys = list((resp_body.get("data") or {}).keys()) if resp_body else []
 
             print(f"\n  [{i}] {first_line}", file=sys.stderr)
@@ -269,6 +279,11 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
                 file=sys.stderr,
             )
             print(f"      response data keys: {data_keys}", file=sys.stderr)
+            if optional_response is None:
+                print(
+                    "      EXCEPTION: respx side_effect raised (no response captured)",
+                    file=sys.stderr,
+                )
             if resp_body.get("errors"):
                 print(f"      ERRORS: {resp_body['errors']}", file=sys.stderr)
     print(f"\n{'=' * 70}\n", file=sys.stderr)

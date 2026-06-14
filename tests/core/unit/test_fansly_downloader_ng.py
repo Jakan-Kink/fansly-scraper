@@ -356,6 +356,7 @@ async def test_async_main_registers_atexit_handler(config_with_database, caplog)
         return func
 
     with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("fansly_downloader_ng._db_cleanup_atexit_registered", False)
         mp.setattr("fansly_downloader_ng.main", _fake_main)
         mp.setattr("atexit.register", _capture_register)
         result = await _async_main(config)
@@ -1165,11 +1166,12 @@ async def test_cleanup_with_global_timeout_semaphore_exception(
 async def test_async_main_skips_atexit_when_already_registered(
     config_with_database, caplog, monkeypatch
 ):
-    """_async_main skips registering cleanup_database_sync when already registered.
+    """_async_main skips registering cleanup_database_sync when the
+    module-level ``_db_cleanup_atexit_registered`` flag is already set.
 
-    The guard is the module-level ``_db_cleanup_atexit_registered`` flag
-    (``_register_db_cleanup_once``): when it is already True, registration is
-    short-circuited.
+    Commit 5d7574fe1 replaced the brittle ``any(atexit._exithandlers...)``
+    introspection with the flag -- so simulating "already registered" is
+    now a flag-flip, not a hand-rolled ``_exithandlers`` mutation.
     """
     caplog.set_level(logging.INFO)
     _clear_atexit_cleanup_handlers()

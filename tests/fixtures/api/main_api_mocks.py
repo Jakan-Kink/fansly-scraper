@@ -37,6 +37,7 @@ import httpx
 import pytest_asyncio
 import respx
 
+from api.fansly import FanslyApi
 from fansly_downloader_ng import main
 from tests.fixtures.api.fake_websocket import FakeSocket, fake_websocket_session
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -155,7 +156,7 @@ class MainIntegrationEnv:
         # Page 1: the following relationships. Second page is empty so the
         # paginator terminates.
         respx.get(
-            url__startswith=f"https://apiv3.fansly.com/api/v1/account/{self.client_id}/following"
+            url__startswith=FanslyApi.FOLLOWING_ENDPOINT.format(self.client_id)
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -180,9 +181,9 @@ class MainIntegrationEnv:
                 results = [accounts_by_id[i] for i in requested if i in accounts_by_id]
                 return httpx.Response(200, json=fansly_json(results))
 
-            respx.get(
-                url__startswith="https://apiv3.fansly.com/api/v1/account?ids="
-            ).mock(side_effect=_account_by_id_lookup)
+            respx.get(url__startswith=FanslyApi.ACCOUNT_BY_ID_ENDPOINT.format("")).mock(
+                side_effect=_account_by_id_lookup
+            )
 
     def register_empty_content(self, response_count: int = 10) -> None:
         """Register every download-mode endpoint with an empty-result response.
@@ -203,7 +204,7 @@ class MainIntegrationEnv:
         their own mode-specific route BEFORE calling this (respx matches the
         most specific registered route first).
         """
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/timelinenew/").mock(
+        respx.get(url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format("")).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -220,7 +221,7 @@ class MainIntegrationEnv:
             * response_count
         )
         # messages.py:41 indexes into ``aggregationData.groups`` unconditionally.
-        respx.get("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
+        respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -229,13 +230,11 @@ class MainIntegrationEnv:
             ]
             * response_count
         )
-        respx.get("https://apiv3.fansly.com/api/v1/mediastoriesnew").mock(
+        respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json=fansly_json({"stories": []}))]
             * response_count
         )
-        respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account/media/orders"
-        ).mock(
+        respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(200, json=fansly_json({"accountMediaOrders": []}))
             ]
@@ -243,7 +242,7 @@ class MainIntegrationEnv:
         )
         # Single post lookup — download/single.py:67 reads
         # ``accountMediaBundles`` and ``accountMedia`` unconditionally.
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/post").mock(
+        respx.get(url__startswith=FanslyApi.POST_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -261,7 +260,7 @@ class MainIntegrationEnv:
         )
         # Catch-all for account-scoped endpoints (walls, etc.) used by Wall mode.
         # This is registered LAST so more specific account/... routes win.
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/").mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/").mock(
             side_effect=[httpx.Response(200, json=fansly_json([]))] * response_count
         )
 
@@ -298,7 +297,7 @@ def mount_client_account_me_route(
         The mounted respx route — assert on ``.call_count`` for "did the
         client account fetch fire?" verification.
     """
-    return respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+    return respx.get(FanslyApi.ACCOUNT_ME_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -383,13 +382,13 @@ def mount_empty_creator_pipeline(
 
     routes: dict[str, respx.Route] = {}
     routes["account"] = respx.get(
-        url__startswith="https://apiv3.fansly.com/api/v1/account?usernames="
+        url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
     ).mock(
         side_effect=[httpx.Response(200, json=fansly_json([account_payload]))]
         * response_count
     )
     routes["timeline"] = respx.get(
-        url__startswith=(f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}")
+        url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
     ).mock(
         side_effect=[
             httpx.Response(
@@ -409,7 +408,7 @@ def mount_empty_creator_pipeline(
         * response_count
     )
     routes["stories"] = respx.get(
-        url__startswith="https://apiv3.fansly.com/api/v1/mediastoriesnew"
+        url__startswith=FanslyApi.MEDIA_STORIES_NEW_ENDPOINT
     ).mock(
         side_effect=[
             httpx.Response(
@@ -429,7 +428,7 @@ def mount_empty_creator_pipeline(
         * response_count
     )
     routes["messages"] = respx.get(
-        url__startswith="https://apiv3.fansly.com/api/v1/messaging/groups"
+        url__startswith=FanslyApi.MESSAGING_GROUPS_ENDPOINT
     ).mock(
         side_effect=[
             httpx.Response(
@@ -469,9 +468,7 @@ def mount_empty_following_route(client_id: int) -> respx.Route:
         following refresh fire?" verification.
     """
     return respx.get(
-        url__startswith=(
-            f"https://apiv3.fansly.com/api/v1/account/{client_id}/following"
-        )
+        url__startswith=FanslyApi.FOLLOWING_ENDPOINT.format(client_id)
     ).mock(side_effect=[httpx.Response(200, json=fansly_json([]))])
 
 
@@ -541,14 +538,14 @@ def _register_baseline_routes(
     matches the pattern at ``tests/fixtures/stash/stash_api_fixtures.py:265``
     where the stash fixture also uses a blanket default responder.
     """
-    respx.route(method="OPTIONS", url__startswith="https://apiv3.fansly.com/").mock(
+    respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=[httpx.Response(200)] * options_response_count
     )
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/device/id").mock(
+    respx.get(url__startswith=FanslyApi.DEVICE_ID_ENDPOINT).mock(
         side_effect=[httpx.Response(200, json=fansly_json(device_id))]
         * get_response_count
     )
-    respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+    respx.get(FanslyApi.ACCOUNT_ME_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -589,9 +586,9 @@ def _register_account_lookup_route(
         ]
         return httpx.Response(200, json=fansly_json(results))
 
-    respx.get(
-        url__startswith="https://apiv3.fansly.com/api/v1/account?usernames="
-    ).mock(side_effect=_account_lookup)
+    respx.get(url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")).mock(
+        side_effect=_account_lookup
+    )
 
 
 @pytest_asyncio.fixture

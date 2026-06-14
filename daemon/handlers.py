@@ -63,10 +63,14 @@ class RedownloadCreatorMedia(WorkItem):
     """Re-download a creator's media after a PPV purchase makes it accessible.
 
     Produced by svc=2 type=7 (PPV media purchased) and type=8 (PPV bundle
-    purchased).
+    purchased). When the order payload names the specific AccountMedia or
+    bundle ID, the runner does a targeted refresh of just those rows
+    instead of re-walking the whole timeline + walls + messages.
     """
 
     creator_id: int
+    account_media_id: int | None = None
+    account_media_bundle_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +219,9 @@ def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
 
     Returns:
         RedownloadCreatorMedia when correlationAccountId is present and valid.
-        None on malformed payloads.
+        Targeted ``account_media_id`` / ``account_media_bundle_id`` fields are
+        populated from the order payload when present so the runner can skip
+        the full creator re-walk. None on malformed payloads.
     """
     order = event.get("order")
     if not isinstance(order, dict):
@@ -228,7 +234,11 @@ def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
         )
         return None
 
-    return RedownloadCreatorMedia(creator_id=creator_id)
+    return RedownloadCreatorMedia(
+        creator_id=creator_id,
+        account_media_id=_safe_int(order.get("accountMediaId")),
+        account_media_bundle_id=_safe_int(order.get("accountMediaBundleId")),
+    )
 
 
 def _handle_message_deleted(event: dict[str, Any]) -> WorkItem | None:

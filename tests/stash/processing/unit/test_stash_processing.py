@@ -22,11 +22,15 @@ from tests.fixtures.stash.stash_api_fixtures import (
     dump_graphql_calls,
 )
 from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_find_galleries_result,
     create_find_images_result,
     create_find_performers_result,
+    create_find_scenes_result,
+    create_find_studios_result,
     create_graphql_response,
     create_image_dict,
     create_performer_dict,
+    create_studio_dict,
 )
 from tests.fixtures.stash.stash_type_factories import PerformerFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -176,64 +180,50 @@ class TestStashProcessingPerformer:
         test_account_1 = AccountFactory.build(username="test_user")
         test_account_1.stash_id = 123  # stash_id is int
 
+        # Case 2 setup
+        test_account_2 = AccountFactory.build(username="test_user_2")
+        test_account_2.stash_id = None
+
+        # Case 3 setup
+        test_account_3 = AccountFactory.build(username="nonexistent_user")
+        test_account_3.stash_id = None
+
         try:
-            performer = await respx_stash_processor._find_existing_performer(
+            performer_1 = await respx_stash_processor._find_existing_performer(
                 test_account_1
+            )
+            performer_2 = await respx_stash_processor._find_existing_performer(
+                test_account_2
+            )
+            performer_3 = await respx_stash_processor._find_existing_performer(
+                test_account_3
             )
         finally:
             dump_graphql_calls(graphql_route.calls, "test_find_existing_performer")
 
-        # Verify performer was found
-        assert performer is not None
-        assert performer.id == "123"
-        assert performer.name == "test_user"
+        # Verify Case 1: performer was found by ID
+        assert performer_1 is not None
+        assert performer_1.id == "123"
+        assert performer_1.name == "test_user"
 
         # Inspect the first HTTP request
-        assert len(graphql_route.calls) == 1
+        assert len(graphql_route.calls) == 3
         assert_op_with_vars(graphql_route.calls[0], "findPerformer", id="123")
 
-        # Case 2: Account has no stash_id - search by username (uses findPerformers query)
-        test_account_2 = AccountFactory.build(username="test_user_2")
-        test_account_2.stash_id = None
-
-        try:
-            performer = await respx_stash_processor._find_existing_performer(
-                test_account_2
-            )
-        finally:
-            dump_graphql_calls(
-                graphql_route.calls, "test_find_existing_performer_case_2"
-            )
-
-        # Verify performer was found
-        assert performer is not None
-        assert performer.id == "123"
+        # Verify Case 2: performer was found by username
+        assert performer_2 is not None
+        assert performer_2.id == "123"
 
         # Inspect the second HTTP request
-        assert len(graphql_route.calls) == 2
         request_body = json.loads(graphql_route.calls[1].request.content)
         assert (
             "findPerformers" in request_body["query"]
         )  # Note: plural when searching by name
 
-        # Case 3: Performer not found - GraphQL returns empty result
-        test_account_3 = AccountFactory.build(username="nonexistent_user")
-        test_account_3.stash_id = None
-
-        try:
-            performer = await respx_stash_processor._find_existing_performer(
-                test_account_3
-            )
-        finally:
-            dump_graphql_calls(
-                graphql_route.calls, "test_find_existing_performer_case_3"
-            )
-
-        # Verify no performer found
-        assert performer is None
+        # Verify Case 3: no performer found
+        assert performer_3 is None
 
         # Inspect the third HTTP request
-        assert len(graphql_route.calls) == 3
         request_body = json.loads(graphql_route.calls[2].request.content)
         assert (
             "findPerformers" in request_body["query"]
@@ -353,6 +343,7 @@ class TestStashProcessingPerformer:
                 )
             ]
         )
+
         try:
             await respx_stash_processor._update_performer_avatar(
                 test_account, test_performer
@@ -440,6 +431,7 @@ class TestStashProcessingPerformer:
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=responses
         )
+
         try:
             await respx_stash_processor._update_performer_avatar(
                 test_account, test_performer
@@ -627,14 +619,6 @@ class TestStashProcessingPerformer:
         ) as spy_update:
             # Mock Stash GraphQL responses for downstream processing
             # (respx_stash_processor already has respx enabled)
-            from tests.fixtures.stash.stash_graphql_fixtures import (
-                create_find_galleries_result,
-                create_find_images_result,
-                create_find_performers_result,
-                create_find_scenes_result,
-                create_find_studios_result,
-                create_studio_dict,
-            )
 
             # 1. Fansly parent studio
             fansly_studio = create_studio_dict(

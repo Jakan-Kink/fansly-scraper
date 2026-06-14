@@ -19,6 +19,8 @@ import httpx
 import pytest
 from loguru import logger
 
+import metadata.subscriptions as subs_mod
+
 
 # NOTE: imports of ``config.logging`` and ``helpers.rich_progress`` MUST stay
 # inside the fixture bodies below (lazy import). Hoisting them to module
@@ -178,6 +180,14 @@ def cleanup_global_config_state():
 
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def cleanup_access_changed_accounts():
+    """Reset the module-level access-change registry between tests."""
+    subs_mod._access_changed_accounts.clear()
+    yield
+    subs_mod._access_changed_accounts.clear()
 
 
 def _close_unawaited_coroutines():

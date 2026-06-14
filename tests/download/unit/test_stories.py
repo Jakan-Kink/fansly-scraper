@@ -67,7 +67,7 @@ async def test_mark_stories_viewed_posts_once_per_story(respx_fansly_api, test_c
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
     )
-    route = respx.post(url__startswith=f"{FanslyApi.BASE_URL}mediastory/view").mock(
+    route = respx.post(url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(200, json={"storyId": "111", "accountId": "999"}),
             httpx.Response(200, json={"storyId": "222", "accountId": "999"}),
@@ -103,7 +103,7 @@ async def test_mark_stories_viewed_swallows_single_failure(
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
     )
-    route = respx.post(url__startswith=f"{FanslyApi.BASE_URL}mediastory/view").mock(
+    route = respx.post(url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(200, json={"storyId": "111"}),
             httpx.Response(500),
@@ -135,14 +135,14 @@ async def test_mark_stories_viewed_empty_list_is_noop(respx_fansly_api, test_con
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
     )
-    route = respx.post(url__startswith=f"{FanslyApi.BASE_URL}mediastory/view").mock(
+    route = respx.post(url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT).mock(
         side_effect=[httpx.Response(200)]
     )
 
     try:
         await _mark_stories_viewed(config_with_api, [])
     finally:
-        dump_fansly_calls(route.calls, label="mark_stories_viewed_empty_list")
+        dump_fansly_calls(route.calls, label="mark_stories_viewed_empty")
 
     assert route.call_count == 0
 
@@ -162,7 +162,7 @@ async def test_mark_stories_viewed_swallows_post_exception(
     respx.route(method="OPTIONS", url__startswith=FanslyApi.BASE_URL).mock(
         side_effect=lambda _r: httpx.Response(200)
     )
-    route = respx.post(url__startswith=f"{FanslyApi.BASE_URL}mediastory/view").mock(
+    route = respx.post(url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(200, json={"storyId": "111"}),
             httpx.ConnectError("simulated network drop"),
@@ -289,7 +289,7 @@ async def test_download_stories_calls_mark_when_mark_viewed_true(
 
     am_entry = _account_media_entry(media_id, creator_id)
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -306,7 +306,7 @@ async def test_download_stories_calls_mark_when_mark_viewed_true(
             )
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(200, json={"success": True, "response": [am_entry]})
         ]
@@ -314,7 +314,7 @@ async def test_download_stories_calls_mark_when_mark_viewed_true(
 
     # The real /mediastory/view boundary — the gate-under-test.
     mark_view_route = respx.post(
-        url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+        url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
     ).mock(
         side_effect=[
             httpx.Response(
@@ -374,7 +374,7 @@ async def test_download_stories_skips_mark_when_mark_viewed_false(
 
     am_entry = _account_media_entry(media_id, creator_id)
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -391,7 +391,7 @@ async def test_download_stories_skips_mark_when_mark_viewed_false(
             )
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(200, json={"success": True, "response": [am_entry]})
         ]
@@ -399,7 +399,7 @@ async def test_download_stories_skips_mark_when_mark_viewed_false(
 
     # Same route as above — but assert it's NEVER called when gate is closed.
     mark_view_route = respx.post(
-        url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+        url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
     ).mock(side_effect=[httpx.Response(200, json={"storyId": str(story_id)})])
 
     _noop_download = AsyncMock(return_value=None)
@@ -482,7 +482,7 @@ async def test_download_stories_empty_media_returns_early(
     await _seed_creator_account(entity_store, creator_id, "no_media")
     state = DownloadState(creator_id=creator_id, creator_name="no_media")
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -503,13 +503,14 @@ async def test_download_stories_empty_media_returns_early(
     # No mark-view route registered — should never be hit since we return
     # before reaching the gate.
     mark_view_route = respx.post(
-        url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+        url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
     ).mock(side_effect=[httpx.Response(200)])
 
     try:
         await download_stories(config, state)
     finally:
-        dump_fansly_calls(respx.calls, label="download_stories_empty_media")
+        dump_fansly_calls(stories_route.calls, "stories-empty-accountmedia")
+        dump_fansly_calls(mark_view_route.calls, "mark-view")
 
     assert mark_view_route.call_count == 0
     assert state.download_type == DownloadType.STORIES
@@ -529,20 +530,21 @@ async def test_download_stories_no_stories_in_response(
     creator_id = snowflake_id()
     state = DownloadState(creator_id=creator_id, creator_name="empty")
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(200, json=_stories_response(media_stories=[])),
         ]
     )
 
     mark_view_route = respx.post(
-        url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+        url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
     ).mock(side_effect=[httpx.Response(200)])
 
     try:
         await download_stories(config, state)
     finally:
-        dump_fansly_calls(respx.calls, label="download_stories_no_stories")
+        dump_fansly_calls(stories_route.calls, "stories-empty-list")
+        dump_fansly_calls(mark_view_route.calls, "mark-view")
 
     assert mark_view_route.call_count == 0
 
@@ -567,7 +569,7 @@ async def test_download_stories_no_creator_id_skips_cache_check(
     # creator_id is None — exercises the False branch of `if state.creator_id`.
     state = DownloadState(creator_id=None, creator_name="no_id")
 
-    route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[
             httpx.Response(200, json=_stories_response(media_stories=[])),
         ]
@@ -576,7 +578,7 @@ async def test_download_stories_no_creator_id_skips_cache_check(
     try:
         await download_stories(config, state)
     finally:
-        dump_fansly_calls(route.calls, label="download_stories_no_creator_id")
+        dump_fansly_calls(stories_route.calls, "stories-no-creator-id")
 
     # The function reached the API call (cache check was skipped).
     assert state.download_type == DownloadType.STORIES
@@ -599,15 +601,15 @@ async def test_download_stories_swallows_outer_exception(
     creator_id = snowflake_id()
     state = DownloadState(creator_id=creator_id, creator_name="boom")
 
-    route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
-    # Must not raise.
     try:
+        # Must not raise.
         await download_stories(config, state)
     finally:
-        dump_fansly_calls(route.calls, label="download_stories_outer_exception")
+        dump_fansly_calls(stories_route.calls, "stories-403")
 
     # download_type was set before the exception fired.
     assert state.download_type == DownloadType.STORIES

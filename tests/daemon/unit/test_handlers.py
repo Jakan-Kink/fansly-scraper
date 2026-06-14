@@ -96,7 +96,9 @@ _HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
                 "correlationAccountId": "500000000002",
             }
         },
-        RedownloadCreatorMedia(creator_id=500_000_000_002),
+        RedownloadCreatorMedia(
+            creator_id=500_000_000_002, account_media_id=800_000_000_001
+        ),
         id="ppv_media_purchase",
     ),
     # svc=2 type=8 — PPV bundle purchase → RedownloadCreatorMedia
@@ -110,7 +112,9 @@ _HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
                 "correlationAccountId": "500000000002",
             }
         },
-        RedownloadCreatorMedia(creator_id=500_000_000_002),
+        RedownloadCreatorMedia(
+            creator_id=500_000_000_002, account_media_bundle_id=800_000_000_002
+        ),
         id="ppv_bundle_purchase",
     ),
     # svc=3 type=2 — new follow → CheckCreatorAccess
@@ -139,7 +143,9 @@ _HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
                 "type": 1,
             }
         },
-        RedownloadCreatorMedia(creator_id=_PPV_CREATOR_ID),
+        RedownloadCreatorMedia(
+            creator_id=_PPV_CREATOR_ID, account_media_id=800_000_000_001
+        ),
         id="story_ppv_purchase",
     ),
     # svc=5 type=10 — message deleted via ids list

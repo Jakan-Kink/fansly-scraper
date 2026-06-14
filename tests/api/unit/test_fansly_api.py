@@ -161,8 +161,10 @@ class TestFanslyApi:
         method in isolation requires a pre-bootstrap api.
         """
         api = fansly_api_factory()
-        respx.options(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(200)])
-        respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
+        options_route = respx.options(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json={"success": "true", "response": {}})]
         )
 
@@ -172,14 +174,15 @@ class TestFanslyApi:
         mock_ws_client.start_in_thread = MagicMock()
         mock_ws_client.stop_thread = AsyncMock()
 
-        with patch(
-            "api.fansly.FanslyWebSocket",
-            new=lambda **_kwargs: mock_ws_client,
-        ):
-            try:
+        try:
+            with patch(
+                "api.fansly.FanslyWebSocket",
+                new=lambda **_kwargs: mock_ws_client,
+            ):
                 result = await api.setup_session()
-            finally:
-                dump_fansly_calls(respx.calls, "test_setup_session")
+        finally:
+            dump_fansly_calls(options_route.calls, "setup_session-options")
+            dump_fansly_calls(get_route.calls, "setup_session-get")
 
         assert result is True
         assert api.session_id == "test_session_id"
@@ -569,20 +572,23 @@ class TestFanslyApi:
         crash fixture setup before the test body runs.
         """
         api = fansly_api_factory()
-        respx.options(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(200)])
-        respx.get(api.ACCOUNT_ME_ENDPOINT).mock(side_effect=[httpx.Response(401)])
+        options_route = respx.options(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(api.ACCOUNT_ME_ENDPOINT).mock(
+            side_effect=[httpx.Response(401)]
+        )
 
         def _explode(**_kwargs):
             raise RuntimeError("WS should not be instantiated on 401")
 
         try:
-            with (
-                patch("api.fansly.FanslyWebSocket", new=_explode),
-                pytest.raises(RuntimeError, match="Error during session setup"),
-            ):
-                await api.setup_session()
+            with patch("api.fansly.FanslyWebSocket", new=_explode):
+                with pytest.raises(RuntimeError, match="Error during session setup"):
+                    await api.setup_session()
         finally:
-            dump_fansly_calls(respx.calls, "test_setup_session_error")
+            dump_fansly_calls(options_route.calls, "setup_session_error-options")
+            dump_fansly_calls(get_route.calls, "setup_session_error-get")
 
     def test_get_http_headers_with_session(self, fansly_api_factory):
         """Test get_http_headers includes session ID when available.

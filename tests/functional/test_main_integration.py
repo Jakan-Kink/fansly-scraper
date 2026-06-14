@@ -271,7 +271,7 @@ async def test_main_returns_config_error_when_client_account_missing(
     env.register_empty_content()
 
     # Override the baseline /account/me response: no username.
-    route = respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
+    account_me_route = respx.get(FanslyApi.ACCOUNT_ME_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -298,9 +298,7 @@ async def test_main_returns_config_error_when_client_account_missing(
         ):
             await run_main_and_cleanup(env.config)
     finally:
-        dump_fansly_calls(
-            route.calls, "test_main_returns_config_error_when_client_account_missing"
-        )
+        dump_fansly_calls(account_me_route.calls, "main_no_client_account")
 
 
 async def test_main_use_following_populates_user_names_from_following(
@@ -414,8 +412,8 @@ async def test_main_use_following_returns_error_when_api_raises(
     # response is returned immediately. ``_make_rate_limited_request``
     # calls ``raise_for_status()`` → ``HTTPStatusError``, which is re-
     # raised, then caught by ``account.py:473`` and wrapped as ``ApiError``.
-    route = respx.get(
-        url__startswith=f"{FanslyApi.BASE_URL}account/{env.client_id}/following"
+    following_route = respx.get(
+        url__startswith=FanslyApi.FOLLOWING_ENDPOINT.format(env.client_id)
     ).mock(side_effect=[httpx.Response(404, json={"error": "not found"})])
     env.register_empty_content()
 
@@ -424,9 +422,7 @@ async def test_main_use_following_returns_error_when_api_raises(
     try:
         result = await run_main_and_cleanup(env.config)
     finally:
-        dump_fansly_calls(
-            route.calls, "test_main_use_following_returns_error_when_api_raises"
-        )
+        dump_fansly_calls(following_route.calls, "following_404")
 
     # Outer handler returns 1.
     assert result == 1, f"Expected exit code 1, got {result}"

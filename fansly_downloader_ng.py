@@ -82,6 +82,7 @@ from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
+from metadata.subscriptions import process_subscriptions_response
 from textio import (
     input_enter_continue,
     json_output,
@@ -432,6 +433,29 @@ async def main(config: FanslyConfig) -> int:
                 except Exception as e:
                     print_error(f"Error in session scope: {e}")
                     raise
+                await asyncio.sleep(timing_jitter(0.4, 0.75))
+
+                print_info("Getting subscriptions list...")
+                try:
+                    subs_response = await config.get_api().get_subscriptions()
+                    if subs_response.status_code == 200:
+                        subs_data = config.get_api().get_json_response_contents(
+                            subs_response
+                        )
+                        added = await process_subscriptions_response(subs_data)
+                        if added:
+                            print_info(
+                                f"Detected access-change for {added} "
+                                f"creator(s) from subscriptions update."
+                            )
+                    else:
+                        print_warning(
+                            f"Subscriptions fetch returned status "
+                            f"{subs_response.status_code}; skipping access-change "
+                            f"detection from /subscriptions."
+                        )
+                except Exception as e:
+                    print_warning(f"Failed to process subscriptions: {e}")
                 await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 if usernames:
@@ -945,6 +969,22 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             except Exception as exc:
                 print_warning(f"logger.complete() failed: {exc!r}")
 
+        # Close enqueue=True sinks now — each owns an mp.Queue + writer
+        # thread + POSIX semaphore that costs ~1s/sink at _Py_Finalize
+        # (py-spy: 7 sinks → 8s post-atexit). Tracked-only so foreign
+        # handlers (pytest-loguru's caplog) survive. Use print() after.
+        remove_start = time.time()
+        print_info("Closing log sinks…")
+        try:
+            from config.logging import remove_tracked_handlers  # noqa: PLC0415, I001  # circular: config.logging imports FanslyConfig
+
+            remove_tracked_handlers()
+        except Exception as exc:
+            print(f"💡 remove_tracked_handlers() failed: {exc!r}", flush=True)
+        else:
+            remove_elapsed = time.time() - remove_start
+            print(f"💡 Log sinks closed in {remove_elapsed:.2f}s", flush=True)
+
         # Task #6 — post-cleanup shutdown-delay diagnostic. When
         # FDNG_SHUTDOWN_TRACE=1, dump all thread tracebacks every 1s after
         # this point. The first dump fires 1s from now, well after
@@ -953,7 +993,10 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         # so normal runs aren't noisy. Output goes to stderr.
         if os.environ.get("FDNG_SHUTDOWN_TRACE") == "1":
             faulthandler.dump_traceback_later(1, repeat=True)
-            print_info("FDNG_SHUTDOWN_TRACE=1 — installing 1s repeating stack dump")
+            print(
+                "💡 FDNG_SHUTDOWN_TRACE=1 — installing 1s repeating stack dump",
+                flush=True,
+            )
     finally:
         # Stop the heartbeat thread regardless of how cleanup exited
         # (normal completion, early return on db_timeout, exception).
@@ -1003,13 +1046,18 @@ async def _async_main(config: FanslyConfig) -> int:
             # Run cleanup with global timeout
             print_info("Starting final cleanup process...")
             await cleanup_with_global_timeout(config)
-            print_info("Cleanup completed successfully")
+            # Our sinks are closed; print() reaches the console, the
+            # loguru emit reaches surviving handlers (caplog in tests).
+            print("💡 Cleanup completed successfully", flush=True)
+            logger.opt(depth=1).log("INFO", "Cleanup completed successfully")
         except asyncio.CancelledError:
-            print_error("Cleanup was cancelled!")
+            print("❌ Cleanup was cancelled!", flush=True, file=sys.stderr)
+            logger.opt(depth=1).log("ERROR", "Cleanup was cancelled!")
             sys.exit(1)
         except Exception as e:
-            print_error(f"Fatal error during cleanup: {e}")
-            print_error(traceback.format_exc())
+            print(f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr)
+            print(traceback.format_exc(), flush=True, file=sys.stderr)
+            logger.opt(depth=1).log("ERROR", f"Fatal error during cleanup: {e}")
             sys.exit(1)
 
     return exit_code
@@ -1033,6 +1081,23 @@ if __name__ == "__main__":
             # On Windows, CTRL_C_EVENT is more reliable than SIGINT
             signal.signal(signal.CTRL_C_EVENT, _handle_interrupt)  # type: ignore
 
+    # Shutdown phase timing — bracket each step from cleanup-complete to
+    # process-exit so we can name which native finalizer costs the 3-8s.
+    # Plain print() because loguru sinks may be gone by here. Cheap to
+    # remove once the offending phase is identified and fixed.
+    _shutdown_t0: list[float | None] = [None]  # list so closures can mutate
+
+    def _shutdown_phase(label: str) -> None:
+        now = time.time()
+        if _shutdown_t0[0] is None:
+            _shutdown_t0[0] = now
+            delta = 0.0
+        else:
+            delta = now - _shutdown_t0[0]
+        print(f"💡 shutdown +{delta:.3f}s — {label}", flush=True)
+
+    atexit.register(lambda: _shutdown_phase("atexit fired"))
+
     try:
         # Get event loop
         loop = asyncio.new_event_loop()
@@ -1040,6 +1105,7 @@ if __name__ == "__main__":
 
         # Run async main without debug mode to prevent task execution messages
         exit_code = asyncio.run(_async_main(config))
+        _shutdown_phase("asyncio.run() returned")
 
         # Exit with code
         sys.exit(exit_code)
@@ -1049,11 +1115,13 @@ if __name__ == "__main__":
         print_error(traceback.format_exc())
         sys.exit(UNEXPECTED_ERROR)
     finally:
+        _shutdown_phase("entering outer finally")
         # Clean up event loop
         with contextlib.suppress(Exception):
             if not loop.is_closed():
                 loop.stop()
                 loop.close()
+        _shutdown_phase("loop closed; falling through to Py_Finalize")
 
         # # Force exit after 5 seconds
         # print_warning("Forcing program exit in 5 seconds...")

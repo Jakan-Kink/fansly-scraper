@@ -192,10 +192,14 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
 
     # Mock the API call for the 2 missing accountMedia items
     # get_with_ngsw does OPTIONS preflight + GET
-    respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    options_route = respx.options(
+        url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+    ).mock(
         side_effect=[httpx.Response(200)],
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    get_route = respx.get(
+        url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+    ).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -244,7 +248,8 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
     try:
         await process_media_bundles(config_wired, account_id, bundle_data)
     finally:
-        dump_fansly_calls(respx.calls, "test_bundle_truncation_backfill")
+        dump_fansly_calls(options_route.calls, "bundle_truncation-options")
+        dump_fansly_calls(get_route.calls, "bundle_truncation-get")
 
     # Verify: bundle exists and junction table has all 7 positions
     bundle = await store.get(AccountMediaBundle, bundle_id)

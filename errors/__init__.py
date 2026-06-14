@@ -1,6 +1,6 @@
 """Errors/Exceptions"""
 
-from typing import Any
+from typing import Any, ClassVar
 
 
 # region Constants
@@ -133,7 +133,13 @@ class MediaHashMismatchError(MediaError):
 
 
 class DuplicatePageError(RuntimeError):
-    """Raised when all posts on a page are already in metadata."""
+    """Raised when every item on a page is already in metadata."""
+
+    _NOUN_BY_PAGE_TYPE: ClassVar[dict[str, str]] = {
+        "timeline": "posts",
+        "wall": "posts",
+        "messages": "messages",
+    }
 
     def __init__(
         self,
@@ -146,8 +152,9 @@ class DuplicatePageError(RuntimeError):
         self.page_id = page_id
         self.cursor = cursor
         self.wall_name = wall_name
+        noun = self._NOUN_BY_PAGE_TYPE.get(page_type, "items")
         self.message = (
-            f"All posts on {page_type}"
+            f"All {noun} on {page_type}"
             + (f" '{wall_name}'" if wall_name else "")
             + (f" ({page_id})" if page_id and not wall_name else "")
             + (f" before {cursor}" if cursor else "")

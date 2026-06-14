@@ -35,94 +35,39 @@ class FanslyApi:
     FANSLY_HOST: ClassVar[str] = "https://fansly.com"
     WS_URL: ClassVar[str] = "wss://wsv3.fansly.com"
 
-    # ── Endpoint templates (properties so BASE_URL can be overridden) ──
-    @property
-    def ACCOUNT_ME_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account/me"
-
-    @property
-    def ACCOUNT_BY_USERNAME_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account?usernames={{}}"
-
-    @property
-    def ACCOUNT_BY_ID_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account?ids={{}}"
-
-    @property
-    def ACCOUNT_MEDIA_ORDERS_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account/media/orders/"
-
-    @property
-    def FOLLOWING_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account/{{}}/following"
-
-    @property
-    def ACCOUNT_MEDIA_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}account/media?ids={{}}"
-
-    @property
-    def POST_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}post"
-
-    @property
-    def TIMELINE_NEW_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}timelinenew/{{}}"
-
-    @property
-    def TIMELINE_HOME_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}timeline/home"
-
-    @property
-    def MEDIA_STORIES_NEW_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}mediastoriesnew"
-
-    @property
-    def MEDIA_STORIES_FOLLOWING_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}mediastories/following"
-
-    @property
-    def STREAMING_FOLLOWING_ONLINE_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}streaming/followingstreams/online"
-
-    @property
-    def STREAMING_CHANNEL_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}streaming/channel/{{}}"
-
-    @property
-    def CHATROOM_MESSAGES_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}chatroom/messages"
-
-    @property
-    def CHATROOM_SUBALERT_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}chatroom/subalert"
-
-    @property
-    def CHATROOMS_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}chatrooms"
-
-    @property
-    def CHATROOMS_SETTINGS_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}chatrooms/settings"
-
-    @property
-    def MEDIA_STORY_VIEW_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}mediastory/view"
-
-    @property
-    def MESSAGING_GROUPS_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}messaging/groups"
-
-    @property
-    def MESSAGE_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}message"
-
-    @property
-    def DEVICE_ID_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}device/id"
-
-    @property
-    def LOGIN_ENDPOINT(self) -> str:
-        return f"{self.BASE_URL}login?ngsw-bypass=true"
+    # ── Endpoint templates ───────────────────────────────────────────
+    # ClassVars (not properties) so fixture-helper functions without an
+    # instance can reference them as ``FanslyApi.X_ENDPOINT``. Instance
+    # access (``self.X_ENDPOINT``, ``api.X_ENDPOINT``) still works via
+    # normal attribute lookup. Templates with ``{}`` are formatted at
+    # the call site.
+    ACCOUNT_ME_ENDPOINT: ClassVar[str] = f"{BASE_URL}account/me"
+    ACCOUNT_BY_USERNAME_ENDPOINT: ClassVar[str] = f"{BASE_URL}account?usernames={{}}"
+    ACCOUNT_BY_ID_ENDPOINT: ClassVar[str] = f"{BASE_URL}account?ids={{}}"
+    ACCOUNT_MEDIA_ORDERS_ENDPOINT: ClassVar[str] = f"{BASE_URL}account/media/orders/"
+    FOLLOWING_ENDPOINT: ClassVar[str] = f"{BASE_URL}account/{{}}/following"
+    ACCOUNT_MEDIA_ENDPOINT: ClassVar[str] = f"{BASE_URL}account/media?ids={{}}"
+    POST_ENDPOINT: ClassVar[str] = f"{BASE_URL}post"
+    TIMELINE_NEW_ENDPOINT: ClassVar[str] = f"{BASE_URL}timelinenew/{{}}"
+    TIMELINE_HOME_ENDPOINT: ClassVar[str] = f"{BASE_URL}timeline/home"
+    MEDIA_STORIES_NEW_ENDPOINT: ClassVar[str] = f"{BASE_URL}mediastoriesnew"
+    MEDIA_STORIES_FOLLOWING_ENDPOINT: ClassVar[str] = (
+        f"{BASE_URL}mediastories/following"
+    )
+    STREAMING_FOLLOWING_ONLINE_ENDPOINT: ClassVar[str] = (
+        f"{BASE_URL}streaming/followingstreams/online"
+    )
+    STREAMING_CHANNEL_ENDPOINT: ClassVar[str] = f"{BASE_URL}streaming/channel/{{}}"
+    CHATROOM_MESSAGES_ENDPOINT: ClassVar[str] = f"{BASE_URL}chatroom/messages"
+    CHATROOM_SUBALERT_ENDPOINT: ClassVar[str] = f"{BASE_URL}chatroom/subalert"
+    CHATROOMS_ENDPOINT: ClassVar[str] = f"{BASE_URL}chatrooms"
+    CHATROOMS_SETTINGS_ENDPOINT: ClassVar[str] = f"{BASE_URL}chatrooms/settings"
+    MEDIA_STORY_VIEW_ENDPOINT: ClassVar[str] = f"{BASE_URL}mediastory/view"
+    MESSAGING_GROUPS_ENDPOINT: ClassVar[str] = f"{BASE_URL}messaging/groups"
+    SUBSCRIPTIONS_ENDPOINT: ClassVar[str] = f"{BASE_URL}subscriptions"
+    MESSAGE_ENDPOINT: ClassVar[str] = f"{BASE_URL}message"
+    DEVICE_ID_ENDPOINT: ClassVar[str] = f"{BASE_URL}device/id"
+    LOGIN_ENDPOINT: ClassVar[str] = f"{BASE_URL}login?ngsw-bypass=true"
 
     def __init__(
         self,
@@ -159,11 +104,22 @@ class FanslyApi:
         async_retry_transport = RetryTransport(
             transport=async_base_transport, retry=retry
         )
+        # max_keepalive_connections raised from default 10 → 20: this client
+        # talks to Fansly's apiv3 + multiple CDN edges + WS HTTP upgrade,
+        # and a 10-slot keepalive pool was at risk of evicting hot connections
+        # under burst load. keepalive_expiry raised from 5s → 30s so brief
+        # idle gaps (rate-limiter waits, segment-download stalls) don't cost
+        # a reconnect when activity resumes.
         self.http_session = httpx.AsyncClient(
             transport=async_retry_transport,
             timeout=30.0,
             follow_redirects=True,
             cookies=self._cookies,
+            limits=httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=100,
+                keepalive_expiry=30.0,
+            ),
         )
 
         # Sync client for thread-pool callers — httpx.AsyncClient is not thread-safe across loops.
@@ -267,11 +223,19 @@ class FanslyApi:
             sync_retry_transport = RetryTransport(
                 transport=sync_base_transport, retry=self._segment_retry
             )
+            # Same limits rationale as http_session — m3u8 segment downloads
+            # hit one CDN host repeatedly so a larger keepalive pool + longer
+            # expiry directly reduces handshake churn.
             self._segment_session = httpx.Client(
                 transport=sync_retry_transport,
                 timeout=30.0,
                 follow_redirects=True,
                 cookies=self._cookies,
+                limits=httpx.Limits(
+                    max_keepalive_connections=20,
+                    max_connections=100,
+                    keepalive_expiry=30.0,
+                ),
             )
         return self._segment_session
 
@@ -846,6 +810,35 @@ class FanslyApi:
         return await self.get_with_ngsw(
             url=self.MESSAGE_ENDPOINT,
             params=params,
+        )
+
+    async def get_subscriptions(self) -> httpx.Response:
+        """GET /api/v1/subscriptions — the authenticated user's full
+        subscription history (active + expired) plus the catalog of
+        SubscriptionPlans + nested SubscriptionPromos that the subscribed
+        creators offer.
+
+        Used at session start to populate the Subscription / SubscriptionPlan /
+        SubscriptionPromo tables and detect access-change transitions.
+        """
+        return await self.get_with_ngsw(
+            url=self.SUBSCRIPTIONS_ENDPOINT,
+        )
+
+    async def get_subscriptions_by_ids(
+        self, subscription_ids: list[int | str]
+    ) -> httpx.Response:
+        """GET /api/v1/subscriptions?ids=<csv> — targeted refresh of N
+        Subscription rows by ID. Mirrors the Fansly client's
+        ``getSubscriptionsByIds`` (main.js line 20902).
+
+        Cheaper than ``get_subscriptions()`` when a WS event names a
+        specific sub.id and we only want that row refreshed.
+        """
+        ids_str = ",".join(str(sid) for sid in subscription_ids)
+        return await self.get_with_ngsw(
+            url=self.SUBSCRIPTIONS_ENDPOINT,
+            params={"ids": ids_str},
         )
 
     async def get_device_id_info(self) -> httpx.Response:

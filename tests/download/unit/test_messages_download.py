@@ -20,6 +20,7 @@ persist to the real PostgreSQL database backing ``entity_store``.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import httpx
@@ -162,7 +163,7 @@ async def test_download_messages_success_full_real_pipeline(
 
     # Two message pages: first has a message, second is empty → IndexError
     # break at ``_download_group_message_loop:183`` (cursor advance).
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -179,7 +180,7 @@ async def test_download_messages_success_full_real_pipeline(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -199,7 +200,7 @@ async def test_download_messages_success_full_real_pipeline(
             httpx.Response(200, json=_messages_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -257,7 +258,7 @@ async def test_download_messages_no_group_for_creator_warns_and_exits(
 
     # The response has a group, but it contains a different user —
     # production code iterates members, never finds creator_id, returns.
-    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -299,7 +300,7 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
     config.download_directory = tmp_path
     config.interactive = False
 
-    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -333,7 +334,7 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
     creator_id = snowflake_id()
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -350,7 +351,7 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -393,7 +394,7 @@ async def test_download_messages_for_group_with_creator_info_preset(
     state.creator_id = creator_id
     state.creator_name = f"dg_{creator_id}"
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -410,7 +411,7 @@ async def test_download_messages_for_group_with_creator_info_preset(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(200, json=_messages_response())]
     )
 
@@ -449,7 +450,7 @@ async def test_download_messages_for_group_groups_api_non_200_returns_early(
 
     # 500 is in httpx_retries' status_forcelist — provide enough responses
     # to exhaust retries.
-    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[httpx.Response(500, text="server boom")] * 5
     )
 
@@ -477,7 +478,7 @@ async def test_download_messages_for_group_missing_group_warns_and_returns(
     creator_id = snowflake_id()
     known_group_id = snowflake_id()
 
-    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -523,7 +524,7 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
     creator_id = snowflake_id()
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -540,7 +541,7 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(200, json=_messages_response())]
     )
 
@@ -593,7 +594,7 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     )
     await entity_store.save(account)
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -613,7 +614,7 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     )
     # 403 on /message → loop exits at line 149-156 BEFORE reaching
     # set_create_directory_for_download (which would crash on creator_name=None).
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -655,7 +656,7 @@ async def test_download_messages_for_group_cannot_identify_creator_warns(
 
     group_id = snowflake_id()
 
-    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -719,7 +720,7 @@ async def test_download_messages_skipped_downloads_summary(
     state.creator_id = creator_id
     state.creator_name = f"skip_{creator_id}"
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -736,7 +737,7 @@ async def test_download_messages_skipped_downloads_summary(
             )
         ]
     )
-    respx.get(f"{FanslyApi.BASE_URL}message").mock(
+    respx.get(FanslyApi.MESSAGE_ENDPOINT).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -759,7 +760,7 @@ async def test_download_messages_skipped_downloads_summary(
             httpx.Response(200, json=_messages_response()),
         ]
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+    respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -802,3 +803,200 @@ async def test_download_messages_skipped_downloads_summary(
     # Two media items marked as duplicate by the fake CDN → skipped>1.
     assert state.duplicate_count >= 2
     assert sum(call_records) >= 2
+
+
+@pytest.mark.asyncio
+async def test_loop_breaks_on_duplicate_page_when_messages_already_cached(
+    respx_fansly_api, entity_store, mock_config, tmp_path, monkeypatch
+):
+    """All messages on the first /message page already in the identity map
+    → check_page_duplicates raises DuplicatePageError → loop breaks WITHOUT
+    fetching a second page. The exact pagination short-circuit that the
+    "scrapable: 0 -> 0 -> 0" daemon-log tail showed was missing.
+    """
+    config = mock_config
+    config.download_directory = tmp_path
+    config.interactive = False
+    config.use_pagination_duplication = True
+
+    creator_id = snowflake_id()
+    group_id = snowflake_id()
+    cached_msg_ids = [snowflake_id() for _ in range(3)]
+
+    state = DownloadState()
+    state.creator_id = creator_id
+    state.creator_name = f"msg_{creator_id}"
+
+    # Seed all 3 messages in cache via the store so check_page_duplicates
+    # sees them as "already in metadata."
+    store = get_store()
+    await store.save(
+        Account(
+            id=creator_id, username=f"msg_{creator_id}", createdAt=datetime.now(UTC)
+        )
+    )
+    for mid in cached_msg_ids:
+        await store.save(
+            Message(
+                id=mid,
+                senderId=creator_id,
+                content="cached",
+                createdAt=datetime.now(UTC),
+            )
+        )
+
+    respx.get(respx_fansly_api.MESSAGING_GROUPS_ENDPOINT).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_groups_response(
+                    groups=[
+                        {
+                            "id": group_id,
+                            "createdBy": creator_id,
+                            "users": [{"userId": creator_id}],
+                        }
+                    ],
+                    accounts=[_creator_account(creator_id, f"msg_{creator_id}")],
+                ),
+            )
+        ]
+    )
+    # Send ALL 3 cached message ids in one page so the cache check finds
+    # every one and triggers the raise on the first response.
+    msg_route = respx.get(respx_fansly_api.MESSAGE_ENDPOINT).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_messages_response(
+                    messages=[
+                        {
+                            "id": mid,
+                            "senderId": creator_id,
+                            "content": "cached",
+                            "createdAt": 1700000000,
+                            "deleted": False,
+                        }
+                        for mid in cached_msg_ids
+                    ],
+                ),
+            ),
+        ]
+    )
+
+    async def _noop(_):
+        return None
+
+    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.input_enter_continue", _noop)
+    monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+    monkeypatch.setattr("download.media.input_enter_continue", _noop)
+    # asyncio.sleep(5) inside check_page_duplicates — patch out so the test
+    # doesn't pay the rate-limit cushion delay.
+    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_dup_page_break")
+
+    # One /message call (the one that triggered DuplicatePageError); no
+    # second page fetched.
+    assert msg_route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_loop_bypasses_dedup_when_access_changed(
+    respx_fansly_api, entity_store, mock_config, tmp_path, monkeypatch
+):
+    """state.creator_access_changed=True passes bypass=True into
+    check_page_duplicates → the all-cached page does NOT raise and the
+    loop continues to a second (empty) page → IndexError → exit. Two
+    /message calls instead of one — the access-change contract for re-walk.
+    """
+    config = mock_config
+    config.download_directory = tmp_path
+    config.interactive = False
+    config.use_pagination_duplication = True
+
+    creator_id = snowflake_id()
+    group_id = snowflake_id()
+    cached_msg_ids = [snowflake_id() for _ in range(3)]
+
+    state = DownloadState()
+    state.creator_id = creator_id
+    state.creator_name = f"msg_{creator_id}"
+    state.creator_access_changed = True
+    state.creator_access_change_reason = "sub-activated"
+
+    store = get_store()
+    await store.save(
+        Account(
+            id=creator_id, username=f"msg_{creator_id}", createdAt=datetime.now(UTC)
+        )
+    )
+    for mid in cached_msg_ids:
+        await store.save(
+            Message(
+                id=mid,
+                senderId=creator_id,
+                content="cached",
+                createdAt=datetime.now(UTC),
+            )
+        )
+
+    respx.get(respx_fansly_api.MESSAGING_GROUPS_ENDPOINT).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_groups_response(
+                    groups=[
+                        {
+                            "id": group_id,
+                            "createdBy": creator_id,
+                            "users": [{"userId": creator_id}],
+                        }
+                    ],
+                    accounts=[_creator_account(creator_id, f"msg_{creator_id}")],
+                ),
+            )
+        ]
+    )
+    msg_route = respx.get(respx_fansly_api.MESSAGE_ENDPOINT).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_messages_response(
+                    messages=[
+                        {
+                            "id": mid,
+                            "senderId": creator_id,
+                            "content": "cached",
+                            "createdAt": 1700000000,
+                            "deleted": False,
+                        }
+                        for mid in cached_msg_ids
+                    ],
+                ),
+            ),
+            httpx.Response(200, json=_messages_response()),
+        ]
+    )
+
+    async def _noop(_):
+        return None
+
+    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.input_enter_continue", _noop)
+    monkeypatch.setattr("download.messages.input_enter_continue", _noop)
+    monkeypatch.setattr("download.media.input_enter_continue", _noop)
+    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_bypass_access_changed")
+
+    # First page returned 3 cached messages — bypass=True suppressed the
+    # raise → second page fetched (empty → IndexError ends the loop).
+    assert msg_route.call_count == 2

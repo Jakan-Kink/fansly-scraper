@@ -173,6 +173,14 @@ class FanslyConfig:
     # creator's stored MonitorState.lastCheckedAt.  Set via --monitor-since or
     # --full-pass CLI flags; loaded from schema.monitoring.session_baseline.
     monitoring_session_baseline: datetime | None = None
+
+    @property
+    def full_pass(self) -> bool:
+        return (
+            self.monitoring_session_baseline is not None
+            and self.monitoring_session_baseline.year <= 2020
+        )
+
     # When True, enter the post-batch monitoring daemon after the normal
     # batch download completes.  Set via --daemon / -d CLI flag.
     daemon_mode: bool = False

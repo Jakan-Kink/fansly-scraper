@@ -1,6 +1,7 @@
 """API fixtures for testing Fansly API client with respx."""
 
 from .api_fixtures import (
+    build_creator_account_info_response,
     create_mock_json_response,
     dump_fansly_calls,
     fansly_api_factory,
@@ -76,6 +77,7 @@ __all__ = [
     "MainIntegrationEnv",
     "SlidingWindowScenario",
     "auth_response",
+    "build_creator_account_info_response",
     "build_master_playlist",
     "build_mock_ws_class",
     "build_streaming_account",

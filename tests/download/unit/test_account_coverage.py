@@ -30,7 +30,9 @@ class TestExtractAccountDataKeyErrorNon401:
         We construct a response whose JSON will cause the real get_json_response_contents
         to raise KeyError by omitting the 'response' key.
         """
-        request = httpx.Request("GET", f"{FanslyApi.BASE_URL}account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         # success=true but no 'response' key → KeyError in get_json_response_contents
         response = httpx.Response(
             status_code=200,

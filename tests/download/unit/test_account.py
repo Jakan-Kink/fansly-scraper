@@ -1,7 +1,7 @@
 """Unit tests for the account module."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -21,8 +21,9 @@ from download.account import (
 )
 from download.downloadstate import DownloadState
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from metadata import Account, TimelineStats, Wall
-from tests.fixtures.api import dump_fansly_calls
+from metadata import Account, FollowEvent, TimelineStats, Wall
+from metadata.subscriptions import _access_changed_accounts
+from tests.fixtures.api import build_creator_account_info_response, dump_fansly_calls
 from tests.fixtures.utils import snowflake_id
 
 
@@ -79,7 +80,7 @@ class TestGetAccountResponse:
         state = DownloadState()
         state.creator_name = None  # Client account
 
-        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me").mock(
+        route = respx.get(url__startswith=FanslyApi.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -178,7 +179,7 @@ class TestExtractAccountData:
 
     def test_extract_client_account_data(self, respx_fansly_api, mock_config):
         """Test extracting client account data — real response + real JSON pipeline."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account/me")
+        request = httpx.Request("GET", FanslyApi.ACCOUNT_ME_ENDPOINT)
         response = httpx.Response(
             200,
             json={
@@ -202,7 +203,9 @@ class TestExtractAccountData:
 
     def test_extract_creator_account_data(self, respx_fansly_api, mock_config):
         """Test extracting creator account data — real response + real JSON pipeline."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             request=request,
@@ -236,7 +239,9 @@ class TestExtractAccountData:
 
     def test_extract_unauthorized_error(self, respx_fansly_api, mock_config):
         """Test handling of unauthorized error — real 401 response."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             status_code=401,
             json={"error": "Unauthorized"},
@@ -254,7 +259,9 @@ class TestExtractAccountData:
 
     def test_extract_missing_creator_error(self, respx_fansly_api, mock_config):
         """Test handling of missing creator error — real empty-list response."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             json={"success": "true", "response": []},
@@ -269,7 +276,9 @@ class TestExtractAccountData:
 
     def test_extract_malformed_response(self, respx_fansly_api, mock_config):
         """Test handling of malformed response — real Response with non-standard shape."""
-        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/account")
+        request = httpx.Request(
+            "GET", FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        )
         response = httpx.Response(
             200,
             json={"success": "true", "response": {"invalid": "data"}},
@@ -928,3 +937,135 @@ class TestGetFollowingAccounts:
 
         assert "goodguy" in result
         assert "badguy" not in result
+
+
+@pytest.mark.asyncio
+async def test_creator_access_changed_priority_full_pass_over_registry_over_follow(
+    respx_fansly_api, mock_config, entity_store
+):
+    """Three triggers can fire on the same creator in one run; the resolver
+    checks them in order — full-pass beats registry beats follow-transition.
+    A single state object only gets one reason set, so the priority is
+    visible by configuring each scenario in turn against the same creator.
+    """
+    creator_id = snowflake_id()
+    username = f"prio_{creator_id}"
+
+    # Pre-seed Account with following=False so the API following=True is
+    # detected as a transition by record_follow_observation.
+    await entity_store.save(Account(id=creator_id, username=username, following=False))
+
+    route = respx.get(
+        url__startswith=respx_fansly_api.ACCOUNT_BY_USERNAME_ENDPOINT.format(username)
+    ).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=build_creator_account_info_response(creator_id, username),
+            )
+            for _ in range(3)
+        ]
+    )
+
+    # --- Scenario 1: full-pass wins over a registry entry. ---
+    mock_config.monitoring_session_baseline = datetime(2000, 1, 1, tzinfo=UTC)
+    _access_changed_accounts[creator_id] = "sub-activated"
+
+    state = DownloadState()
+    state.creator_name = username
+    try:
+        await get_creator_account_info(mock_config, state)
+    finally:
+        dump_fansly_calls(route.calls, "priority_full_pass")
+
+    assert state.creator_access_changed is True
+    assert state.creator_access_change_reason == "full-pass"
+    # Registry entry is NOT consumed when full-pass wins.
+    assert _access_changed_accounts.get(creator_id) == "sub-activated"
+
+    # --- Scenario 2: registry wins over follow-transition. ---
+    mock_config.monitoring_session_baseline = None
+
+    state = DownloadState()
+    state.creator_name = username
+    await get_creator_account_info(mock_config, state)
+
+    assert state.creator_access_changed is True
+    assert state.creator_access_change_reason == "sub-activated"
+    assert creator_id not in _access_changed_accounts
+
+    # --- Scenario 3: only follow-transition. Earlier successful runs
+    # merged following=True into the cached Account, so flip the cached
+    # row back to False to make a fresh False→True transition visible.
+    cached = entity_store.get_from_cache(Account, creator_id)
+    cached.following = False
+    await entity_store.save(cached)
+    for ev in entity_store.filter(
+        FollowEvent, lambda e, c=creator_id: e.accountId == c
+    ):
+        await entity_store.delete(ev)
+
+    state = DownloadState()
+    state.creator_name = username
+    await get_creator_account_info(mock_config, state)
+
+    assert state.creator_access_changed is True
+    assert state.creator_access_change_reason == "follow-transition"
+
+
+@pytest.mark.asyncio
+async def test_follow_event_appended_only_on_transition(
+    respx_fansly_api, mock_config, entity_store
+):
+    """A FollowEvent row is added only when the new observation differs
+    from the most recent recorded state. Same-state observations are a
+    no-op so the audit log stays scoped to actual transitions."""
+    creator_id = snowflake_id()
+    username = f"follow_{creator_id}"
+
+    await entity_store.save(Account(id=creator_id, username=username, following=True))
+    now = datetime.now(UTC)
+    await entity_store.save(
+        FollowEvent(
+            accountId=creator_id,
+            observed_at=now - timedelta(days=1),
+            following_state=True,
+        )
+    )
+
+    route = respx.get(
+        url__startswith=respx_fansly_api.ACCOUNT_BY_USERNAME_ENDPOINT.format(username)
+    ).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=build_creator_account_info_response(
+                    creator_id, username, following=True
+                ),
+            ),
+            httpx.Response(
+                200,
+                json=build_creator_account_info_response(
+                    creator_id, username, following=False
+                ),
+            ),
+        ]
+    )
+
+    state = DownloadState()
+    state.creator_name = username
+    try:
+        await get_creator_account_info(mock_config, state)
+    finally:
+        dump_fansly_calls(route.calls, "follow_steady_state")
+
+    events = entity_store.filter(FollowEvent, lambda e, c=creator_id: e.accountId == c)
+    assert len(events) == 1
+
+    state = DownloadState()
+    state.creator_name = username
+    await get_creator_account_info(mock_config, state)
+
+    events = entity_store.filter(FollowEvent, lambda e, c=creator_id: e.accountId == c)
+    assert len(events) == 2
+    assert sorted(e.following_state for e in events) == [False, True]

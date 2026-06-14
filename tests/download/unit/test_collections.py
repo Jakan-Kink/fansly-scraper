@@ -103,7 +103,7 @@ class TestDownloadCollections:
         am_entry = _account_media_payload(media_id, am_id, acct_id)
 
         orders_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}account/media/orders/"
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -127,7 +127,7 @@ class TestDownloadCollections:
         )
         # fetch_and_process_media → /api/v1/account/media?ids=<am_id>
         media_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}account/media"
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
         ).mock(
             side_effect=[
                 httpx.Response(200, json={"success": True, "response": [am_entry]})
@@ -199,7 +199,7 @@ class TestDownloadCollections:
         mock_config.download_directory = tmp_path
         mock_config.interactive = False
 
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media/orders/").mock(
+        respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -216,7 +216,7 @@ class TestDownloadCollections:
         )
         # Even with empty media_ids, fetch_and_process_media may issue
         # a no-op HTTP call; mount the route to absorb it gracefully.
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+        respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 
@@ -259,7 +259,7 @@ class TestDownloadCollections:
         mock_config.interactive = False
 
         orders_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}account/media/orders/"
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT
         ).mock(side_effect=[httpx.Response(403, text="Forbidden")])
 
         # input_enter_continue is invoked on the failure path; no-op it.
@@ -305,7 +305,7 @@ class TestDownloadCollections:
         mock_config.download_directory = tmp_path
         mock_config.interactive = False
 
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media/orders/").mock(
+        respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -320,7 +320,7 @@ class TestDownloadCollections:
                 )
             ],
         )
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+        respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")).mock(
             side_effect=[httpx.Response(200, json={"success": True, "response": []})]
         )
 

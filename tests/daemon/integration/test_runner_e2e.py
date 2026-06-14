@@ -23,6 +23,7 @@ import pytest
 import respx
 from loguru import logger
 
+from api.fansly import FanslyApi
 from daemon.runner import run_daemon
 from daemon.simulator import ActivitySimulator
 from metadata.models import MonitorState
@@ -31,12 +32,12 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ---------------------------------------------------------------------------
-# URL constants (url__startswith because ngsw-bypass is appended)
+# URL aliases (url__startswith because ngsw-bypass is appended)
 # ---------------------------------------------------------------------------
 
-HOME_TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timeline/home"
-STORY_STATES_URL = "https://apiv3.fansly.com/api/v1/mediastories/following"
-TIMELINE_NEW_BASE_URL = "https://apiv3.fansly.com/api/v1/timelinenew/"
+HOME_TIMELINE_URL = FanslyApi.TIMELINE_HOME_ENDPOINT
+STORY_STATES_URL = FanslyApi.MEDIA_STORIES_FOLLOWING_ENDPOINT
+TIMELINE_NEW_BASE_URL = FanslyApi.TIMELINE_NEW_ENDPOINT.format("")
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +209,9 @@ class TestRunDaemonE2E:
                 ),
             ):
                 # ── RESPX routes (inside mock context) ───────────────────────
-                # OPTIONS preflight blanket — method-only match; only Fansly
-                # API traffic flows through httpx in this test.
-                respx.route(method="OPTIONS").mock(side_effect=[httpx.Response(200)])
+                respx.options(url__startswith=FanslyApi.BASE_URL).mock(
+                    side_effect=[httpx.Response(200)]
+                )
 
                 home_timeline_route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
                     side_effect=[

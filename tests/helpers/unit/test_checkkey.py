@@ -860,16 +860,17 @@ class TestJsBridgeShutdown:
                 return_value="oybZy8-fySzis-bubayf",
             ),
         ):
-            respx.get(FANSLY_HOST_BARE).mock(
+            homepage_route = respx.get(FANSLY_HOST_BARE).mock(
                 side_effect=[httpx.Response(200, text=html)]
             )
-            respx.get(FANSLY_MAIN_JS).mock(
+            mainjs_route = respx.get(FANSLY_MAIN_JS).mock(
                 side_effect=[httpx.Response(200, text=js_content)]
             )
             try:
                 guess_check_key("Mozilla/5.0")
             finally:
-                dump_fansly_calls(respx.calls, label="test_bridge_stopped_on_success")
+                dump_fansly_calls(homepage_route.calls, "bridge-success-homepage")
+                dump_fansly_calls(mainjs_route.calls, "bridge-success-mainjs")
 
         mock_connection.stop.assert_called_once()
 
@@ -879,13 +880,13 @@ class TestJsBridgeShutdown:
             respx.mock,
             patch("helpers.checkkey.connection") as mock_connection,
         ):
-            respx.get(FANSLY_HOST_BARE).mock(side_effect=httpx.ConnectError("boom"))
+            homepage_route = respx.get(FANSLY_HOST_BARE).mock(
+                side_effect=httpx.ConnectError("boom")
+            )
             try:
                 guess_check_key("Mozilla/5.0")
             finally:
-                dump_fansly_calls(
-                    respx.calls, label="test_bridge_stopped_on_network_error"
-                )
+                dump_fansly_calls(homepage_route.calls, "bridge-network-error")
 
         mock_connection.stop.assert_called_once()
 
@@ -895,13 +896,13 @@ class TestJsBridgeShutdown:
             respx.mock,
             patch("helpers.checkkey.connection") as mock_connection,
         ):
-            respx.get(FANSLY_HOST_BARE).mock(side_effect=RuntimeError("boom"))
+            homepage_route = respx.get(FANSLY_HOST_BARE).mock(
+                side_effect=RuntimeError("boom")
+            )
             try:
                 guess_check_key("Mozilla/5.0")
             finally:
-                dump_fansly_calls(
-                    respx.calls, label="test_bridge_stopped_on_unexpected_exception"
-                )
+                dump_fansly_calls(homepage_route.calls, "bridge-unexpected-exc")
 
         mock_connection.stop.assert_called_once()
 
@@ -919,19 +920,18 @@ class TestJsBridgeShutdown:
             ),
         ):
             mock_connection.stop.side_effect = RuntimeError("bridge already stopped")
-            respx.get(FANSLY_HOST_BARE).mock(
+            homepage_route = respx.get(FANSLY_HOST_BARE).mock(
                 side_effect=[httpx.Response(200, text=html)]
             )
-            respx.get(FANSLY_MAIN_JS).mock(
+            mainjs_route = respx.get(FANSLY_MAIN_JS).mock(
                 side_effect=[httpx.Response(200, text=js_content)]
             )
             try:
                 # Should NOT raise despite connection.stop throwing
                 result = guess_check_key("Mozilla/5.0")
             finally:
-                dump_fansly_calls(
-                    respx.calls, label="test_bridge_stop_exception_is_suppressed"
-                )
+                dump_fansly_calls(homepage_route.calls, "bridge-stop-exc-homepage")
+                dump_fansly_calls(mainjs_route.calls, "bridge-stop-exc-mainjs")
 
         assert result == "oybZy8-fySzis-bubayf"
         mock_connection.stop.assert_called_once()

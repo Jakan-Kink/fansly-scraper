@@ -70,11 +70,11 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ---------------------------------------------------------------------------
-# URL constants (url__startswith because ngsw-bypass is appended)
+# URL aliases (url__startswith because ngsw-bypass is appended)
 # ---------------------------------------------------------------------------
 
-HOME_TIMELINE_URL = f"{FanslyApi.BASE_URL}timeline/home"
-STORY_STATES_URL = f"{FanslyApi.BASE_URL}mediastories/following"
+HOME_TIMELINE_URL = FanslyApi.TIMELINE_HOME_ENDPOINT
+STORY_STATES_URL = FanslyApi.MEDIA_STORIES_FOLLOWING_ENDPOINT
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ class TestTimelinePollEnqueuesDownloadTimelineOnly:
         )
 
         # Mock the per-creator timeline call made by should_process_creator
-        timeline_url = f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+        timeline_url = FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
         recent_ms = int((datetime.now(UTC) + timedelta(hours=1)).timestamp() * 1000)
         respx.get(url__startswith=timeline_url).mock(
             side_effect=[
@@ -692,7 +692,9 @@ class TestHandleTimelineOnlyItem:
         creator_id = saved_account.id
         creator_name = saved_account.username
 
-        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+        account_route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -702,7 +704,7 @@ class TestHandleTimelineOnlyItem:
         )
         # Empty posts response terminates pagination on page 1.
         timeline_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+            url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -769,7 +771,9 @@ class TestHandleTimelineOnlyItem:
         creator_id = saved_account.id
         creator_name = saved_account.username
 
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+        respx.get(
+            url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -777,7 +781,9 @@ class TestHandleTimelineOnlyItem:
                 )
             ]
         )
-        respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+        respx.get(
+            url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -797,10 +803,10 @@ class TestHandleTimelineOnlyItem:
         )
         # Mounted-but-not-expected routes — assert call_count == 0.
         stories_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}mediastoriesnew"
+            url__startswith=FanslyApi.MEDIA_STORIES_NEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
         messages_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}messaging/groups"
+            url__startswith=FanslyApi.MESSAGING_GROUPS_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"response": []})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
@@ -855,11 +861,11 @@ class TestHandleTimelineOnlyItem:
         # creator_id NOT in the entity store → _resolve_creator_name returns None.
         unknown_creator_id = snowflake_id()
 
-        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
-            side_effect=[httpx.Response(200, json={"response": []})]
-        )
+        account_route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        ).mock(side_effect=[httpx.Response(200, json={"response": []})])
         timeline_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}timelinenew"
+            url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format("")
         ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
 
         item = DownloadTimelineOnly(creator_id=unknown_creator_id)
@@ -1487,7 +1493,9 @@ class TestMarkViewedFalse:
         # /api/v1/account?usernames=... — get_creator_account_info.
         # No ``walls`` field → state.walls stays unset → the wall
         # iteration in _handle_full_creator_item is a no-op.
-        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+        account_route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -1498,7 +1506,7 @@ class TestMarkViewedFalse:
         # /api/v1/timelinenew/{id} — empty posts terminates pagination
         # on page 1.
         timeline_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+            url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1521,7 +1529,7 @@ class TestMarkViewedFalse:
         # accountMedia → no media downloads, but the gate code
         # path still executes with mark_viewed=False.
         stories_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}mediastoriesnew"
+            url__startswith=FanslyApi.MEDIA_STORIES_NEW_ENDPOINT
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1544,7 +1552,7 @@ class TestMarkViewedFalse:
         # groups for one whose users include state.creator_id.
         # Empty groups → early "Could not find a chat history" return.
         messages_route = respx.get(
-            url__startswith=f"{FanslyApi.BASE_URL}messaging/groups"
+            url__startswith=FanslyApi.MESSAGING_GROUPS_ENDPOINT
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1561,7 +1569,7 @@ class TestMarkViewedFalse:
         )
         # The critical regression guard — must NEVER fire.
         mark_view_route = respx.post(
-            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+            url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
@@ -1701,7 +1709,9 @@ class TestMarkViewedFalse:
         # /api/v1/account?usernames=... (get_creator_account_info) and
         # /api/v1/account/media?ids=... (fetch_and_process_media via
         # download_stories), in call order.
-        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+        account_route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_BY_USERNAME_ENDPOINT.format("")
+        ).mock(
             side_effect=[
                 httpx.Response(200, json=account_response),
                 httpx.Response(
@@ -1710,13 +1720,13 @@ class TestMarkViewedFalse:
                 ),
             ]
         )
-        stories_route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+        stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
             side_effect=[httpx.Response(200, json=stories_response)]
         )
 
         # The critical regression-guard route — must NEVER fire.
         mark_view_route = respx.post(
-            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+            url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": str(story_id)})])
 
         # Patch the leaf CDN-download call at both binding sites
@@ -1808,7 +1818,7 @@ class TestMarkViewedFalse:
         )
         # Critical regression guard — must NEVER fire even with walls.
         mark_view_route = respx.post(
-            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
+            url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))

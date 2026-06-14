@@ -359,6 +359,22 @@ trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
 _handler_ids: dict[int, tuple[Any, Any]] = {}  # {id: (handler, file_handler)}
 
 
+def remove_tracked_handlers() -> None:
+    """Close every loguru sink this module added; leave foreign ones alone.
+
+    Bulk ``logger.remove()`` would also drop pytest-loguru's caplog
+    handler, which has no enqueue queue to close — no shutdown win, real
+    test-infrastructure damage.
+    """
+    for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
+        with contextlib.suppress(ValueError):
+            logger.remove(handler_id)
+        if file_handler:  # pragma: no cover — second tuple slot always None today
+            with contextlib.suppress(Exception):
+                file_handler.close()
+    _handler_ids.clear()
+
+
 def _resolve(entry: Any, global_section: Any, attr: str, default_attr: str) -> Any:
     """Resolve a per-handler field, falling through to a global default.
 
@@ -385,15 +401,7 @@ def setup_handlers() -> None:
     ``_config.logging`` is absent (early boot, tests), behavior matches
     the pre-config-driven defaults.
     """
-    for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
-        try:
-            logger.remove(handler_id)
-            if file_handler:  # pragma: no cover — _handler_ids' second tuple slot is always None today
-                with contextlib.suppress(Exception):
-                    file_handler.close()
-        except ValueError:
-            pass  # Handler already removed
-    _handler_ids.clear()
+    remove_tracked_handlers()
 
     # Pull the schema's LoggingSection if available; tests + early boot
     # run with _config=None and get a default-constructed section so all

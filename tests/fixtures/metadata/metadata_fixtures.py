@@ -396,6 +396,24 @@ def test_account_media(session_sync, test_account, test_media):
 
 
 @pytest.fixture
+def messages_page_data():
+    """API-shaped /api/v1/message page payload with 3 messages sharing one sender.
+
+    Used by tests that exercise check_page_duplicates(page_type="messages")
+    and the message-pagination dedup loop.
+    """
+    sender_id = snowflake_id()
+    account_id = snowflake_id()
+    return {
+        "messages": [
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+            {"id": snowflake_id(), "senderId": sender_id, "accountId": account_id},
+        ],
+    }
+
+
+@pytest.fixture
 def test_media_bundle(session_sync, test_account):
     """Create REAL AccountMediaBundle using factory with 60-bit BigInt ID.
 

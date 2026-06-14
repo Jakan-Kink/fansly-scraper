@@ -24,6 +24,7 @@ from .metadata_factories import (
 from .metadata_fixtures import (
     group_data,
     media_items,
+    messages_page_data,
     saved_account,
     store_with_account,
     test_account,
@@ -61,6 +62,7 @@ __all__ = [
     "create_groups_from_messages",
     "group_data",
     "media_items",
+    "messages_page_data",
     "saved_account",
     "setup_accounts_and_groups",
     "store_with_account",

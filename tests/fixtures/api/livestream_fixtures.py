@@ -245,3 +245,170 @@ def wire_ivs_stream(
             *segment_routes,
         ],
     )
+
+
+# ── PyAV fakes for the IVS mux step ────────────────────────────────────────
+#
+# Production ``_mux_ivs_segments`` uses ``isinstance(stream, VideoStream)`` /
+# ``isinstance(stream, AudioStream)`` PID-discovery (livestream.py:674-679).
+# To satisfy those checks, tests monkeypatch the imported ``VideoStream`` /
+# ``AudioStream`` symbols in ``download.livestream`` to point at these
+# fake classes — production's isinstance check then succeeds against the
+# fake instances. Per the mocking-boundary rules these are leaf fakes for
+# the ``av`` library (the lib's own stream classes are Cython-backed and
+# not easily subclassable), not internal mocks.
+
+
+class FakeVideoStream:
+    """Fake ``av.VideoStream`` — id is the MPEG-TS PID."""
+
+    def __init__(self, *, pid: int = 0x100, codec: str = "h264") -> None:
+        self.id = pid
+        self.type = "video"
+        self.codec_context = SimpleNamespace(name=codec)
+
+
+class FakeAudioStream:
+    """Fake ``av.AudioStream`` — id is the MPEG-TS PID."""
+
+    def __init__(self, *, pid: int = 0x101, codec: str = "aac") -> None:
+        self.id = pid
+        self.type = "audio"
+        self.codec_context = SimpleNamespace(name=codec)
+
+
+@dataclass(slots=True)
+class FakeAvPacket:
+    """Fake ``av.Packet`` — assignable pts/dts + stream pointer."""
+
+    stream: Any
+    pts: int
+    dts: int
+    duration: int = 1
+    is_corrupt: bool = False
+
+
+class FakeAvInputContainer:
+    """Fake input container — exposes streams + demux for the mux loop."""
+
+    def __init__(
+        self,
+        *,
+        video_stream: FakeVideoStream,
+        audio_stream: FakeAudioStream,
+        packets_per_stream: int = 3,
+    ) -> None:
+        self.streams = [video_stream, audio_stream]
+        self._packets_per_stream = packets_per_stream
+        self._video_stream = video_stream
+        self._audio_stream = audio_stream
+        self.closed = False
+
+    def demux(self, *_streams: Any) -> Any:
+        """Yield interleaved video+audio packets with monotonic PTS.
+
+        Production passes the input video + audio streams as args;
+        the fake ignores them (the packet.stream field carries the
+        routing target) and yields a fixed-shape packet sequence.
+        """
+        packets: list[FakeAvPacket] = []
+        for i in range(self._packets_per_stream):
+            packets.append(
+                FakeAvPacket(stream=self._video_stream, pts=i, dts=i, duration=1)
+            )
+            packets.append(
+                FakeAvPacket(stream=self._audio_stream, pts=i, dts=i, duration=1)
+            )
+        return iter(packets)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeAvOutputContainer:
+    """Fake output container — records mux calls + writes a stub MP4 on close.
+
+    The write-to-disk on close means production's
+    ``output_path.stat().st_size > 0`` verify check (livestream.py:853)
+    succeeds against a real file, not a mock — same pattern as the
+    existing ``_FakeOutputContainer`` in tests/download/unit/test_m3u8.py.
+    """
+
+    _STUB_MP4_BYTES = b"\x00\x00\x00\x20ftypisom" + b"\x00" * 1024
+
+    def __init__(self, output_path: Path) -> None:
+        self._output_path = Path(output_path)
+        self.template_streams: list[Any] = []
+        self.mux_calls: list[FakeAvPacket] = []
+        self.closed = False
+
+    def add_stream_from_template(self, src_stream: Any) -> Any:
+        # Production assigns the returned stream as the routing target
+        # via ``packet.stream = output_video_stream``; the fake just
+        # echoes a placeholder so identity comparisons work.
+        new_stream = SimpleNamespace(
+            id=src_stream.id,
+            codec_context=src_stream.codec_context,
+        )
+        self.template_streams.append(new_stream)
+        return new_stream
+
+    def mux(self, packet: FakeAvPacket) -> None:
+        self.mux_calls.append(packet)
+
+    def close(self) -> None:
+        if not self.closed:
+            self._output_path.write_bytes(self._STUB_MP4_BYTES)
+            self.closed = True
+
+
+class FakeAvVerifyContainer:
+    """Fake verify-pass container — reports has_video + has_audio."""
+
+    def __init__(self) -> None:
+        self.streams = [
+            SimpleNamespace(type="video"),
+            SimpleNamespace(type="audio"),
+        ]
+
+    def close(self) -> None:
+        pass
+
+
+def make_ivs_av_open_fake(
+    *,
+    output_path: Path,
+    video_pid: int = 0x100,
+    audio_pid: int = 0x101,
+    packets_per_stream: int = 3,
+) -> Any:
+    """Build an ``av.open`` replacement covering probe + mux + verify.
+
+    Pattern-matches on the path argument:
+
+    - ``av.open(<output_path>, "w", ...)`` → :class:`FakeAvOutputContainer`
+      (the per-recording output sink).
+    - ``av.open(<output_path>)`` (no mode) → :class:`FakeAvVerifyContainer`
+      (the post-mux verify pass).
+    - Any other path → :class:`FakeAvInputContainer` (a segment file —
+      either during probe or during mux iteration).
+
+    The returned callable is intended for ``monkeypatch.setattr(av, "open",
+    make_ivs_av_open_fake(output_path=...))``.
+    """
+    output_path_str = str(output_path)
+
+    def _fake_open(path: Any, mode: str = "r", **_kwargs: Any) -> Any:
+        if str(path) == output_path_str and "w" in mode:
+            return FakeAvOutputContainer(Path(path))
+        if str(path) == output_path_str:
+            return FakeAvVerifyContainer()
+        # Segment file — fresh input container with the configured streams.
+        # Each call gets its own instance so close() tracking is per-call.
+        return FakeAvInputContainer(
+            video_stream=FakeVideoStream(pid=video_pid),
+            audio_stream=FakeAudioStream(pid=audio_pid),
+            packets_per_stream=packets_per_stream,
+        )
+
+    return _fake_open
