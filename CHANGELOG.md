@@ -10,6 +10,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-06-14
+
+### Added
+
+- **File-first Stash sweep with scene-split adjudication** (`enable_scene_split`: false / dry-run / true). Replaces the code-index Stash lookup with a per-file sweep that adjudicates each downloaded file against Stash (own / split-into-new-scene / detect-and-log), so cross-source pHash collisions no longer clobber metadata.
+- **Preview-handling repair** (`repair_previews`: false / dry-run / true). Backfills already-downloaded preview files — `preview_id_` marker, `Previews/` folder, `Media.local_filename` — with `normalize_filename` now preview-marker-correct; runs a blocking Stash rescan + cache-invalidation when Stash is active.
+- **Subscription tracking** — `subscriptions`, `subscription_plans`, and `follow_events` tables and models — plus access-change-driven deduplication bypass.
+
+### Changed
+
+- **De-sprawl consolidation** across config / daemon / metadata / download / stash: DRY-ed timestamp and path logic, cut circular imports, removed dead code, and consolidated adjudication return paths. Large test-coverage expansion alongside.
+- API endpoints exposed as `_ENDPOINT` ClassVars; respx tests standardized on the `try/finally` dump convention.
+
+### Fixed
+
+- Migration `3b51fe86b710` (the v0.14.4 FK-`CASCADE` restore) now deletes pre-existing orphan junction rows before recreating each constraint, so it applies on live databases that already carry orphans.
+- Shutdown path optimized: httpx pool teardown, IVS segment handling, daemon countdown reset, and additional shutdown-hang diagnostics.
+- Test and config robustness: caplog survival, plyvel context-manager mocking, livestream fake stream `.type`, and extra config validation.
+
 ## [0.14.4] - 2026-06-12
 
 ### Fixed
@@ -360,7 +379,8 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.5...HEAD
+[0.14.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.1...v0.14.2
