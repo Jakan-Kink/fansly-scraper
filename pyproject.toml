@@ -52,9 +52,9 @@ ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
 stash-graphql-client = ">=0.12.10"
-av = ">=17.0.0,<18.0.0"
+av = ">=17.1.0,<18.0.0"
 ruamel-yaml = ">=0.19.1,<0.21.0"
-filelock = ">=3.29.0,<4.0.0"
+filelock = ">=3.29.4,<4.0.0"
 prompt-toolkit = ">=3.0.52,<4.0.0"
 regex = "^2026.4.4"
 ua-generator = "^2.1.1"
@@ -72,10 +72,10 @@ optional = true
 
 [tool.poetry.group.dev.dependencies]
 memory-profiler = ">=0.61.0"
-pylint = ">=3.3.3"
+pylint = ">=4.0.6"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
-ruff = ">=0.14.2"
+ruff = ">=0.15.17"
 mkdocs = ">=1.6.1,<2.0.0"
 pymdown-extensions = ">=10.21.2,<11.0.0"
 
@@ -91,14 +91,14 @@ types-pillow = ">=10.2.0"
 types-toml = ">=0.10.8.20240310"
 types-m3u8 = ">=6.0.0.20250708"
 types-psutil = ">=7.0.0.20250401"
-types-tqdm = ">=4.67.0.20241221"
+types-tqdm = ">=4.68.0.20260608"
 asyncpg-stubs = ">=0.30.0.20241001"
 
 [tool.poetry.group.test]
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = ">=8.3"
+pytest = ">=9.1.0"
 pytest-cov = ">=6.0.0"
 pytest-asyncio = ">=0.26.0"
 pytest-timeout = ">=2.3.1"
