@@ -60,7 +60,7 @@ class HasMetadata(Protocol):
     def content(self) -> str | None: ...
 
     @property
-    def createdAt(self) -> datetime | None: ...
+    def createdAt(self) -> datetime | None: ...  # noqa: N802 - mirrors model camelCase field
 
     # Written through the protocol (gallery lookups stamp stash_id back).
     stash_id: int | None

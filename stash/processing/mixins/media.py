@@ -143,18 +143,19 @@ class MediaProcessingMixin(StashProcessingProtocol):
                     f"image (media {media.id}, {media.mimetype}) backed by a "
                     f"VideoFile with no resolvable Image; skipping (no split)."
                 )
-                return []
-            owned = await self._owned_scene(file)
-            if owned is not None:
-                await self._stamp_metadata(owned, media, item, account, studio)
-                media.stash_id = int(owned.id)
-                return [owned]
-            # Not-owned (secondary on a shared scene): split / dry-run / warn.
-            return await self._adjudicate_not_owned(file, media, item, account, studio)
-
-        if isinstance(file, ImageFile):
+            else:
+                owned = await self._owned_scene(file)
+                if owned is not None:
+                    await self._stamp_metadata(owned, media, item, account, studio)
+                    media.stash_id = int(owned.id)
+                    return [owned]
+                # Not-owned (secondary on a shared scene): split / dry-run / warn.
+                return await self._adjudicate_not_owned(
+                    file, media, item, account, studio
+                )
+        elif isinstance(file, ImageFile):
             return await self._adjudicate_image(file, media, item, account, studio)
-        # GalleryFile / BasicFile: nothing to adjudicate here -> ignore.
+        # GalleryFile / BasicFile, or the animated-image skip above -> ignore.
         return []
 
     async def _adjudicate_image(
@@ -325,6 +326,23 @@ class MediaProcessingMixin(StashProcessingProtocol):
             return []  # our file is no longer attached to this entity
         if isinstance(entity, Image):
             return await self._fast_path_image(entity, media, item, account, studio)
+        return await self._fast_path_scene(
+            entity, our_file, media, item, account, studio
+        )
+
+    async def _fast_path_scene(
+        self,
+        entity: Scene,
+        our_file: BaseFile,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]:
+        """Fast-path a Scene reached via the stored stash_id: stamp if our file
+        is still its primary, else re-adjudicate the demoted file via the
+        not-owned (split / dry-run / warn) path. Only a VideoFile can be split.
+        """
         # still primary -> stamp
         if is_set(entity.files) and entity.files and our_file == entity.files[0]:
             await self._stamp_metadata(entity, media, item, account, studio)

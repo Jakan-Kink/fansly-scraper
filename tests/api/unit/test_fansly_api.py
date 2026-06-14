@@ -575,14 +575,14 @@ class TestFanslyApi:
         def _explode(**_kwargs):
             raise RuntimeError("WS should not be instantiated on 401")
 
-        with (
-            patch("api.fansly.FanslyWebSocket", new=_explode),
-            pytest.raises(RuntimeError, match="Error during session setup"),
-        ):
-            try:
+        try:
+            with (
+                patch("api.fansly.FanslyWebSocket", new=_explode),
+                pytest.raises(RuntimeError, match="Error during session setup"),
+            ):
                 await api.setup_session()
-            finally:
-                dump_fansly_calls(respx.calls, "test_setup_session_error")
+        finally:
+            dump_fansly_calls(respx.calls, "test_setup_session_error")
 
     def test_get_http_headers_with_session(self, fansly_api_factory):
         """Test get_http_headers includes session ID when available.

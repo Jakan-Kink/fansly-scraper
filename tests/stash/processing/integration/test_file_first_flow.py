@@ -424,7 +424,8 @@ async def test_run_file_first_incremental_scans_and_adjudicates_by_basename(
         # Persistence: the assigned stash_id reached the FDNG metadata DB.
         sample = media_with_stash_id[0]
         rows = await get_store().find(Media, id=sample.id)
-        assert rows and rows[0].stash_id == sample.stash_id, (
+        assert rows, f"media {sample.id} not found in metadata DB"
+        assert rows[0].stash_id == sample.stash_id, (
             f"stash_id for media {sample.id} did not persist"
         )
 
