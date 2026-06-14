@@ -34,6 +34,7 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 
 from alembic import command
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # Opt out of the templated-DB fast path: these tests construct specific
@@ -1090,3 +1091,271 @@ sqlalchemy.url = {db_url}
 
 # Note: TestE4a1PostMentionsEdgeCases and TestF1a2TimestamptzEdgeCases were
 # moved to MIGRATION_SPECS in test_migrations.py with proper seed functions.
+
+
+class Test3b51OrphanCleanup:
+    """Test 3b51fe86b710: orphan-delete before FK recreation and CASCADE restoration.
+
+    Real production bug: wall_posts rows with a wallId pointing at a deleted wall
+    caused ForeignKeyViolation when the migration tried to add the CASCADE FK.
+    The migration now DELETEs orphans before re-adding each FK.
+    """
+
+    def _build(self, uuid_test_db_factory, tmp_path):
+        """Return (config, db_url, alembic_config) for a fresh test database."""
+        config = uuid_test_db_factory
+        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
+        db_url = (
+            f"postgresql://{config.pg_user}:{password_encoded}"
+            f"@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        )
+        alembic_ini = tmp_path / "alembic.ini"
+        alembic_ini.write_text(
+            f"[alembic]\nscript_location = alembic\nsqlalchemy.url = {db_url}\n"
+        )
+        return config, db_url, Config(str(alembic_ini))
+
+    def test_orphans_deleted_and_cascade_fk_restored(
+        self, uuid_test_db_factory, tmp_path
+    ):
+        """Migration succeeds on a live DB with orphan junction rows; orphans gone, valid rows survive.
+
+        Pre-condition: after bb7006ec7c0e the wall_posts and media_locations FKs exist
+        but WITHOUT ON DELETE CASCADE (that is what 3b51 restores). We surgically drop
+        those FKs so we can INSERT orphan rows, then run the migration.
+        """
+        _, db_url, alembic_config = self._build(uuid_test_db_factory, tmp_path)
+
+        # ── Step 1: bring schema to the revision before 3b51 ──────────────────
+        command.upgrade(alembic_config, "bb7006ec7c0e")
+
+        # ── Step 2: insert orphan rows ─────────────────────────────────────────
+        # We must drop the current FKs on the constrained columns first so
+        # Postgres will accept rows whose FK target doesn't exist.
+        engine = create_engine(db_url, poolclass=NullPool)
+        with engine.begin() as conn:
+            inspector = sa_inspect(conn)
+
+            # Collect and drop every FK on wall_posts.wallId, wall_posts.postId,
+            # and media_locations.mediaId so orphan inserts are not blocked.
+            fk_drops: list[tuple[str, str]] = [
+                (table, fk["name"])
+                for table, column in [
+                    ("wall_posts", "wallId"),
+                    ("wall_posts", "postId"),
+                    ("media_locations", "mediaId"),
+                ]
+                for fk in inspector.get_foreign_keys(table)
+                if fk["constrained_columns"] == [column] and fk["name"]
+            ]
+
+            for table, fk_name in fk_drops:
+                conn.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT "{fk_name}"'))
+
+            # Insert a minimal account (walls, posts, media all FK to accounts).
+            acct_id = snowflake_id()
+            conn.execute(
+                text("INSERT INTO accounts (id, username) VALUES (:id, :u)").bindparams(
+                    id=acct_id, u="test_acct_3b51"
+                )
+            )
+
+            # Valid wall, post, and media rows.
+            wall_id = snowflake_id()
+            post_id = snowflake_id()
+            media_id = snowflake_id()
+            conn.execute(
+                text('INSERT INTO walls (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=wall_id, a=acct_id
+                )
+            )
+            conn.execute(
+                text('INSERT INTO posts (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=post_id, a=acct_id
+                )
+            )
+            conn.execute(
+                text('INSERT INTO media (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=media_id, a=acct_id
+                )
+            )
+
+            # Valid junction rows (should survive the migration).
+            conn.execute(
+                text(
+                    'INSERT INTO wall_posts ("wallId", "postId") VALUES (:w, :p)'
+                ).bindparams(w=wall_id, p=post_id)
+            )
+            conn.execute(
+                text(
+                    'INSERT INTO media_locations ("mediaId", "locationId") VALUES (:m, 1)'
+                ).bindparams(m=media_id)
+            )
+
+            # Orphan junction rows (wallId / postId / mediaId point at parents
+            # that are never inserted, so these ids are nonexistent).
+            ghost_wall = snowflake_id()
+            ghost_post = snowflake_id()
+            ghost_media = snowflake_id()
+            conn.execute(
+                text(
+                    'INSERT INTO wall_posts ("wallId", "postId") VALUES (:w, :p)'
+                ).bindparams(w=ghost_wall, p=post_id)  # orphan on wallId
+            )
+            conn.execute(
+                text(
+                    'INSERT INTO wall_posts ("wallId", "postId") VALUES (:w, :p)'
+                ).bindparams(w=wall_id, p=ghost_post)  # orphan on postId
+            )
+            conn.execute(
+                text(
+                    'INSERT INTO media_locations ("mediaId", "locationId") VALUES (:m, 2)'
+                ).bindparams(m=ghost_media)  # orphan on mediaId
+            )
+
+        engine.dispose()
+
+        # ── Step 3: run the migration — MUST NOT raise ForeignKeyViolation ─────
+        command.upgrade(alembic_config, "3b51fe86b710")
+
+        # ── Step 4: assert post-state ─────────────────────────────────────────
+        engine = create_engine(db_url, poolclass=NullPool)
+        with engine.begin() as conn:
+            # Orphan rows must be gone.
+            wp_ghost_wall = conn.execute(
+                text('SELECT count(*) FROM wall_posts WHERE "wallId" = :w').bindparams(
+                    w=ghost_wall
+                )
+            ).scalar()
+            assert wp_ghost_wall == 0, "orphan wallId row not deleted"
+
+            wp_ghost_post = conn.execute(
+                text('SELECT count(*) FROM wall_posts WHERE "postId" = :p').bindparams(
+                    p=ghost_post
+                )
+            ).scalar()
+            assert wp_ghost_post == 0, "orphan postId row not deleted"
+
+            ml_ghost_media = conn.execute(
+                text(
+                    'SELECT count(*) FROM media_locations WHERE "mediaId" = :m'
+                ).bindparams(m=ghost_media)
+            ).scalar()
+            assert ml_ghost_media == 0, "orphan mediaId row not deleted"
+
+            # Valid junction rows must survive.
+            wp_valid = conn.execute(
+                text(
+                    'SELECT count(*) FROM wall_posts WHERE "wallId" = :w AND "postId" = :p'
+                ).bindparams(w=wall_id, p=post_id)
+            ).scalar()
+            assert wp_valid == 1, "valid wall_posts row was wrongly deleted"
+
+            ml_valid = conn.execute(
+                text(
+                    'SELECT count(*) FROM media_locations WHERE "mediaId" = :m AND "locationId" = 1'
+                ).bindparams(m=media_id)
+            ).scalar()
+            assert ml_valid == 1, "valid media_locations row was wrongly deleted"
+
+            # All three FKs must now carry ON DELETE CASCADE (confdeltype = 'c').
+            cascade_result = conn.execute(
+                text(
+                    "SELECT conname, confdeltype FROM pg_constraint "
+                    "WHERE conname IN ("
+                    "  'wall_posts_wallId_fkey',"
+                    "  'wall_posts_postId_fkey',"
+                    "  'media_locations_mediaId_fkey'"
+                    ")"
+                )
+            )
+            fk_rows = {row[0]: row[1] for row in cascade_result}
+            assert fk_rows.get("wall_posts_wallId_fkey") == "c", (
+                "wall_posts_wallId_fkey is not CASCADE"
+            )
+            assert fk_rows.get("wall_posts_postId_fkey") == "c", (
+                "wall_posts_postId_fkey is not CASCADE"
+            )
+            assert fk_rows.get("media_locations_mediaId_fkey") == "c", (
+                "media_locations_mediaId_fkey is not CASCADE"
+            )
+
+            # alembic_version must reflect the new head.
+            version = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+            assert version == "3b51fe86b710"
+
+        engine.dispose()
+
+    def test_clean_db_no_orphans_unaffected(self, uuid_test_db_factory, tmp_path):
+        """Migration on a clean DB (no orphans) leaves valid rows intact and succeeds."""
+        _, db_url, alembic_config = self._build(uuid_test_db_factory, tmp_path)
+
+        command.upgrade(alembic_config, "bb7006ec7c0e")
+
+        # Insert only valid, consistent rows — no FK manipulation needed.
+        engine = create_engine(db_url, poolclass=NullPool)
+        with engine.begin() as conn:
+            acct_id = snowflake_id()
+            conn.execute(
+                text("INSERT INTO accounts (id, username) VALUES (:id, :u)").bindparams(
+                    id=acct_id, u="test_acct_3b51_clean"
+                )
+            )
+            wall_id = snowflake_id()
+            post_id = snowflake_id()
+            media_id = snowflake_id()
+            conn.execute(
+                text('INSERT INTO walls (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=wall_id, a=acct_id
+                )
+            )
+            conn.execute(
+                text('INSERT INTO posts (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=post_id, a=acct_id
+                )
+            )
+            conn.execute(
+                text('INSERT INTO media (id, "accountId") VALUES (:id, :a)').bindparams(
+                    id=media_id, a=acct_id
+                )
+            )
+            conn.execute(
+                text(
+                    'INSERT INTO wall_posts ("wallId", "postId") VALUES (:w, :p)'
+                ).bindparams(w=wall_id, p=post_id)
+            )
+            conn.execute(
+                text(
+                    'INSERT INTO media_locations ("mediaId", "locationId") VALUES (:m, 1)'
+                ).bindparams(m=media_id)
+            )
+
+        engine.dispose()
+
+        # Run the migration — should succeed with no rows deleted.
+        command.upgrade(alembic_config, "3b51fe86b710")
+
+        engine = create_engine(db_url, poolclass=NullPool)
+        with engine.begin() as conn:
+            wp = conn.execute(
+                text(
+                    'SELECT count(*) FROM wall_posts WHERE "wallId" = :w AND "postId" = :p'
+                ).bindparams(w=wall_id, p=post_id)
+            ).scalar()
+            assert wp == 1, "clean wall_posts row was unexpectedly deleted"
+
+            ml = conn.execute(
+                text(
+                    'SELECT count(*) FROM media_locations WHERE "mediaId" = :m'
+                ).bindparams(m=media_id)
+            ).scalar()
+            assert ml == 1, "clean media_locations row was unexpectedly deleted"
+
+            version = conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar()
+            assert version == "3b51fe86b710"
+
+        engine.dispose()

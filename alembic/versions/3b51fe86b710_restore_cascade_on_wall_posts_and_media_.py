@@ -10,7 +10,10 @@ deleting a wall that still has wall_posts rows raises:
 
 (issue #109). This migration restores CASCADE on all three constraints,
 matching the declarations in metadata/tables.py. Junction rows are removed
-with their owner; referenced posts/media rows are untouched.
+with their owner; referenced posts/media rows are untouched. Pre-existing
+orphan junction rows (accrued while the constraint was absent / non-CASCADE)
+are deleted before each FK is recreated, so the constraint can be added on a
+live database that already has them.
 
 Revision ID: 3b51fe86b710
 Revises: bb7006ec7c0e
@@ -74,6 +77,17 @@ def _recreate_fks(*, ondelete: str | None, downgrading: bool) -> None:
         ]
         for name in existing:
             op.drop_constraint(name, table, type_="foreignkey")
+        # Remove orphan junction rows whose FK target no longer exists. They
+        # accrued while the constraint was absent / non-CASCADE and would block
+        # the constraint from being (re)created. This realizes the CASCADE
+        # intent retroactively: a junction row goes with its owner. No-op on
+        # clean databases (fresh installs, test DBs).
+        op.execute(
+            f'DELETE FROM "{table}" AS t '
+            f'WHERE t."{column}" IS NOT NULL '
+            f"AND NOT EXISTS "
+            f'(SELECT 1 FROM "{referred_table}" AS r WHERE r.id = t."{column}")'
+        )
         op.create_foreign_key(
             down_name if downgrading else up_name,
             table,
