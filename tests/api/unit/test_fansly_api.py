@@ -583,9 +583,11 @@ class TestFanslyApi:
             raise RuntimeError("WS should not be instantiated on 401")
 
         try:
-            with patch("api.fansly.FanslyWebSocket", new=_explode):
-                with pytest.raises(RuntimeError, match="Error during session setup"):
-                    await api.setup_session()
+            with (
+                patch("api.fansly.FanslyWebSocket", new=_explode),
+                pytest.raises(RuntimeError, match="Error during session setup"),
+            ):
+                await api.setup_session()
         finally:
             dump_fansly_calls(options_route.calls, "setup_session_error-options")
             dump_fansly_calls(get_route.calls, "setup_session_error-get")

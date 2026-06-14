@@ -315,7 +315,7 @@ async def test_check_page_duplicates_bypass_skips_all_page_types(
     await entity_store.save(Account(id=account_id, username="bypass_test"))
     await entity_store.save(Account(id=sender_id, username="bypass_sender"))
     await entity_store.save(Wall(id=wall_id, name="W", accountId=account_id))
-    for post in timeline_data["posts"]:
+    for post in timeline_data["response"]["posts"]:
         await entity_store.save(Post(id=post["id"], accountId=account_id))
     for msg in messages_page_data["messages"]:
         await entity_store.save(
