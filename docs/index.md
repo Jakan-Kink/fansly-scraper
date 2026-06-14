@@ -23,9 +23,6 @@ reference material, planning docs, and testing guidelines.
   [Architecture](reference/architecture.md) for the big picture and
   [Monitoring Daemon Cadence](reference/monitoring-cadence.md) for the
   polling / anti-detection rationale.
-- **[Planning](planning/monitoring-daemon-architecture.md)** — design
-  documents for in-progress or partially-complete initiatives (monitoring
-  daemon architecture, Stash ORM migration phases)
 - **[Testing](testing/TESTING_REQUIREMENTS.md)** — testing requirements,
   migration trackers, and patterns (mocking boundaries, RESPX rules,
   fixture conventions)

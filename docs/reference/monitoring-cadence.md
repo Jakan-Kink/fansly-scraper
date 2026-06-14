@@ -8,9 +8,8 @@ Reference data for the post-batch monitoring daemon (v0.13+). Intervals
 below are derived from analysis of Fansly's own frontend code in `main.js`
 — the daemon matches these cadences to minimize detection surface.
 
-See [`docs/planning/monitoring-daemon-architecture.md`](../planning/monitoring-daemon-architecture.md)
-for the overall daemon architecture. This page documents the *why* behind
-the intervals and the signals the daemon uses (and deliberately avoids).
+This page documents the *why* behind the intervals and the signals the
+daemon uses (and deliberately avoids).
 
 ## Polling Interval Reference
 

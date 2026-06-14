@@ -257,7 +257,7 @@ Unfollow payload (`type=3`) carries the **same `id` as the original follow recor
 
 - `1` = Delivered (message reached recipient's client)
 - `2` = Read (recipient opened/viewed the message)
-- `3` = Observed once (1/44 ackCommand samples), fired immediately after a welcome-PPV DM arrived while the operator was active in the thread. Hypothesis: "delivered-while-foregrounded" — needs more samples to confirm.
+- `3` = **Delivered + read in a single ACK** — fires when the recipient has the thread foregrounded at send time, so delivery and read collapse into one event instead of the usual `1`-then-`2` progression. Corroborated across two independent captures: first 1/44 samples (welcome-PPV DM, operator active in the thread); then 4 more samples on 2026-06-09 during a live back-and-forth, each firing ~3-4s after its message. One of the four was emitted by the *creator's* client acking the *operator's* message, confirming it fires for whichever party is foregrounded, not just the operator. Contrast in the same capture: a backgrounded message took `type=1` at +4s (delivered) then a separate `type=2` at +42min (read). Semantics inferred from timing plus the operator's firsthand "thread was open" observation, not a protocol spec — but two captures now agree.
 
 Fields: `groupId`, `messageIds[]`, `userId`, `userReadReceiptsEnabled`, `recipients[]`.
 

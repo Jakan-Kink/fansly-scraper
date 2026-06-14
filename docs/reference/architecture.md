@@ -292,9 +292,9 @@ cycles:
   `stash-graphql-client`'s public API.
 - The SGC v0.12 batched-mutation work (`save_batch`,
   `execute_batch`, `save_all`) was motivated in part by profiling this
-  project's per-creator Stash push workload; adoption in
-  fansly-downloader-ng is tracked in the
-  [Stash ORM Migration Guide Phase 4](../planning/STASH_ORM_MIGRATION_GUIDE.md#phase-4-advanced-features).
+  project's per-creator Stash push workload, and is now adopted here —
+  the file-first sweep accumulates mutations in the identity map and
+  flushes once via `store.save_all()`.
 
 If you're learning one store's API, the other's will feel familiar —
 aside from the backend-specific operators (GraphQL filter types vs.
@@ -358,9 +358,9 @@ workflows for pushing Fansly metadata into Stash:
 - StashClient itself (22 entity-specific mixins) is in the external
   package
 
-See [`docs/planning/STASH_ORM_MIGRATION_GUIDE.md`](../planning/STASH_ORM_MIGRATION_GUIDE.md#phase-4-advanced-features)
-for the planned migration to SGC v0.12's batched mutations,
-`__side_mutations__` mechanism, and ActiveRecord-style relationship DSL.
+The Stash processing layer uses SGC v0.12's batched mutations
+(`save_all`), the `__side_mutations__` mechanism, and the
+ActiveRecord-style relationship DSL (`belongs_to` / `habtm` / `has_many`).
 
 ## Deduplication System
 
