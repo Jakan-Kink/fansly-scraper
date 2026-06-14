@@ -1,6 +1,5 @@
 """Unit tests for helpers/web.py"""
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -10,7 +9,6 @@ from helpers.web import (
     get_flat_qs_dict,
     get_qs_value,
     get_release_info_from_github,
-    guess_user_agent,
     split_url,
     strip_url_params,
 )
@@ -181,158 +179,6 @@ class TestSplitUrl:
         result = split_url(url)
         assert result.base_url == "https://example.com/path"
         assert result.file_url == "https://example.com/path/file.txt"
-
-
-class TestGuessUserAgent:
-    """Tests for the guess_user_agent function."""
-
-    def test_guess_user_agent_windows_chrome(self):
-        """Test guess_user_agent for Windows Chrome."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="Windows"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua")
-            assert "Windows NT 10.0" in result
-            assert "Chrome" in result
-
-    def test_guess_user_agent_macos_chrome(self):
-        """Test guess_user_agent for macOS Chrome.
-
-        Note: The function extracts the OS version with underscores (10_15_7),
-        converts to dots (10.15.7), then checks if the dotted version exists
-        in the original UA string. For this to work, the UA must contain the
-        dotted version.
-        """
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
-            # Use a UA with dotted version that will be found after conversion
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7; 10.15.7) AppleWebKit/537.36 Chrome/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="Darwin"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua")
-            assert "Mac OS X 10_15_7" in result
-            assert "Chrome" in result
-
-    def test_guess_user_agent_linux_chrome(self):
-        """Test guess_user_agent for Linux Chrome."""
-        user_agents = [
-            "Mozilla/5.0 (X11; Linux 5.10) AppleWebKit/537.36 Chrome/120.0.0.0",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="Linux"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua")
-            assert "Linux 5.10" in result
-            assert "Chrome" in result
-
-    def test_guess_user_agent_edge(self):
-        """Test guess_user_agent for Microsoft Edge (Edg)."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="Windows"):
-            result = guess_user_agent(user_agents, "Microsoft Edge", "default_ua")
-            assert "Windows NT 10.0" in result
-            assert "Edg" in result
-
-    def test_guess_user_agent_no_match_returns_default(self):
-        """Test guess_user_agent returns default when no match found."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="Darwin"):
-            # Looking for Chrome on macOS, but only have Windows UA
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_exception_returns_default(self):
-        """Test guess_user_agent returns default on exception."""
-        user_agents = ["invalid_user_agent_without_regex_match"]
-        with patch("platform.system", return_value="Windows"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_regex_exception(self, caplog):
-        """Test guess_user_agent exception handler (lines 158-159)."""
-        caplog.set_level(logging.ERROR)
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
-        ]
-        # Mock re.search to raise an exception to trigger exception handler.
-        with (
-            patch("platform.system", return_value="Windows"),
-            patch("helpers.web.re.search", side_effect=Exception("Regex error")),
-        ):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-
-        # Returns the default fallback on exception.
-        assert result == "default_ua_fallback"
-        # The exception handler emits print_error → loguru ERROR record.
-        error_messages = [
-            r.getMessage() for r in caplog.records if r.levelname == "ERROR"
-        ]
-        regex_errors = [m for m in error_messages if "Regexing user-agent" in m]
-        assert len(regex_errors) == 1
-
-    def test_guess_user_agent_empty_list(self):
-        """Test guess_user_agent with empty user agent list."""
-        user_agents = []
-        with patch("platform.system", return_value="Windows"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua")
-            assert result == "default_ua"
-
-    def test_guess_user_agent_windows_no_nt_pattern(self):
-        """Windows UA matches host-substring guard but lacks 'Windows NT N' (149→146)."""
-        user_agents = [
-            "Mozilla/5.0 (Windows; en-US) Chrome/120.0.0.0",  # no NT version
-        ]
-        with patch("platform.system", return_value="Windows"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_macos_no_version_pattern(self):
-        """macOS UA matches host-substring guard but lacks 'Mac OS X N' (158→155)."""
-        user_agents = [
-            "Mozilla/5.0 (Macintosh; en-US) Chrome/120.0.0.0",  # no Mac OS X version
-        ]
-        with patch("platform.system", return_value="Darwin"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_unknown_os_falls_through(self):
-        """OS not in {Windows, Darwin, Linux} skips all branches (163→178)."""
-        user_agents = [
-            "Mozilla/5.0 (X11; FreeBSD) Chrome/120.0.0.0",
-        ]
-        with patch("platform.system", return_value="FreeBSD"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_linux_empty_list(self):
-        """Linux + empty user_agents → for-loop body skipped (164→178)."""
-        with patch("platform.system", return_value="Linux"):
-            result = guess_user_agent([], "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
-
-    def test_guess_user_agent_linux_first_ua_filtered(self):
-        """Linux loop continues past UAs missing browser or 'Linux' substring (165→164)."""
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; ...) Chrome/120.0.0.0",  # no Linux substring
-            "Mozilla/5.0 (X11; Linux 5.10) AppleWebKit/537.36 Chrome/120.0.0.0",  # match
-        ]
-        with patch("platform.system", return_value="Linux"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua")
-            assert "Linux 5.10" in result
-
-    def test_guess_user_agent_linux_no_version_pattern(self):
-        """Linux UA matches host-substring guard but lacks 'Linux N' (167→164)."""
-        user_agents = [
-            "Mozilla/5.0 (X11; Linux) Chrome/120.0.0.0",  # no version after Linux
-        ]
-        with patch("platform.system", return_value="Linux"):
-            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
-            assert result == "default_ua_fallback"
 
 
 class TestGetReleaseInfoFromGithub:

@@ -1,9 +1,7 @@
-import os
+from configparser import NoOptionError
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
-from loguru import logger
 
 from config.config import (
     _handle_config_error,
@@ -15,43 +13,23 @@ from config.config import (
     username_has_valid_length,
 )
 from config.fanslyconfig import FanslyConfig
+from config.schema import ConfigSchema
 from errors import ConfigError
 
 
-@pytest.fixture
-def config():
-    return FanslyConfig(program_version="0.13.0")
+def test_user_names_str_none(fresh_config):
+    assert fresh_config.user_names is None
+    assert fresh_config.user_names_str() == "ReplaceMe"
 
 
-@pytest.fixture
-def temp_config_dir():
-    with TemporaryDirectory() as temp_dir:
-        original_cwd = Path.cwd()
-        os.chdir(temp_dir)
-        # Create logs directory in both places
-        logs_dir = Path(temp_dir) / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        cwd_logs = Path.cwd() / "logs"
-        cwd_logs.mkdir(parents=True, exist_ok=True)
-        yield Path(temp_dir)
-        # Clean up
-        logger.remove()  # Close all handlers
-        os.chdir(original_cwd)
+def test_user_names_str_empty_set(fresh_config):
+    fresh_config.user_names = set()
+    assert fresh_config.user_names_str() == ""
 
 
-def test_user_names_str_none(config):
-    assert config.user_names is None
-    assert config.user_names_str() == "ReplaceMe"
-
-
-def test_user_names_str_empty_set(config):
-    config.user_names = set()
-    assert config.user_names_str() == ""
-
-
-def test_user_names_str_with_names(config):
-    config.user_names = {"alice", "bob", "charlie"}
-    assert config.user_names_str() == "alice, bob, charlie"
+def test_user_names_str_with_names(fresh_config):
+    fresh_config.user_names = {"alice", "bob", "charlie"}
+    assert fresh_config.user_names_str() == "alice, bob, charlie"
 
 
 def test_parse_items_from_line_comma_separated():
@@ -70,19 +48,19 @@ def test_sanitize_creator_names():
     assert sanitize_creator_names(names) == expected
 
 
-def test_load_config_creates_file_if_not_exists(temp_config_dir, config):
+def test_load_config_creates_file_if_not_exists(config_dir, fresh_config):
     """When no config file exists, load_config creates config.yaml with defaults."""
-    yaml_path = temp_config_dir / "config.yaml"
-    ini_path = temp_config_dir / "config.ini"
+    yaml_path = config_dir / "config.yaml"
+    ini_path = config_dir / "config.ini"
     assert not yaml_path.exists()
     assert not ini_path.exists()
-    load_config(config)
+    load_config(fresh_config)
     # New system creates config.yaml, not config.ini
     assert yaml_path.exists()
 
 
-def test_load_config_temp_folder_handling(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+def test_load_config_temp_folder_handling(config_dir, fresh_config):
+    config_path = config_dir / "config.ini"
 
     # Create config with temp_folder
     with config_path.open("w") as f:
@@ -96,14 +74,14 @@ temp_folder = /custom/temp/path
 """
         )
 
-    load_config(config)
-    assert config.temp_folder == Path("/custom/temp/path")
+    load_config(fresh_config)
+    assert fresh_config.temp_folder == Path("/custom/temp/path")
 
 
-def test_load_config_download_directory_handling(temp_config_dir):
+def test_load_config_download_directory_handling(config_dir):
     # Create fresh config to avoid pollution
     config = FanslyConfig(program_version="0.13.0")
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     # Create config with download_directory
     with config_path.open("w") as f:
@@ -117,10 +95,10 @@ download_directory = /custom/download/path
     assert config.download_directory == Path("/custom/download/path")
 
 
-def test_load_config_default_download_directory(temp_config_dir):
+def test_load_config_default_download_directory(config_dir):
     # Create fresh config to avoid pollution
     config = FanslyConfig(program_version="0.13.0")
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     # Create minimal config without download_directory
     with config_path.open("w") as f:
@@ -152,16 +130,16 @@ def test_username_validation():
     assert not username_has_valid_chars("user#name")  # Invalid char #
 
 
-def test_save_config_or_raise(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-    config.config_path = config_path
-    config.user_names = {"testuser"}
-    config.token = "test_token"
-    config.user_agent = "test_agent"
-    config.check_key = "test_key"
+def test_save_config_or_raise(config_dir, fresh_config):
+    config_path = config_dir / "config.ini"
+    fresh_config.config_path = config_path
+    fresh_config.user_names = {"testuser"}
+    fresh_config.token = "test_token"
+    fresh_config.user_agent = "test_agent"
+    fresh_config.check_key = "test_key"
 
     # Should save successfully
-    assert save_config_or_raise(config) is True
+    assert save_config_or_raise(fresh_config) is True
 
     # Verify file exists and contains expected values
     assert config_path.exists()
@@ -173,14 +151,14 @@ def test_save_config_or_raise(temp_config_dir, config):
         assert "test_key" in content
 
 
-def test_save_config_or_raise_no_path(config):
-    config.config_path = None
+def test_save_config_or_raise_no_path(fresh_config):
+    fresh_config.config_path = None
     with pytest.raises(ConfigError):
-        save_config_or_raise(config)
+        save_config_or_raise(fresh_config)
 
 
-def test_load_config_invalid_config(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+def test_load_config_invalid_config(config_dir, fresh_config):
+    config_path = config_dir / "config.ini"
 
     # Create invalid config with invalid value
     with config_path.open("w") as f:
@@ -191,7 +169,7 @@ download_mode = InvalidMode
         )
 
     with pytest.raises(ConfigError) as exc_info:
-        load_config(config)
+        load_config(fresh_config)
     err_msg = str(exc_info.value)
     # New error format (ValidationError via load_yaml) OR the legacy
     # configparser path — either way, the failing field + value must
@@ -200,40 +178,40 @@ download_mode = InvalidMode
     assert "InvalidMode" in err_msg.lower() or "invalidmode" in err_msg.lower()
 
 
-def test_token_validation(config):
+def test_token_validation(fresh_config):
     # Test valid token
-    config.token = "a" * 51  # Token longer than 50 chars
-    assert config.token_is_valid() is True
+    fresh_config.token = "a" * 51  # Token longer than 50 chars
+    assert fresh_config.token_is_valid() is True
 
     # Test invalid tokens
-    config.token = None
-    assert config.token_is_valid() is False
+    fresh_config.token = None
+    assert fresh_config.token_is_valid() is False
 
-    config.token = "a" * 49  # Too short
-    assert config.token_is_valid() is False
+    fresh_config.token = "a" * 49  # Too short
+    assert fresh_config.token_is_valid() is False
 
-    config.token = "ReplaceMe" + "a" * 50
-    assert config.token_is_valid() is False
+    fresh_config.token = "ReplaceMe" + "a" * 50
+    assert fresh_config.token_is_valid() is False
 
 
-def test_useragent_validation(config):
+def test_useragent_validation(fresh_config):
     # Test valid user agent
-    config.user_agent = "a" * 41  # User agent longer than 40 chars
-    assert config.useragent_is_valid() is True
+    fresh_config.user_agent = "a" * 41  # User agent longer than 40 chars
+    assert fresh_config.useragent_is_valid() is True
 
     # Test invalid user agents
-    config.user_agent = None
-    assert config.useragent_is_valid() is False
+    fresh_config.user_agent = None
+    assert fresh_config.useragent_is_valid() is False
 
-    config.user_agent = "a" * 39  # Too short
-    assert config.useragent_is_valid() is False
+    fresh_config.user_agent = "a" * 39  # Too short
+    assert fresh_config.useragent_is_valid() is False
 
-    config.user_agent = "ReplaceMe" + "a" * 40
-    assert config.useragent_is_valid() is False
+    fresh_config.user_agent = "ReplaceMe" + "a" * 40
+    assert fresh_config.useragent_is_valid() is False
 
 
-def test_load_config_with_cache_section(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+def test_load_config_with_cache_section(config_dir, fresh_config):
+    config_path = config_dir / "config.ini"
 
     # Create config with Cache section
     with config_path.open("w") as f:
@@ -244,33 +222,33 @@ device_id_timestamp = 123456789
 """
         )
 
-    load_config(config)
-    assert config.cached_device_id == "test_device_id"
-    assert config.cached_device_id_timestamp == 123456789
+    load_config(fresh_config)
+    assert fresh_config.cached_device_id == "test_device_id"
+    assert fresh_config.cached_device_id_timestamp == 123456789
 
 
-def test_token_scrambling(config):
+def test_token_scrambling(fresh_config):
     # Test unscrambling a scrambled token
     scrambled = "abcdefghijklmnopqrstuvwxyzfNs"  # 26 chars + "fNs"
-    config.token = scrambled
-    unscrambled = config.get_unscrambled_token()
+    fresh_config.token = scrambled
+    unscrambled = fresh_config.get_unscrambled_token()
     assert len(unscrambled) == 26  # Original length without "fNs"
     assert unscrambled != scrambled
     assert scrambled.endswith("fNs")
 
     # Test unscrambling an unscrambled token
     normal_token = "normal_token_without_scrambling"
-    config.token = normal_token
-    assert config.get_unscrambled_token() == normal_token
+    fresh_config.token = normal_token
+    assert fresh_config.get_unscrambled_token() == normal_token
 
     # Test None token
-    config.token = None
-    assert config.get_unscrambled_token() is None
+    fresh_config.token = None
+    assert fresh_config.get_unscrambled_token() is None
 
 
-def test_config_section_handling(temp_config_dir, config):
+def test_config_section_handling(config_dir, fresh_config):
     """Migration from legacy ini populates schema sections and [Other] is dropped."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     # Create config with all sections (including legacy [Other] with version)
     with config_path.open("w") as f:
@@ -302,27 +280,24 @@ version = 1.0.0
 """
         )
 
-    load_config(config)
+    load_config(fresh_config)
 
     # [Other] is not carried into the YAML schema — it is silently dropped
-    assert config._schema is not None
-    schema_dict = config._schema.model_dump()
+    assert fresh_config._schema is not None
+    schema_dict = fresh_config._schema.model_dump()
     assert "other" not in schema_dict
 
     # Verify key section values were migrated correctly
-    assert config._schema.targeted_creator.usernames == ["testuser"]
-    assert config._schema.my_account.user_agent == "test_agent"
-    assert config._schema.cache.device_id == "test_device"
-    assert config._schema.cache.device_id_timestamp == 123456789
-    assert config._schema.logic.check_key_pattern == "test_pattern"
+    assert fresh_config._schema.targeted_creator.usernames == ["testuser"]
+    assert fresh_config._schema.my_account.user_agent == "test_agent"
+    assert fresh_config._schema.cache.device_id == "test_device"
+    assert fresh_config._schema.cache.device_id_timestamp == 123456789
+    assert fresh_config._schema.logic.check_key_pattern == "test_pattern"
 
 
-def test_config_path_edge_cases(temp_config_dir):
+def test_config_path_edge_cases(config_dir):
     """Paths with spaces and special characters survive a YAML round-trip."""
-
-    from config.schema import ConfigSchema
-
-    config_yaml_path = temp_config_dir / "config.yaml"
+    config_yaml_path = config_dir / "config.yaml"
 
     # Test paths with spaces and special chars
     test_paths = {
@@ -338,13 +313,13 @@ def test_config_path_edge_cases(temp_config_dir):
         schema.dump_yaml(config_yaml_path)
 
         # Load fresh config from the yaml
-        fresh_config = FanslyConfig(program_version="0.13.0")
-        load_config(fresh_config)
-        assert fresh_config.download_directory == Path(path)
+        reloaded_config = FanslyConfig(program_version="0.13.0")
+        load_config(reloaded_config)
+        assert reloaded_config.download_directory == Path(path)
 
 
-def test_config_error_cases(temp_config_dir):
-    config_path = temp_config_dir / "config.ini"
+def test_config_error_cases(config_dir):
+    config_path = config_dir / "config.ini"
 
     # Test invalid section reference
     config = FanslyConfig(program_version="0.13.0")
@@ -383,9 +358,9 @@ temp_folder =
 # -- SSL path handling in _handle_postgresql_options --
 
 
-def test_load_config_with_ssl_paths(temp_config_dir, config):
+def test_load_config_with_ssl_paths(config_dir, fresh_config):
     """SSL cert/key/rootcert paths are parsed when present (lines 326, 330, 334)."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     with config_path.open("w") as f:
         f.write(
@@ -399,19 +374,19 @@ pg_sslrootcert = /path/to/ca.pem
 """
         )
 
-    load_config(config)
-    assert config.pg_sslcert == Path("/path/to/client-cert.pem")
-    assert config.pg_sslkey == Path("/path/to/client-key.pem")
-    assert config.pg_sslrootcert == Path("/path/to/ca.pem")
-    assert config.pg_sslmode == "verify-full"
+    load_config(fresh_config)
+    assert fresh_config.pg_sslcert == Path("/path/to/client-cert.pem")
+    assert fresh_config.pg_sslkey == Path("/path/to/client-key.pem")
+    assert fresh_config.pg_sslrootcert == Path("/path/to/ca.pem")
+    assert fresh_config.pg_sslmode == "verify-full"
 
 
 # -- StashContext section handling --
 
 
-def test_load_config_with_stash_section(temp_config_dir, config):
+def test_load_config_with_stash_section(config_dir, fresh_config):
     """StashContext section is parsed into stash_context_conn dict (line 400)."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     with config_path.open("w") as f:
         f.write(
@@ -423,20 +398,20 @@ apikey = my-api-key
 """
         )
 
-    load_config(config)
-    assert config.stash_context_conn is not None
-    assert config.stash_context_conn["scheme"] == "https"
-    assert config.stash_context_conn["host"] == "stash.local"
-    assert config.stash_context_conn["port"] == 9998
-    assert config.stash_context_conn["apikey"] == "my-api-key"
+    load_config(fresh_config)
+    assert fresh_config.stash_context_conn is not None
+    assert fresh_config.stash_context_conn["scheme"] == "https"
+    assert fresh_config.stash_context_conn["host"] == "stash.local"
+    assert fresh_config.stash_context_conn["port"] == 9998
+    assert fresh_config.stash_context_conn["apikey"] == "my-api-key"
 
 
 # -- Invalid log level warning in _handle_logging_section --
 
 
-def test_load_config_with_invalid_log_level(temp_config_dir, config):
+def test_load_config_with_invalid_log_level(config_dir, fresh_config):
     """Invalid log level triggers warning and falls back to INFO (lines 434-440)."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     with config_path.open("w") as f:
         f.write(
@@ -446,17 +421,17 @@ textio = INFO
 """
         )
 
-    load_config(config)
-    assert config.log_levels["sqlalchemy"] == "INFO"
-    assert config.log_levels["textio"] == "INFO"
+    load_config(fresh_config)
+    assert fresh_config.log_levels["sqlalchemy"] == "INFO"
+    assert fresh_config.log_levels["textio"] == "INFO"
 
 
 # -- Renamed option handling in load_config --
 
 
-def test_load_config_renamed_options(temp_config_dir, config):
+def test_load_config_renamed_options(config_dir, fresh_config):
     """Old option names (utilise_duplicate_threshold, use_suffix) are migrated."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     with config_path.open("w") as f:
         f.write(
@@ -468,18 +443,18 @@ use_suffix = False
 """
         )
 
-    load_config(config)
+    load_config(fresh_config)
     # Legacy INI keys map onto their current schema fields.
-    assert config.use_duplicate_threshold is True
-    assert config.use_folder_suffix is False
+    assert fresh_config.use_duplicate_threshold is True
+    assert fresh_config.use_folder_suffix is False
 
 
 # -- Rate limiting config options --
 
 
-def test_load_config_rate_limiting_options(temp_config_dir, config):
+def test_load_config_rate_limiting_options(config_dir, fresh_config):
     """Rate limiting settings are parsed from config.ini."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
 
     with config_path.open("w") as f:
         f.write(
@@ -496,22 +471,22 @@ rate_limiting_backoff_factor = 2.0
 """
         )
 
-    load_config(config)
-    assert config.rate_limiting_enabled is False
-    assert config.rate_limiting_adaptive is False
-    assert config.rate_limiting_requests_per_minute == 30
-    assert config.rate_limiting_burst_size == 5
-    assert config.rate_limiting_retry_after_seconds == 15
-    assert config.rate_limiting_max_backoff_seconds == 120
-    assert config.rate_limiting_backoff_factor == 2.0
+    load_config(fresh_config)
+    assert fresh_config.rate_limiting_enabled is False
+    assert fresh_config.rate_limiting_adaptive is False
+    assert fresh_config.rate_limiting_requests_per_minute == 30
+    assert fresh_config.rate_limiting_burst_size == 5
+    assert fresh_config.rate_limiting_retry_after_seconds == 15
+    assert fresh_config.rate_limiting_max_backoff_seconds == 120
+    assert fresh_config.rate_limiting_backoff_factor == 2.0
 
 
 # -- Outdated check key replacement --
 
 
-def test_load_config_replaces_outdated_check_keys(temp_config_dir, config):
+def test_load_config_replaces_outdated_check_keys(config_dir, fresh_config):
     """Known outdated check keys are replaced with the current default."""
-    config_path = temp_config_dir / "config.ini"
+    config_path = config_dir / "config.ini"
     outdated_key = "negwij-zyZnek-wavje1"
 
     with config_path.open("w") as f:
@@ -523,9 +498,9 @@ Check_Key = {outdated_key}
 """
         )
 
-    load_config(config)
-    assert config.check_key != outdated_key
-    assert config.check_key == "oybZy8-fySzis-bubayf"
+    load_config(fresh_config)
+    assert fresh_config.check_key != outdated_key
+    assert fresh_config.check_key == "oybZy8-fySzis-bubayf"
 
 
 # Retired-field silent-drop coverage lives in tests/config/unit/test_schema.py
@@ -548,8 +523,6 @@ class TestHandleConfigError:
 
     def test_no_option_error_yields_config_yaml_invalid(self):
         """Lines 308-311: configparser.NoOptionError → 'config.yaml is invalid'."""
-        from configparser import NoOptionError
-
         exc = NoOptionError("missing_key", "Options")
         with pytest.raises(ConfigError) as info:
             _handle_config_error(exc)

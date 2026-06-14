@@ -925,6 +925,18 @@ def mock_account():
 
 
 @pytest.fixture
+def mock_post(mock_account) -> Post:
+    """Create an in-memory Post for mock_account (not persisted)."""
+    unique_id = snowflake_id()
+    return Post(
+        id=unique_id,
+        accountId=mock_account.id,
+        content="Test post content #tag1 #tag2",
+        createdAt=datetime.now(UTC),
+    )
+
+
+@pytest.fixture
 def factory_session(test_database_sync: Database):
     """Configure FactoryBoy factories with a direct session from engine.
 

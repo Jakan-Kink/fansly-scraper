@@ -10,19 +10,6 @@ from metadata.models import Account, Post, Wall
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.fixture
-def timeline_data():
-    """Generate timeline-like page data with multiple posts."""
-    account_id = snowflake_id()
-    return {
-        "posts": [
-            {"id": snowflake_id(), "accountId": account_id},
-            {"id": snowflake_id(), "accountId": account_id},
-            {"id": snowflake_id(), "accountId": account_id},
-        ],
-    }
-
-
 async def test_check_page_duplicates_no_posts(mock_config, entity_store):
     """Test handling of page data without posts."""
     mock_config.use_pagination_duplication = True
@@ -42,7 +29,9 @@ async def test_check_page_duplicates_no_posts(mock_config, entity_store):
     )
 
 
-async def test_check_page_duplicates_disabled(mock_config, entity_store, timeline_data):
+async def test_check_page_duplicates_disabled(
+    mock_config, entity_store, synthetic_timeline_page
+):
     """Test that check is skipped when feature is disabled."""
     mock_config.use_pagination_duplication = False
 
@@ -51,19 +40,19 @@ async def test_check_page_duplicates_disabled(mock_config, entity_store, timelin
     await entity_store.save(account)
 
     # Add all posts to store
-    for post_dict in timeline_data["posts"]:
+    for post_dict in synthetic_timeline_page["posts"]:
         await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     # Should not raise even though all posts are in metadata
     await check_page_duplicates(
         config=mock_config,
-        page_data=timeline_data,
+        page_data=synthetic_timeline_page,
         page_type="timeline",
     )
 
 
 async def test_check_page_duplicates_timeline_new_posts(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test that check passes when new posts are found."""
     mock_config.use_pagination_duplication = True
@@ -73,20 +62,20 @@ async def test_check_page_duplicates_timeline_new_posts(
     await entity_store.save(account)
 
     # Add only first post to store — remaining are "new"
-    first_post_id = timeline_data["posts"][0]["id"]
+    first_post_id = synthetic_timeline_page["posts"][0]["id"]
     await entity_store.save(Post(id=first_post_id, accountId=account_id))
 
     # Should not raise since not all posts are in metadata
     await check_page_duplicates(
         config=mock_config,
-        page_data=timeline_data,
+        page_data=synthetic_timeline_page,
         page_type="timeline",
         cursor="123",
     )
 
 
 async def test_check_page_duplicates_timeline_all_existing(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test detection of all posts already in metadata for timeline."""
     mock_config.use_pagination_duplication = True
@@ -96,7 +85,7 @@ async def test_check_page_duplicates_timeline_all_existing(
     await entity_store.save(account)
 
     # Add all posts to store
-    for post_dict in timeline_data["posts"]:
+    for post_dict in synthetic_timeline_page["posts"]:
         await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     with (
@@ -105,7 +94,7 @@ async def test_check_page_duplicates_timeline_all_existing(
     ):
         await check_page_duplicates(
             config=mock_config,
-            page_data=timeline_data,
+            page_data=synthetic_timeline_page,
             page_type="timeline",
             cursor="123",
         )
@@ -115,7 +104,7 @@ async def test_check_page_duplicates_timeline_all_existing(
 
 
 async def test_check_page_duplicates_wall_new_posts(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test that check passes when new posts are found on wall."""
     mock_config.use_pagination_duplication = True
@@ -129,13 +118,13 @@ async def test_check_page_duplicates_wall_new_posts(
     await entity_store.save(Wall(id=wall_id, name="Test Wall", accountId=account_id))
 
     # Add only first post
-    first_post_id = timeline_data["posts"][0]["id"]
+    first_post_id = synthetic_timeline_page["posts"][0]["id"]
     await entity_store.save(Post(id=first_post_id, accountId=account_id))
 
     # Should not raise since not all posts are in metadata
     await check_page_duplicates(
         config=mock_config,
-        page_data=timeline_data,
+        page_data=synthetic_timeline_page,
         page_type="wall",
         page_id=str(wall_id),
         cursor="123",
@@ -143,7 +132,7 @@ async def test_check_page_duplicates_wall_new_posts(
 
 
 async def test_check_page_duplicates_wall_all_existing(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test detection of all posts already in metadata for wall."""
     mock_config.use_pagination_duplication = True
@@ -157,7 +146,7 @@ async def test_check_page_duplicates_wall_all_existing(
     await entity_store.save(Wall(id=wall_id, name="Test Wall", accountId=account_id))
 
     # Add all posts to store
-    for post_dict in timeline_data["posts"]:
+    for post_dict in synthetic_timeline_page["posts"]:
         await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     with (
@@ -166,7 +155,7 @@ async def test_check_page_duplicates_wall_all_existing(
     ):
         await check_page_duplicates(
             config=mock_config,
-            page_data=timeline_data,
+            page_data=synthetic_timeline_page,
             page_type="wall",
             page_id=str(wall_id),
             cursor="123",
@@ -178,7 +167,7 @@ async def test_check_page_duplicates_wall_all_existing(
 
 
 async def test_check_page_duplicates_wall_no_name(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test wall duplicate detection when wall has no name."""
     mock_config.use_pagination_duplication = True
@@ -192,7 +181,7 @@ async def test_check_page_duplicates_wall_no_name(
     await entity_store.save(Wall(id=wall_id, accountId=account_id))
 
     # Add all posts to store
-    for post_dict in timeline_data["posts"]:
+    for post_dict in synthetic_timeline_page["posts"]:
         await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     with (
@@ -201,7 +190,7 @@ async def test_check_page_duplicates_wall_no_name(
     ):
         await check_page_duplicates(
             config=mock_config,
-            page_data=timeline_data,
+            page_data=synthetic_timeline_page,
             page_type="wall",
             page_id=str(wall_id),
             cursor="123",
@@ -213,7 +202,7 @@ async def test_check_page_duplicates_wall_no_name(
 
 
 async def test_check_page_duplicates_wall_nonexistent(
-    mock_config, entity_store, timeline_data
+    mock_config, entity_store, synthetic_timeline_page
 ):
     """Test wall duplicate detection for nonexistent wall."""
     mock_config.use_pagination_duplication = True
@@ -224,7 +213,7 @@ async def test_check_page_duplicates_wall_nonexistent(
     await entity_store.save(account)
 
     # Add all posts to store, but don't create the wall
-    for post_dict in timeline_data["posts"]:
+    for post_dict in synthetic_timeline_page["posts"]:
         await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     with (
@@ -233,7 +222,7 @@ async def test_check_page_duplicates_wall_nonexistent(
     ):
         await check_page_duplicates(
             config=mock_config,
-            page_data=timeline_data,
+            page_data=synthetic_timeline_page,
             page_type="wall",
             page_id=str(wall_id),
             cursor="123",

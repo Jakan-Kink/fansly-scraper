@@ -22,12 +22,13 @@ import pytest
 import respx
 
 import fansly_downloader_ng as fdng
+from api import FanslyApi
 from config.logging import init_logging_config
 from config.modes import DownloadMode
 from errors import EXIT_SUCCESS, SOME_USERS_FAILED, ConfigError
 from fansly_downloader_ng import main
 from stash import StashProcessing as _RealStashProcessing
-from tests.fixtures.api import fansly_json, run_main_and_cleanup
+from tests.fixtures.api import dump_fansly_calls, fansly_json, run_main_and_cleanup
 
 
 async def test_main_raises_config_error_when_no_creator_names(
@@ -270,7 +271,7 @@ async def test_main_returns_config_error_when_client_account_missing(
     env.register_empty_content()
 
     # Override the baseline /account/me response: no username.
-    respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}account/me").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -291,10 +292,15 @@ async def test_main_returns_config_error_when_client_account_missing(
 
     caplog.set_level(logging.ERROR)
 
-    with pytest.raises(
-        ConfigError, match="Could not retrieve client account user name"
-    ):
-        await run_main_and_cleanup(env.config)
+    try:
+        with pytest.raises(
+            ConfigError, match="Could not retrieve client account user name"
+        ):
+            await run_main_and_cleanup(env.config)
+    finally:
+        dump_fansly_calls(
+            route.calls, "test_main_returns_config_error_when_client_account_missing"
+        )
 
 
 async def test_main_use_following_populates_user_names_from_following(
@@ -408,14 +414,19 @@ async def test_main_use_following_returns_error_when_api_raises(
     # response is returned immediately. ``_make_rate_limited_request``
     # calls ``raise_for_status()`` → ``HTTPStatusError``, which is re-
     # raised, then caught by ``account.py:473`` and wrapped as ``ApiError``.
-    respx.get(
-        url__startswith=f"https://apiv3.fansly.com/api/v1/account/{env.client_id}/following"
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}account/{env.client_id}/following"
     ).mock(side_effect=[httpx.Response(404, json={"error": "not found"})])
     env.register_empty_content()
 
     caplog.set_level(logging.ERROR)
 
-    result = await run_main_and_cleanup(env.config)
+    try:
+        result = await run_main_and_cleanup(env.config)
+    finally:
+        dump_fansly_calls(
+            route.calls, "test_main_use_following_returns_error_when_api_raises"
+        )
 
     # Outer handler returns 1.
     assert result == 1, f"Expected exit code 1, got {result}"

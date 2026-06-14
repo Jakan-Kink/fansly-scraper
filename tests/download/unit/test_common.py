@@ -13,81 +13,27 @@ from download.common import (
 )
 from download.types import DownloadType
 from errors import ApiError, DuplicateCountError, DuplicatePageError
-from metadata.models import Account, Media, Post
+from metadata.models import Account, Post
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.fixture
-def info_object():
-    """Create a test info object with media IDs."""
-    return {
+def test_get_unique_media_ids_with_duplicates():
+    """Test extracting unique media IDs from object with duplicates."""
+    info_object = {
         "accountMedia": [{"id": 100001}, {"id": 100002}],
         "accountMediaBundles": [
             {"accountMediaIds": [100002, 100003]},
             {"accountMediaIds": [100004, 100005]},
         ],
     }
-
-
-@pytest.fixture
-def empty_info_object():
-    """Create an empty info object."""
-    return {"accountMedia": [], "accountMediaBundles": []}
-
-
-@pytest.fixture
-def accessible_media():
-    """Create test Media objects for process_download_accessible_media."""
-    account_id = snowflake_id()
-    return [
-        Media(
-            id=snowflake_id(),
-            accountId=account_id,
-            mimetype="image/jpeg",
-            download_url="http://example.com/photo1.jpg",
-            is_preview=False,
-        ),
-        Media(
-            id=snowflake_id(),
-            accountId=account_id,
-            mimetype="video/mp4",
-            download_url="http://example.com/video1.mp4",
-            is_preview=True,
-        ),
-    ]
-
-
-@pytest.fixture
-def mock_download_media():
-    """Mock for download_media function."""
-    with patch("download.common.download_media", new_callable=AsyncMock) as mock:
-        yield mock
-
-
-@pytest.fixture
-def mock_set_create_directory():
-    """Mock for set_create_directory_for_download function."""
-    with patch("download.common.set_create_directory_for_download") as mock:
-        yield mock
-
-
-@pytest.fixture
-def mock_config_update(mock_config):
-    """Update mock_config with additional required properties."""
-    mock_config.interactive = False
-    mock_config.DUPLICATE_THRESHOLD = 50
-    return mock_config
-
-
-def test_get_unique_media_ids_with_duplicates(info_object):
-    """Test extracting unique media IDs from object with duplicates."""
     unique_ids = get_unique_media_ids(info_object)
     assert len(unique_ids) == 5
     assert set(unique_ids) == {100001, 100002, 100003, 100004, 100005}
 
 
-def test_get_unique_media_ids_empty(empty_info_object):
+def test_get_unique_media_ids_empty():
     """Test extracting media IDs from empty object."""
+    empty_info_object = {"accountMedia": [], "accountMediaBundles": []}
     unique_ids = get_unique_media_ids(empty_info_object)
     assert len(unique_ids) == 0
 
@@ -237,19 +183,21 @@ async def test_process_download_accessible_media_wall(
 
 @pytest.mark.asyncio
 async def test_process_download_accessible_media_duplicate_error(
-    mock_config_update,
+    mock_config,
     download_state,
     accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
     """Test handling of DuplicateCountError during download."""
+    mock_config.interactive = False
+    mock_config.DUPLICATE_THRESHOLD = 50
     download_state.download_type = DownloadType.TIMELINE
 
     mock_download_media.side_effect = DuplicateCountError(duplicate_count=5)
 
     result = await process_download_accessible_media(
-        mock_config_update, download_state, accessible_media
+        mock_config, download_state, accessible_media
     )
 
     assert result is False  # Should indicate to stop processing for timeline
@@ -257,17 +205,20 @@ async def test_process_download_accessible_media_duplicate_error(
 
 @pytest.mark.asyncio
 async def test_process_download_accessible_media_general_error(
-    mock_config_update,
+    mock_config,
     download_state,
     accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
     """Test handling of general errors during download."""
+    mock_config.interactive = False
+    mock_config.DUPLICATE_THRESHOLD = 50
+
     mock_download_media.side_effect = Exception("Test error")
 
     result = await process_download_accessible_media(
-        mock_config_update, download_state, accessible_media
+        mock_config, download_state, accessible_media
     )
 
     assert result is True  # Should continue processing

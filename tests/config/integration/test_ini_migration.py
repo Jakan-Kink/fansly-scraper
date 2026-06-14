@@ -19,9 +19,7 @@ from pydantic import SecretStr
 from config.loader import migrate_ini_to_yaml
 from config.schema import ConfigSchema
 from errors import ConfigError
-
-
-FIXTURES_DIR = Path(__file__).parent.parent / "unit" / "fixtures"
+from tests.fixtures.config import CONFIG_DATA_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +472,7 @@ def test_migration_from_legacy_ini_fixture(tmp_path: Path) -> None:
     - [Logic] regex patterns survive the round-trip without escaping corruption.
     - pg_* keys under [Options] are correctly read into the postgres section.
     """
-    src = FIXTURES_DIR / "legacy.ini"
+    src = CONFIG_DATA_DIR / "legacy.ini"
     ini_path = tmp_path / "config.ini"
     yaml_path = tmp_path / "config.yaml"
 

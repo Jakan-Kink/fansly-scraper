@@ -9,6 +9,7 @@ Fixture Organization:
 - daemon/: Simulator + collaborator fakes for daemon tests
 - download/: Download state and path fixtures
 - api/: API client fixtures with respx for HTTP mocking
+- fileio/: Real on-disk MP4/image sample files
 - metadata/: Database model factories and fixtures
 - database/: Database connection and session fixtures
 - stash/: Stash integration fixtures
@@ -52,7 +53,14 @@ from .api import (
     ws_server,
 )
 from .config import (
+    CONFIG_DATA_DIR,
+    config_dir,
+    config_with_path,
+    default_cli_args,
+    fresh_config,
+    loaded_config,
     no_display,
+    sample_yaml_path,
     unit_config,
     unit_config_path,
     validation_config,
@@ -69,6 +77,7 @@ from .daemon import (
     RecordingSimulator,
     StubSimulator,
     isolate_active_recordings,
+    progress_manager,
 )
 from .database import (
     config,
@@ -79,6 +88,7 @@ from .database import (
     factory_session,
     json_conversation_data,
     mock_account,
+    mock_post,
     pg_template_db,
     session,
     session_factory,
@@ -103,7 +113,22 @@ from .download import (
     DownloadStateFactory,
     FakeStory,
     GlobalStateFactory,
+    accessible_media,
+    filtered_media_list,
+    global_state,
     m3u8_mock_config,
+    mock_download_media,
+    mock_set_create_directory,
+    notset_download_state,
+    synthetic_timeline_page,
+    timeline_download_state,
+)
+from .fileio import (
+    invalid_image_file,
+    invalid_mp4_file,
+    too_small_mp4_file,
+    valid_image_file,
+    valid_mp4_file,
 )
 from .metadata import (
     AccountFactory,
@@ -124,8 +149,11 @@ from .metadata import (
     TimelineStatsFactory,
     WallFactory,
     create_groups_from_messages,
+    group_data,
+    media_items,
     saved_account,
     setup_accounts_and_groups,
+    store_with_account,
     test_attachment,
     test_group,
     test_media_bundle,
@@ -158,7 +186,6 @@ from .stash import (
     account_mixin,
     assert_op,
     assert_op_with_vars,
-    batch_mixin,
     content_mixin,
     create_find_galleries_result,
     create_find_gallery_result,
@@ -172,17 +199,21 @@ from .stash import (
     create_gallery_update_result,
     create_graphql_response,
     create_image_dict,
+    create_image_file_dict,
     create_performer_dict,
     create_scene_dict,
     create_studio_dict,
     create_tag_create_result,
     create_tag_dict,
+    create_video_file_dict,
     dump_graphql_calls,
     enable_scene_creation,
     fansly_network_studio,
     gallery_mixin,
     gallery_mock_performer,
     gallery_mock_studio,
+    gallery_orchestration_setup,
+    isolate_scene_create_input,
     media_mixin,
     message_media_generator,
     mock_gallery,  # From stash_type_factories (real factory)
@@ -225,6 +256,9 @@ from .utils import (
     fake_monotonic_clock,
     get_unique_test_id,
     get_worker_id,
+    log_dir,
+    log_setup,
+    logging_config,
     snowflake_id,
 )
 
@@ -245,7 +279,14 @@ mod_core_fixtures = [
 ]
 
 mod_config_fixtures = [
+    "CONFIG_DATA_DIR",
+    "config_dir",
+    "config_with_path",
+    "default_cli_args",
+    "fresh_config",
+    "loaded_config",
     "no_display",
+    "sample_yaml_path",
     "unit_config",
     "unit_config_path",
     "validation_config",
@@ -255,13 +296,30 @@ mod_daemon_fakes = [
     "RecordingSimulator",
     "StubSimulator",
     "isolate_active_recordings",
+    "progress_manager",
 ]
 
 mod_download_factories = [
     "DownloadStateFactory",
     "FakeStory",
     "GlobalStateFactory",
+    "accessible_media",
+    "filtered_media_list",
+    "global_state",
     "m3u8_mock_config",
+    "mock_download_media",
+    "mock_set_create_directory",
+    "notset_download_state",
+    "synthetic_timeline_page",
+    "timeline_download_state",
+]
+
+mod_fileio_fixtures = [
+    "invalid_image_file",
+    "invalid_mp4_file",
+    "too_small_mp4_file",
+    "valid_image_file",
+    "valid_mp4_file",
 ]
 
 mod_api_fixtures = [
@@ -319,7 +377,10 @@ mod_metadata_factories = [
 ]
 
 mod_metadata_fixtures = [
+    "group_data",
+    "media_items",
     "saved_account",
+    "store_with_account",
     "test_account",
     "test_media",
     "test_group",
@@ -367,9 +428,11 @@ mod_stash_fixtures = [
     "create_gallery_update_result",
     "create_graphql_response",
     "create_image_dict",
+    "create_image_file_dict",
     "create_performer_dict",
     "create_scene_dict",
     "create_studio_dict",
+    "create_video_file_dict",
     "create_tag_create_result",
     "create_tag_dict",
     # Removed (Phase 6 cleanup - from stash_fixtures.py): reset_stash_field_names_cache,
@@ -385,7 +448,6 @@ mod_stash_fixtures = [
 
 mod_stash_mixin_fixtures = [
     "account_mixin",
-    "batch_mixin",
     "content_mixin",
     "gallery_mixin",
     "media_mixin",
@@ -393,6 +455,7 @@ mod_stash_mixin_fixtures = [
     "tag_mixin",
     "gallery_mock_performer",
     "gallery_mock_studio",
+    "gallery_orchestration_setup",
     "mock_item",
 ]
 
@@ -417,6 +480,7 @@ mod_database_fixtures = [
     "session_sync",
     "test_account",
     "mock_account",
+    "mock_post",
     "test_media",
     "test_account_media",
     "test_post",
@@ -427,7 +491,7 @@ mod_database_fixtures = [
     "factory_async_session",
 ]
 
-mod_stash_processing_fixtures = [
+mod_stash_processing_fixtures: list[str] = [
     # REMOVED (Phase 6 cleanup): All safe_*_create and sanitize_model_data
     # These were never used - tests use real fixtures from stash_api_fixtures
 ]
@@ -440,6 +504,7 @@ mod_stash_api_fixtures = [
     "stash_client",
     "respx_stash_client",
     "enable_scene_creation",
+    "isolate_scene_create_input",
     "stash_cleanup_tracker",
     # Removed: test_query (Phase 6 cleanup - never used)
     # Removed: mock_account, mock_performer, mock_studio, mock_scene
@@ -479,6 +544,9 @@ mod_utils_helpers = [
 
 mod_utils_fixtures = [
     "fake_monotonic_clock",
+    "log_dir",
+    "log_setup",
+    "logging_config",
 ]
 
 mod_textio_fixtures = [
@@ -503,6 +571,7 @@ __all__ = [  # noqa: PLE0604
     *mod_config_fixtures,
     *mod_daemon_fakes,
     *mod_download_factories,
+    *mod_fileio_fixtures,
     *mod_api_fixtures,
     *mod_metadata_factories,
     *mod_metadata_fixtures,

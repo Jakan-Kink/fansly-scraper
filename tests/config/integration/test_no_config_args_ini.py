@@ -11,43 +11,10 @@ Verifies that:
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
-import pytest
-
 from config.args import map_args_to_config
-from config.config import load_config
 from config.fanslyconfig import FanslyConfig
-from config.logging import init_logging_config
-from config.schema import ConfigSchema
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def config_dir(tmp_path: Path):
-    """Isolated temp directory as the working directory for config files."""
-    logs = tmp_path / "logs"
-    logs.mkdir()
-    original_cwd = Path.cwd()
-    os.chdir(tmp_path)
-    yield tmp_path
-    os.chdir(original_cwd)
-
-
-@pytest.fixture
-def loaded_config(config_dir: Path) -> FanslyConfig:
-    """A FanslyConfig loaded from a minimal config.yaml in config_dir."""
-    yaml_path = config_dir / "config.yaml"
-    ConfigSchema().dump_yaml(yaml_path)
-    cfg = FanslyConfig(program_version="0.13.0")
-    load_config(cfg)
-    init_logging_config(cfg)
-    return cfg
 
 
 # ---------------------------------------------------------------------------

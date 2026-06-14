@@ -12,14 +12,29 @@ Fixtures:
 - ``unit_config`` — minimal real ``FanslyConfig`` with a long-enough token+UA
 - ``no_display`` — monkeypatches RateLimiterDisplay.start to a no-op
 - ``validation_config`` — real FanslyConfig wired for ``config/validation.py`` tests
+- ``config_dir`` — isolated temp cwd for config-file integration tests
+- ``fresh_config`` — bare ``FanslyConfig`` with no state
+- ``loaded_config`` — ``FanslyConfig`` loaded from a minimal config.yaml in ``config_dir``
+- ``sample_yaml_path`` — mutable tmp_path copy of ``data/sample.yaml``
+- ``config_with_path`` — mock_config with config_path set for map_args_to_config
+- ``default_cli_args`` — full argparse.Namespace with all flags at defaults
+
+``CONFIG_DATA_DIR`` anchors the shared config data files (``sample.yaml``,
+``legacy.ini``) consumed by the config loader/schema/migration tests.
 """
 
+import argparse
+import os
+import shutil
 from pathlib import Path
 
 import pytest
 
+from config.config import load_config
 from config.fanslyconfig import FanslyConfig
+from config.logging import init_logging_config
 from config.modes import DownloadMode
+from config.schema import ConfigSchema
 
 
 @pytest.fixture
@@ -89,3 +104,102 @@ def validation_config(tmp_path):
     config.username = None
     config.password = None
     return config
+
+
+@pytest.fixture
+def config_dir(tmp_path):
+    """Isolated temp directory used as the working directory for config files."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    original_cwd = Path.cwd()
+    os.chdir(tmp_path)
+    yield tmp_path
+    os.chdir(original_cwd)
+
+
+@pytest.fixture
+def fresh_config() -> FanslyConfig:
+    """A fresh FanslyConfig with no state."""
+    return FanslyConfig(program_version="0.13.0")
+
+
+@pytest.fixture
+def loaded_config(config_dir: Path) -> FanslyConfig:
+    """A FanslyConfig loaded from a minimal config.yaml in config_dir."""
+    yaml_path = config_dir / "config.yaml"
+    ConfigSchema().dump_yaml(yaml_path)
+    cfg = FanslyConfig(program_version="0.13.0")
+    load_config(cfg)
+    init_logging_config(cfg)
+    return cfg
+
+
+CONFIG_DATA_DIR = Path(__file__).parent / "data"
+
+
+@pytest.fixture
+def sample_yaml_path(tmp_path: Path) -> Path:
+    """Copy sample.yaml into an isolated tmp_path so tests can mutate freely."""
+    src = CONFIG_DATA_DIR / "sample.yaml"
+    dst = tmp_path / "config.yaml"
+    shutil.copy(src, dst)
+    return dst
+
+
+@pytest.fixture
+def config_with_path(mock_config, tmp_path):
+    """A mock_config with config_path set (required by map_args_to_config)."""
+    config_path = tmp_path / "config.ini"
+    mock_config.config_path = config_path
+    init_logging_config(mock_config)
+    return mock_config
+
+
+@pytest.fixture
+def default_cli_args():
+    """An argparse.Namespace with every parse_args() attribute at its non-firing default.
+
+    Mirrors the full attribute surface map_args_to_config expects, including
+    PostgreSQL settings and the monitoring/daemon flags. Tests mutate the
+    attributes under test.
+    """
+    return argparse.Namespace(
+        verbose=0,
+        users=None,
+        download_mode_normal=False,
+        download_mode_messages=False,
+        download_mode_timeline=False,
+        download_mode_collection=False,
+        download_mode_single=None,
+        download_directory=None,
+        token=None,
+        user_agent=None,
+        check_key=None,
+        temp_folder=None,
+        separate_previews=False,
+        use_duplicate_threshold=False,
+        non_interactive=False,
+        no_prompt_on_exit=False,
+        no_folder_suffix=False,
+        no_media_previews=False,
+        hide_downloads=False,
+        hide_skipped_downloads=False,
+        no_open_folder=False,
+        no_separate_messages=False,
+        no_separate_timeline=False,
+        timeline_retries=None,
+        timeline_delay_seconds=None,
+        api_max_retries=None,
+        use_following=None,
+        use_following_with_pagination=False,
+        use_pagination_duplication=False,
+        reverse_order=False,
+        pg_host=None,
+        pg_port=None,
+        pg_database=None,
+        pg_user=None,
+        pg_password=None,
+        monitor_since=None,
+        full_pass=False,
+        daemon_mode=False,
+    )

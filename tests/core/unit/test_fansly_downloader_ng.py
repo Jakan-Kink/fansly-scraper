@@ -50,7 +50,9 @@ from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(
+    autouse=True
+)  # CCH:autouse-fixture  # clears SUT module-level interrupt flag; must stay file-scoped
 def _clear_handle_interrupt_flag():
     """Ensure ``_handle_interrupt.interrupted`` is not set at test start.
 
@@ -1419,8 +1421,10 @@ async def test_load_client_account_into_db_persists_real_account(
     # Real /api/v1/account?usernames=... boundary — see
     # mount_empty_creator_pipeline's account-route shape.
     respx.get(
-        url__startswith="https://apiv3.fansly.com/api/v1/account"
-    ).mock(  # CCH:api  # broad /api/v1/account* prefix (by-username + media), not one endpoint
+        url__startswith=respx_fansly_api.ACCOUNT_BY_USERNAME_ENDPOINT.format(
+            creator_name
+        )
+    ).mock(
         side_effect=[
             httpx.Response(
                 200,

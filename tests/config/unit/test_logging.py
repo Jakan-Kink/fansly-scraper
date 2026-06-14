@@ -30,7 +30,7 @@ from config.logging import (
 from errors import InvalidTraceLogError
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)  # CCH:autouse-fixture  # per-file logging init
 def setup_loggers():
     """Initialize loggers before each test."""
     # Clean up any existing handlers

@@ -29,9 +29,8 @@ def extract_hashtags(content: str) -> list[str]:
             continue
         hashtags.append(tag.lower())
 
-    # Remove duplicates while preserving order
-    seen: set[str] = set()
-    return [tag for tag in hashtags if not (tag in seen or seen.add(tag))]
+    # Remove duplicates while preserving first-occurrence order
+    return list(dict.fromkeys(hashtags))
 
 
 async def process_post_hashtags(

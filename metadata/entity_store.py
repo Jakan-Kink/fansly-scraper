@@ -457,6 +457,7 @@ class PostgresEntityStore:
             fk_value = getattr(obj, meta.fk_column, None)
             if fk_value is None:
                 object.__setattr__(obj, field_name, None)
+                self._sync_autolink_snapshot(obj, field_name, None)
                 continue
             if isinstance(meta.inverse_type, type):
                 target_type: type[FanslyObject] | None = meta.inverse_type
@@ -469,6 +470,21 @@ class PostgresEntityStore:
             cached = self._cache.get((target_type, fk_value))
             if cached is not None:
                 object.__setattr__(obj, field_name, cached)
+                self._sync_autolink_snapshot(obj, field_name, cached)
+
+    @staticmethod
+    def _sync_autolink_snapshot(obj: FanslyObject, field_name: str, value: Any) -> None:
+        """Keep the dirty-tracking snapshot in step with an autolink hydration.
+
+        Autolink resolves an UNSET singular relationship from the identity map;
+        that is hydration, not a user mutation, so a tracked relationship must not
+        read as dirty afterwards (a cold-preloaded hub with no reply would
+        otherwise flip UNSET -> None and report is_dirty() == True). Sync only the
+        field autolink just touched.
+        """
+        snapshot = obj._snapshot
+        if snapshot is not None and field_name in snapshot:
+            snapshot[field_name] = value
 
     def is_fully_loaded(self, model_type: type) -> bool:
         return model_type in self._fully_loaded

@@ -64,7 +64,7 @@ from download.m3u8 import (
     get_m3u8_progress,
 )
 from errors import M3U8Error
-from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.api import dump_fansly_calls, mount_m3u8_segment_routes
 from tests.fixtures.utils import SyncExecutor
 
 
@@ -214,21 +214,20 @@ segment1.ts
 segment2.ts
 #EXT-X-ENDLIST"""
 
-        with respx.mock:
-            respx.options(url__startswith="https://example.com/video.m3u8").mock(
-                side_effect=[httpx.Response(200)]
-            )
-            get_route = respx.get(
-                url__startswith="https://example.com/video.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=playlist_text)])
+        respx.options(url__startswith="https://example.com/video.m3u8").mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(url__startswith="https://example.com/video.m3u8").mock(
+            side_effect=[httpx.Response(200, text=playlist_text)]
+        )
 
-            try:
-                result = fetch_m3u8_segment_playlist(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                )
-            finally:
-                dump_fansly_calls(get_route.calls)
+        try:
+            result = fetch_m3u8_segment_playlist(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            )
+        finally:
+            dump_fansly_calls(get_route.calls)
 
         assert isinstance(result, M3U8)
         assert result.is_endlist is True
@@ -261,29 +260,28 @@ video_1080.m3u8"""
 segment1.ts
 #EXT-X-ENDLIST"""
 
-        with respx.mock:
-            # CORS preflight (one per unique URL)
-            respx.options(url__startswith="https://example.com/").mock(
-                side_effect=[httpx.Response(200)] * 3
-            )
-            # Variant URL fetched once (segment list); declared first so it
-            # matches before the broader "video.m3u8" prefix below.
-            variant_route = respx.get(
-                url__startswith="https://example.com/video_1080.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=segment_list)])
-            # Master URL fetched twice (initial + variant-selection re-fetch).
-            master_route = respx.get(
-                url__startswith="https://example.com/video.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=master)] * 2)
+        # CORS preflight (one per unique URL)
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 3
+        )
+        # Variant URL fetched once (segment list); declared first so it
+        # matches before the broader "video.m3u8" prefix below.
+        variant_route = respx.get(
+            url__startswith="https://example.com/video_1080.m3u8"
+        ).mock(side_effect=[httpx.Response(200, text=segment_list)])
+        # Master URL fetched twice (initial + variant-selection re-fetch).
+        master_route = respx.get(url__startswith="https://example.com/video.m3u8").mock(
+            side_effect=[httpx.Response(200, text=master)] * 2
+        )
 
-            try:
-                result = fetch_m3u8_segment_playlist(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                )
-            finally:
-                dump_fansly_calls(master_route.calls)
-                dump_fansly_calls(variant_route.calls)
+        try:
+            result = fetch_m3u8_segment_playlist(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
+            dump_fansly_calls(variant_route.calls)
 
         assert isinstance(result, M3U8)
         assert result.playlist_type == "vod"
@@ -309,26 +307,25 @@ segment1.ts
 segment1.ts
 #EXT-X-ENDLIST"""
 
-        with respx.mock:
-            respx.options(url__startswith="https://example.com/").mock(
-                side_effect=[httpx.Response(200)] * 3
-            )
-            # Guessed _1080 variant URL declared first (narrower prefix).
-            variant_route = respx.get(
-                url__startswith="https://example.com/video_1080.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=segment_list)])
-            master_route = respx.get(
-                url__startswith="https://example.com/video.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=empty_master)] * 2)
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 3
+        )
+        # Guessed _1080 variant URL declared first (narrower prefix).
+        variant_route = respx.get(
+            url__startswith="https://example.com/video_1080.m3u8"
+        ).mock(side_effect=[httpx.Response(200, text=segment_list)])
+        master_route = respx.get(url__startswith="https://example.com/video.m3u8").mock(
+            side_effect=[httpx.Response(200, text=empty_master)] * 2
+        )
 
-            try:
-                fetch_m3u8_segment_playlist(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                )
-            finally:
-                dump_fansly_calls(master_route.calls)
-                dump_fansly_calls(variant_route.calls)
+        try:
+            fetch_m3u8_segment_playlist(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
+            dump_fansly_calls(variant_route.calls)
 
         # Real code builds the guessed URL by splitting on ".m3u8" and
         # appending "_1080.m3u8" — verify the variant route was hit.
@@ -340,22 +337,21 @@ segment1.ts
         config = _make_real_config()
         config._api = respx_fansly_api
 
-        with respx.mock:
-            respx.options(url__startswith="https://example.com/v.m3u8").mock(
-                side_effect=[httpx.Response(200)]
-            )
-            get_route = respx.get(url__startswith="https://example.com/v.m3u8").mock(
-                side_effect=[httpx.Response(404, text="Not Found")]
-            )
+        respx.options(url__startswith="https://example.com/v.m3u8").mock(
+            side_effect=[httpx.Response(200)]
+        )
+        get_route = respx.get(url__startswith="https://example.com/v.m3u8").mock(
+            side_effect=[httpx.Response(404, text="Not Found")]
+        )
 
-            try:
-                with pytest.raises(M3U8Error) as excinfo:
-                    fetch_m3u8_segment_playlist(
-                        config=config,
-                        m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                    )
-            finally:
-                dump_fansly_calls(get_route.calls)
+        try:
+            with pytest.raises(M3U8Error) as excinfo:
+                fetch_m3u8_segment_playlist(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                )
+        finally:
+            dump_fansly_calls(get_route.calls)
 
         assert "Failed downloading M3U8 playlist" in str(excinfo.value)
         assert "404" in str(excinfo.value)
@@ -1750,65 +1746,16 @@ class TestSegmentDownload:
     at module level — their own tests (above) cover their real behavior.
     """
 
-    _DEFAULT_PLAYLIST = (
-        "#EXTM3U\n"
-        "#EXT-X-VERSION:3\n"
-        "#EXT-X-PLAYLIST-TYPE:VOD\n"
-        "#EXT-X-TARGETDURATION:10\n"
-        "#EXTINF:10.0,\n"
-        "segment1.ts\n"
-        "#EXTINF:8.0,\n"
-        "segment2.ts\n"
-        "#EXT-X-ENDLIST\n"
-    )
-
     def _make_config_with_segments(self, fansly_api) -> FanslyConfig:
         """Build a real config attached to ``fansly_api``.
 
         Tests mount their own respx routes for the playlist + segment URLs
-        via ``_mount_segment_routes`` — this helper just owns the config +
-        api wiring so individual tests stay focused on the behavior under
-        test.
+        via ``mount_m3u8_segment_routes`` (tests/fixtures/api) — this helper
+        just owns the config + api wiring so tests stay focused on behavior.
         """
         config = _make_real_config()
         config._api = fansly_api
         return config
-
-    @staticmethod
-    def _mount_segment_routes(
-        *,
-        base_url: str = "https://example.com",
-        playlist_text: str | None = None,
-        segment_bytes: bytes = b"\x00" * 256,
-        segment_status: int = 200,
-        segment_count: int = 2,
-        segment_raises: Exception | None = None,
-    ) -> tuple[respx.MockRouter, respx.MockRouter]:
-        """Mount respx routes for an m3u8 segment download test.
-
-        Returns ``(playlist_route, segment_route)`` so callers can inspect
-        ``.calls`` and ``.call_count``. Routes are declared narrow-first
-        (segment then playlist) so the more-specific match wins.
-        """
-        if playlist_text is None:
-            playlist_text = TestSegmentDownload._DEFAULT_PLAYLIST
-        # CORS preflight blanket — pad for playlist + each segment.
-        respx.options(url__startswith=f"{base_url}/").mock(
-            side_effect=[httpx.Response(200)] * (segment_count + 2)
-        )
-        if segment_raises is not None:
-            segment_route = respx.get(url__startswith=f"{base_url}/segment").mock(
-                side_effect=[segment_raises] * segment_count
-            )
-        else:
-            segment_route = respx.get(url__startswith=f"{base_url}/segment").mock(
-                side_effect=[httpx.Response(segment_status, content=segment_bytes)]
-                * segment_count
-            )
-        playlist_route = respx.get(url__startswith=f"{base_url}/v.m3u8").mock(
-            side_effect=[httpx.Response(200, text=playlist_text)]
-        )
-        return playlist_route, segment_route
 
     def test_success_invokes_pyav_mux(self, tmp_path, monkeypatch, respx_fansly_api):
         """All segments downloaded + PyAV mux succeeds → returns output_path."""
@@ -1830,19 +1777,18 @@ class TestSegmentDownload:
             lambda *_a, **_k: ffmpeg_called.update(n=ffmpeg_called["n"] + 1) or True,
         )
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes()
+        playlist_route, segment_route = mount_m3u8_segment_routes()
 
-            try:
-                result = _try_segment_download(
-                    config=config,
-                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                    output_path=output_path,
-                    cookies=cookies,
-                )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            result = _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies=cookies,
+            )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
         assert result == output_path
         # ffmpeg mux not called — PyAV succeeded first.
@@ -1869,19 +1815,18 @@ class TestSegmentDownload:
 
         monkeypatch.setattr("download.m3u8._mux_segments_with_ffmpeg", _ffmpeg_mux)
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes()
+        playlist_route, segment_route = mount_m3u8_segment_routes()
 
-            try:
-                result = _try_segment_download(
-                    config=config,
-                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                    output_path=output_path,
-                    cookies={"CloudFront-Policy": "a"},
-                )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            result = _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
         assert result == output_path
         assert ffmpeg_called["n"] == 1
@@ -1901,22 +1846,19 @@ class TestSegmentDownload:
             "download.m3u8._mux_segments_with_ffmpeg", lambda *_a, **_k: False
         )
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes()
+        playlist_route, segment_route = mount_m3u8_segment_routes()
 
-            try:
-                with pytest.raises(
-                    M3U8Error, match="Both PyAV and FFmpeg muxing failed"
-                ):
-                    _try_segment_download(
-                        config=config,
-                        m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                        output_path=output_path,
-                        cookies={"CloudFront-Policy": "a"},
-                    )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            with pytest.raises(M3U8Error, match="Both PyAV and FFmpeg muxing failed"):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
     def test_missing_segments_raises(self, tmp_path, monkeypatch, respx_fansly_api):
         """Segment returns 404 → not-written on disk → raises with list."""
@@ -1930,24 +1872,19 @@ class TestSegmentDownload:
             "download.m3u8._mux_segments_with_pyav", lambda *_a, **_k: True
         )
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes(
-                segment_status=404
-            )
+        playlist_route, segment_route = mount_m3u8_segment_routes(segment_status=404)
 
-            try:
-                with pytest.raises(
-                    M3U8Error, match="Stream segments failed to download"
-                ):
-                    _try_segment_download(
-                        config=config,
-                        m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                        output_path=output_path,
-                        cookies={"CloudFront-Policy": "a"},
-                    )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
     def test_download_ts_skips_empty_chunks(
         self, tmp_path, monkeypatch, respx_fansly_api
@@ -1997,27 +1934,26 @@ class TestSegmentDownload:
             lambda _segs, out: out.write_bytes(b"\x00" * 1024) or True,
         )
 
-        with respx.mock:
-            respx.options(url__startswith="https://example.com/").mock(
-                side_effect=[httpx.Response(200)] * 3
-            )
-            segment_route = respx.get(
-                url__startswith="https://example.com/segment"
-            ).mock(side_effect=[httpx.Response(200, stream=_EmptyAndRealChunkStream())])
-            playlist_route = respx.get(
-                url__startswith="https://example.com/v.m3u8"
-            ).mock(side_effect=[httpx.Response(200, text=playlist_text)])
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 3
+        )
+        segment_route = respx.get(url__startswith="https://example.com/segment").mock(
+            side_effect=[httpx.Response(200, stream=_EmptyAndRealChunkStream())]
+        )
+        playlist_route = respx.get(url__startswith="https://example.com/v.m3u8").mock(
+            side_effect=[httpx.Response(200, text=playlist_text)]
+        )
 
-            try:
-                result = _try_segment_download(
-                    config=config,
-                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                    output_path=output_path,
-                    cookies={"CloudFront-Policy": "a"},
-                )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            result = _try_segment_download(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
         assert result == output_path
 
@@ -2038,24 +1974,19 @@ class TestSegmentDownload:
             "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
         )
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes(
-                segment_status=500
-            )
+        playlist_route, segment_route = mount_m3u8_segment_routes(segment_status=500)
 
-            try:
-                with pytest.raises(
-                    M3U8Error, match="Stream segments failed to download"
-                ):
-                    _try_segment_download(
-                        config=config,
-                        m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                        output_path=output_path,
-                        cookies={"CloudFront-Policy": "a"},
-                    )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
 
     def test_download_ts_handles_http_exception(
         self, tmp_path, monkeypatch, respx_fansly_api
@@ -2083,23 +2014,20 @@ class TestSegmentDownload:
             "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
         )
 
-        with respx.mock:
-            playlist_route, segment_route = self._mount_segment_routes(
-                playlist_text=playlist_text,
-                segment_count=1,
-                segment_raises=RuntimeError("segment download exception"),
-            )
+        playlist_route, segment_route = mount_m3u8_segment_routes(
+            playlist_text=playlist_text,
+            segment_count=1,
+            segment_raises=RuntimeError("segment download exception"),
+        )
 
-            try:
-                with pytest.raises(
-                    M3U8Error, match="Stream segments failed to download"
-                ):
-                    _try_segment_download(
-                        config=config,
-                        m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-                        output_path=output_path,
-                        cookies={"CloudFront-Policy": "a"},
-                    )
-            finally:
-                dump_fansly_calls(playlist_route.calls)
-                dump_fansly_calls(segment_route.calls)
+        try:
+            with pytest.raises(M3U8Error, match="Stream segments failed to download"):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)

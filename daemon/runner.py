@@ -282,6 +282,8 @@ async def _handle_messages_item(
         )
         raise
 
+    await _run_incremental_stash(config, state)
+
 
 async def _handle_full_creator_item(
     config: FanslyConfig, item: FullCreatorDownload
@@ -335,6 +337,8 @@ async def _handle_full_creator_item(
         )
         raise
 
+    await _run_incremental_stash(config, state)
+
 
 async def _handle_redownload_item(
     config: FanslyConfig, item: RedownloadCreatorMedia
@@ -371,6 +375,8 @@ async def _handle_redownload_item(
             exc,
         )
         raise
+
+    await _run_incremental_stash(config, state)
 
 
 async def _handle_check_access_item(
@@ -444,6 +450,8 @@ async def _handle_stories_only_item(
         )
         raise
 
+    await _run_incremental_stash(config, state)
+
 
 async def _handle_timeline_only_item(
     config: FanslyConfig, item: DownloadTimelineOnly
@@ -486,6 +494,8 @@ async def _handle_timeline_only_item(
         )
         raise
 
+    await _run_incremental_stash(config, state)
+
 
 async def _handle_mark_messages_deleted(
     config: FanslyConfig,  # noqa: ARG001 — store access is process-global
@@ -525,6 +535,30 @@ async def _handle_mark_messages_deleted(
         len(item.message_ids) - len(missing),
         len(missing),
     )
+
+
+async def _run_incremental_stash(config: FanslyConfig, state: DownloadState) -> None:
+    """Push a creator's just-downloaded content into Stash (sweep-free).
+
+    No-op unless Stash is active and the creator is resolved. Errors are logged,
+    never raised, so a Stash hiccup cannot fail the download work item.
+    """
+    if not config.stash_active or not state.creator_name:
+        return
+    # Deferred import: avoid pulling stash deps when the integration is off.
+    from stash import StashProcessing  # noqa: PLC0415, I001  # only used in stash context
+
+    processor = StashProcessing.from_config(config, state)
+    try:
+        await processor.process_creator_incremental()
+    except Exception as exc:
+        logger.opt(exception=exc).error(
+            "daemon.runner: incremental Stash failed for {} - {}",
+            state.creator_name,
+            exc,
+        )
+    finally:
+        await processor.cleanup()
 
 
 _WORK_DISPATCH: dict[type[WorkItem], Any] = {

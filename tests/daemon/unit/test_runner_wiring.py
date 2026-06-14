@@ -28,6 +28,7 @@ import httpx
 import pytest
 import respx
 
+from api import FanslyApi
 from daemon.bootstrap import DaemonBootstrap
 from daemon.filters import should_process_creator
 from daemon.handlers import (
@@ -72,8 +73,8 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 # URL constants (url__startswith because ngsw-bypass is appended)
 # ---------------------------------------------------------------------------
 
-HOME_TIMELINE_URL = "https://apiv3.fansly.com/api/v1/timeline/home"
-STORY_STATES_URL = "https://apiv3.fansly.com/api/v1/mediastories/following"
+HOME_TIMELINE_URL = f"{FanslyApi.BASE_URL}timeline/home"
+STORY_STATES_URL = f"{FanslyApi.BASE_URL}mediastories/following"
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +522,7 @@ class TestTimelinePollEnqueuesDownloadTimelineOnly:
 
     @pytest.mark.asyncio
     async def test_new_creator_from_timeline_enqueues_timeline_only(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, config_wired, entity_store, saved_account
     ):
         """poll_home_timeline returning creator_id -> DownloadTimelineOnly in queue.
 
@@ -536,85 +537,78 @@ class TestTimelinePollEnqueuesDownloadTimelineOnly:
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
         baseline_consumed: set[int] = set()
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [
-                                    {
-                                        "id": post_id,
-                                        "accountId": creator_id,
-                                        "content": "test",
-                                        "fypFlag": 0,
-                                        "createdAt": int(
-                                            datetime.now(UTC).timestamp() * 1000
-                                        ),
-                                    }
-                                ]
-                            },
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [
+                                {
+                                    "id": post_id,
+                                    "accountId": creator_id,
+                                    "content": "test",
+                                    "fypFlag": 0,
+                                    "createdAt": int(
+                                        datetime.now(UTC).timestamp() * 1000
+                                    ),
+                                }
+                            ]
                         },
-                    )
-                ]
-            )
+                    },
+                )
+            ]
+        )
 
-            # Mock the per-creator timeline call made by should_process_creator
-            timeline_url = f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
-            respx.options(url__startswith=timeline_url).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            recent_ms = int((datetime.now(UTC) + timedelta(hours=1)).timestamp() * 1000)
-            respx.get(url__startswith=timeline_url).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [
-                                    {
-                                        "id": snowflake_id(),
-                                        "accountId": creator_id,
-                                        "content": "new post",
-                                        "fypFlag": 0,
-                                        "createdAt": recent_ms,
-                                    }
-                                ]
-                            },
+        # Mock the per-creator timeline call made by should_process_creator
+        timeline_url = f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+        recent_ms = int((datetime.now(UTC) + timedelta(hours=1)).timestamp() * 1000)
+        respx.get(url__startswith=timeline_url).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [
+                                {
+                                    "id": snowflake_id(),
+                                    "accountId": creator_id,
+                                    "content": "new post",
+                                    "fypFlag": 0,
+                                    "createdAt": recent_ms,
+                                }
+                            ]
                         },
+                    },
+                )
+            ]
+        )
+
+        try:
+            # Wave 2: poll returns tuple[set[int], dict[int, list[dict]]]
+            new_ids, posts_by_creator = await poll_home_timeline(config_wired)
+
+            if new_ids:
+                simulator.on_new_content()
+                for cid in new_ids:
+                    prefetched = posts_by_creator.get(cid, [])
+                    baseline_consumed.add(cid)
+                    should = await should_process_creator(
+                        config_wired,
+                        cid,
+                        session_baseline=None,
+                        prefetched_posts=prefetched,
                     )
-                ]
-            )
+                    if should:
+                        # Runner now emits DownloadTimelineOnly, not FullCreatorDownload
+                        await queue.put(DownloadTimelineOnly(creator_id=cid))
 
-            try:
-                # Wave 2: poll returns tuple[set[int], dict[int, list[dict]]]
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-                assert creator_id in new_ids, "poll_home_timeline should return creator"
+        finally:
+            dump_fansly_calls(route.calls, "timeline_poll_enqueue")
 
-                if new_ids:
-                    simulator.on_new_content()
-                    for cid in new_ids:
-                        prefetched = posts_by_creator.get(cid, [])
-                        baseline_consumed.add(cid)
-                        should = await should_process_creator(
-                            config_wired,
-                            cid,
-                            session_baseline=None,
-                            prefetched_posts=prefetched,
-                        )
-                        if should:
-                            # Runner now emits DownloadTimelineOnly, not FullCreatorDownload
-                            await queue.put(DownloadTimelineOnly(creator_id=cid))
-
-            finally:
-                dump_fansly_calls(route.calls, "timeline_poll_enqueue")
-
+        assert creator_id in new_ids, "poll_home_timeline should return creator"
         assert not queue.empty(), "Expected a WorkItem in the queue"
         item = await queue.get()
         assert isinstance(item, DownloadTimelineOnly), (
@@ -624,7 +618,7 @@ class TestTimelinePollEnqueuesDownloadTimelineOnly:
 
     @pytest.mark.asyncio
     async def test_no_full_creator_download_from_timeline_poll(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, config_wired, entity_store, saved_account
     ):
         """poll_home_timeline never produces FullCreatorDownload items."""
         creator_id = saved_account.id
@@ -632,31 +626,27 @@ class TestTimelinePollEnqueuesDownloadTimelineOnly:
 
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [{"id": post_id, "accountId": creator_id}]
-                            },
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [{"id": post_id, "accountId": creator_id}]
                         },
-                    )
-                ]
-            )
+                    },
+                )
+            ]
+        )
 
-            try:
-                new_ids, _ = await poll_home_timeline(config_wired)
-                for cid in new_ids:
-                    # Correct behavior: emit DownloadTimelineOnly
-                    await queue.put(DownloadTimelineOnly(creator_id=cid))
-            finally:
-                dump_fansly_calls(route.calls, "no_full_creator")
+        try:
+            new_ids, _ = await poll_home_timeline(config_wired)
+            for cid in new_ids:
+                # Correct behavior: emit DownloadTimelineOnly
+                await queue.put(DownloadTimelineOnly(creator_id=cid))
+        finally:
+            dump_fansly_calls(route.calls, "no_full_creator")
 
         while not queue.empty():
             item = queue.get_nowait()
@@ -692,7 +682,7 @@ class TestHandleTimelineOnlyItem:
         timeline route MUST fire (real ``download_timeline``). An empty
         timeline response terminates the pagination loop on the first page.
 
-        ``respx_fansly_api`` provides the ``with respx.mock`` context and
+        ``respx_fansly_api`` provides the respx mock context and
         the blanket OPTIONS preflight route — see
         ``tests/fixtures/api/api_fixtures.py``.
         """
@@ -702,9 +692,7 @@ class TestHandleTimelineOnlyItem:
         creator_id = saved_account.id
         creator_name = saved_account.username
 
-        account_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account"
-        ).mock(
+        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -714,9 +702,7 @@ class TestHandleTimelineOnlyItem:
         )
         # Empty posts response terminates pagination on page 1.
         timeline_route = respx.get(
-            url__startswith=(
-                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
-            )
+            url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -783,7 +769,7 @@ class TestHandleTimelineOnlyItem:
         creator_id = saved_account.id
         creator_name = saved_account.username
 
-        respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account").mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -791,11 +777,7 @@ class TestHandleTimelineOnlyItem:
                 )
             ]
         )
-        respx.get(
-            url__startswith=(
-                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
-            )
-        ).mock(
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -815,10 +797,10 @@ class TestHandleTimelineOnlyItem:
         )
         # Mounted-but-not-expected routes — assert call_count == 0.
         stories_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/mediastoriesnew"
+            url__startswith=f"{FanslyApi.BASE_URL}mediastoriesnew"
         ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
         messages_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/messaging/groups"
+            url__startswith=f"{FanslyApi.BASE_URL}messaging/groups"
         ).mock(side_effect=[httpx.Response(200, json={"response": []})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
@@ -873,11 +855,11 @@ class TestHandleTimelineOnlyItem:
         # creator_id NOT in the entity store → _resolve_creator_name returns None.
         unknown_creator_id = snowflake_id()
 
-        account_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account"
-        ).mock(side_effect=[httpx.Response(200, json={"response": []})])
+        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+            side_effect=[httpx.Response(200, json={"response": []})]
+        )
         timeline_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/timelinenew"
+            url__startswith=f"{FanslyApi.BASE_URL}timelinenew"
         ).mock(side_effect=[httpx.Response(200, json={"response": {}})])
 
         item = DownloadTimelineOnly(creator_id=unknown_creator_id)
@@ -1505,9 +1487,7 @@ class TestMarkViewedFalse:
         # /api/v1/account?usernames=... — get_creator_account_info.
         # No ``walls`` field → state.walls stays unset → the wall
         # iteration in _handle_full_creator_item is a no-op.
-        account_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account"
-        ).mock(
+        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -1518,9 +1498,7 @@ class TestMarkViewedFalse:
         # /api/v1/timelinenew/{id} — empty posts terminates pagination
         # on page 1.
         timeline_route = respx.get(
-            url__startswith=(
-                f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}"
-            )
+            url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1543,7 +1521,7 @@ class TestMarkViewedFalse:
         # accountMedia → no media downloads, but the gate code
         # path still executes with mark_viewed=False.
         stories_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/mediastoriesnew"
+            url__startswith=f"{FanslyApi.BASE_URL}mediastoriesnew"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1566,7 +1544,7 @@ class TestMarkViewedFalse:
         # groups for one whose users include state.creator_id.
         # Empty groups → early "Could not find a chat history" return.
         messages_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/messaging/groups"
+            url__startswith=f"{FanslyApi.BASE_URL}messaging/groups"
         ).mock(
             side_effect=[
                 httpx.Response(
@@ -1583,7 +1561,7 @@ class TestMarkViewedFalse:
         )
         # The critical regression guard — must NEVER fire.
         mark_view_route = respx.post(
-            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
@@ -1723,9 +1701,7 @@ class TestMarkViewedFalse:
         # /api/v1/account?usernames=... (get_creator_account_info) and
         # /api/v1/account/media?ids=... (fetch_and_process_media via
         # download_stories), in call order.
-        account_route = respx.get(
-            url__startswith="https://apiv3.fansly.com/api/v1/account"
-        ).mock(
+        account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
             side_effect=[
                 httpx.Response(200, json=account_response),
                 httpx.Response(
@@ -1734,13 +1710,13 @@ class TestMarkViewedFalse:
                 ),
             ]
         )
-        stories_route = respx.get(
-            "https://apiv3.fansly.com/api/v1/mediastoriesnew"
-        ).mock(side_effect=[httpx.Response(200, json=stories_response)])
+        stories_route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+            side_effect=[httpx.Response(200, json=stories_response)]
+        )
 
         # The critical regression-guard route — must NEVER fire.
         mark_view_route = respx.post(
-            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
         ).mock(side_effect=[httpx.Response(200, json={"storyId": str(story_id)})])
 
         # Patch the leaf CDN-download call at both binding sites
@@ -1832,7 +1808,7 @@ class TestMarkViewedFalse:
         )
         # Critical regression guard — must NEVER fire even with walls.
         mark_view_route = respx.post(
-            url__startswith="https://apiv3.fansly.com/api/v1/mediastory/view"
+            url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
         monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
@@ -1878,43 +1854,39 @@ class TestMarkViewedFalse:
 
     @pytest.mark.asyncio
     async def test_story_poll_enqueues_download_stories_only(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, config_wired, entity_store, saved_account
     ):
         """poll_story_states returning creator_id -> DownloadStoriesOnly in queue."""
         creator_id = saved_account.id
         simulator = ActivitySimulator()
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                {
-                                    "accountId": creator_id,
-                                    "hasActiveStories": True,
-                                }
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            {
+                                "accountId": creator_id,
+                                "hasActiveStories": True,
+                            }
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                # Drive the polling logic directly
-                creator_ids = await poll_story_states(config_wired)
-                if creator_ids:
-                    simulator.on_new_content()
-                    for cid in creator_ids:
-                        await queue.put(DownloadStoriesOnly(creator_id=cid))
-            finally:
-                dump_fansly_calls(route.calls, "story_poll_enqueue")
+        try:
+            # Drive the polling logic directly
+            creator_ids = await poll_story_states(config_wired)
+            if creator_ids:
+                simulator.on_new_content()
+                for cid in creator_ids:
+                    await queue.put(DownloadStoriesOnly(creator_id=cid))
+        finally:
+            dump_fansly_calls(route.calls, "story_poll_enqueue")
 
         assert not queue.empty(), "Expected DownloadStoriesOnly in queue"
         item = await queue.get()

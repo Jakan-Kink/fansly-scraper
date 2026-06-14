@@ -1,8 +1,5 @@
 """Web Utilities"""
 
-import platform
-import re
-import traceback
 from collections import OrderedDict, namedtuple
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse, urlunparse
@@ -125,62 +122,6 @@ def split_url(url: str) -> NamedTuple:
     SplitURL = namedtuple("SplitURL", ["base_url", "file_url"])
 
     return SplitURL(base_url, file_url)
-
-
-def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) -> str:
-    """Returns the guessed browser's user agent or a default one."""
-    from textio import print_error, print_warning  # noqa: PLC0415, I001  # circular-break: helpers is lower-layer than textio
-
-    if based_on_browser == "Microsoft Edge":
-        based_on_browser = "Edg"  # msedge only reports "Edg" as its identifier
-
-        # could do the same for opera, opera gx, brave. but those are not supported by @jnrbsn's repo. so we just return chrome ua
-        # in general his repo, does not provide the most accurate latest user-agents, if I am borred some time in the future,
-        # I might just write my own similar repo and use that instead
-
-    os_name = platform.system()
-
-    try:
-        if os_name == "Windows":
-            for user_agent in user_agents:
-                if based_on_browser in user_agent and "Windows" in user_agent:
-                    match = re.search(r"Windows NT ([\d.]+)", user_agent)
-                    if match:
-                        os_version = match.group(1)
-                        # Plain capture — group(1) is always a substring of user_agent.
-                        if os_version in user_agent:  # pragma: no cover
-                            return user_agent
-
-        elif os_name == "Darwin":  # macOS
-            for user_agent in user_agents:
-                if based_on_browser in user_agent and "Macintosh" in user_agent:
-                    match = re.search(r"Mac OS X ([\d_.]+)", user_agent)
-                    if match:
-                        os_version = match.group(1).replace("_", ".")
-                        if os_version in user_agent:
-                            return user_agent
-
-        elif os_name == "Linux":
-            for user_agent in user_agents:
-                if based_on_browser in user_agent and "Linux" in user_agent:
-                    match = re.search(r"Linux ([\d.]+)", user_agent)
-                    if match:
-                        os_version = match.group(1)
-                        # Plain capture — group(1) is always a substring of user_agent.
-                        if os_version in user_agent:  # pragma: no cover
-                            return user_agent
-
-    except Exception:
-        print_error(
-            f"Regexing user-agent from online source failed: {traceback.format_exc()}",
-            4,
-        )
-
-    print_warning(
-        f"Missing user-agent for {based_on_browser} & OS: {os_name}. Chrome & Windows UA will be used instead."
-    )
-
-    return default_ua
 
 
 def get_release_info_from_github(current_program_version: str) -> dict | None:

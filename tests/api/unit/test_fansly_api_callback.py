@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
+from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
 
 class TestFanslyApiCallback:
@@ -32,7 +33,7 @@ class TestFanslyApiCallback:
             side_effect=[httpx.Response(200)]
         )
 
-        respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
+        device_route = respx.get(f"{FanslyApi.BASE_URL}device/id").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -43,6 +44,9 @@ class TestFanslyApiCallback:
 
         api.device_id_timestamp = 0
 
-        await api.update_device_id()
+        try:
+            await api.update_device_id()
+        finally:
+            dump_fansly_calls(device_route.calls, "callback_when_update_needed")
 
         mock_callback.assert_called_once()

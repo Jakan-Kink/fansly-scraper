@@ -1,9 +1,7 @@
 """Integration tests for message processing functionality."""
 
 import copy
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
@@ -22,16 +20,6 @@ from metadata import (
 from metadata.account import process_media_bundles_data
 from tests.fixtures import setup_accounts_and_groups
 from tests.fixtures.utils.test_isolation import snowflake_id
-
-
-@pytest.fixture(scope="session")
-def group_data(test_data_dir: str):
-    """Load group messages test data."""
-    json_file = Path(test_data_dir) / "messages-group.json"
-    if not json_file.exists():
-        pytest.skip(f"Test data file not found: {json_file}")
-    with json_file.open() as f:
-        return json.load(f)
 
 
 @pytest.mark.asyncio

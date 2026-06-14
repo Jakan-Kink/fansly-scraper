@@ -1,17 +1,18 @@
 """Configuration Validation"""
 
-# import re
 import asyncio
 import importlib.util
+import platform
+import re
 from pathlib import Path
 
-import httpx
+import ua_generator
+from ua_generator.options import Options
 
 from config.logging import textio_logger
 from config.modes import DownloadMode
 from errors import ConfigError
 from helpers.browser import open_get_started_url
-from helpers.web import guess_user_agent
 from pathio.pathio import ask_correct_dir
 from textio.prompts import aconfirm, aprompt_text
 from textio.textio import input_enter_continue
@@ -269,68 +270,92 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
         )
 
 
+# Host os.platform.system() -> ua_generator platform token.
+_HOST_OS_TO_UA_PLATFORM = {
+    "Windows": "windows",
+    "Darwin": "macos",
+    "Linux": "linux",
+}
+
+# Normalised browser name (from parse_browser_from_string) -> ua_generator
+# browser token. Chromium-based browsers ua_generator doesn't model
+# (Brave, Opera, Opera GX) report a Chrome-family UA, so they map to chrome.
+_BROWSER_NAME_TO_UA_BROWSER = {
+    "Chrome": "chrome",
+    "Chromium": "chrome",
+    "Microsoft Edge": "edge",
+    "Edge": "edge",
+    "Firefox": "firefox",
+    "Brave": "chrome",
+    "Opera": "chrome",
+    "Opera GX": "chrome",
+}
+
+# ua_generator version policy: bias toward recent versions, capped to the
+# latest few per browser, so generated UAs stay current and plausible.
+_UA_OPTIONS = Options(
+    weighted_versions=True,
+    latest_versions={"chrome": 3, "edge": 3, "firefox": 1, "safari": 3},
+)
+
+# Real browsers freeze the macOS version token in the UA regardless of the
+# actual OS: Chromium and Safari report "10_15_7", Firefox reports "10.15".
+# ua_generator does not model this and emits the literal selected version
+# (e.g. "26_5"), which no real browser produces — so normalise it.
+_MACOS_TOKEN_RE = re.compile(r"Mac OS X [\d_.]+")
+
+
+def _freeze_macos_token(user_agent: str, ua_browser: str) -> str:
+    """Pin the ``Mac OS X`` token to the value real browsers freeze it at."""
+    frozen = "10.15" if ua_browser == "firefox" else "10_15_7"
+    return _MACOS_TOKEN_RE.sub(f"Mac OS X {frozen}", user_agent)
+
+
 def validate_adjust_user_agent(config: FanslyConfig) -> None:
-    # validate input value for "user_agent" in config.ini
     """Validates the input value for `user_agent` in `config.ini`.
+
+    When the configured user-agent is missing or implausible, generate a
+    real desktop user-agent with ua_generator, matched to the host OS and
+    (when known) the browser the auth token came from, then persist it.
 
     :param FanslyConfig config: The configuration to validate and correct.
     """
+    if config.useragent_is_valid():
+        return
 
-    # if no matches / error just set random UA
-    ua_if_failed = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+    textio_logger.warning(
+        f"Browser user-agent '{config.user_agent}' in config.ini is most likely incorrect."
+    )
 
-    based_on_browser = config.token_from_browser_name or "Chrome"
-
-    if not config.useragent_is_valid():
-        textio_logger.warning(
-            f"Browser user-agent '{config.user_agent}' in config.ini is most likely incorrect."
-        )
-
-        if config.token_from_browser_name is not None:
-            textio_logger.info(
-                f"Adjusting it with an educated guess based on the combination of your \n"
-                f"{19 * ' '}operating system & specific browser."
-            )
-
-        else:
-            textio_logger.info(
-                f"Adjusting it with an educated guess, hardcoded for Chrome browser."
-                f"\n{19 * ' '}If you're not using Chrome you might want to replace it in the config.ini file later on."
-                f"\n{19 * ' '}More information regarding this topic is on the Fansly Downloader NG Wiki."
-            )
-
-        try:
-            # thanks Jonathan Robson (@jnrbsn) - for continuously providing these up-to-date user-agents
-            user_agent_response = httpx.get(
-                "https://jnrbsn.github.io/user-agents/user-agents.json",
-                headers={
-                    "User-Agent": ua_if_failed,
-                    "accept-language": "en-US,en;q=0.9",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
-
-            if user_agent_response.status_code == 200:
-                config_user_agent = guess_user_agent(
-                    user_agent_response.json(),
-                    based_on_browser,
-                    default_ua=ua_if_failed,
-                )
-            else:
-                config_user_agent = ua_if_failed
-
-        except httpx.HTTPError:
-            config_user_agent = ua_if_failed
-
-        # save useragent modification to config file
-        config.user_agent = config_user_agent
-
-        save_config_or_raise(config)
-
+    if config.token_from_browser_name is not None:
         textio_logger.info(
-            "Success! Applied a browser user-agent to config.ini file.\n"
+            f"Adjusting it with an educated guess based on the combination of your \n"
+            f"{19 * ' '}operating system & specific browser."
         )
+    else:
+        textio_logger.info(
+            f"Adjusting it with an educated guess, hardcoded for Chrome browser."
+            f"\n{19 * ' '}If you're not using Chrome you might want to replace it in the config.ini file later on."
+            f"\n{19 * ' '}More information regarding this topic is on the Fansly Downloader NG Wiki."
+        )
+
+    ua_platform = _HOST_OS_TO_UA_PLATFORM.get(platform.system(), "windows")
+    ua_browser = _BROWSER_NAME_TO_UA_BROWSER.get(
+        config.token_from_browser_name or "", "chrome"
+    )
+    user_agent = ua_generator.generate(
+        device="desktop",
+        platform=ua_platform,
+        browser=ua_browser,
+        options=_UA_OPTIONS,
+    ).text
+    if ua_platform == "macos":
+        user_agent = _freeze_macos_token(user_agent, ua_browser)
+    config.user_agent = user_agent
+
+    save_config_or_raise(config)
+
+    textio_logger.info("Success! Applied a browser user-agent to config.ini file.\n")
 
 
 async def validate_adjust_check_key(config: FanslyConfig) -> None:

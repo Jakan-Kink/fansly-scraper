@@ -26,22 +26,6 @@ from helpers.rich_progress import ProgressManager
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def progress_manager():
-    """Fresh ProgressManager per test to avoid bleed-over of task state.
-
-    The module-level _progress_manager singleton accumulates tasks across
-    tests and sessions, which would make "no tasks leaked" assertions
-    unreliable. A fresh instance per test gives each case its own slate.
-    """
-    return ProgressManager()
-
-
-# ---------------------------------------------------------------------------
 # make_dashboard factory
 # ---------------------------------------------------------------------------
 

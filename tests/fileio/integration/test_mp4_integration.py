@@ -1,63 +1,11 @@
 """Integration tests for the MP4 module."""
 
 import hashlib
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
 
 from errors.mp4 import InvalidMP4Error
 from fileio.mp4 import get_boxes, hash_mp4file
-
-
-@pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    temp_dir = tempfile.mkdtemp()
-    yield Path(temp_dir)
-    shutil.rmtree(temp_dir)
-
-
-@pytest.fixture
-def valid_mp4_file(temp_dir):
-    """Create a valid minimal MP4 file for testing."""
-    file_path = temp_dir / "valid.mp4"
-
-    # Create the most minimal valid MP4 file
-    with file_path.open("wb") as f:
-        # ftyp box (24 bytes)
-        f.write(bytes.fromhex("00000018 66747970 6D703432 00000000 6D703432 00000000"))
-        # free box (16 bytes)
-        f.write(bytes.fromhex("00000010 66726565 00000000 00000000"))
-        # mdat box (16 bytes)
-        f.write(bytes.fromhex("00000010 6D646174 00000000 00000000"))
-
-    return file_path
-
-
-@pytest.fixture
-def invalid_mp4_file(temp_dir):
-    """Create an invalid MP4 file for testing."""
-    file_path = temp_dir / "invalid.mp4"
-
-    # Create an invalid MP4 file (missing ftyp box)
-    with file_path.open("wb") as f:
-        # moov box (16 bytes)
-        f.write(bytes.fromhex("00000010 6D6F6F76 00000000 00000000"))
-
-    return file_path
-
-
-@pytest.fixture
-def too_small_file(temp_dir):
-    """Create a file that's too small to be an MP4."""
-    file_path = temp_dir / "too_small.mp4"
-
-    with file_path.open("wb") as f:
-        f.write(bytes.fromhex("0000"))  # Only 2 bytes
-
-    return file_path
 
 
 class TestMP4Integration:
@@ -134,15 +82,15 @@ class TestMP4Integration:
         with pytest.raises(InvalidMP4Error):
             hash_mp4file(algorithm, invalid_mp4_file)
 
-    def test_hash_mp4file_with_too_small_file(self, too_small_file):
+    def test_hash_mp4file_with_too_small_file(self, too_small_mp4_file):
         """Test hash_mp4file with a file that's too small to be an MP4."""
         algorithm = hashlib.md5(usedforsecurity=False)
         with pytest.raises(InvalidMP4Error):
-            hash_mp4file(algorithm, too_small_file)
+            hash_mp4file(algorithm, too_small_mp4_file)
 
-    def test_hash_mp4file_with_nonexistent_file(self, temp_dir):
+    def test_hash_mp4file_with_nonexistent_file(self, tmp_path):
         """Test hash_mp4file with a non-existent file."""
-        nonexistent_file = temp_dir / "nonexistent.mp4"
+        nonexistent_file = tmp_path / "nonexistent.mp4"
         algorithm = hashlib.md5(usedforsecurity=False)
         with pytest.raises(RuntimeError):
             hash_mp4file(algorithm, nonexistent_file)

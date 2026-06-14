@@ -1,6 +1,5 @@
 """Functional tests for logging configuration."""
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -18,37 +17,6 @@ from config.logging import (
     trace_logger,
 )
 from errors import InvalidTraceLogError
-
-
-@pytest.fixture
-def log_dir(tmp_path):
-    """Create a temporary log directory."""
-    # Create logs directory in the right place
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    # Set this as the current working directory for log file output
-    old_cwd = Path.cwd()
-    os.chdir(str(tmp_path))
-    yield log_dir
-    # Restore original working directory
-    os.chdir(str(old_cwd))
-
-
-@pytest.fixture
-def logging_config(log_dir, uuid_test_db_factory, monkeypatch):
-    """Create a test config with UUID database and log directory set.
-
-    Renamed from 'config' to avoid shadowing the database config fixture.
-    Uses uuid_test_db_factory to get isolated PostgreSQL database for each test.
-    """
-    # Use the UUID-based config from uuid_test_db_factory
-    config = uuid_test_db_factory
-    # Set testing environment flag via monkeypatch so it's automatically
-    # reverted at teardown — avoids cross-test pollution under pytest-xdist.
-    monkeypatch.setenv("TESTING", "1")
-    # Initialize logging with this config
-    init_logging_config(config)
-    return config
 
 
 def read_log_file(log_dir: Path, filename: str) -> list[str]:
@@ -440,12 +408,9 @@ def test_console_output(logging_config, capsys, mock_config):
 
 def test_console_level_format(logging_config, caplog):
     """Test that console output shows level names correctly."""
-
-    # Use direct patching of sys.stdout to capture output
     textio_logger.info("Info level message")
     logger.complete()  # Ensure flushing
     output = caplog.text
-    print(f"Captured output: {output}")
     assert "INFO" in output, f"Expected 'INFO' in: {output}"
     assert "Level 20" not in output, f"Should not find 'Level 20' in: {output}"
     caplog.clear()  # Clear buffer
@@ -453,7 +418,6 @@ def test_console_level_format(logging_config, caplog):
     stash_logger.warning("Warning level message")
     logger.complete()  # Ensure flushing
     output = caplog.text
-    print(f"Captured output: {output}")
     assert "WARNING" in output, f"Expected 'WARNING' in: {output}"
     assert "Level 30" not in output, f"Should not find 'Level 30' in: {output}"
     caplog.clear()  # Clear buffer
@@ -463,7 +427,6 @@ def test_console_level_format(logging_config, caplog):
         textio_logger.debug("Debug level message")
         logger.complete()  # Ensure flushing
         output = caplog.text
-        print(f"Captured output: {output}")
         assert "DEBUG" in output, f"Expected 'DEBUG' in: {output}"
         assert "Level 10" not in output, f"Should not find 'Level 10' in: {output}"
     finally:

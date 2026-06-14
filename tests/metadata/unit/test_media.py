@@ -117,6 +117,32 @@ async def test_media_creation(entity_store):
 
 
 @pytest.mark.asyncio
+async def test_local_path_is_transient(entity_store):
+    """local_path is a download-time transient: excluded from writes, never dirties.
+
+    It carries the full on-disk save path on the live identity-map object so the
+    incremental Stash pass can scan exactly those files, while local_filename
+    stays the basename. Being outside __tracked_fields__ and in _WRITE_EXCLUDED,
+    setting it must not mark a clean Media dirty (so it is never UPDATE-persisted).
+    """
+    assert "local_path" in Media._WRITE_EXCLUDED
+    assert "local_path" not in Media.__tracked_fields__
+
+    store = entity_store
+    account_id = snowflake_id()
+    media_id = snowflake_id()
+    await store.save(Account(id=account_id, username="lp_user"))
+
+    media = Media(id=media_id, accountId=account_id, mimetype="video/mp4")
+    await store.save(media)
+    assert media.is_dirty() is False  # clean immediately after save
+
+    media.local_path = "/dl/lp_user/Videos/clip_id_42.mp4"
+    assert media.is_dirty() is False  # transient field does not dirty the row
+    assert media.local_path == "/dl/lp_user/Videos/clip_id_42.mp4"
+
+
+@pytest.mark.asyncio
 async def test_process_video_metadata(entity_store, config):
     """Test processing video metadata with duration and dimensions.
 

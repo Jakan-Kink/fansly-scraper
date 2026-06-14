@@ -529,7 +529,10 @@ class TestDownloadWallEdges:
             side_effect=[httpx.Response(500, text="should not be called")]
         )
 
-        await download_wall(config, state, wall_id)
+        try:
+            await download_wall(config, state, wall_id)
+        finally:
+            dump_fansly_calls(route.calls, "test_creator_content_unchanged")
 
         # No HTTP call was issued — early return before the loop.
         assert len(route.calls) == 0
@@ -622,12 +625,15 @@ class TestDownloadWallEdges:
 
         # Pre-mount an empty wall response for the second iteration (which now
         # has a valid creator_id). respx_fansly_api fixture provides the route.
-        respx.get(url__startswith=FANSLY_API).mock(
+        route = respx.get(url__startswith=FANSLY_API).mock(
             side_effect=[_ok(_wall_response(creator_id, post_count=0, media_count=0))]
         )
 
         # Should NOT raise — outer except catches RuntimeError.
-        await download_wall(config, state, snowflake_id())
+        try:
+            await download_wall(config, state, snowflake_id())
+        finally:
+            dump_fansly_calls(route.calls, "test_creator_id_none_runtime_error")
 
         errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
         assert any("Unexpected error during wall download" in m for m in errors)

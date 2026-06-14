@@ -14,9 +14,7 @@ import pytest
 
 from config.loader import load_or_migrate, migrate_ini_to_yaml
 from config.schema import ConfigSchema
-
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+from tests.fixtures.config import CONFIG_DATA_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +25,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 def test_load_yaml_when_yaml_exists(tmp_path: Path) -> None:
     """When config.yaml is present, return the loaded schema without migrating."""
     # Arrange: copy sample.yaml into tmp_path as config.yaml
-    src = FIXTURES_DIR / "sample.yaml"
+    src = CONFIG_DATA_DIR / "sample.yaml"
     yaml_path = tmp_path / "config.yaml"
     shutil.copy(src, yaml_path)
 
@@ -73,7 +71,7 @@ def test_defaults_when_no_files_exist(tmp_path: Path) -> None:
 
 def test_yaml_preferred_over_ini_when_both_present(tmp_path: Path) -> None:
     """When both config.yaml and config.ini are present, YAML wins and .ini is untouched."""
-    src = FIXTURES_DIR / "sample.yaml"
+    src = CONFIG_DATA_DIR / "sample.yaml"
     yaml_path = tmp_path / "config.yaml"
     shutil.copy(src, yaml_path)
 

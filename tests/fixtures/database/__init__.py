@@ -9,6 +9,7 @@ from .database_fixtures import (
     factory_session,
     json_conversation_data,
     mock_account,
+    mock_post,
     pg_template_db,
     # safe_name,  # Commented out - fixture is not currently defined
     session,
@@ -41,6 +42,7 @@ __all__ = [
     "factory_session",
     "json_conversation_data",
     "mock_account",
+    "mock_post",
     "pg_template_db",
     # "safe_name",  # Commented out - fixture is not currently defined
     "session",

@@ -4,7 +4,6 @@ import gzip
 import json
 import logging
 import os
-import tempfile
 import time
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -38,33 +37,6 @@ from metadata.models import (
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
 from textio.logging import SizeAndTimeRotatingFileHandler
-
-
-@pytest.fixture
-def log_setup():
-    """Set up test environment."""
-    temp_dir = Path(tempfile.mkdtemp())
-    log_filename = str(temp_dir / "test.log")
-    logger = logging.getLogger("test_logger")
-    logger.setLevel(logging.INFO)
-
-    yield str(temp_dir), log_filename, logger
-
-    # Cleanup
-    handler_list = (
-        logger.handlers.copy()
-    )  # Make a copy to avoid modification during iteration
-    for handler in handler_list:
-        logger.removeHandler(handler)
-        handler.close()
-
-    # Remove test files
-    try:
-        for file_path in temp_dir.iterdir():
-            file_path.unlink()
-        temp_dir.rmdir()
-    except OSError as e:
-        print(f"Warning: Cleanup issue: {e}")
 
 
 def test_size_based_rotation(log_setup):

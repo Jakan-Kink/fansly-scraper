@@ -52,6 +52,7 @@ from .main_api_mocks import (
     mount_client_account_me_route,
     mount_empty_creator_pipeline,
     mount_empty_following_route,
+    mount_m3u8_segment_routes,
     run_main_and_cleanup,
 )
 from .websocket_subprocess_helpers import (
@@ -100,6 +101,7 @@ __all__ = [
     "mount_client_account_me_route",
     "mount_empty_creator_pipeline",
     "mount_empty_following_route",
+    "mount_m3u8_segment_routes",
     "respx_fansly_api",
     "respx_ivs_cdn",
     "run_main_and_cleanup",

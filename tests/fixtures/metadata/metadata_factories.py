@@ -128,7 +128,7 @@ class FanslyContentProvider(BaseProvider):
     MEDIUM_TEMPLATES = [
         "Do you like my outfit? 😈\n\n{hashtags}",
         "Living the dream! 😎💜\n\n{hashtags}",
-        "Will it go in….\n\n{hashtags}",
+        "Will it go in...\n\n{hashtags}",
         "Do you immediately shove it in me, or will you give me a good spanking first? 😈\n\n{hashtags}",
         "Slide my panties to the side and pleasure me 🥵🥵\n\n{hashtags}",
         "And here are a few impressions from yesterday's session 🥺\n\n{hashtags}",

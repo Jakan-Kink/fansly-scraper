@@ -13,6 +13,8 @@ from .cleanup_fixtures import (
 )
 from .clock_fixtures import fake_monotonic_clock
 from .concurrency import SyncExecutor
+from .eventual import poll_until
+from .logging_fixtures import log_dir, log_setup, logging_config
 from .mp_queues import close_qs
 from .test_isolation import get_unique_test_id, get_worker_id, snowflake_id
 
@@ -32,5 +34,9 @@ __all__ = [
     "fake_monotonic_clock",
     "get_unique_test_id",
     "get_worker_id",
+    "log_dir",
+    "log_setup",
+    "logging_config",
+    "poll_until",
     "snowflake_id",
 ]

@@ -26,8 +26,7 @@ from loguru import logger
 from daemon.runner import run_daemon
 from daemon.simulator import ActivitySimulator
 from metadata.models import MonitorState
-from tests.fixtures.api import make_ws_factory_for
-from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.api import dump_fansly_calls, make_ws_factory_for
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -209,9 +208,9 @@ class TestRunDaemonE2E:
                 ),
             ):
                 # ── RESPX routes (inside mock context) ───────────────────────
-                respx.options(url__startswith="https://apiv3.fansly.com").mock(
-                    side_effect=[httpx.Response(200)]
-                )
+                # OPTIONS preflight blanket — method-only match; only Fansly
+                # API traffic flows through httpx in this test.
+                respx.route(method="OPTIONS").mock(side_effect=[httpx.Response(200)])
 
                 home_timeline_route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
                     side_effect=[
@@ -272,7 +271,10 @@ class TestRunDaemonE2E:
                     ]
                 )
 
-                await _run_and_stop()
+                try:
+                    await _run_and_stop()
+                finally:
+                    dump_fansly_calls(respx.calls, "test_poll_to_persist_cycle")
         finally:
             logger.remove(sink_id)
 

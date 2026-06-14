@@ -427,9 +427,10 @@ class TestValidateJsonResponse:
 
         try:
             response = await respx_fansly_api.get_with_ngsw(test_url)
-            assert response.status_code == 200
         finally:
-            dump_fansly_calls(route.calls)
+            dump_fansly_calls(route.calls, "test_418_teapot_retried")
+
+        assert response.status_code == 200
 
 
 class TestConvertIdsToInt:
@@ -540,6 +541,7 @@ class TestGetClientUserName:
         )
         try:
             result = await respx_fansly_api.get_client_user_name()
-            assert result is None
         finally:
-            dump_fansly_calls(route.calls)
+            dump_fansly_calls(route.calls, "test_empty_username_returns_none")
+
+        assert result is None

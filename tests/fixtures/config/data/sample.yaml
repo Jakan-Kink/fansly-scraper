@@ -1,0 +1,62 @@
+# Fansly Downloader NG — sample configuration
+# This file preserves comments across load→dump cycles.
+
+targeted_creator:
+  # Creator username(s) to download
+  usernames:
+    - replaceme
+  use_following: false
+  use_following_with_pagination: false
+
+my_account:
+  # Your Fansly authorization token
+  authorization_token: ReplaceMe
+  user_agent: ReplaceMe
+  check_key: qybZy9-fyszis-bybxyf
+  username: null
+  password: null
+
+options:
+  download_directory: Local_directory
+  download_mode: normal
+  metadata_handling: advanced
+  show_downloads: true
+  show_skipped_downloads: true
+  download_media_previews: true
+  open_folder_when_finished: true
+  separate_messages: true
+  separate_previews: false
+  separate_timeline: true
+  use_duplicate_threshold: false
+  use_folder_suffix: true
+  interactive: true
+  prompt_on_exit: true
+  timeline_retries: 1
+  timeline_delay_seconds: 60
+  temp_folder: null
+
+postgres:
+  pg_host: localhost
+  pg_port: 5432
+  pg_database: fansly_metadata
+  pg_user: fansly_user
+  pg_password: null
+  pg_sslmode: prefer
+  pg_sslcert: null
+  pg_sslkey: null
+  pg_sslrootcert: null
+  pg_pool_size: 5
+
+monitoring:
+  enabled: false
+  active_duration_minutes: 60
+  idle_duration_minutes: 120
+  hidden_duration_minutes: 300
+  timeline_poll_active_seconds: 180
+  timeline_poll_idle_seconds: 600
+  story_poll_active_seconds: 30
+  story_poll_idle_seconds: 300
+
+logic:
+  check_key_pattern: 'this\.checkKey_\s*=\s*["'']([^"'']+)["'']'
+  main_js_pattern: '\ssrc\s*=\s*"(main\..*?\.js)"'

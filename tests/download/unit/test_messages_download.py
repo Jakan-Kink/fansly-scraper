@@ -257,7 +257,7 @@ async def test_download_messages_no_group_for_creator_warns_and_exits(
 
     # The response has a group, but it contains a different user —
     # production code iterates members, never finds creator_id, returns.
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -281,7 +281,10 @@ async def test_download_messages_no_group_for_creator_warns_and_exits(
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
-    await download_messages(config, state)
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="messages_no_group_for_creator")
 
 
 @pytest.mark.asyncio
@@ -296,7 +299,7 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
     config.download_directory = tmp_path
     config.interactive = False
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
@@ -309,7 +312,10 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
-    await download_messages(config, state)
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="messages_groups_api_non_200")
 
 
 @pytest.mark.asyncio
@@ -360,7 +366,10 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
-    await download_messages(config, state)
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_message_page_non_200")
 
 
 @pytest.mark.asyncio
@@ -417,7 +426,10 @@ async def test_download_messages_for_group_with_creator_info_preset(
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_messages_for_group(config, state, group_id)
+    try:
+        await download_messages_for_group(config, state, group_id)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_for_group_creator_preset")
 
     assert state.download_type == DownloadType.MESSAGES
 
@@ -437,14 +449,17 @@ async def test_download_messages_for_group_groups_api_non_200_returns_early(
 
     # 500 is in httpx_retries' status_forcelist — provide enough responses
     # to exhaust retries.
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
         side_effect=[httpx.Response(500, text="server boom")] * 5
     )
 
     state = DownloadState()
     state.creator_id = snowflake_id()
 
-    await download_messages_for_group(config, state, snowflake_id())
+    try:
+        await download_messages_for_group(config, state, snowflake_id())
+    finally:
+        dump_fansly_calls(route.calls, label="messages_for_group_groups_non_200")
 
 
 @pytest.mark.asyncio
@@ -462,7 +477,7 @@ async def test_download_messages_for_group_missing_group_warns_and_returns(
     creator_id = snowflake_id()
     known_group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -486,7 +501,10 @@ async def test_download_messages_for_group_missing_group_warns_and_returns(
 
     # Pass a DIFFERENT group_id that's not in the returned list → target_group None.
     missing_group_id = snowflake_id()
-    await download_messages_for_group(config, state, missing_group_id)
+    try:
+        await download_messages_for_group(config, state, missing_group_id)
+    finally:
+        dump_fansly_calls(route.calls, label="messages_for_group_missing_group")
 
 
 @pytest.mark.asyncio
@@ -535,7 +553,10 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
 
-    await download_messages_for_group(config, state, group_id)
+    try:
+        await download_messages_for_group(config, state, group_id)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_for_group_infers_creator")
 
     # Inference populated creator_id AND (via Account cache lookup) username.
     assert state.creator_id == creator_id
@@ -608,7 +629,10 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
 
-    await download_messages_for_group(config, state, group_id)
+    try:
+        await download_messages_for_group(config, state, group_id)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_for_group_no_account_cached")
 
     assert state.creator_id == creator_id
     # Account has empty username, so creator_name inference fails the
@@ -631,7 +655,7 @@ async def test_download_messages_for_group_cannot_identify_creator_warns(
 
     group_id = snowflake_id()
 
-    respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}messaging/groups").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -659,7 +683,10 @@ async def test_download_messages_for_group_cannot_identify_creator_warns(
     state = DownloadState()
     assert state.creator_id is None
 
-    await download_messages_for_group(config, state, group_id)
+    try:
+        await download_messages_for_group(config, state, group_id)
+    finally:
+        dump_fansly_calls(route.calls, label="messages_for_group_cannot_identify")
 
     # Inference never ran successfully → creator_id stays None → warn + return.
     assert state.creator_id is None
@@ -767,7 +794,10 @@ async def test_download_messages_skipped_downloads_summary(
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_messages(config, state)
+    try:
+        await download_messages(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="messages_skipped_downloads_summary")
 
     # Two media items marked as duplicate by the fake CDN → skipped>1.
     assert state.duplicate_count >= 2

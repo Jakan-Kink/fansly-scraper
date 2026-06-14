@@ -1,14 +1,3 @@
-import pytest
-
-from download.globalstate import GlobalState
-
-
-@pytest.fixture
-def global_state():
-    """Create a test global state."""
-    return GlobalState()
-
-
 def test_initial_state(global_state):
     """Test initial counter values."""
     assert global_state.duplicate_count == 0

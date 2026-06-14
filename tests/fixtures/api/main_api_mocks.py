@@ -475,6 +475,55 @@ def mount_empty_following_route(client_id: int) -> respx.Route:
     ).mock(side_effect=[httpx.Response(200, json=fansly_json([]))])
 
 
+_M3U8_DEFAULT_PLAYLIST = (
+    "#EXTM3U\n"
+    "#EXT-X-VERSION:3\n"
+    "#EXT-X-PLAYLIST-TYPE:VOD\n"
+    "#EXT-X-TARGETDURATION:10\n"
+    "#EXTINF:10.0,\n"
+    "segment1.ts\n"
+    "#EXTINF:8.0,\n"
+    "segment2.ts\n"
+    "#EXT-X-ENDLIST\n"
+)
+
+
+def mount_m3u8_segment_routes(
+    *,
+    base_url: str = "https://example.com",
+    playlist_text: str | None = None,
+    segment_bytes: bytes = b"\x00" * 256,
+    segment_status: int = 200,
+    segment_count: int = 2,
+    segment_raises: Exception | None = None,
+) -> tuple[respx.Route, respx.Route]:
+    """Mount respx routes for an m3u8 segment download test.
+
+    Returns ``(playlist_route, segment_route)`` so callers can inspect
+    ``.calls`` and ``.call_count``. Routes are declared narrow-first
+    (segment then playlist) so the more-specific match wins.
+    """
+    if playlist_text is None:
+        playlist_text = _M3U8_DEFAULT_PLAYLIST
+    # CORS preflight blanket — pad for playlist + each segment.
+    respx.options(url__startswith=f"{base_url}/").mock(
+        side_effect=[httpx.Response(200)] * (segment_count + 2)
+    )
+    if segment_raises is not None:
+        segment_route = respx.get(url__startswith=f"{base_url}/segment").mock(
+            side_effect=[segment_raises] * segment_count
+        )
+    else:
+        segment_route = respx.get(url__startswith=f"{base_url}/segment").mock(
+            side_effect=[httpx.Response(segment_status, content=segment_bytes)]
+            * segment_count
+        )
+    playlist_route = respx.get(url__startswith=f"{base_url}/v.m3u8").mock(
+        side_effect=[httpx.Response(200, text=playlist_text)]
+    )
+    return playlist_route, segment_route
+
+
 def _register_baseline_routes(
     *,
     client_id: int,
@@ -522,7 +571,7 @@ def _register_baseline_routes(
 def _register_account_lookup_route(
     accounts_by_username: dict[str, dict[str, Any]],
 ) -> None:
-    """Register ``/api/v1/account?usernames=…`` with a pivoting responder.
+    """Register ``/api/v1/account?usernames=...`` with a pivoting responder.
 
     Both ``load_client_account_into_db`` (clientuser) and per-creator lookups
     (testcreator plus anything added via ``env.add_creator``) hit this URL.

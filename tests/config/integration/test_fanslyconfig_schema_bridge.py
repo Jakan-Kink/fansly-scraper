@@ -10,11 +10,9 @@ config internals — these are end-to-end data-flow tests.
 from __future__ import annotations
 
 import argparse
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from pydantic import SecretStr
 
 from config.args import (
@@ -28,28 +26,6 @@ from config.config import load_config
 from config.fanslyconfig import FanslyConfig
 from config.modes import DownloadMode
 from config.schema import ConfigSchema, StashContextSection
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def config_dir(tmp_path: Path) -> Path:
-    """Isolated temp directory used as the working directory for config files."""
-    logs = tmp_path / "logs"
-    logs.mkdir()
-    original_cwd = Path.cwd()
-    os.chdir(tmp_path)
-    yield tmp_path
-    os.chdir(original_cwd)
-
-
-@pytest.fixture
-def fresh_config() -> FanslyConfig:
-    """A fresh FanslyConfig with no state."""
-    return FanslyConfig(program_version="0.13.0")
 
 
 # ---------------------------------------------------------------------------

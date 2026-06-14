@@ -30,7 +30,6 @@ save-triggering branches exercise the real YAML write without mocks.
 """
 
 import logging
-import platform as _platform
 import types
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -39,7 +38,7 @@ import httpx
 import pytest
 import respx
 
-from config.fanslyconfig import FanslyConfig
+from api.fansly import FanslyApi
 from config.modes import DownloadMode
 from config.validation import (
     validate_adjust_check_key,
@@ -53,6 +52,7 @@ from config.validation import (
     validate_log_levels,
 )
 from errors import ConfigError
+from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
 
 # validation_config fixture lives in tests/fixtures/config/ and flows through
@@ -294,14 +294,39 @@ async def test_validate_adjust_token_plyvel_installed_no_account_raises(
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
-    mock_find_spec, validation_config
+    mock_find_spec, respx_fansly_api, validation_config
 ):
-    """Non-interactive + token found in browser → auto-linked (lines 242-258)."""
+    """Non-interactive + token found in browser → auto-linked (lines 242-258).
+
+    Real verification path: the relaxed ``get_api`` builds an empty-token probe
+    api, and ``get_client_user_name(browser_token)`` hits the real account
+    endpoint (respx) to confirm the browser-found token before linking.
+    """
     mock_find_spec.return_value = types.SimpleNamespace()
     validation_config.token = "short"  # invalid → triggers browser search
     validation_config.interactive = False
 
     valid_token = "a" * 60
+
+    # respx_fansly_api cleared its one-shot bootstrap routes; re-mount
+    # device/id + account/me so validation_config's own probe api can verify
+    # the browser-found token.
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "found_user"}},
+                },
+            )
+        ]
+    )
 
     with (
         patch(
@@ -317,15 +342,11 @@ async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
             return_value=valid_token,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch.object(
-            FanslyConfig,
-            "get_api",
-            return_value=types.SimpleNamespace(
-                get_client_user_name=AsyncMock(return_value="found_user")
-            ),
-        ),
     ):
-        await validate_adjust_token(validation_config)
+        try:
+            await validate_adjust_token(validation_config)
+        finally:
+            dump_fansly_calls(account_route.calls, "auto_links_non_interactive")
 
     assert validation_config.token == valid_token
     assert validation_config.token_from_browser_name == "Chromium"
@@ -334,7 +355,7 @@ async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_firefox_profile_branch(
-    mock_find_spec, validation_config
+    mock_find_spec, respx_fansly_api, validation_config
 ):
     """Firefox path uses ``get_token_from_firefox_profile`` (lines 208-214)."""
     mock_find_spec.return_value = types.SimpleNamespace()
@@ -342,6 +363,23 @@ async def test_validate_adjust_token_firefox_profile_branch(
     validation_config.interactive = False
 
     firefox_token = "b" * 60
+
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "firefox_user"}},
+                },
+            )
+        ]
+    )
 
     with (
         patch(
@@ -353,15 +391,11 @@ async def test_validate_adjust_token_firefox_profile_branch(
             return_value=firefox_token,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Firefox"),
-        patch.object(
-            FanslyConfig,
-            "get_api",
-            return_value=types.SimpleNamespace(
-                get_client_user_name=AsyncMock(return_value="firefox_user")
-            ),
-        ),
     ):
-        await validate_adjust_token(validation_config)
+        try:
+            await validate_adjust_token(validation_config)
+        finally:
+            dump_fansly_calls(account_route.calls, "firefox_profile")
 
     assert validation_config.token == firefox_token
 
@@ -369,7 +403,7 @@ async def test_validate_adjust_token_firefox_profile_branch(
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_user_accepts_link(
-    mock_find_spec, validation_config, monkeypatch
+    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
 ):
     """Interactive: token found → user types "yes" → token saved (lines 222-258)."""
     mock_find_spec.return_value = types.SimpleNamespace()
@@ -383,6 +417,23 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
 
     valid_token = "c" * 60
 
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "found_user"}},
+                },
+            )
+        ]
+    )
+
     with (
         patch(
             "config.browser.get_browser_config_paths",
@@ -397,15 +448,11 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
             return_value=valid_token,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch.object(
-            FanslyConfig,
-            "get_api",
-            return_value=types.SimpleNamespace(
-                get_client_user_name=AsyncMock(return_value="found_user")
-            ),
-        ),
     ):
-        await validate_adjust_token(validation_config)
+        try:
+            await validate_adjust_token(validation_config)
+        finally:
+            dump_fansly_calls(account_route.calls, "interactive_accepts")
 
     assert validation_config.token == valid_token
     assert validation_config.token_from_browser_name == "Chromium"
@@ -414,7 +461,7 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_user_rejects_link(
-    mock_find_spec, validation_config, monkeypatch
+    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
 ):
     """Interactive: token found but user says "no" → raises ConfigError."""
     mock_find_spec.return_value = types.SimpleNamespace()
@@ -425,6 +472,23 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
         return False
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
+
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "found_user"}},
+                },
+            )
+        ]
+    )
 
     with (
         patch(
@@ -441,16 +505,14 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
         patch("config.validation.open_get_started_url"),
-        patch.object(
-            FanslyConfig,
-            "get_api",
-            return_value=types.SimpleNamespace(
-                get_client_user_name=AsyncMock(return_value="found_user")
-            ),
-        ),
-        pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
     ):
-        await validate_adjust_token(validation_config)
+        try:
+            with pytest.raises(
+                ConfigError, match=r"authorization token.*still invalid"
+            ):
+                await validate_adjust_token(validation_config)
+        finally:
+            dump_fansly_calls(account_route.calls, "interactive_rejects")
 
 
 @pytest.mark.asyncio
@@ -570,7 +632,7 @@ async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
-    mock_find_spec, validation_config, monkeypatch
+    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
 ):
     """Interactive: user types garbage → prompt re-asks → accepts next valid input.
 
@@ -591,6 +653,23 @@ async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
 
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "found_user"}},
+                },
+            )
+        ]
+    )
+
     with (
         patch(
             "config.browser.get_browser_config_paths",
@@ -605,15 +684,11 @@ async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
             return_value="e" * 60,
         ),
         patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch.object(
-            FanslyConfig,
-            "get_api",
-            return_value=types.SimpleNamespace(
-                get_client_user_name=AsyncMock(return_value="found_user")
-            ),
-        ),
     ):
-        await validate_adjust_token(validation_config)
+        try:
+            await validate_adjust_token(validation_config)
+        finally:
+            dump_fansly_calls(account_route.calls, "interactive_reprompts")
 
     # User eventually accepted, so token is saved.
     assert validation_config.token == "e" * 60
@@ -622,121 +697,77 @@ async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
 # -- validate_adjust_user_agent ---------------------------------------------
 
 
-def test_validate_adjust_user_agent_valid_skips_fetch(validation_config):
-    """Valid user-agent → function returns without fetching new one.
+def test_validate_adjust_user_agent_valid_skips_generation(validation_config):
+    """Valid user-agent → function returns early without generating a new one.
 
-    Uses real ``useragent_is_valid()`` which checks len >= 40 and no
-    "ReplaceMe". Our default "Mozilla/5.0 " + "A" * 60 is 72 chars,
-    trivially valid.
+    Uses real ``useragent_is_valid()`` (len >= 40 and no "ReplaceMe"); the
+    default "Mozilla/5.0 " + "A" * 60 is 72 chars, trivially valid.
     """
-    # No respx.mock context — if the function tried to fetch, httpx would
-    # raise a real ConnectError, which would fail the test. Absence of
-    # error is proof the fetch path didn't run.
-    validate_adjust_user_agent(validation_config)
-    # user_agent is unchanged.
-    assert validation_config.user_agent.startswith("Mozilla/5.0 ")
-
-
-def test_validate_adjust_user_agent_invalid_fetches_and_saves(validation_config):
-    """Invalid user-agent → fetches from jnrbsn, picks one, saves to config.
-
-    Uses ``respx.mock`` for the httpx call — the real edge. Returns a
-    plausible user-agent list spanning multiple OS variants; the real
-    ``guess_user_agent`` helper platform-matches (Windows/Darwin/Linux)
-    AND version-matches against the host OS. Test asserts only that the
-    user_agent *changed* and that the save happened — avoiding brittle
-    coupling to CI host OS version strings.
-    """
-    validation_config.user_agent = "short"  # invalid
     original_ua = validation_config.user_agent
+    validate_adjust_user_agent(validation_config)
+    assert validation_config.user_agent == original_ua
 
-    # Include a UA for the host OS so the platform match inside
-    # guess_user_agent can succeed on the CI runner without fragile
-    # assertions on OS/version values.
-    if _platform.system() == "Darwin":
-        # guess_user_agent extracts the "Mac OS X X_Y_Z" tuple from the
-        # candidate UA and checks the same string appears in the UA; a
-        # plausible modern mac UA looks like "Mac OS X 14_0_0".
-        version_str = _platform.mac_ver()[0].replace(".", "_")
-        if not version_str:
-            version_str = "14_0_0"
-        fake_agents = [
-            f"Mozilla/5.0 (Macintosh; Intel Mac OS X {version_str}) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ]
-    else:
-        # Linux/Windows runners can match against a plausible host string.
-        fake_agents = [
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ]
 
-    with respx.mock:
-        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
-            side_effect=[httpx.Response(200, json=fake_agents)]
-        )
-        validate_adjust_user_agent(validation_config)
+def test_validate_adjust_user_agent_invalid_generates_and_saves(validation_config):
+    """Invalid user-agent → ua_generator produces a real one, persisted to YAML.
 
-    # Either the fetched UA was used, or the fallback (Chrome/116) was —
-    # both are valid outcomes for this test; what we care about is that
-    # the validator ran and set a valid UA + saved the config.
-    assert validation_config.user_agent != original_ua
-    assert "Chrome" in validation_config.user_agent
+    No network: the validator generates the UA offline with ua_generator, so
+    the test asserts on the result (changed, valid, real Mozilla shape) and
+    that the real ``save_config_or_raise`` wrote the file.
+    """
+    validation_config.user_agent = "short"  # invalid (< 40 chars)
+
+    validate_adjust_user_agent(validation_config)
+
+    assert validation_config.user_agent != "short"
+    assert validation_config.useragent_is_valid()
+    assert validation_config.user_agent.startswith("Mozilla/5.0 ")
     assert validation_config.config_path.exists()
-
-
-def test_validate_adjust_user_agent_http_error_falls_back(validation_config):
-    """httpx.HTTPError during fetch → real hardcoded fallback UA applied."""
-    validation_config.user_agent = "short"
-
-    with respx.mock:
-        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
-            side_effect=httpx.ConnectError("network down")
-        )
-        validate_adjust_user_agent(validation_config)
-
-    # Fallback UA is the hardcoded Chrome 116 string.
-    assert "Chrome/116" in validation_config.user_agent
-
-
-def test_validate_adjust_user_agent_non_200_falls_back(validation_config):
-    """Non-200 HTTP response → hardcoded fallback UA applied."""
-    validation_config.user_agent = "short"
-    validation_config.token_from_browser_name = None
-
-    with respx.mock:
-        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
-            side_effect=[httpx.Response(500, text="internal error")]
-        )
-        validate_adjust_user_agent(validation_config)
-
-    assert "Chrome/116" in validation_config.user_agent
 
 
 def test_validate_adjust_user_agent_logs_browser_specific_when_token_from_browser(
     validation_config, caplog
 ):
-    """token_from_browser_name set → logs browser-specific message (lines 302-306)."""
-
+    """token_from_browser_name set → logs the browser-specific guess message."""
     caplog.set_level(logging.INFO)
     validation_config.user_agent = "short"
     validation_config.token_from_browser_name = "Chrome"
 
-    with respx.mock:
-        respx.get("https://jnrbsn.github.io/user-agents/user-agents.json").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json=["Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0"],
-                )
-            ]
-        )
-        validate_adjust_user_agent(validation_config)
+    validate_adjust_user_agent(validation_config)
 
     info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
     assert any("operating system" in m and "browser" in m for m in info_messages), (
         f"Expected browser-specific info log, got INFO: {info_messages}"
     )
+
+
+@pytest.mark.parametrize(
+    ("browser_name", "expected_token"),
+    [
+        ("Chrome", "Mac OS X 10_15_7"),
+        ("Microsoft Edge", "Mac OS X 10_15_7"),
+        ("Firefox", "Mac OS X 10.15"),
+    ],
+)
+def test_validate_adjust_user_agent_freezes_macos_token(
+    validation_config, monkeypatch, browser_name, expected_token
+):
+    """On macOS the generated UA carries the platform token real browsers
+    freeze it at (Chromium/Safari → 10_15_7, Firefox → 10.15), never the
+    literal current macOS version.
+
+    Regression guard: ua_generator emits the selected macOS version verbatim
+    (e.g. "26_5"), which no real browser produces; validate_adjust_user_agent
+    must normalise it.
+    """
+    monkeypatch.setattr("config.validation.platform.system", lambda: "Darwin")
+    validation_config.user_agent = "short"
+    validation_config.token_from_browser_name = browser_name
+
+    validate_adjust_user_agent(validation_config)
+
+    assert expected_token in validation_config.user_agent
+    assert "Mac OS X 26" not in validation_config.user_agent
 
 
 # -- validate_adjust_check_key ----------------------------------------------

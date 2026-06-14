@@ -602,16 +602,13 @@ async def main(config: FanslyConfig) -> int:
 
             for task in config.get_background_tasks():
                 try:
-                    # Check if this is a StashProcessing task by examining the
-                    # coroutine name OR the task name (the BatchProcessingMixin
-                    # worker pool tags its consumers/producer with "stash-batch-"
-                    # so cleanup can find them without matching closure qualnames).
+                    # Identify StashProcessing tasks by coroutine qualname: the
+                    # StashProcessing class methods and the
+                    # _safe_background_processing wrapper both carry it.
                     coro_name = task.get_coro().__qualname__
-                    task_name = task.get_name()
                     if (
                         "StashProcessing" in coro_name
                         or "_safe_background_processing" in coro_name
-                        or task_name.startswith("stash-batch-")
                     ):
                         stash_tasks.append(task)
                     else:
@@ -808,19 +805,14 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         try:
             # Look for tasks that belong to StashProcessing. The coroutine
             # qualname check catches the StashProcessing class methods and
-            # the _safe_background_processing wrapper; the task-name prefix
-            # check catches the BatchProcessingMixin worker pool's
-            # consumer/producer tasks, which are closure-defined and thus
-            # opaque to qualname-only filtering.
+            # the _safe_background_processing wrapper.
             stash_tasks = []
             for task in config.get_background_tasks():
                 with contextlib.suppress(Exception):
                     coro_name = task.get_coro().__qualname__
-                    task_name = task.get_name()
                     if (
                         "StashProcessing" in coro_name
                         or "_safe_background_processing" in coro_name
-                        or task_name.startswith("stash-batch-")
                     ):
                         stash_tasks.append(task)
 

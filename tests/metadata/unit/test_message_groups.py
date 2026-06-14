@@ -4,15 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from download.core import DownloadState
 from metadata import Account, Group, Message, process_groups_response
 from tests.fixtures.utils.test_isolation import snowflake_id
-
-
-@pytest.fixture
-def download_state():
-    """Create a test download state."""
-    return DownloadState(creator_name="test_creator")
 
 
 @pytest.mark.asyncio

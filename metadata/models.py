@@ -82,8 +82,21 @@ def get_store() -> Any:
 
 # ── RelationshipMetadata ─────────────────────────────────────────────────
 
+
 # Sentinel for fields resolved by __init_subclass__ from the dict key name.
-_DEFERRED = object()
+class _Deferred(str):
+    """Sentinel for RelationshipMetadata fields auto-resolved by
+    ``FanslyObject.__init_subclass__``.
+
+    Subclasses ``str`` so it satisfies the str-typed ``target_field`` /
+    ``query_field`` / ``fk_column`` parameters at construction; detection is by
+    identity (``is _DEFERRED``), so the placeholder value is never read.
+    """
+
+    __slots__ = ()
+
+
+_DEFERRED = _Deferred("<deferred>")
 
 
 class RelationshipMetadata:
@@ -846,7 +859,10 @@ class FanslyObject(BaseModel):
             if self not in current:
                 current.append(self)
                 # Update snapshot so inverse-sync additions aren't falsely dirty
-                if inverse_field in related_obj._snapshot:
+                if (
+                    related_obj._snapshot is not None
+                    and inverse_field in related_obj._snapshot
+                ):
                     related_obj._snapshot[inverse_field] = current.copy()
         else:
             object.__setattr__(related_obj, inverse_field, self)
@@ -916,16 +932,18 @@ class FanslyObject(BaseModel):
         return value.copy() if isinstance(value, list) else value
 
     def is_dirty(self) -> bool:
+        snapshot = self._snapshot or {}
         for field in self.__tracked_fields__:
-            if getattr(self, field, None) != self._snapshot.get(field):
+            if getattr(self, field, None) != snapshot.get(field):
                 return True
         return False
 
     def get_changed_fields(self) -> dict[str, Any]:
+        snapshot = self._snapshot or {}
         return {
             field: getattr(self, field)
             for field in self.__tracked_fields__
-            if getattr(self, field) != self._snapshot.get(field)
+            if getattr(self, field) != snapshot.get(field)
         }
 
     def mark_clean(self) -> None:
@@ -1391,6 +1409,7 @@ class Media(FanslyObject):
     preview_url: str | None = None
     preview_mimetype: str | None = None
     default_normal_id: SnowflakeId | None = None
+    local_path: str | None = None  # Full on-disk path (local_filename is basename only)
 
     # Relationships (managed by _sync_associations on save)
     account: Account | UnsetType | None = UNSET  # type: ignore[name-defined]
@@ -1406,6 +1425,7 @@ class Media(FanslyObject):
         "preview_url",
         "preview_mimetype",
         "default_normal_id",
+        "local_path",
     }
 
     @property
@@ -2110,24 +2130,24 @@ class StreamingInfo(BaseModel):
 # ── Type Registry ────────────────────────────────────────────────────────
 # Maps type name strings (used in RelationshipMetadata.inverse_type) to classes.
 
+_REGISTERED_TYPES: list[type[FanslyObject]] = [
+    Account,
+    AccountMedia,
+    AccountMediaBundle,
+    Attachment,
+    Group,
+    Hashtag,
+    Media,
+    MediaStoryState,
+    Message,
+    Post,
+    PostMention,
+    MediaStory,
+    TimelineStats,
+    Wall,
+]
 _TYPE_REGISTRY: dict[str, type[FanslyObject]] = {
-    cls.__name__: cls
-    for cls in [
-        Account,
-        AccountMedia,
-        AccountMediaBundle,
-        Attachment,
-        Group,
-        Hashtag,
-        Media,
-        MediaStoryState,
-        Message,
-        Post,
-        PostMention,
-        MediaStory,
-        TimelineStats,
-        Wall,
-    ]
+    cls.__name__: cls for cls in _REGISTERED_TYPES
 }
 
 

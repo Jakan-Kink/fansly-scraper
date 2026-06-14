@@ -139,7 +139,10 @@ async def test_mark_stories_viewed_empty_list_is_noop(respx_fansly_api, test_con
         side_effect=[httpx.Response(200)]
     )
 
-    await _mark_stories_viewed(config_with_api, [])
+    try:
+        await _mark_stories_viewed(config_with_api, [])
+    finally:
+        dump_fansly_calls(route.calls, label="mark_stories_viewed_empty_list")
 
     assert route.call_count == 0
 
@@ -503,7 +506,10 @@ async def test_download_stories_empty_media_returns_early(
         url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
     ).mock(side_effect=[httpx.Response(200)])
 
-    await download_stories(config, state)
+    try:
+        await download_stories(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="download_stories_empty_media")
 
     assert mark_view_route.call_count == 0
     assert state.download_type == DownloadType.STORIES
@@ -533,7 +539,10 @@ async def test_download_stories_no_stories_in_response(
         url__startswith=f"{FanslyApi.BASE_URL}mediastory/view"
     ).mock(side_effect=[httpx.Response(200)])
 
-    await download_stories(config, state)
+    try:
+        await download_stories(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="download_stories_no_stories")
 
     assert mark_view_route.call_count == 0
 
@@ -558,13 +567,16 @@ async def test_download_stories_no_creator_id_skips_cache_check(
     # creator_id is None — exercises the False branch of `if state.creator_id`.
     state = DownloadState(creator_id=None, creator_name="no_id")
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
         side_effect=[
             httpx.Response(200, json=_stories_response(media_stories=[])),
         ]
     )
 
-    await download_stories(config, state)
+    try:
+        await download_stories(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="download_stories_no_creator_id")
 
     # The function reached the API call (cache check was skipped).
     assert state.download_type == DownloadType.STORIES
@@ -587,12 +599,15 @@ async def test_download_stories_swallows_outer_exception(
     creator_id = snowflake_id()
     state = DownloadState(creator_id=creator_id, creator_name="boom")
 
-    respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
+    route = respx.get(f"{FanslyApi.BASE_URL}mediastoriesnew").mock(
         side_effect=[httpx.Response(403, text="Forbidden")]
     )
 
     # Must not raise.
-    await download_stories(config, state)
+    try:
+        await download_stories(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="download_stories_outer_exception")
 
     # download_type was set before the exception fired.
     assert state.download_type == DownloadType.STORIES

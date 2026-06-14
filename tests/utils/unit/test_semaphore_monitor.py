@@ -29,7 +29,7 @@ def _trace_messages(caplog) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.levelname == "TRACE"]
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)  # CCH:autouse-fixture  # per-file global reset
 def _clear_seen_semaphores():
     """Clear the global _seen_semaphores between tests."""
     _seen_semaphores.clear()

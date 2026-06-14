@@ -21,97 +21,32 @@ from config.args import (
     map_args_to_config,
     parse_args,
 )
-from config.logging import init_logging_config
 from config.modes import DownloadMode
 from errors import ConfigError
 
 
-@pytest.fixture
-def config_with_path(mock_config, tmp_path):
-    """Create a mock_config with config_path set for testing.
-
-    The map_args_to_config function requires config.config_path to be set.
-    """
-    config_path = tmp_path / "config.ini"
-    mock_config.config_path = config_path
-    # Initialize logging config to set global _config variable
-    init_logging_config(mock_config)
-    return mock_config
-
-
-@pytest.fixture
-def args():
-    """Create a basic argparse.Namespace instance for testing.
-
-    Includes all required attributes for map_args_to_config including
-    PostgreSQL-related settings added in recent migrations and
-    monitoring session baseline flags.
-    """
-    return argparse.Namespace(
-        verbose=0,
-        users=None,
-        download_mode_normal=False,
-        download_mode_messages=False,
-        download_mode_timeline=False,
-        download_mode_collection=False,
-        download_mode_single=None,
-        download_directory=None,
-        token=None,
-        user_agent=None,
-        check_key=None,
-        temp_folder=None,
-        separate_previews=False,
-        use_duplicate_threshold=False,
-        non_interactive=False,
-        no_prompt_on_exit=False,
-        no_folder_suffix=False,
-        no_media_previews=False,
-        hide_downloads=False,
-        hide_skipped_downloads=False,
-        no_open_folder=False,
-        no_separate_messages=False,
-        no_separate_timeline=False,
-        timeline_retries=None,
-        timeline_delay_seconds=None,
-        api_max_retries=None,
-        use_following=None,
-        use_following_with_pagination=False,
-        use_pagination_duplication=False,
-        reverse_order=False,
-        # PostgreSQL settings (added in PostgreSQL migration)
-        pg_host=None,
-        pg_port=None,
-        pg_database=None,
-        pg_user=None,
-        pg_password=None,
-        # Monitoring session baseline flags
-        monitor_since=None,
-        full_pass=False,
-        # Post-batch daemon mode flag
-        daemon_mode=False,
-    )
-
-
-def test_temp_folder_path_conversion(config_with_path, args, tmp_path):
+def test_temp_folder_path_conversion(config_with_path, default_cli_args, tmp_path):
     """Test that temp_folder is properly converted to a Path object."""
     # Create a real temporary folder
     test_temp = tmp_path / "test_temp"
     test_temp.mkdir()
 
     # Test with a string path
-    args.temp_folder = str(test_temp)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_temp)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert config_with_path.temp_folder == test_temp
 
     # Test with None value - should keep previous value
-    args.temp_folder = None
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = None
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert config_with_path.temp_folder == test_temp
 
 
-def test_temp_folder_and_download_dir_path_conversion(config_with_path, args, tmp_path):
+def test_temp_folder_and_download_dir_path_conversion(
+    config_with_path, default_cli_args, tmp_path
+):
     """Test that both temp_folder and download_directory are properly handled."""
     # Create real temporary folders
     test_temp = tmp_path / "test_temp"
@@ -120,60 +55,62 @@ def test_temp_folder_and_download_dir_path_conversion(config_with_path, args, tm
     test_downloads.mkdir()
 
     # Test both paths being set
-    args.temp_folder = str(test_temp)
-    args.download_directory = str(test_downloads)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_temp)
+    default_cli_args.download_directory = str(test_downloads)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert isinstance(config_with_path.download_directory, Path)
     assert config_with_path.temp_folder == test_temp
     assert config_with_path.download_directory == test_downloads
 
     # Test mixed None and path values - should keep previous values
-    args.temp_folder = None
-    args.download_directory = str(test_downloads)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = None
+    default_cli_args.download_directory = str(test_downloads)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert isinstance(config_with_path.download_directory, Path)
     assert config_with_path.temp_folder == test_temp
     assert config_with_path.download_directory == test_downloads
 
-    args.temp_folder = str(test_temp)
-    args.download_directory = None
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_temp)
+    default_cli_args.download_directory = None
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert isinstance(config_with_path.download_directory, Path)
     assert config_with_path.temp_folder == test_temp
     assert config_with_path.download_directory == test_downloads
 
 
-def test_temp_folder_with_spaces(config_with_path, args, tmp_path):
+def test_temp_folder_with_spaces(config_with_path, default_cli_args, tmp_path):
     """Test that temp_folder paths with spaces are handled correctly."""
     # Create a real folder with spaces in the name
     test_folder = tmp_path / "test folder" / "with spaces"
     test_folder.mkdir(parents=True)
 
-    args.temp_folder = str(test_folder)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_folder)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert config_with_path.temp_folder == test_folder
     assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_with_special_chars(config_with_path, args, tmp_path):
+def test_temp_folder_with_special_chars(config_with_path, default_cli_args, tmp_path):
     """Test that temp_folder paths with special characters are handled correctly."""
     # Create a real folder with special characters (filesystem-safe ones)
     # Note: Some special chars like : / are not allowed on all filesystems
     test_folder = tmp_path / "test@folder" / "with#special&chars!"
     test_folder.mkdir(parents=True)
 
-    args.temp_folder = str(test_folder)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_folder)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert config_with_path.temp_folder == test_folder
     assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_relative_path(config_with_path, args, tmp_path, monkeypatch):
+def test_temp_folder_relative_path(
+    config_with_path, default_cli_args, tmp_path, monkeypatch
+):
     """Test that relative temp_folder paths are handled correctly."""
     # Change to tmp_path directory to test relative paths
     monkeypatch.chdir(tmp_path)
@@ -182,15 +119,15 @@ def test_temp_folder_relative_path(config_with_path, args, tmp_path, monkeypatch
     test_folder = Path("relative/path/to/temp")
     test_folder.mkdir(parents=True)
 
-    args.temp_folder = str(test_folder)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_folder)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     # The path should be preserved as relative if that's what was provided
     assert str(config_with_path.temp_folder) == "relative/path/to/temp"
     assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_windows_path(config_with_path, args, tmp_path):
+def test_temp_folder_windows_path(config_with_path, default_cli_args, tmp_path):
     """Test that Windows-style paths are handled correctly.
 
     This test verifies that Path objects correctly handle Windows-style
@@ -204,8 +141,8 @@ def test_temp_folder_windows_path(config_with_path, args, tmp_path):
     # On non-Windows systems, this will be treated as a relative path
     # On Windows systems, it would be an absolute path
     # We test that Path handles it correctly regardless
-    args.temp_folder = str(test_folder)
-    map_args_to_config(args, config_with_path)
+    default_cli_args.temp_folder = str(test_folder)
+    map_args_to_config(default_cli_args, config_with_path)
     assert isinstance(config_with_path.temp_folder, Path)
     assert config_with_path.temp_folder == test_folder
     assert test_folder.exists()  # Verify real folder exists
@@ -224,141 +161,145 @@ def test_parse_args_returns_namespace():
     assert hasattr(result, "stash_only")
 
 
-def test_check_attributes_success_and_failure(config_with_path, args):
+def test_check_attributes_success_and_failure(config_with_path, default_cli_args):
     """Lines 519-526: valid → pass; invalid → RuntimeError."""
-    check_attributes(args, config_with_path, "verbose", "debug")
+    check_attributes(default_cli_args, config_with_path, "verbose", "debug")
 
     with pytest.raises(RuntimeError, match="Internal argument configuration error"):
-        check_attributes(args, config_with_path, "nonexistent_arg", "debug")
+        check_attributes(default_cli_args, config_with_path, "nonexistent_arg", "debug")
 
     with pytest.raises(RuntimeError, match="Internal argument configuration error"):
-        check_attributes(args, config_with_path, "verbose", "nonexistent_config")
+        check_attributes(
+            default_cli_args, config_with_path, "verbose", "nonexistent_config"
+        )
 
 
-def test_handle_verbosity_settings_debug(config_with_path, args):
+def test_handle_verbosity_settings_debug(config_with_path, default_cli_args):
     """``-v`` (verbose=1) flips config.debug, leaves trace untouched."""
-    args.verbose = 1
-    _handle_verbosity_settings(args, config_with_path)
+    default_cli_args.verbose = 1
+    _handle_verbosity_settings(default_cli_args, config_with_path)
     assert config_with_path.debug is True
     assert config_with_path.trace is False
 
 
-def test_handle_verbosity_settings_trace(config_with_path, args):
+def test_handle_verbosity_settings_trace(config_with_path, default_cli_args):
     """``-vv`` (verbose=2) flips both config.debug AND config.trace."""
-    args.verbose = 2
-    _handle_verbosity_settings(args, config_with_path)
+    default_cli_args.verbose = 2
+    _handle_verbosity_settings(default_cli_args, config_with_path)
     assert config_with_path.debug is True
     assert config_with_path.trace is True
 
 
-def test_handle_user_settings_all_branches(config_with_path, args):
+def test_handle_user_settings_all_branches(config_with_path, default_cli_args):
     """Lines 539-583: use_following_with_pagination, conflict, users, debug."""
     # use_following_with_pagination → sets both flags, early return
-    args.use_following_with_pagination = True
-    assert _handle_user_settings(args, config_with_path) is True
+    default_cli_args.use_following_with_pagination = True
+    assert _handle_user_settings(default_cli_args, config_with_path) is True
     assert config_with_path.use_following is True
     assert config_with_path.use_pagination_duplication is True
-    args.use_following_with_pagination = False
+    default_cli_args.use_following_with_pagination = False
 
     # use_following + users → conflict
-    args.use_following = True
-    args.users = ["creator1"]
+    default_cli_args.use_following = True
+    default_cli_args.users = ["creator1"]
     with pytest.raises(ConfigError, match="Cannot use both"):
-        _handle_user_settings(args, config_with_path)
-    args.use_following = False
+        _handle_user_settings(default_cli_args, config_with_path)
+    default_cli_args.use_following = False
 
     # users specified → parses and sets
-    args.users = ["creator1", "creator2,creator3"]
-    assert _handle_user_settings(args, config_with_path) is True
+    default_cli_args.users = ["creator1", "creator2,creator3"]
+    assert _handle_user_settings(default_cli_args, config_with_path) is True
     assert config_with_path.user_names is not None
 
     # Debug logging path (lines 571-583)
     config_with_path.debug = True
-    args.users = ["debuguser"]
-    _handle_user_settings(args, config_with_path)
+    default_cli_args.users = ["debuguser"]
+    _handle_user_settings(default_cli_args, config_with_path)
     config_with_path.debug = False
-    args.users = None
+    default_cli_args.users = None
 
     # users=None, no flags → no override
-    assert _handle_user_settings(args, config_with_path) is False
+    assert _handle_user_settings(default_cli_args, config_with_path) is False
 
     # use_following alone
-    args.use_following = True
-    assert _handle_user_settings(args, config_with_path) is True
+    default_cli_args.use_following = True
+    assert _handle_user_settings(default_cli_args, config_with_path) is True
 
 
-def test_handle_download_mode_all_modes(config_with_path, args):
+def test_handle_download_mode_all_modes(config_with_path, default_cli_args):
     """Lines 586-620: mode flags, single valid, single invalid, no mode."""
-    args.download_mode_normal = True
-    override, mode_set = _handle_download_mode(args, config_with_path)
+    default_cli_args.download_mode_normal = True
+    override, mode_set = _handle_download_mode(default_cli_args, config_with_path)
     assert override is True
     assert mode_set is True
-    args.download_mode_normal = False
+    default_cli_args.download_mode_normal = False
 
     # Single valid
-    args.download_mode_single = "1234567890"
-    override, mode_set = _handle_download_mode(args, config_with_path)
+    default_cli_args.download_mode_single = "1234567890"
+    override, mode_set = _handle_download_mode(default_cli_args, config_with_path)
     assert override is True
     assert config_with_path.post_id == "1234567890"
-    args.download_mode_single = None
+    default_cli_args.download_mode_single = None
 
     # Single invalid
-    args.download_mode_single = "short"
+    default_cli_args.download_mode_single = "short"
     with pytest.raises(ConfigError, match="not a valid post ID"):
-        _handle_download_mode(args, config_with_path)
-    args.download_mode_single = None
+        _handle_download_mode(default_cli_args, config_with_path)
+    default_cli_args.download_mode_single = None
 
     # No mode
-    override, mode_set = _handle_download_mode(args, config_with_path)
+    override, mode_set = _handle_download_mode(default_cli_args, config_with_path)
     assert override is False
     assert mode_set is False
 
 
-def test_handle_path_settings_branches(config_with_path, args):
+def test_handle_path_settings_branches(config_with_path, default_cli_args):
     """Lines 639-657: empty temp_folder → None; generic attr passthrough."""
-    args.temp_folder = ""
-    assert _handle_path_settings(args, config_with_path, "temp_folder") is True
+    default_cli_args.temp_folder = ""
+    assert (
+        _handle_path_settings(default_cli_args, config_with_path, "temp_folder") is True
+    )
     assert config_with_path.temp_folder is None
 
-    args.token = "my_token"
-    assert _handle_path_settings(args, config_with_path, "token") is True
+    default_cli_args.token = "my_token"
+    assert _handle_path_settings(default_cli_args, config_with_path, "token") is True
     assert config_with_path.token == "my_token"
-    args.token = None
+    default_cli_args.token = None
 
 
-def test_handle_boolean_settings(config_with_path, args):
+def test_handle_boolean_settings(config_with_path, default_cli_args):
     """Lines 691-731: positive bools + negative bools."""
-    args.separate_previews = True
-    args.non_interactive = True
-    args.reverse_order = True
-    result = _handle_boolean_settings(args, config_with_path)
+    default_cli_args.separate_previews = True
+    default_cli_args.non_interactive = True
+    default_cli_args.reverse_order = True
+    result = _handle_boolean_settings(default_cli_args, config_with_path)
     assert result is True
     assert config_with_path.separate_previews is True
     assert config_with_path.interactive is False
     assert config_with_path.reverse_order is True
 
 
-def test_handle_unsigned_ints(config_with_path, args):
+def test_handle_unsigned_ints(config_with_path, default_cli_args):
     """Lines 735-761: valid int, negative clamped, None skipped."""
-    args.timeline_retries = 5
-    assert _handle_unsigned_ints(args, config_with_path) is True
+    default_cli_args.timeline_retries = 5
+    assert _handle_unsigned_ints(default_cli_args, config_with_path) is True
     assert config_with_path.timeline_retries == 5
 
-    args.timeline_retries = -3
-    _handle_unsigned_ints(args, config_with_path)
+    default_cli_args.timeline_retries = -3
+    _handle_unsigned_ints(default_cli_args, config_with_path)
     assert config_with_path.timeline_retries == 0
 
-    args.timeline_retries = None
-    args.timeline_delay_seconds = None
-    args.api_max_retries = None
-    assert _handle_unsigned_ints(args, config_with_path) is False
+    default_cli_args.timeline_retries = None
+    default_cli_args.timeline_delay_seconds = None
+    default_cli_args.api_max_retries = None
+    assert _handle_unsigned_ints(default_cli_args, config_with_path) is False
 
 
-def test_map_args_no_config_path(mock_config, args):
+def test_map_args_no_config_path(mock_config, default_cli_args):
     """Line 778: config_path is None → RuntimeError."""
     mock_config.config_path = None
     with pytest.raises(RuntimeError, match="configuration path not set"):
-        map_args_to_config(args, mock_config)
+        map_args_to_config(default_cli_args, mock_config)
 
 
 # ---------------------------------------------------------------------------
@@ -440,29 +381,35 @@ def test_parse_args_monitor_since_invalid_iso() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_handle_monitoring_settings_monitor_since(config_with_path, args) -> None:
+def test_handle_monitoring_settings_monitor_since(
+    config_with_path, default_cli_args
+) -> None:
     """--monitor-since sets config.monitoring_session_baseline to the given datetime."""
     baseline = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
-    args.monitor_since = baseline
-    result = _handle_monitoring_settings(args, config_with_path)
+    default_cli_args.monitor_since = baseline
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is True
     assert config_with_path.monitoring_session_baseline == baseline
 
 
-def test_handle_monitoring_settings_full_pass(config_with_path, args) -> None:
+def test_handle_monitoring_settings_full_pass(
+    config_with_path, default_cli_args
+) -> None:
     """--full-pass sets config.monitoring_session_baseline to 2000-01-01 UTC."""
-    args.full_pass = True
-    result = _handle_monitoring_settings(args, config_with_path)
+    default_cli_args.full_pass = True
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is True
     assert config_with_path.monitoring_session_baseline == datetime(
         2000, 1, 1, tzinfo=UTC
     )
 
 
-def test_handle_monitoring_settings_neither_flag(config_with_path, args) -> None:
+def test_handle_monitoring_settings_neither_flag(
+    config_with_path, default_cli_args
+) -> None:
     """No monitoring flags → returns False, baseline unchanged."""
     config_with_path.monitoring_session_baseline = None
-    result = _handle_monitoring_settings(args, config_with_path)
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is False
     assert config_with_path.monitoring_session_baseline is None
 
@@ -517,31 +464,35 @@ def test_parse_args_daemon_coexists_with_normal_mode() -> None:
     assert ns.download_mode_normal is True
 
 
-def test_handle_monitoring_settings_daemon_mode(config_with_path, args) -> None:
-    """daemon_mode=True on args sets config.daemon_mode and returns True."""
-    args.daemon_mode = True
-    result = _handle_monitoring_settings(args, config_with_path)
+def test_handle_monitoring_settings_daemon_mode(
+    config_with_path, default_cli_args
+) -> None:
+    """daemon_mode=True on the args namespace sets config.daemon_mode, returns True."""
+    default_cli_args.daemon_mode = True
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is True
     assert config_with_path.daemon_mode is True
 
 
-def test_handle_monitoring_settings_daemon_mode_false(config_with_path, args) -> None:
-    """daemon_mode=False on args leaves config.daemon_mode False and returns False
+def test_handle_monitoring_settings_daemon_mode_false(
+    config_with_path, default_cli_args
+) -> None:
+    """daemon_mode=False on the args namespace leaves config.daemon_mode False, returns False
     when no other monitoring flags are set."""
     config_with_path.daemon_mode = False
-    args.daemon_mode = False
-    result = _handle_monitoring_settings(args, config_with_path)
+    default_cli_args.daemon_mode = False
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is False
     assert config_with_path.daemon_mode is False
 
 
 def test_handle_monitoring_settings_daemon_and_full_pass(
-    config_with_path, args
+    config_with_path, default_cli_args
 ) -> None:
     """daemon_mode and full_pass together both take effect; overridden=True."""
-    args.daemon_mode = True
-    args.full_pass = True
-    result = _handle_monitoring_settings(args, config_with_path)
+    default_cli_args.daemon_mode = True
+    default_cli_args.full_pass = True
+    result = _handle_monitoring_settings(default_cli_args, config_with_path)
     assert result is True
     assert config_with_path.daemon_mode is True
     assert config_with_path.monitoring_session_baseline == datetime(
@@ -554,20 +505,22 @@ def test_handle_monitoring_settings_daemon_and_full_pass(
 # ---------------------------------------------------------------------------
 
 
-def test_stash_only_alone_leaves_daemon_off(config_with_path, args) -> None:
+def test_stash_only_alone_leaves_daemon_off(config_with_path, default_cli_args) -> None:
     """--stash-only with no daemon flags: stash-only set, daemon stays off."""
     config_with_path.daemon_mode = False
-    args.stash_only = True
-    args.daemon_mode = False
+    default_cli_args.stash_only = True
+    default_cli_args.daemon_mode = False
 
-    map_args_to_config(args, config_with_path)
+    map_args_to_config(default_cli_args, config_with_path)
 
     assert config_with_path.download_mode == DownloadMode.STASH_ONLY
     assert config_with_path.daemon_mode is False
     assert "daemon_mode" not in config_with_path._ephemeral_overrides
 
 
-def test_stash_only_with_yaml_daemon_silently_disables(config_with_path, args) -> None:
+def test_stash_only_with_yaml_daemon_silently_disables(
+    config_with_path, default_cli_args
+) -> None:
     """--stash-only + YAML daemon_mode=true: daemon force-off for this run.
 
     The YAML-default case (operator has daemon_mode in config.yaml, invokes
@@ -576,41 +529,45 @@ def test_stash_only_with_yaml_daemon_silently_disables(config_with_path, args) -
     """
     # Simulate YAML having daemon_mode=true; no CLI --daemon flag.
     config_with_path.daemon_mode = True
-    args.stash_only = True
-    args.daemon_mode = False
+    default_cli_args.stash_only = True
+    default_cli_args.daemon_mode = False
 
-    map_args_to_config(args, config_with_path)
+    map_args_to_config(default_cli_args, config_with_path)
 
     assert config_with_path.download_mode == DownloadMode.STASH_ONLY
     assert config_with_path.daemon_mode is False
     assert "daemon_mode" in config_with_path._ephemeral_overrides
 
 
-def test_stash_only_with_cli_daemon_raises_conflict(config_with_path, args) -> None:
+def test_stash_only_with_cli_daemon_raises_conflict(
+    config_with_path, default_cli_args
+) -> None:
     """--stash-only + --daemon together: ConfigError, no silent drop.
 
     Explicit operator-error: both flags typed on the CLI is operationally
     meaningless and should refuse rather than silently dropping one.
     """
     config_with_path.daemon_mode = False
-    args.stash_only = True
-    args.daemon_mode = True
+    default_cli_args.stash_only = True
+    default_cli_args.daemon_mode = True
 
     with pytest.raises(ConfigError, match="--stash-only and --daemon"):
-        map_args_to_config(args, config_with_path)
+        map_args_to_config(default_cli_args, config_with_path)
 
 
-def test_daemon_without_stash_only_unaffected(config_with_path, args) -> None:
+def test_daemon_without_stash_only_unaffected(
+    config_with_path, default_cli_args
+) -> None:
     """--daemon alone (no --stash-only): daemon_mode stays on, no override flag.
 
     Regression check — the cross-flag logic must not fire when stash-only
     isn't the active download mode.
     """
     config_with_path.daemon_mode = False
-    args.stash_only = False
-    args.daemon_mode = True
+    default_cli_args.stash_only = False
+    default_cli_args.daemon_mode = True
 
-    map_args_to_config(args, config_with_path)
+    map_args_to_config(default_cli_args, config_with_path)
 
     assert config_with_path.daemon_mode is True
     assert "daemon_mode" not in config_with_path._ephemeral_overrides

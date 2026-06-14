@@ -35,6 +35,7 @@ from download.single import download_single_post
 from download.types import DownloadType
 from metadata.models import Post, get_store
 from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.metadata import AccountFactory, AccountMediaFactory, MediaFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -377,6 +378,187 @@ class TestDownloadSinglePost:
         state = DownloadState()
         with pytest.raises(RuntimeError, match="non-interactive"):
             await download_single_post(mock_config, state)
+
+    @pytest.mark.asyncio
+    async def test_repair_preview_folder_items_called_after_dedupe_init(
+        self,
+        respx_fansly_api,
+        mock_config,
+        entity_store,
+        tmp_path,
+        monkeypatch,
+    ):
+        """repair_preview_folder_items runs after dedupe_init in the single-post path.
+
+        Behavioral assertion: with repair_previews=True and separate_previews=True,
+        a bug-era file ``img_id_<preview_media_id>.jpg`` in the creator folder
+        gets renamed to ``Previews/img_preview_id_<preview_media_id>.jpg`` by the
+        time download_single_post returns.
+
+        The preview Media is injected via the API response's ``preview`` key inside
+        the accountMedia entry (process_media_info persists both ``media`` and
+        ``preview`` nested dicts). AccountMedia.previewId is set to preview_media_id
+        so build_preview_id_set returns {preview_media_id}. The bug-era file in the
+        resolved creator folder (single_creator/) triggers the rename.
+        """
+        post_id = snowflake_id()
+        mock_config.post_id = str(post_id)
+        mock_config.show_downloads = True
+        mock_config.show_skipped_downloads = False
+        mock_config.download_directory = tmp_path
+        mock_config.interactive = False
+        mock_config.repair_previews = True
+        mock_config.separate_previews = True
+        # No "_fansly" suffix so the resolved download_path equals the
+        # pre-created creator_folder below (dedupe_init would otherwise walk
+        # "single_creator_fansly/" and miss the bug-era file).
+        mock_config.use_folder_suffix = False
+
+        creator_id = snowflake_id()
+        media_id = snowflake_id()
+        preview_media_id = snowflake_id()
+        am_id = snowflake_id()
+
+        # Bug-era file: named with _id_<preview_media_id> (no preview_ marker).
+        # Must exist BEFORE download_single_post runs so the repair walk finds it.
+        # For DownloadType.SINGLE with separate_timeline (default), dedupe_init
+        # resolves download_path to "<creator>/Timeline", which is what the
+        # repair walk roots at — so the bug-era file must live under Timeline/.
+        creator_folder = tmp_path / "single_creator"
+        timeline_dir = creator_folder / "Timeline"
+        timeline_dir.mkdir(parents=True, exist_ok=True)
+        bug_era_file = timeline_dir / f"img_id_{preview_media_id}.jpg"
+        bug_era_file.write_bytes(b"fake-preview-jpeg")
+
+        am_entry = {
+            "id": am_id,
+            "accountId": creator_id,
+            "mediaId": media_id,
+            "previewId": preview_media_id,
+            "createdAt": 1700000000,
+            "deleted": False,
+            "access": True,
+            "mimetype": "image/jpeg",
+            "media": {
+                "id": media_id,
+                "accountId": creator_id,
+                "mimetype": "image/jpeg",
+                "type": 1,
+                "status": 1,
+                "createdAt": 1700000000,
+                "locations": [
+                    {
+                        "locationId": "1",
+                        "location": (
+                            "https://cdn.example.com/img.jpg"
+                            "?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+                        ),
+                    }
+                ],
+            },
+            # ``process_media_info`` persists the ``preview`` nested dict as a
+            # separate Media row before saving AccountMedia (FK constraint order).
+            "preview": {
+                "id": preview_media_id,
+                "accountId": creator_id,
+                "mimetype": "image/jpeg",
+                "type": 1,
+                "status": 1,
+                "createdAt": 1700000000,
+                "locations": [],
+            },
+        }
+
+        bundle_id = snowflake_id()
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}post").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [_post_payload(post_id, creator_id)],
+                            "aggregatedPosts": [],
+                            "accountMediaBundles": [
+                                {
+                                    "id": bundle_id,
+                                    "accountId": creator_id,
+                                    "createdAt": 1700000000,
+                                    "deleted": False,
+                                    "accountMediaIds": [am_id],
+                                }
+                            ],
+                            "accountMedia": [am_entry],
+                            "accounts": [
+                                {
+                                    "id": creator_id,
+                                    "username": "single_creator",
+                                    "displayName": "Single Creator",
+                                    "createdAt": 1700000000,
+                                }
+                            ],
+                        },
+                    },
+                )
+            ],
+        )
+        respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
+            side_effect=[
+                httpx.Response(200, json={"success": True, "response": [am_entry]})
+            ]
+        )
+
+        cdn_mock = AsyncMock(return_value=None)
+        monkeypatch.setattr("download.common.download_media", cdn_mock)
+        monkeypatch.setattr("download.media.download_media", cdn_mock)
+
+        async def _noop(_):
+            return None
+
+        monkeypatch.setattr("download.common.input_enter_continue", _noop)
+        monkeypatch.setattr("download.media.input_enter_continue", _noop)
+        monkeypatch.setattr("download.single.input_enter_continue", _noop)
+
+        # Pre-persist the preview metadata as a PRIOR run would have: the
+        # backfill repairs old files whose AccountMedia.previewId is already in
+        # the DB. (In the single-post flow the live fetch persists AccountMedia
+        # only AFTER the repair call, so build_preview_id_set would otherwise be
+        # empty at repair time.)
+        await entity_store.save(
+            AccountFactory.build(id=creator_id, username="single_creator")
+        )
+        await entity_store.save(MediaFactory.build(id=media_id, accountId=creator_id))
+        await entity_store.save(
+            MediaFactory.build(id=preview_media_id, accountId=creator_id)
+        )
+        await entity_store.save(
+            AccountMediaFactory.build(
+                id=am_id,
+                accountId=creator_id,
+                mediaId=media_id,
+                previewId=preview_media_id,
+            )
+        )
+
+        state = DownloadState()
+        try:
+            await download_single_post(mock_config, state)
+        finally:
+            dump_fansly_calls(respx.calls, label="single_repair_preview")
+
+        # Canonical target: Previews/ subfolder under Timeline/, preview_id_
+        # marker injected.
+        expected_canonical = (
+            timeline_dir / "Previews" / f"img_preview_id_{preview_media_id}.jpg"
+        )
+        assert expected_canonical.exists(), (
+            f"repair_preview_folder_items should have renamed the bug-era file "
+            f"{bug_era_file} to {expected_canonical}; "
+            f"creator_folder contents: {list(creator_folder.rglob('*'))}"
+        )
+        assert not bug_era_file.exists(), (
+            "bug-era file should have been moved (renamed), not left in place"
+        )
 
     @pytest.mark.asyncio
     async def test_interactive_input_loop_rejects_invalid_then_accepts(

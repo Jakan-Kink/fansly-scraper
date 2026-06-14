@@ -1,7 +1,8 @@
 """Coverage tests for download/account.py — proper pattern with real objects.
 
-Uses real FanslyConfig (via ``config_wired``), real httpx.Response, respx at
-the edge. NO MagicMock for internal objects.
+Uses a real FanslyConfig (``config_wired`` for the pure-function path,
+``respx_fansly_api`` + ``mock_config`` for the HTTP path), real httpx.Response,
+respx at the edge. NO MagicMock for internal objects.
 """
 
 import httpx
@@ -50,24 +51,20 @@ class TestGetAccountResponseNon200:
     """
 
     @pytest.mark.asyncio
-    async def test_non_200_2xx_status_raises(self, config_wired):
+    async def test_non_200_2xx_status_raises(self, respx_fansly_api, mock_config):
         """204 No Content passes raise_for_status but fails the != 200 check."""
         state = DownloadState()
         state.creator_name = "testcreator"
 
-        with respx.mock:
-            respx.options(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
-                side_effect=[httpx.Response(204, text="")]
-            )
+        route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account").mock(
+            side_effect=[httpx.Response(204, text="")]
+        )
 
-            try:
-                with pytest.raises(
-                    ApiAccountInfoError,
-                    match="API returned status code 204",
-                ):
-                    await _get_account_response(config_wired, state)
-            finally:
-                dump_fansly_calls(route.calls)
+        try:
+            with pytest.raises(
+                ApiAccountInfoError,
+                match="API returned status code 204",
+            ):
+                await _get_account_response(mock_config, state)
+        finally:
+            dump_fansly_calls(route.calls)

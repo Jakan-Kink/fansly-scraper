@@ -324,7 +324,9 @@ async def test_download_timeline_empty_media_retries_and_exhausts(
             }
         ],
     )
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             httpx.Response(200, json=empty_media_response),
             httpx.Response(200, json=empty_media_response),
@@ -343,7 +345,10 @@ async def test_download_timeline_empty_media_retries_and_exhausts(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_empty_media_retries")
 
     # No assertion on exit_code — function returns None; the key is that
     # it exits cleanly (no raise) after exhausting retries.
@@ -408,24 +413,31 @@ async def test_download_timeline_skips_when_probe_confirms_unchanged(
     state.total_timeline_pictures = 10
     state.total_timeline_videos = 5
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
-        return_value=httpx.Response(
-            200,
-            json=_timeline_response(
-                posts=[
-                    {
-                        "id": post_id,
-                        "accountId": creator_id,
-                        "fypFlags": 0,
-                        "createdAt": 1700000000,
-                    }
-                ],
-            ),
-        )
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=_timeline_response(
+                    posts=[
+                        {
+                            "id": post_id,
+                            "accountId": creator_id,
+                            "fypFlags": 0,
+                            "createdAt": 1700000000,
+                        }
+                    ],
+                ),
+            )
+        ]
     )
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_probe_confirms_unchanged")
 
     # Probe verified page 1 was all-known → original skip path ran.
     assert state.duplicate_count == 15
@@ -463,7 +475,9 @@ async def test_download_timeline_probe_falsified_persists_limbo_post(
     state.total_timeline_pictures = 0
     state.total_timeline_videos = 0
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -494,7 +508,10 @@ async def test_download_timeline_probe_falsified_persists_limbo_post(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_probe_falsified_limbo")
 
     assert get_store().get_from_cache(Post, limbo_post_id) is not None
 
@@ -527,9 +544,9 @@ async def test_download_timeline_key_error_on_malformed_response(
     # which raises KeyError. KeyError propagates out of the outer try at
     # timeline.py:139 and hits the ``except KeyError`` handler at line 219
     # → print_error + (non-interactive) break.
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
-        side_effect=[httpx.Response(200, json={"success": True})]
-    )
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(side_effect=[httpx.Response(200, json={"success": True})])
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
 
@@ -541,7 +558,10 @@ async def test_download_timeline_key_error_on_malformed_response(
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
     # Must not raise — the production code catches KeyError + breaks.
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_key_error_malformed")
 
 
 @pytest.mark.asyncio
@@ -675,7 +695,10 @@ async def test_download_timeline_should_continue_false_breaks_loop(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_should_continue_false")
 
 
 @pytest.mark.asyncio
@@ -763,7 +786,10 @@ async def test_download_timeline_debug_mode_prints_timeline_object(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_debug_mode")
 
     # Debug output flows through loguru; we can't easily assert on it from
     # capsys, but the coverage report confirms line 162 was hit.
@@ -876,7 +902,10 @@ async def test_download_timeline_batch_duplicate_prints_skipped_count(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_batch_duplicate_skipped")
 
     # state.current_batch_duplicates was incremented by the real
     # state.add_duplicate() call path.
@@ -905,9 +934,9 @@ async def test_download_timeline_generic_exception_logs_and_breaks(
     state.creator_id = creator_id
     state.creator_name = f"exc_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
-        side_effect=[RuntimeError("simulated API explosion")]
-    )
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(side_effect=[RuntimeError("simulated API explosion")])
 
     monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
 
@@ -919,7 +948,10 @@ async def test_download_timeline_generic_exception_logs_and_breaks(
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
     # Must not raise — catch-all handler logs + breaks.
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_generic_exception")
 
 
 @pytest.mark.asyncio
@@ -999,7 +1031,10 @@ async def test_download_timeline_cursor_index_error_breaks_cleanly(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_cursor_index_error")
 
 
 @pytest.mark.asyncio
@@ -1093,7 +1128,10 @@ async def test_download_timeline_cursor_advance_generic_exception_wraps_as_api_e
 
     # ApiError is raised inside, caught by the outer ``except Exception``
     # (ApiError inherits from Exception) → log + break.
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(respx.calls, label="timeline_cursor_advance_api_error")
 
 
 @pytest.mark.asyncio
@@ -1127,7 +1165,9 @@ async def test_download_timeline_non_200_2xx_response_skips_block_and_re_polls(
     state.creator_id = creator_id
     state.creator_name = f"two04_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             # iter 1: 204 No Content. raise_for_status passes (2xx),
             # but `if status_code == 200` is False → skip success block →
@@ -1168,7 +1208,10 @@ async def test_download_timeline_non_200_2xx_response_skips_block_and_re_polls(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_non_200_2xx")
 
     assert state.download_type == DownloadType.TIMELINE
 
@@ -1246,7 +1289,9 @@ async def test_download_timeline_interactive_key_error_continues_loop(
 
     # Provide multiple fallback responses so the loop can exit naturally
     # after KeyError → continue → empty-retry-exhaust.
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             httpx.Response(200, json={"success": True}),  # triggers KeyError
             *[httpx.Response(200, json=_timeline_response()) for _ in range(5)],
@@ -1262,7 +1307,10 @@ async def test_download_timeline_interactive_key_error_continues_loop(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_interactive_key_error")
 
 
 @pytest.mark.asyncio
@@ -1289,7 +1337,9 @@ async def test_download_timeline_interactive_generic_exception_continues_loop(
     state.creator_id = creator_id
     state.creator_name = f"iexc_{creator_id}"
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             RuntimeError("simulated API explosion"),
             *[httpx.Response(200, json=_timeline_response()) for _ in range(5)],
@@ -1305,7 +1355,10 @@ async def test_download_timeline_interactive_generic_exception_continues_loop(
     monkeypatch.setattr("download.timeline.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
 
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_interactive_generic_exception")
 
 
 @pytest.mark.asyncio
@@ -1351,7 +1404,9 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
     # Confirm cache seed.
     assert get_store().get_from_cache(Post, post_id) is not None
 
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}").mock(
+    route = respx.get(
+        url__startswith=f"{FanslyApi.BASE_URL}timelinenew/{creator_id}"
+    ).mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -1393,4 +1448,7 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
 
     # Must not raise — the DuplicatePageError is caught by the timeline
     # loop and logged as info_highlight, then broken out of.
-    await download_timeline(config, state)
+    try:
+        await download_timeline(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="timeline_duplicate_page_error")

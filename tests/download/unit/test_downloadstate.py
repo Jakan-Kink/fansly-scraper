@@ -1,20 +1,8 @@
 from pathlib import Path
 
-import pytest
-
 from download.core import DownloadState
 from download.globalstate import GlobalState
 from download.types import DownloadType
-
-
-@pytest.fixture
-def download_state():
-    """Create a test download state."""
-    state = DownloadState()
-    state.creator_name = "test_creator"
-    state.download_type = DownloadType.NOTSET
-    state.base_path = Path("/test/path")
-    return state
 
 
 def test_initial_state():
@@ -29,41 +17,41 @@ def test_initial_state():
     assert len(state.walls) == 0
 
 
-def test_download_type_str(download_state):
+def test_download_type_str(notset_download_state):
     """Test download_type string representation."""
-    assert download_state.download_type_str() == "Notset"
-    download_state.download_type = DownloadType.TIMELINE
-    assert download_state.download_type_str() == "Timeline"
+    assert notset_download_state.download_type_str() == "Notset"
+    notset_download_state.download_type = DownloadType.TIMELINE
+    assert notset_download_state.download_type_str() == "Timeline"
 
 
-def test_start_batch(download_state):
+def test_start_batch(notset_download_state):
     """Test batch counter reset."""
-    download_state.current_batch_duplicates = 5
-    download_state.start_batch()
-    assert download_state.current_batch_duplicates == 0
+    notset_download_state.current_batch_duplicates = 5
+    notset_download_state.start_batch()
+    assert notset_download_state.current_batch_duplicates == 0
 
 
-def test_add_duplicate(download_state):
+def test_add_duplicate(notset_download_state):
     """Test duplicate counter incrementation."""
-    initial_duplicates = download_state.duplicate_count
-    initial_batch = download_state.current_batch_duplicates
+    initial_duplicates = notset_download_state.duplicate_count
+    initial_batch = notset_download_state.current_batch_duplicates
 
-    download_state.add_duplicate()
+    notset_download_state.add_duplicate()
 
-    assert download_state.duplicate_count == initial_duplicates + 1
-    assert download_state.current_batch_duplicates == initial_batch + 1
+    assert notset_download_state.duplicate_count == initial_duplicates + 1
+    assert notset_download_state.current_batch_duplicates == initial_batch + 1
 
 
-def test_inheritance(download_state):
+def test_inheritance(notset_download_state):
     """Verify DownloadState's inheritance from GlobalState wires through."""
-    assert isinstance(download_state, GlobalState)
-    assert hasattr(download_state, "total_timeline_items")
-    assert hasattr(download_state, "missing_items_count")
+    assert isinstance(notset_download_state, GlobalState)
+    assert hasattr(notset_download_state, "total_timeline_items")
+    assert hasattr(notset_download_state, "missing_items_count")
 
 
-def test_path_handling(download_state):
+def test_path_handling(notset_download_state):
     """Test path attribute handling."""
     test_path = Path("/test/download/path")
-    download_state.download_path = test_path
-    assert isinstance(download_state.download_path, Path)
-    assert download_state.download_path == test_path
+    notset_download_state.download_path = test_path
+    assert isinstance(notset_download_state.download_path, Path)
+    assert notset_download_state.download_path == test_path

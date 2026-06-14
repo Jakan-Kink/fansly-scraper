@@ -6,7 +6,6 @@ File I/O uses ``tmp_path`` (pytest built-in).
 
 from __future__ import annotations
 
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,22 +24,6 @@ from config.schema import (
     StashContextSection,
     TargetedCreatorSection,
 )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def sample_yaml_path(tmp_path: Path) -> Path:
-    """Copy sample.yaml into an isolated tmp_path so tests can mutate freely."""
-    src = FIXTURES_DIR / "sample.yaml"
-    dst = tmp_path / "config.yaml"
-    shutil.copy(src, dst)
-    return dst
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,14 @@ Names are deliberately distinct from the global ``config`` fixture in
 """
 
 from .config_fixtures import (
+    CONFIG_DATA_DIR,
+    config_dir,
+    config_with_path,
+    default_cli_args,
+    fresh_config,
+    loaded_config,
     no_display,
+    sample_yaml_path,
     unit_config,
     unit_config_path,
     validation_config,
@@ -15,7 +22,14 @@ from .config_fixtures import (
 
 
 __all__ = [
+    "CONFIG_DATA_DIR",
+    "config_dir",
+    "config_with_path",
+    "default_cli_args",
+    "fresh_config",
+    "loaded_config",
     "no_display",
+    "sample_yaml_path",
     "unit_config",
     "unit_config_path",
     "validation_config",

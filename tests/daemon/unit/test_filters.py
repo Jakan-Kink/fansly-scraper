@@ -1,9 +1,9 @@
 """Unit tests for daemon.filters -- should_process_creator.
 
 Uses a real EntityStore (PostgreSQL) and a real FanslyApi wired into
-config._api.  RESPX intercepts at the HTTP boundary using
-``with respx.mock:`` context managers (NOT decorators) to avoid asyncpg
-event-loop conflicts.
+mock_config._api via the ``respx_fansly_api`` fixture, which intercepts at
+the HTTP boundary (and owns the blanket OPTIONS preflight route) without the
+asyncpg event-loop conflicts the respx decorator form would introduce.
 
 State persistence (mark_creator_processed) is tested in test_state.py.
 
@@ -83,17 +83,6 @@ def _timeline_response(posts: list[dict]) -> httpx.Response:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-# `saved_account` and `config_wired` come from the canonical fixtures
-# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
-# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
-# Per Cat L policy: don't redefine here.
-
-
-# ---------------------------------------------------------------------------
 # should_process_creator
 # ---------------------------------------------------------------------------
 
@@ -103,7 +92,7 @@ class TestShouldProcessCreator:
 
     @pytest.mark.asyncio
     async def test_returns_true_on_first_run_no_monitor_state(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """No MonitorState row (first daemon run) -> process unconditionally.
 
@@ -112,23 +101,19 @@ class TestShouldProcessCreator:
         """
         creator_id = saved_account.id
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([])]
-            )
-            try:
-                result = await should_process_creator(config_wired, creator_id)
-            finally:
-                dump_fansly_calls(route.calls, "first_run_no_state")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([])]
+        )
+        try:
+            result = await should_process_creator(mock_config, creator_id)
+        finally:
+            dump_fansly_calls(route.calls, "first_run_no_state")
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_returns_true_when_last_checked_at_is_none(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """MonitorState exists but lastCheckedAt is None -> treat as first run."""
         state = MonitorStateFactory.build(
@@ -137,23 +122,19 @@ class TestShouldProcessCreator:
         )
         await entity_store.save(state)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([])]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "last_checked_at_none")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([])]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "last_checked_at_none")
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_returns_true_when_latest_post_is_newer_than_baseline(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Latest non-pinned post createdAt > lastCheckedAt -> process."""
         baseline = datetime(2026, 4, 10, 12, 0, 0, tzinfo=UTC)
@@ -167,23 +148,19 @@ class TestShouldProcessCreator:
 
         post = _make_post_dict(snowflake_id(), saved_account.id, newer_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([post])]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "newer_post")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([post])]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "newer_post")
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_returns_false_when_no_non_pinned_posts(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Empty posts list on every page -> no activity signal -> skip.
 
@@ -199,23 +176,19 @@ class TestShouldProcessCreator:
         )
         await entity_store.save(state)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([])]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "no_posts")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([])]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "no_posts")
 
         assert result is False
 
     @pytest.mark.asyncio
     async def test_returns_false_when_latest_post_is_older_than_baseline(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Latest post createdAt <= lastCheckedAt -> creator inactive since last run."""
         baseline = datetime(2026, 4, 10, 12, 0, 0, tzinfo=UTC)
@@ -229,23 +202,19 @@ class TestShouldProcessCreator:
 
         post = _make_post_dict(snowflake_id(), saved_account.id, older_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([post])]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "older_post")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([post])]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "older_post")
 
         assert result is False
 
     @pytest.mark.asyncio
     async def test_returns_true_on_api_failure(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """API returns 500 (exhausts all retries) -> conservative True.
 
@@ -261,29 +230,25 @@ class TestShouldProcessCreator:
         )
         await entity_store.save(state)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            # 4 responses: 1 initial attempt + 3 retries (total=3)
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(500),
-                    httpx.Response(500),
-                    httpx.Response(500),
-                    httpx.Response(500),
-                ]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "api_failure")
+        # 4 responses: 1 initial attempt + 3 retries (total=3)
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(500),
+                httpx.Response(500),
+                httpx.Response(500),
+                httpx.Response(500),
+            ]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "api_failure")
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_session_baseline_overrides_monitor_state(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """session_baseline kwarg takes priority over MonitorState.lastCheckedAt.
 
@@ -304,27 +269,23 @@ class TestShouldProcessCreator:
         old_baseline = datetime(2000, 1, 1, tzinfo=UTC)
         post = _make_post_dict(snowflake_id(), saved_account.id, post_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[_timeline_response([post])]
+        )
+        try:
+            result = await should_process_creator(
+                mock_config,
+                saved_account.id,
+                session_baseline=old_baseline,
             )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[_timeline_response([post])]
-            )
-            try:
-                result = await should_process_creator(
-                    config_wired,
-                    saved_account.id,
-                    session_baseline=old_baseline,
-                )
-            finally:
-                dump_fansly_calls(route.calls, "session_baseline_override")
+        finally:
+            dump_fansly_calls(route.calls, "session_baseline_override")
 
         assert result is True
 
     @pytest.mark.asyncio
     async def test_pinned_posts_filtered_out_all_pages_pinned(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """All posts across every page are pinned -> False after MAX_FILTER_PAGES.
 
@@ -346,27 +307,18 @@ class TestShouldProcessCreator:
             snowflake_id(), saved_account.id, newer_ms, pinned=True
         )
 
-        with respx.mock:
-            # 3 page fetches = 3 OPTIONS + 3 GETs
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(200),
-                    httpx.Response(200),
-                    httpx.Response(200),
-                ]
-            )
-            # Supply MAX_FILTER_PAGES all-pinned responses
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    _timeline_response([pinned_post]),
-                    _timeline_response([pinned_post]),
-                    _timeline_response([pinned_post]),
-                ]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "pinned_all_pages")
+        # Supply MAX_FILTER_PAGES all-pinned responses
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                _timeline_response([pinned_post]),
+                _timeline_response([pinned_post]),
+                _timeline_response([pinned_post]),
+            ]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "pinned_all_pages")
 
         assert result is False
 
@@ -376,7 +328,7 @@ class TestShouldProcessCreator:
 
     @pytest.mark.asyncio
     async def test_pagination_page2_has_non_pinned_returns_true(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Page 1 all-pinned, page 2 has a newer non-pinned post -> True.
 
@@ -398,31 +350,23 @@ class TestShouldProcessCreator:
         )
         non_pinned_post = _make_post_dict(snowflake_id(), saved_account.id, newer_ms)
 
-        with respx.mock:
-            # 2 page fetches = 2 OPTIONS + 2 GETs
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(200),
-                    httpx.Response(200),
-                ]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    _timeline_response([pinned_post]),  # page 1: all pinned
-                    _timeline_response([non_pinned_post]),  # page 2: non-pinned newer
-                ]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "page2_non_pinned")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                _timeline_response([pinned_post]),  # page 1: all pinned
+                _timeline_response([non_pinned_post]),  # page 2: non-pinned newer
+            ]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "page2_non_pinned")
 
         assert result is True
         assert route.call_count == 2
 
     @pytest.mark.asyncio
     async def test_pagination_all_three_pages_pinned_returns_false(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Pages 1-3 all pinned -> False after exactly MAX_FILTER_PAGES fetches."""
         baseline = datetime(2026, 4, 10, 12, 0, 0, tzinfo=UTC)
@@ -438,33 +382,24 @@ class TestShouldProcessCreator:
             snowflake_id(), saved_account.id, pinned_ms, pinned=True
         )
 
-        with respx.mock:
-            # 3 page fetches = 3 OPTIONS + 3 GETs
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(200),
-                    httpx.Response(200),
-                    httpx.Response(200),
-                ]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    _timeline_response([pinned_post]),
-                    _timeline_response([pinned_post]),
-                    _timeline_response([pinned_post]),
-                ]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "all_three_pinned")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                _timeline_response([pinned_post]),
+                _timeline_response([pinned_post]),
+                _timeline_response([pinned_post]),
+            ]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "all_three_pinned")
 
         assert result is False
         assert route.call_count == MAX_FILTER_PAGES
 
     @pytest.mark.asyncio
     async def test_pagination_page1_non_pinned_no_page2_fetch(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Page 1 has a non-pinned post -> short-circuit, page 2 never fetched."""
         baseline = datetime(2026, 4, 10, 12, 0, 0, tzinfo=UTC)
@@ -478,21 +413,17 @@ class TestShouldProcessCreator:
 
         post = _make_post_dict(snowflake_id(), saved_account.id, newer_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    _timeline_response([post]),
-                    # Second response should never be consumed
-                    _timeline_response([post]),
-                ]
-            )
-            try:
-                result = await should_process_creator(config_wired, saved_account.id)
-            finally:
-                dump_fansly_calls(route.calls, "page1_short_circuit")
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                _timeline_response([post]),
+                # Second response should never be consumed
+                _timeline_response([post]),
+            ]
+        )
+        try:
+            result = await should_process_creator(mock_config, saved_account.id)
+        finally:
+            dump_fansly_calls(route.calls, "page1_short_circuit")
 
         assert result is True
         assert route.call_count == 1
@@ -503,7 +434,7 @@ class TestShouldProcessCreator:
 
     @pytest.mark.asyncio
     async def test_prefetched_posts_non_pinned_zero_api_calls(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """prefetched_posts contains a non-pinned newer post -> True, zero GET calls."""
         baseline = datetime(2026, 4, 10, 12, 0, 0, tzinfo=UTC)
@@ -517,28 +448,24 @@ class TestShouldProcessCreator:
 
         post = _make_post_dict(snowflake_id(), saved_account.id, newer_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[]  # should never be called
+        )
+        try:
+            result = await should_process_creator(
+                mock_config,
+                saved_account.id,
+                prefetched_posts=[post],
             )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[]  # should never be called
-            )
-            try:
-                result = await should_process_creator(
-                    config_wired,
-                    saved_account.id,
-                    prefetched_posts=[post],
-                )
-            finally:
-                dump_fansly_calls(route.calls, "prefetched_non_pinned")
+        finally:
+            dump_fansly_calls(route.calls, "prefetched_non_pinned")
 
         assert result is True
         assert route.call_count == 0
 
     @pytest.mark.asyncio
     async def test_prefetched_posts_all_pinned_falls_through_to_api(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """prefetched_posts all-pinned -> falls through to paginate via API.
 
@@ -561,23 +488,19 @@ class TestShouldProcessCreator:
         )
         non_pinned_post = _make_post_dict(snowflake_id(), saved_account.id, newer_ms)
 
-        with respx.mock:
-            respx.options(url__startswith=TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
+        route = respx.get(url__startswith=TIMELINE_URL).mock(
+            side_effect=[
+                _timeline_response([non_pinned_post]),  # API page 1 after prefetch
+            ]
+        )
+        try:
+            result = await should_process_creator(
+                mock_config,
+                saved_account.id,
+                prefetched_posts=[pinned_post],
             )
-            route = respx.get(url__startswith=TIMELINE_URL).mock(
-                side_effect=[
-                    _timeline_response([non_pinned_post]),  # API page 1 after prefetch
-                ]
-            )
-            try:
-                result = await should_process_creator(
-                    config_wired,
-                    saved_account.id,
-                    prefetched_posts=[pinned_post],
-                )
-            finally:
-                dump_fansly_calls(route.calls, "prefetched_all_pinned_fallthrough")
+        finally:
+            dump_fansly_calls(route.calls, "prefetched_all_pinned_fallthrough")
 
         assert result is True
         assert route.call_count == 1

@@ -25,44 +25,6 @@ from metadata.models import (
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def store_with_account():
-    """Set up a minimal fake store with a cached Account for sync tests."""
-
-    class FakeStore:
-        def __init__(self):
-            self._cache = {}
-
-        def get_from_cache(self, cls, eid):
-            return self._cache.get((cls, eid))
-
-        def get_from_cache_by_type_name(self, name, eid):
-            for (c, i), obj in self._cache.items():
-                if c.__name__ == name and i == eid:
-                    return obj
-            return None
-
-        def cache_instance(self, obj):
-            self._cache[(type(obj), obj.id)] = obj
-
-        def invalidate(self, cls, eid):
-            self._cache.pop((cls, eid), None)
-
-    store = FakeStore()
-    FanslyObject._store = store
-
-    acct_id = snowflake_id()
-    account = Account(id=acct_id, username="sync_test_user")
-    store.cache_instance(account)
-
-    yield store, account
-
-    FanslyObject._store = None
-
-
 # ── FK → Relationship Auto-Resolution Tests ─────────────────────────────
 
 

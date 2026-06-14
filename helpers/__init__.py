@@ -13,7 +13,6 @@ from .web import (
     get_flat_qs_dict,
     get_qs_value,
     get_release_info_from_github,
-    guess_user_agent,
     split_url,
 )
 
@@ -38,7 +37,6 @@ __all__ = [
     "get_qs_value",
     "get_release_info_from_github",
     "guess_check_key",
-    "guess_user_agent",
     "is_valid_post_id",
     "open_get_started_url",
     "open_location",

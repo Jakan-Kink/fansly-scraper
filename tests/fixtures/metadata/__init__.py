@@ -22,7 +22,10 @@ from .metadata_factories import (
     setup_accounts_and_groups,
 )
 from .metadata_fixtures import (
+    group_data,
+    media_items,
     saved_account,
+    store_with_account,
     test_account,
     test_account_media,
     test_attachment,
@@ -56,8 +59,11 @@ __all__ = [
     "TimelineStatsFactory",
     "WallFactory",
     "create_groups_from_messages",
+    "group_data",
+    "media_items",
     "saved_account",
     "setup_accounts_and_groups",
+    "store_with_account",
     # Fixtures
     "test_account",
     "test_account_media",

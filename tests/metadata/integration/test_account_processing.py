@@ -17,6 +17,7 @@ from metadata import (
     process_account_data,
     process_media_bundles,
 )
+from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -191,10 +192,10 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
 
     # Mock the API call for the 2 missing accountMedia items
     # get_with_ngsw does OPTIONS preflight + GET
-    respx.options(url__startswith="https://apiv3.fansly.com/api/v1/account/media").mock(
+    respx.options(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
         side_effect=[httpx.Response(200)],
     )
-    respx.get(url__startswith="https://apiv3.fansly.com/api/v1/account/media").mock(
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/media").mock(
         side_effect=[
             httpx.Response(
                 200,
@@ -240,7 +241,10 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
         }
     ]
 
-    await process_media_bundles(config_wired, account_id, bundle_data)
+    try:
+        await process_media_bundles(config_wired, account_id, bundle_data)
+    finally:
+        dump_fansly_calls(respx.calls, "test_bundle_truncation_backfill")
 
     # Verify: bundle exists and junction table has all 7 positions
     bundle = await store.get(AccountMediaBundle, bundle_id)

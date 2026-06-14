@@ -1,9 +1,10 @@
 """Unit tests for daemon.polling — poll_home_timeline and poll_story_states.
 
 Each polling function is tested with a real EntityStore (via the entity_store
-fixture) and a real FanslyApi wired into config._api.  RESPX intercepts at the
-HTTP boundary using ``with respx.mock:`` context managers (not decorators) to
-avoid asyncpg event-loop conflicts.
+fixture) and a real FanslyApi wired into mock_config._api via the
+``respx_fansly_api`` fixture.  RESPX intercepts at the HTTP boundary through
+that fixture (which owns the respx mock context and the blanket OPTIONS
+preflight route), so tests register only their per-call GET routes.
 
 Test inventory
 --------------
@@ -86,10 +87,12 @@ def _make_story_state_dict(
 # ---------------------------------------------------------------------------
 
 
-# `saved_account` and `config_wired` come from the canonical fixtures
+# `saved_account` and `mock_config` come from the canonical fixtures
 # (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
 # config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
-# Per Cat L policy: don't redefine here.
+# `respx_fansly_api` bootstraps a real FanslyApi and wires mock_config._api,
+# providing the respx mock context + blanket OPTIONS route. Per Cat L policy:
+# don't redefine here.
 
 
 # ---------------------------------------------------------------------------
@@ -108,33 +111,29 @@ class TestPollHomeTimeline:
 
     @pytest.mark.asyncio
     async def test_fresh_cache_returns_all_creator_ids(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Fresh cache — new_creator_ids contains creator, posts_by_creator populated."""
         creator_id = saved_account.id
         post_id = snowflake_id()
         post_dict = _make_post_dict(post_id, creator_id)
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {"posts": [post_dict]},
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {"posts": [post_dict]},
+                    },
+                )
+            ]
+        )
 
-            try:
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "fresh_cache")
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "fresh_cache")
 
         assert creator_id in new_ids
         assert len(new_ids) == 1
@@ -144,7 +143,7 @@ class TestPollHomeTimeline:
 
     @pytest.mark.asyncio
     async def test_all_posts_cached_new_ids_empty_posts_by_creator_populated(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """All posts already cached — new_creator_ids empty but posts_by_creator
         still contains the creator and their posts.
@@ -166,28 +165,22 @@ class TestPollHomeTimeline:
         )
         await entity_store.save(post)
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [_make_post_dict(post_id, creator_id)]
-                            },
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {"posts": [_make_post_dict(post_id, creator_id)]},
+                    },
+                )
+            ]
+        )
 
-            try:
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "all_cached")
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "all_cached")
 
         # No new posts — creator absent from new_ids
         assert new_ids == set()
@@ -197,7 +190,7 @@ class TestPollHomeTimeline:
 
     @pytest.mark.asyncio
     async def test_mixed_posts_returns_only_new_creators_in_new_ids(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Mixed known + unknown posts — only new creator in new_ids, both in posts_by_creator."""
         creator_id = saved_account.id
@@ -225,31 +218,27 @@ class TestPollHomeTimeline:
         )
         await entity_store.save(known_post)
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [
-                                    _make_post_dict(known_post_id, creator_id),
-                                    _make_post_dict(new_post_id, creator_id2),
-                                ]
-                            },
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [
+                                _make_post_dict(known_post_id, creator_id),
+                                _make_post_dict(new_post_id, creator_id2),
+                            ]
                         },
-                    )
-                ]
-            )
+                    },
+                )
+            ]
+        )
 
-            try:
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "mixed_posts")
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "mixed_posts")
 
         # Only creator_id2 has a new post
         assert creator_id not in new_ids
@@ -261,7 +250,7 @@ class TestPollHomeTimeline:
 
     @pytest.mark.asyncio
     async def test_multiple_new_posts_same_creator_deduplicates(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Multiple new posts from same creator — ID appears once in new_ids,
         both posts appear in posts_by_creator."""
@@ -269,31 +258,27 @@ class TestPollHomeTimeline:
         post_id1 = snowflake_id()
         post_id2 = snowflake_id()
 
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": {
-                                "posts": [
-                                    _make_post_dict(post_id1, creator_id),
-                                    _make_post_dict(post_id2, creator_id),
-                                ]
-                            },
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {
+                            "posts": [
+                                _make_post_dict(post_id1, creator_id),
+                                _make_post_dict(post_id2, creator_id),
+                            ]
                         },
-                    )
-                ]
-            )
+                    },
+                )
+            ]
+        )
 
-            try:
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "same_creator_dedup")
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "same_creator_dedup")
 
         # Set semantics: creator only appears once in new_ids
         assert new_ids == {creator_id}
@@ -305,55 +290,51 @@ class TestPollHomeTimeline:
 
     @pytest.mark.asyncio
     async def test_empty_posts_array_returns_empty_tuple(
-        self, config_wired, entity_store
+        self, respx_fansly_api, mock_config, entity_store
     ):
         """API returns empty posts array — (set(), {}) returned."""
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={"success": True, "response": {"posts": []}},
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"success": True, "response": {"posts": []}},
+                )
+            ]
+        )
 
-            try:
-                new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "empty_posts")
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "empty_posts")
 
         assert new_ids == set()
         assert posts_by_creator == {}
 
     @pytest.mark.asyncio
-    async def test_api_http_error_returns_empty_tuple(self, config_wired, entity_store):
+    async def test_api_http_error_returns_empty_tuple(
+        self, respx_fansly_api, mock_config, entity_store
+    ):
         """API raises ConnectError (HTTPError subclass) — returns (set(), {}).
 
         RetryTransport retries network errors (total=3), so we provide 4
         ConnectError responses (1 initial + 3 retries) to ensure the final
         exception propagates as httpx.HTTPError rather than StopIteration.
         """
-        with respx.mock:
-            respx.options(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
-                side_effect=[
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                ]
-            )
+        route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
+            side_effect=[
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+            ]
+        )
 
-            new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-            # All 4 calls raised exceptions so call.response is not available;
-            # dump_fansly_calls would ValueError — verify call count directly.
-            assert len(route.calls) == 4
+        try:
+            new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "api_http_error_tuple")
+        # All 4 calls raised exceptions (1 initial + 3 retries).
+        assert len(route.calls) == 4
 
         assert new_ids == set()
         assert posts_by_creator == {}
@@ -369,34 +350,30 @@ class TestPollStoryStates:
 
     @pytest.mark.asyncio
     async def test_first_run_active_story_returns_creator_and_creates_row(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """First run, no MonitorState row — hasActiveStories=True → ID returned,
         row created with lastHasActiveStories=True."""
         creator_id = saved_account.id
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(creator_id, has_active=True)
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(creator_id, has_active=True)
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "first_run_active")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "first_run_active")
 
         assert creator_id in result
 
@@ -407,7 +384,7 @@ class TestPollStoryStates:
 
     @pytest.mark.asyncio
     async def test_prior_false_now_true_returns_creator_updates_row(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Prior False → now True — ID returned, row updated to True."""
         creator_id = saved_account.id
@@ -419,28 +396,24 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(creator_id, has_active=True)
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(creator_id, has_active=True)
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "prior_false_now_true")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "prior_false_now_true")
 
         assert creator_id in result
 
@@ -450,7 +423,7 @@ class TestPollStoryStates:
 
     @pytest.mark.asyncio
     async def test_prior_true_still_true_not_returned(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Prior True → still True — NOT returned (no flip), row stays True."""
         creator_id = saved_account.id
@@ -461,35 +434,31 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(creator_id, has_active=True)
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(creator_id, has_active=True)
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "prior_true_still_true")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "prior_true_still_true")
 
         assert creator_id not in result
         assert result == []
 
     @pytest.mark.asyncio
     async def test_prior_true_now_false_not_returned_row_updated(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """Prior True → now False — NOT returned, row updated to False."""
         creator_id = saved_account.id
@@ -500,28 +469,24 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(creator_id, has_active=False)
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(creator_id, has_active=False)
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "prior_true_now_false")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "prior_true_now_false")
 
         assert creator_id not in result
 
@@ -531,33 +496,29 @@ class TestPollStoryStates:
 
     @pytest.mark.asyncio
     async def test_first_run_inactive_not_returned_row_created_false(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """First run, hasActiveStories=False — NOT returned, row created with False."""
         creator_id = saved_account.id
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(creator_id, has_active=False)
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(creator_id, has_active=False)
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "first_run_inactive")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "first_run_inactive")
 
         assert creator_id not in result
         assert result == []
@@ -567,36 +528,36 @@ class TestPollStoryStates:
         assert saved_state.lastHasActiveStories is False
 
     @pytest.mark.asyncio
-    async def test_api_http_error_returns_empty_list(self, config_wired, entity_store):
+    async def test_api_http_error_returns_empty_list(
+        self, respx_fansly_api, mock_config, entity_store
+    ):
         """API raises ConnectError (HTTPError subclass) — returns empty list.
 
         RetryTransport retries network errors (total=3), so we provide 4
         ConnectError responses (1 initial + 3 retries) to ensure the final
         exception propagates as httpx.HTTPError rather than StopIteration.
         """
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                    httpx.ConnectError("Connection refused"),
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+                httpx.ConnectError("Connection refused"),
+            ]
+        )
 
-            result = await poll_story_states(config_wired)
-            # All 4 calls raised exceptions so call.response is not available;
-            # dump_fansly_calls would ValueError — verify call count directly.
-            assert len(route.calls) == 4
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "api_http_error_list")
+        # All 4 calls raised exceptions (1 initial + 3 retries).
+        assert len(route.calls) == 4
 
         assert result == []
 
     @pytest.mark.asyncio
     async def test_story_count_nonzero_treated_as_active_flip_detected(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """hasActiveStories=False, storyCount=2 — storyCount fallback triggers
         active detection. Prior state is False (inactive), so flip is detected
@@ -610,30 +571,26 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(
-                                    creator_id, has_active=False, story_count=2
-                                )
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(
+                                creator_id, has_active=False, story_count=2
+                            )
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "story_count_nonzero_flip")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "story_count_nonzero_flip")
 
         assert creator_id in result
 
@@ -643,7 +600,7 @@ class TestPollStoryStates:
 
     @pytest.mark.asyncio
     async def test_has_active_stories_true_story_count_zero_still_active(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """hasActiveStories=True, storyCount=0 — hasActiveStories alone is
         sufficient; existing behaviour preserved. Prior state is False, so flip
@@ -656,36 +613,32 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(
-                                    creator_id, has_active=True, story_count=0
-                                )
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(
+                                creator_id, has_active=True, story_count=0
+                            )
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "has_active_true_count_zero")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "has_active_true_count_zero")
 
         assert creator_id in result
 
     @pytest.mark.asyncio
     async def test_has_active_false_story_count_zero_not_active(
-        self, config_wired, entity_store, saved_account
+        self, respx_fansly_api, mock_config, entity_store, saved_account
     ):
         """hasActiveStories=False, storyCount=0 — neither signal active; creator
         is NOT returned regardless of prior state."""
@@ -697,30 +650,26 @@ class TestPollStoryStates:
         )
         await entity_store.save(prior_state)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            route = respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                _make_story_state_dict(
-                                    creator_id, has_active=False, story_count=0
-                                )
-                            ],
-                        },
-                    )
-                ]
-            )
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            _make_story_state_dict(
+                                creator_id, has_active=False, story_count=0
+                            )
+                        ],
+                    },
+                )
+            ]
+        )
 
-            try:
-                result = await poll_story_states(config_wired)
-            finally:
-                dump_fansly_calls(route.calls, "both_signals_inactive")
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "both_signals_inactive")
 
         assert creator_id not in result
         assert result == []
@@ -794,30 +743,29 @@ class TestPollStoryStatesEdges:
 
     @pytest.mark.asyncio
     async def test_non_list_response_returns_empty_with_warning(
-        self, config_wired, entity_store, caplog
+        self, respx_fansly_api, mock_config, entity_store, caplog
     ):
         """Lines 117-122: response is not a list → log warning + return []."""
         import logging as _logging
 
         caplog.set_level(_logging.WARNING)
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            # response should be a list; instead is a dict.
-                            "response": {"unexpected": "shape"},
-                        },
-                    )
-                ]
-            )
-            result = await poll_story_states(config_wired)
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        # response should be a list; instead is a dict.
+                        "response": {"unexpected": "shape"},
+                    },
+                )
+            ]
+        )
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "non_list_response")
 
         assert result == []
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
@@ -825,7 +773,7 @@ class TestPollStoryStatesEdges:
 
     @pytest.mark.asyncio
     async def test_save_exception_inside_loop_logged_and_skipped(
-        self, config_wired, entity_store, monkeypatch, caplog
+        self, respx_fansly_api, mock_config, entity_store, monkeypatch, caplog
     ):
         """Lines 156-162: store.save raises mid-loop → log warning + creator NOT returned."""
         import logging as _logging
@@ -858,28 +806,27 @@ class TestPollStoryStatesEdges:
 
         monkeypatch.setattr("daemon.polling.get_store", lambda: _SaveFails(real_store))
 
-        with respx.mock:
-            respx.options(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[httpx.Response(200)]
-            )
-            respx.get(url__startswith=STORY_STATES_URL).mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={
-                            "success": True,
-                            "response": [
-                                {
-                                    "accountId": creator_id,
-                                    "hasActiveStories": True,
-                                    "storyCount": 1,
-                                }
-                            ],
-                        },
-                    )
-                ]
-            )
-            result = await poll_story_states(config_wired)
+        route = respx.get(url__startswith=STORY_STATES_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": [
+                            {
+                                "accountId": creator_id,
+                                "hasActiveStories": True,
+                                "storyCount": 1,
+                            }
+                        ],
+                    },
+                )
+            ]
+        )
+        try:
+            result = await poll_story_states(mock_config)
+        finally:
+            dump_fansly_calls(route.calls, "save_exception")
 
         # CORRECTED: production appends to creators_with_new_stories BEFORE the
         # save try-block fires. The creator IS returned even when save raises;

@@ -10,10 +10,16 @@ Philosophy:
 - Each fixture is independent and can be used standalone
 """
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
 
 from metadata import ContentType
+from metadata.models import Account, FanslyObject, Media
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 from .metadata_factories import (
     ACCOUNT_ID_BASE,
@@ -35,7 +41,10 @@ from .metadata_factories import (
 
 
 __all__ = [
+    "group_data",
+    "media_items",
     "saved_account",
+    "store_with_account",
     "test_account",
     "test_account_media",
     "test_attachment",
@@ -405,3 +414,67 @@ def test_media_bundle(session_sync, test_account):
     session_sync.commit()
     session_sync.refresh(bundle)
     return bundle
+
+
+@pytest.fixture
+def store_with_account():
+    """Set up a minimal fake store with a cached Account for sync tests."""
+
+    class FakeStore:
+        def __init__(self):
+            self._cache = {}
+
+        def get_from_cache(self, cls, eid):
+            return self._cache.get((cls, eid))
+
+        def get_from_cache_by_type_name(self, name, eid):
+            for (c, i), obj in self._cache.items():
+                if c.__name__ == name and i == eid:
+                    return obj
+            return None
+
+        def cache_instance(self, obj):
+            self._cache[(type(obj), obj.id)] = obj
+
+        def invalidate(self, cls, eid):
+            self._cache.pop((cls, eid), None)
+
+    store = FakeStore()
+    FanslyObject._store = store
+
+    acct_id = snowflake_id()
+    account = Account(id=acct_id, username="sync_test_user")
+    store.cache_instance(account)
+
+    yield store, account
+
+    FanslyObject._store = None
+
+
+@pytest.fixture
+def media_items():
+    """Create 3 Media items with different IDs and timestamps."""
+    base_id = 1000000000000000000
+    m1 = Media(id=base_id + 1, accountId=base_id + 100)
+    m1.createdAt = datetime(2024, 1, 15, tzinfo=UTC)
+    m1.mimetype = "image/jpeg"
+
+    m2 = Media(id=base_id + 2, accountId=base_id + 100)
+    m2.createdAt = datetime(2024, 6, 1, tzinfo=UTC)
+    m2.mimetype = "video/mp4"
+
+    m3 = Media(id=base_id + 3, accountId=base_id + 100)
+    m3.createdAt = datetime(2024, 3, 10, tzinfo=UTC)
+    m3.mimetype = "image/jpeg"
+
+    return m1, m2, m3
+
+
+@pytest.fixture(scope="session")
+def group_data(test_data_dir: str):
+    """Load group messages test data."""
+    json_file = Path(test_data_dir) / "messages-group.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
+        return json.load(f)

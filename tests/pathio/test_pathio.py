@@ -1,6 +1,5 @@
 """Tests for the pathio module."""
 
-import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -41,13 +40,6 @@ class MockPathConfig:
         self.stash_override_dldir_w_mapped = stash_override_dldir_w_mapped
 
 
-@pytest.fixture
-def temp_dir():
-    """Create a temporary directory for testing."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
-
-
 class TestPathIO:
     """Tests for pathio functions."""
 
@@ -69,10 +61,10 @@ class TestPathIO:
         with pytest.raises(RuntimeError, match="creator name not set"):
             set_create_directory_for_download(config, state)
 
-    def test_set_create_directory_for_download_collections(self, temp_dir):
+    def test_set_create_directory_for_download_collections(self, tmp_path):
         """Test set_create_directory_for_download for collections using real directory."""
-        # Set up config with temp_dir
-        config = MockPathConfig(download_directory=temp_dir)
+        # Set up config with tmp_path
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.COLLECTIONS
         )
@@ -81,19 +73,19 @@ class TestPathIO:
         result = set_create_directory_for_download(config, state)
 
         # Check that the expected directory was created
-        expected_dir = temp_dir / "Collections"
+        expected_dir = tmp_path / "Collections"
         assert result == expected_dir
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
         # Check that state was updated correctly
-        assert state.base_path == temp_dir / "creator_fansly"
+        assert state.base_path == tmp_path / "creator_fansly"
         assert state.download_path == expected_dir
 
-    def test_set_create_directory_for_download_messages(self, temp_dir):
+    def test_set_create_directory_for_download_messages(self, tmp_path):
         """Test set_create_directory_for_download for messages using real directory."""
-        # Set up config with temp_dir
-        config = MockPathConfig(download_directory=temp_dir, separate_messages=True)
+        # Set up config with tmp_path
+        config = MockPathConfig(download_directory=tmp_path, separate_messages=True)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.MESSAGES
         )
@@ -102,19 +94,19 @@ class TestPathIO:
         result = set_create_directory_for_download(config, state)
 
         # Check that the expected directory was created
-        expected_dir = temp_dir / "creator_fansly" / "Messages"
+        expected_dir = tmp_path / "creator_fansly" / "Messages"
         assert result == expected_dir
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
         # Check that state was updated correctly
-        assert state.base_path == temp_dir / "creator_fansly"
+        assert state.base_path == tmp_path / "creator_fansly"
         assert state.download_path == expected_dir
 
-    def test_set_create_directory_for_download_timeline(self, temp_dir):
+    def test_set_create_directory_for_download_timeline(self, tmp_path):
         """Test set_create_directory_for_download for timeline using real directory."""
-        # Set up config with temp_dir
-        config = MockPathConfig(download_directory=temp_dir, separate_timeline=True)
+        # Set up config with tmp_path
+        config = MockPathConfig(download_directory=tmp_path, separate_timeline=True)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
@@ -123,24 +115,24 @@ class TestPathIO:
         result = set_create_directory_for_download(config, state)
 
         # Check that the expected directory was created
-        expected_dir = temp_dir / "creator_fansly" / "Timeline"
+        expected_dir = tmp_path / "creator_fansly" / "Timeline"
         assert result == expected_dir
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
         # Check that state was updated correctly
-        assert state.base_path == temp_dir / "creator_fansly"
+        assert state.base_path == tmp_path / "creator_fansly"
         assert state.download_path == expected_dir
 
     @mock.patch("pathlib.Path.exists")
-    def test_get_creator_base_path_case_insensitive(self, mock_exists, temp_dir):
+    def test_get_creator_base_path_case_insensitive(self, mock_exists, tmp_path):
         """Test get_creator_base_path with case-insensitive match."""
         # Create a directory with different case
-        creator_dir = temp_dir / "Creator_fansly"
+        creator_dir = tmp_path / "Creator_fansly"
         creator_dir.mkdir(exist_ok=True)
 
-        # Set up config with temp_dir
-        config = MockPathConfig(use_folder_suffix=True, download_directory=temp_dir)
+        # Set up config with tmp_path
+        config = MockPathConfig(use_folder_suffix=True, download_directory=tmp_path)
 
         # Make Path.exists() return False to trigger the case-insensitive search
         mock_exists.return_value = False
@@ -151,48 +143,48 @@ class TestPathIO:
         # Assert we get the directory with different case
         assert result == creator_dir
 
-    def test_get_creator_base_path_with_folder_suffix(self, temp_dir):
+    def test_get_creator_base_path_with_folder_suffix(self, tmp_path):
         """Test get_creator_base_path with folder suffix enabled."""
-        config = MockPathConfig(use_folder_suffix=True, download_directory=temp_dir)
+        config = MockPathConfig(use_folder_suffix=True, download_directory=tmp_path)
         result = get_creator_base_path(config, "creator")
-        assert result == temp_dir / "creator_fansly"
+        assert result == tmp_path / "creator_fansly"
 
-    def test_get_creator_base_path_without_folder_suffix(self, temp_dir):
+    def test_get_creator_base_path_without_folder_suffix(self, tmp_path):
         """Test get_creator_base_path with folder suffix disabled."""
-        config = MockPathConfig(use_folder_suffix=False, download_directory=temp_dir)
+        config = MockPathConfig(use_folder_suffix=False, download_directory=tmp_path)
         result = get_creator_base_path(config, "creator")
-        assert result == temp_dir / "creator"
+        assert result == tmp_path / "creator"
 
-    def test_get_creator_metadata_path(self, temp_dir):
+    def test_get_creator_metadata_path(self, tmp_path):
         """Test get_creator_metadata_path creates and returns the correct path."""
-        # Set up config with temp_dir
-        config = MockPathConfig(download_directory=temp_dir)
+        # Set up config with tmp_path
+        config = MockPathConfig(download_directory=tmp_path)
 
         # Create the creator directory first (needed because the function doesn't use parents=True)
-        creator_dir = temp_dir / "creator_fansly"
+        creator_dir = tmp_path / "creator_fansly"
         creator_dir.mkdir(exist_ok=True)
 
         # Run the function
         result = get_creator_metadata_path(config, "creator")
 
         # Expected path
-        expected_path = temp_dir / "creator_fansly" / "meta"
+        expected_path = tmp_path / "creator_fansly" / "meta"
 
         # Assert
         assert result == expected_path
         assert expected_path.exists()
         assert expected_path.is_dir()
 
-    def test_get_media_save_path_images(self, temp_dir):
+    def test_get_media_save_path_images(self, tmp_path):
         """Test get_media_save_path for images."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir)
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
 
         # Create base directory for the test
-        base_dir = temp_dir / "creator_fansly" / "Timeline"
+        base_dir = tmp_path / "creator_fansly" / "Timeline"
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Create the Pictures directory (the function returns paths but doesn't create all dirs)
@@ -218,16 +210,16 @@ class TestPathIO:
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
-    def test_get_media_save_path_videos(self, temp_dir):
+    def test_get_media_save_path_videos(self, tmp_path):
         """Test get_media_save_path for videos."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir)
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
 
         # Create base directory for the test
-        base_dir = temp_dir / "creator_fansly" / "Timeline"
+        base_dir = tmp_path / "creator_fansly" / "Timeline"
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Create the Videos directory (the function returns paths but doesn't create all dirs)
@@ -253,16 +245,16 @@ class TestPathIO:
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
-    def test_get_media_save_path_audio(self, temp_dir):
+    def test_get_media_save_path_audio(self, tmp_path):
         """Test get_media_save_path for audio."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir)
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.MESSAGES
         )
 
         # Create base directory for the test
-        base_dir = temp_dir / "creator_fansly" / "Messages"
+        base_dir = tmp_path / "creator_fansly" / "Messages"
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Also create the Audio directory (the function returns paths but doesn't create all dirs)
@@ -288,16 +280,16 @@ class TestPathIO:
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
-    def test_get_media_save_path_previews(self, temp_dir):
+    def test_get_media_save_path_previews(self, tmp_path):
         """Test get_media_save_path for preview content."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir, separate_previews=True)
+        config = MockPathConfig(download_directory=tmp_path, separate_previews=True)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
 
         # Create base directory for the test
-        base_dir = temp_dir / "creator_fansly" / "Timeline"
+        base_dir = tmp_path / "creator_fansly" / "Timeline"
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Create Pictures and Previews directories
@@ -325,16 +317,16 @@ class TestPathIO:
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
-    def test_get_media_save_path_unknown_mimetype(self, temp_dir):
+    def test_get_media_save_path_unknown_mimetype(self, tmp_path):
         """Test get_media_save_path with unknown mimetype."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir)
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
 
         # Create base directory for the test
-        base_dir = temp_dir / "creator_fansly" / "Timeline"
+        base_dir = tmp_path / "creator_fansly" / "Timeline"
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
@@ -345,16 +337,16 @@ class TestPathIO:
         with pytest.raises(ValueError, match="Unknown mimetype"):
             get_media_save_path(config, state, media_item)
 
-    def test_get_media_save_path_collections(self, temp_dir):
+    def test_get_media_save_path_collections(self, tmp_path):
         """Test get_media_save_path for collections."""
         # Setup
-        config = MockPathConfig(download_directory=temp_dir)
+        config = MockPathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.COLLECTIONS
         )
 
         # Create base directory for the test (Collections dir)
-        collections_dir = temp_dir / "Collections"
+        collections_dir = tmp_path / "Collections"
         collections_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item

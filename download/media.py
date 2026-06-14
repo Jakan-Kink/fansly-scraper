@@ -460,6 +460,7 @@ async def download_media(
                     await asyncio.to_thread(file_save_dir.mkdir, parents=True)
 
                 check_path = file_save_path
+                media.local_path = str(check_path)
 
                 if await asyncio.to_thread(check_path.exists):
                     if await _verify_existing_file(config, state, media, check_path):

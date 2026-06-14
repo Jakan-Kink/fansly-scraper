@@ -12,11 +12,15 @@ time) and only patches at true edges:
 
 - ``RateLimiterDisplay.start`` — would spawn a daemon thread running a
   Rich live display that interferes with pytest output capture; patched
-  to a no-op.
-- ``FanslyApi.setup_session`` — real HTTP call to Fansly's session
-  endpoint; patched as the network edge.
-- ``FanslyApi.login`` — real HTTP call for username/password login;
-  patched as the network edge for the login-flow test.
+  to a no-op (``no_display``).
+
+The ``setup_api`` / ``login`` HTTP edges are NOT method-patched — that
+would leave the real ``setup_session`` / ``update_device_id`` / ``login``
+logic untested and, being incomplete by construction, risks leaking a
+real call (it did: the device-id fetch hit Fansly's CloudFront until the
+pytest-socket backstop caught it). Those tests run the real methods over
+the ``respx_fansly_api`` fixture (mocked apiv3 endpoints + fake WS) and
+assert at the HTTP edge.
 
 Real code throughout: real ``FanslyApi.__init__`` (creates a real
 ``httpx.Client`` but issues no requests), real ``RateLimiter.__init__``
@@ -31,16 +35,27 @@ standard pattern for inspectable task-list assertions).
 """
 
 import asyncio
+import base64
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+import respx
 from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
 from api.rate_limiter import RateLimiter
-from config.fanslyconfig import FanslyConfig
+from config.config import _populate_config_from_schema
+from config.fanslyconfig import FanslyConfig, _rebuild_schema_from_config
 from config.modes import DownloadMode
+from config.schema import ConfigSchema, StashContextSection
+from tests.fixtures.api import dump_fansly_calls
+
+
+# A valid f-s-c session cookie: base64 of ``sessionId:1:1:hash`` (the format the
+# real login() decodes) — sessionId 123456 here so the parsed session_id is known.
+_FSC_COOKIE = base64.b64encode(b"123456:1:1:loginhashvalue").decode()
 
 
 # Fixtures (unit_config_path, unit_config, no_display, validation_config)
@@ -204,138 +219,161 @@ class TestGetApi:
         assert unit_config._api is api1
 
     @pytest.mark.asyncio
-    async def test_login_failure_wraps_in_runtime_error(
-        self, unit_config, no_display, monkeypatch
-    ):
-        """When login() raises during the username/password flow → RuntimeError("Login failed: ...")."""
-        unit_config._api = None
-        unit_config.username = "myuser"
-        unit_config.password = "mypass"
-        unit_config.token = "short"  # invalid → triggers login flow
+    async def test_login_failure_modes_each_raise_runtime_error(self, respx_fansly_api):
+        """The REAL login() raises a precise RuntimeError for each failure branch.
 
-        async def _failing_login(self, username, password):
-            raise RuntimeError("auth failed")
-
-        async def _noop_update_device_id(self):
-            return self.device_id or "stub"
-
-        monkeypatch.setattr("api.fansly.FanslyApi.login", _failing_login)
-        monkeypatch.setattr(
-            "api.fansly.FanslyApi.update_device_id", _noop_update_device_id
+        Drives the actual ``login()`` (no internal-method patching) over the
+        respx edge through three branches in one test — HTTP error, a missing
+        f-s-c session cookie, and a valid-cookie-but-no-token response — asserting
+        the branch-specific message each time. The socket backstop would catch a
+        leaked call.
+        """
+        api = respx_fansly_api  # real FanslyApi; respx active, device_id populated
+        route = respx.post(url=api.LOGIN_ENDPOINT).mock(
+            side_effect=[
+                # 1. HTTP error -> raise_for_status -> wrapped with the status code.
+                httpx.Response(401, json={"error": "bad credentials"}),
+                # 2. 200 but no f-s-c cookie -> "No f-s-c session cookie".
+                httpx.Response(200, json={"success": True, "response": {}}),
+                # 3. Valid cookie (session_id parses) but no token in the body.
+                httpx.Response(
+                    200,
+                    json={"success": True, "response": {}},
+                    headers={"set-cookie": f"f-s-c={_FSC_COOKIE}; Path=/"},
+                ),
+            ]
         )
-
-        with pytest.raises(RuntimeError, match="Login failed"):
-            await unit_config.setup_api()
+        try:
+            with pytest.raises(RuntimeError, match="Login failed: 401"):
+                await api.login("myuser", "mypass")
+            with pytest.raises(RuntimeError, match="No f-s-c session cookie"):
+                await api.login("myuser", "mypass")
+            with pytest.raises(
+                RuntimeError, match="did not contain an authorization token"
+            ):
+                await api.login("myuser", "mypass")
+        finally:
+            dump_fansly_calls(route.calls, "login_failure_modes")
 
     @pytest.mark.asyncio
-    async def test_login_success_persists_returned_token(
-        self, unit_config, no_display, monkeypatch
+    async def test_login_success_persists_token_and_session(
+        self, respx_fansly_api, unit_config, no_display
     ):
-        """Successful login replaces unit_config.token and triggers _save_unit_config."""
+        """setup_api's login branch: REAL login sets token + session, config persists.
+
+        An invalid token plus credentials drives setup_api through the real
+        ``login()`` over respx: login derives ``session_id`` from the f-s-c cookie
+        and the auth token from ``response.response.session.token``. setup_api then
+        persists the token onto the config and saves it; setup_session is skipped
+        because session_id is no longer "null". No internal-method patching.
+        """
         unit_config._api = None
         unit_config.username = "myuser"
         unit_config.password = "mypass"
-        unit_config.token = "short"
+        unit_config.token = "short"  # invalid -> triggers the login flow
+        # Pre-seed a fresh device id so update_device_id makes no HTTP; the only
+        # request this test mocks is the login POST.
+        unit_config.cached_device_id = "test-device-id"
+        unit_config.cached_device_id_timestamp = 9_999_999_999_999  # never stale
 
-        async def _successful_login(self, username, password):
-            self.token = "newly_issued_token_long_enough_to_pass_validation_checks"
-
-        async def _noop_update_device_id(self):
-            return self.device_id or "stub"
-
-        async def _noop_setup_session(self):
-            self.session_id = "fake_session"
-            return True
-
-        monkeypatch.setattr("api.fansly.FanslyApi.login", _successful_login)
-        monkeypatch.setattr(
-            "api.fansly.FanslyApi.update_device_id", _noop_update_device_id
+        route = respx.post(url=respx_fansly_api.LOGIN_ENDPOINT).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": True,
+                        "response": {"session": {"token": "auth_token_long_enough"}},
+                    },
+                    headers={"set-cookie": f"f-s-c={_FSC_COOKIE}; Path=/"},
+                )
+            ]
         )
-        monkeypatch.setattr("api.fansly.FanslyApi.setup_session", _noop_setup_session)
-
-        result = await unit_config.setup_api()
+        try:
+            result = await unit_config.setup_api()
+        finally:
+            dump_fansly_calls(route.calls, "login_success")
 
         assert isinstance(result, FanslyApi)
-        assert unit_config.token == (
-            "newly_issued_token_long_enough_to_pass_validation_checks"
-        ), "Successful login must replace unit_config.token with the API-returned value"
-        assert unit_config.config_path.exists(), (
-            "Successful login should trigger _save_config to persist the new token"
-        )
+        assert result.token == "auth_token_long_enough"  # login set the auth token
+        assert result.session_id == "123456"  # derived from the f-s-c cookie
+        # setup_api persisted the new token onto the config and saved it.
+        assert unit_config.token == "auth_token_long_enough"
+        assert unit_config.config_path.exists()
 
-    def test_returns_none_path_raises_failed_to_create(self, unit_config, no_display):
-        """Missing token AND missing username/password → RuntimeError at fanslyconfig.py:241.
+    def test_missing_user_agent_raises_failed_to_create(self, unit_config, no_display):
+        """Missing user_agent → guard fails → _api stays None → RuntimeError.
 
-        The outer ``if user_agent and check_key and (token_is_valid or
-        has_login_credentials):`` at line 202 evaluates False, so
-        ``self._api`` stays None, so the defensive check at line 241
-        raises ``RuntimeError("Failed to create API instance...")``.
+        get_api builds the api whenever ``user_agent and check_key`` are
+        present (token may be empty, for the login flow or browser-token
+        probing). If either is missing the guard fails, ``_api`` stays None,
+        and the defensive check raises ``RuntimeError("Failed to create...")``.
         """
         unit_config._api = None
-        # Invalid token AND no login credentials → 202's guard is False.
-        unit_config.token = "short"
-        unit_config.username = None
-        unit_config.password = None
-        # user_agent and check_key are still set (from the fixture), so
-        # only the third condition makes the AND fail.
+        unit_config.user_agent = None  # guard fails regardless of token
 
         with pytest.raises(RuntimeError, match="Failed to create API instance"):
             unit_config.get_api()
+
+    def test_invalid_token_no_creds_builds_empty_token_probe_api(
+        self, unit_config, no_display
+    ):
+        """Invalid token + no creds still builds an empty-token api.
+
+        Relaxed gate (browser-token autolink fix): verifying a browser-found
+        token via ``get_client_user_name(alternate_token=...)`` needs an api
+        object before ``config.token`` is valid, so get_api builds one with an
+        empty token rather than raising.
+        """
+        unit_config._api = None
+        unit_config.token = "short"  # invalid
+        unit_config.username = None
+        unit_config.password = None
+        # user_agent + check_key present from the fixture.
+
+        api = unit_config.get_api()
+
+        assert api is not None
+        assert api.token == ""
 
 
 class TestSetupApi:
     """setup_api(): wraps get_api + the async session-setup edge."""
 
     @pytest.mark.asyncio
-    async def test_calls_setup_session_when_session_id_null(
-        self, unit_config, no_display, monkeypatch
+    async def test_setup_session_runs_when_session_id_null(
+        self, respx_fansly_api, mock_config
     ):
-        """Real FanslyApi initializes session_id='null' → setup_session is called."""
-        unit_config._api = None
+        """A 'null' session_id drives the REAL setup_session over the respx edge.
 
-        # Replace just the network edge; FanslyApi instance is real.
-        setup_session_calls: list[tuple] = []
-
-        async def _fake_setup_session(self):
-            setup_session_calls.append((self,))
-            return True
-
-        monkeypatch.setattr("api.fansly.FanslyApi.setup_session", _fake_setup_session)
-
-        api = await unit_config.setup_api()
-
-        assert isinstance(api, FanslyApi)
-        assert api.session_id == "null"  # not modified by our fake
-        assert len(setup_session_calls) == 1, (
-            "setup_session should fire exactly once when session_id was 'null'"
-        )
+        ``respx_fansly_api`` bootstraps the real ``get_api -> setup_api ->
+        update_device_id + setup_session`` seam against mocked apiv3 endpoints —
+        no internal-method patching. session_id started "null"; setup_session
+        running is what populated it from the WS auth, so the populated value is
+        the proof it fired (and a leaked external call would be caught).
+        """
+        assert isinstance(respx_fansly_api, FanslyApi)
+        assert respx_fansly_api.session_id == "test-session-id-1"
+        assert mock_config._api is respx_fansly_api
 
     @pytest.mark.asyncio
-    async def test_skips_setup_session_when_session_id_already_set(
-        self, unit_config, no_display, monkeypatch
+    async def test_setup_session_skipped_when_session_id_already_set(
+        self, respx_fansly_api, mock_config, no_display
     ):
-        """When session_id is already non-'null', setup_session is NOT called."""
-        unit_config._api = None
+        """A non-'null' session_id skips setup_session on a re-run.
 
-        setup_session_calls: list[tuple] = []
+        The fixture left session_id populated and device_id fresh, so re-invoking
+        ``setup_api`` fires NO HTTP — ``update_device_id`` sees a fresh device_id
+        and ``setup_session`` is skipped. The fixture's respx is still active
+        (assert_all_mocked, routes cleared), so any leaked call would raise;
+        session_id staying unchanged is the proof setup_session was skipped.
+        """
+        api = respx_fansly_api
+        assert api.session_id == "test-session-id-1"
 
-        async def _fake_setup_session(self):
-            setup_session_calls.append((self,))
-            return True
-
-        monkeypatch.setattr("api.fansly.FanslyApi.setup_session", _fake_setup_session)
-
-        # Build the API, then mutate session_id to mimic a session
-        # restored from cache.
-        api = unit_config.get_api()
-        api.session_id = "existing_session"
-
-        result = await unit_config.setup_api()
+        result = await mock_config.setup_api()
 
         assert result is api
-        assert setup_session_calls == [], (
-            "setup_session must not fire when session_id was already set"
-        )
+        assert api.session_id == "test-session-id-1"
 
 
 # ============================================================================
@@ -645,3 +683,56 @@ class TestIsUsernameInScope:
         cfg.user_names = {"12345"}
         assert cfg.is_username_in_scope("12345") is True
         assert cfg.is_username_in_scope("54321") is False  # different digit string
+
+
+# ============================================================================
+# stash_enable_scene_split — flattened-twin round-trip (schema ↔ runtime)
+# ============================================================================
+
+
+class TestStashEnableSceneSplitRoundTrip:
+    """``enable_scene_split`` survives both bridge directions.
+
+    Mirrors the existing ``stash_require_stash_only_mode`` flattened-twin
+    wiring: ``_populate_config_from_schema`` (schema → runtime) and
+    ``_rebuild_schema_from_config`` (runtime → schema). If either side
+    drops the field, saving config back to YAML would silently lose the
+    operator's setting.
+    """
+
+    @pytest.mark.parametrize("value", [True, "dry-run", False])
+    def test_forward_schema_to_runtime(self, unit_config, value):
+        """``_populate_config_from_schema`` flattens ``enable_scene_split``."""
+        schema = ConfigSchema(
+            stash_context=StashContextSection(enable_scene_split=value),
+        )
+
+        _populate_config_from_schema(unit_config, schema)
+
+        if isinstance(value, bool):
+            assert unit_config.stash_enable_scene_split is value
+        else:
+            assert unit_config.stash_enable_scene_split == value
+
+    @pytest.mark.parametrize("value", [True, "dry-run", False])
+    def test_reverse_runtime_to_schema(self, unit_config, value):
+        """``_rebuild_schema_from_config`` re-nests ``enable_scene_split``."""
+        unit_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_key",
+        }
+        unit_config.stash_enable_scene_split = value
+
+        schema = _rebuild_schema_from_config(unit_config)
+
+        assert schema.stash_context is not None
+        if isinstance(value, bool):
+            assert schema.stash_context.enable_scene_split is value
+        else:
+            assert schema.stash_context.enable_scene_split == value
+
+    def test_default_is_false(self):
+        """A bare ``FanslyConfig`` defaults ``stash_enable_scene_split`` to False."""
+        assert FanslyConfig(program_version="1.0.0").stash_enable_scene_split is False

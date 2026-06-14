@@ -228,16 +228,19 @@ segment2.ts
         exists_mock = MagicMock()
         exists_mock.side_effect = exists_side_effect
 
-        with (
-            patch("pathlib.Path.exists", exists_mock),
-            patch("builtins.open", create=True),
-            pytest.raises(M3U8Error) as excinfo,
-        ):
-            download_m3u8(
-                config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                save_path=save_path,
-            )
+        try:
+            with (
+                patch("pathlib.Path.exists", exists_mock),
+                patch("builtins.open", create=True),
+                pytest.raises(M3U8Error) as excinfo,
+            ):
+                download_m3u8(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    save_path=save_path,
+                )
+        finally:
+            dump_fansly_calls(respx.calls, "test_m3u8_download_with_error_handling")
 
         assert "Failed to download HLS video" in str(excinfo.value)
         mock_pyav_direct.assert_called_once()
@@ -297,16 +300,19 @@ segment2.ts
         save_path = tmp_path / "video.ts"
         save_path.parent.mkdir(exist_ok=True)
 
-        with (
-            patch("pathlib.Path.exists", return_value=True),
-            patch("builtins.open", create=True),
-            pytest.raises(M3U8Error) as excinfo,
-        ):
-            download_m3u8(
-                config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                save_path=save_path,
-            )
+        try:
+            with (
+                patch("pathlib.Path.exists", return_value=True),
+                patch("builtins.open", create=True),
+                pytest.raises(M3U8Error) as excinfo,
+            ):
+                download_m3u8(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    save_path=save_path,
+                )
+        finally:
+            dump_fansly_calls(respx.calls, "test_m3u8_download_both_mux_fail")
 
         assert "Both PyAV and FFmpeg muxing failed" in str(excinfo.value)
         mock_pyav_mux.assert_called_once()
@@ -325,11 +331,14 @@ segment2.ts
             side_effect=[httpx.Response(403, text="Forbidden")]
         )
 
-        with pytest.raises(M3U8Error) as excinfo:
-            fetch_m3u8_segment_playlist(
-                config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-            )
+        try:
+            with pytest.raises(M3U8Error) as excinfo:
+                fetch_m3u8_segment_playlist(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                )
+        finally:
+            dump_fansly_calls(respx.calls, "test_m3u8_error_propagation")
 
         assert "Failed downloading M3U8 playlist" in str(excinfo.value)
         assert "403" in str(excinfo.value)
@@ -392,25 +401,28 @@ segment2.ts
         mock_stat = MagicMock()
         mock_stat.st_size = 1024
         mock_stat.st_mode = 33188
-        with (
-            patch("pathlib.Path.exists", return_value=True),
-            patch("pathlib.Path.stat", return_value=mock_stat),
-            patch("builtins.open", create=True),
-            patch("os.utime") as mock_utime,
-        ):
-            result = download_m3u8(
-                config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                save_path=save_path,
-                created_at=created_at,
-            )
+        try:
+            with (
+                patch("pathlib.Path.exists", return_value=True),
+                patch("pathlib.Path.stat", return_value=mock_stat),
+                patch("builtins.open", create=True),
+                patch("os.utime") as mock_utime,
+            ):
+                result = download_m3u8(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    save_path=save_path,
+                    created_at=created_at,
+                )
+        finally:
+            dump_fansly_calls(respx.calls, "test_m3u8_with_timestamp_setting")
 
-            assert result == save_path.parent / "video.mp4"
-            mock_pyav_mux.assert_called_once()
+        assert result == save_path.parent / "video.mp4"
+        mock_pyav_mux.assert_called_once()
 
-            mock_utime.assert_called_once_with(
-                save_path.parent / "video.mp4", (created_at, created_at)
-            )
+        mock_utime.assert_called_once_with(
+            save_path.parent / "video.mp4", (created_at, created_at)
+        )
 
     @patch("download.m3u8._try_direct_download_pyav")
     @patch("download.m3u8._try_direct_download_ffmpeg")

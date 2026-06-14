@@ -58,24 +58,6 @@ class TestNormalizeOrderBy:
 class TestSortResults:
     """Tests for Python-side sorting used when model type is fully loaded."""
 
-    @pytest.fixture
-    def media_items(self):
-        """Create 3 Media items with different IDs and timestamps."""
-        base_id = 1000000000000000000
-        m1 = Media(id=base_id + 1, accountId=base_id + 100)
-        m1.createdAt = datetime(2024, 1, 15, tzinfo=UTC)
-        m1.mimetype = "image/jpeg"
-
-        m2 = Media(id=base_id + 2, accountId=base_id + 100)
-        m2.createdAt = datetime(2024, 6, 1, tzinfo=UTC)
-        m2.mimetype = "video/mp4"
-
-        m3 = Media(id=base_id + 3, accountId=base_id + 100)
-        m3.createdAt = datetime(2024, 3, 10, tzinfo=UTC)
-        m3.mimetype = "image/jpeg"
-
-        return m1, m2, m3
-
     def test_sort_by_single_column_asc(self, media_items):
         m1, m2, m3 = media_items
         result = PostgresEntityStore._sort_results(
