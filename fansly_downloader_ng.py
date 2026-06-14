@@ -2,8 +2,6 @@
 
 """Fansly Downloader NG"""
 
-__version__ = "0.14.3"
-
 import asyncio
 import atexit
 import base64
@@ -14,8 +12,11 @@ import signal
 import sys
 import threading
 import time
+import tomllib
 import traceback
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 from time import monotonic
 from types import FrameType
 
@@ -90,6 +91,24 @@ from textio import (
     set_window_title,
 )
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
+
+
+def _resolve_version() -> str:
+    """Resolve the program version from pyproject.toml [project].version.
+
+    Prefers installed package metadata; falls back to reading pyproject.toml
+    next to this script, since the project normally runs from a source tree.
+    """
+    try:
+        return pkg_version("fansly-scraper")
+    except PackageNotFoundError:
+        pyproject = Path(__file__).parent / "pyproject.toml"
+        return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+            "version"
+        ]
+
+
+__version__ = _resolve_version()
 
 
 def _check_stash_library_version() -> None:
@@ -238,7 +257,7 @@ def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: AR
         # Second interrupt, force exit
         print_error("Second interrupt received, forcing immediate exit!")
         sys.exit(130)  # 128 + SIGINT(2)
-    _handle_interrupt.interrupted = True
+    _handle_interrupt.interrupted = True  # type: ignore[attr-defined]
     # Raise KeyboardInterrupt to break out of blocking operations
     raise KeyboardInterrupt("User interrupted operation")
 
@@ -605,7 +624,7 @@ async def main(config: FanslyConfig) -> int:
                     # Identify StashProcessing tasks by coroutine qualname: the
                     # StashProcessing class methods and the
                     # _safe_background_processing wrapper both carry it.
-                    coro_name = task.get_coro().__qualname__
+                    coro_name = getattr(task.get_coro(), "__qualname__", "")
                     if (
                         "StashProcessing" in coro_name
                         or "_safe_background_processing" in coro_name
@@ -809,7 +828,7 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             stash_tasks = []
             for task in config.get_background_tasks():
                 with contextlib.suppress(Exception):
-                    coro_name = task.get_coro().__qualname__
+                    coro_name = getattr(task.get_coro(), "__qualname__", "")
                     if (
                         "StashProcessing" in coro_name
                         or "_safe_background_processing" in coro_name

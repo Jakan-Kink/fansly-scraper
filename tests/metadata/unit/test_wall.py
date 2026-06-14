@@ -134,6 +134,55 @@ async def test_wall_cleanup(entity_store, config):
 
 
 @pytest.mark.asyncio
+async def test_wall_cleanup_with_posts(entity_store, config):
+    """Regression test for issue #109: deleting a wall that still has wall_posts rows.
+
+    A removed wall must be deletable even when posts are attached — the
+    wall_posts junction rows cascade away while the posts themselves survive.
+    """
+    store = entity_store
+
+    account_id = snowflake_id()
+    kept_wall_id = snowflake_id()
+    removed_wall_id = snowflake_id()
+    post_ids = [snowflake_id() for _ in range(2)]
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    kept_wall = Wall(id=kept_wall_id, accountId=account_id, name="Kept", pos=1)
+    await store.save(kept_wall)
+
+    removed_wall = Wall(id=removed_wall_id, accountId=account_id, name="Gone", pos=2)
+    await store.save(removed_wall)
+
+    for i, pid in enumerate(post_ids):
+        post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
+        await store.save(post)
+
+    removed_wall.posts = [await store.get(Post, pid) for pid in post_ids]
+    await store.save(removed_wall)
+
+    # Process with only the kept wall — must not raise ForeignKeyViolationError
+    new_walls_data = [
+        {"id": kept_wall_id, "pos": 1, "name": "Kept", "description": "Description"},
+    ]
+    await process_account_walls(config, account, new_walls_data)
+
+    remaining = await store.find(Wall, accountId=account_id)
+    assert [w.id for w in remaining] == [kept_wall_id]
+
+    # Junction rows are gone, but the posts themselves survive
+    pool = await store._get_pool()
+    rows = await pool.fetch(
+        'SELECT "postId" FROM wall_posts WHERE "wallId" = $1', removed_wall_id
+    )
+    assert rows == []
+    for pid in post_ids:
+        assert await store.get(Post, pid) is not None
+
+
+@pytest.mark.asyncio
 async def test_process_wall_posts(entity_store, config):
     """Test processing posts for a wall.
 

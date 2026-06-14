@@ -10,41 +10,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.14.3] - 2026-05-14
-
-Post-launch cleanup of the per-handler logging schema introduced
-yesterday in v0.14.0. Several values the schema accepted weren't
-reachable from production (and vice versa) — operators using a
-value that one side accepted but the other didn't were hitting
-validation errors or runtime crashes. Plus config-load validators
-catching operator typos.
+## [0.14.4] - 2026-06-12
 
 ### Fixed
 
-- `logging.<entry>.rotation_when`: schema and production now agree
-  on `s/m/h/d/w`. `w` (weekly) reachable from YAML for the first
-  time; `midnight` (which crashed at handler construction) rejected
-  at YAML load.
-- `logging.<entry>.compression`: schema and production now agree on
-  `gz/bz2/xz`, all three implemented for real via stdlib `gzip` /
-  `bz2` / `lzma`. `bz2` and `xz` were YAML-accepted but crashed at
-  rotation; `7z` and `lzha` were handler-accepted but broken
-  (`shutil.make_archive` has no `7z`; `lzha` silently made `.zip`).
+- **TRACE logging regression from v0.14.0.** The `-v`/`-vv` overhaul deleted the sqlalchemy/websocket TRACE bridges and replaced them with a generic check only the `-vv` CLI flag set, so YAML `logging.global.trace: true` was ignored outside the trace sink and any handler with explicit `level: TRACE` was silently clamped to DEBUG. The original whitelist is restored: only `trace`, `sqlalchemy`, and `websocket` emit TRACE; `-vv` floors those three at TRACE (others cap at DEBUG); YAML `global.trace` and `-vv` now behave identically.
+- **Chat-WS recording silently broken since v0.13.7.** Two compounding failures: the v0.13.7 subprocess-isolation split moved the WS surface to `_ChildWebSocket` but `_chat_ws_loop` kept calling the old `FanslyWebSocket` API, raising `TypeError` on its first iteration with the exception parked invisibly in the Task slot — zero chat captured, no logs until stream end; and the chat socket connected to `wsv3.fansly.com` instead of `chatws.fansly.com`, which accepts the `t=46001` join but never broadcasts `(46,10)` chat events. Now uses `_ChildWebSocket` with `base_url=CHAT_URL`, hard-stops after 5 consecutive pre-connect construction failures, and a done-callback surfaces chat-task exceptions at ERROR instead of letting them sit until stream end.
+- **IVS livestream mux: High-profile recordings now play in strict decoders.** Output streams are created via `add_stream_from_template` so the MP4's `avcC` sample description carries the source's real SPS/PPS — `add_stream(codec, rate=...)` left it with libx264 defaults, which happened to work for Baseline/Main but broke High-profile streams (CABAC, B-frames, 16 ref frames) with "reference overflow / cabac_init_idc overflow" decode failures. The earlier EINVAL-on-every-packet that originally forced the explicit-`add_stream` approach was actually caused by an unrelated `time_base` override, now dropped.
+- Mux `output.close()` exceptions are now logged instead of suppressed — "output missing or empty" failures previously left no traceback. Empty stale log files no longer rotate at init and consume backup slots.
+- **Interpreter shutdown no longer hangs ~30s after cleanup completes.** `multiprocessing` queue feeder threads (`cancel_join_thread` on both parent and child side of the WS subprocess pipes), the websockets close handshake (bounded to 2s), and loguru sink draining (`logger.complete()` bounded to 2s) were each blocking process exit; atexit registration of the DB cleanup is deduplicated, and `config/browser.py` uses `plyvel.DB` as a context manager so a failed open can't leak a handle into `__del__` at shutdown.
+- Latent circular import between `config/fanslyconfig.py` and `api` broke unpickling in spawn-start subprocesses; the import is now `TYPE_CHECKING`-gated.
+- **#109** — `ForeignKeyViolationError` on every run once a creator removed a wall whose posts were already archived. `process_account_walls` deletes walls no longer present in the API response, but the SQLite-era `merge_recent_migrations` revision had recreated the `wall_posts` foreign keys without the `ON DELETE CASCADE` the original constraints carried, so the wall delete was rejected while `wall_posts` rows still referenced it. New migration `3b51fe86b710` restores `CASCADE` on both `wall_posts` FKs and on `media_locations.mediaId` (stripped by the same revision), and `metadata/tables.py` now declares the same so fresh databases match. Deleting a wall removes only its junction rows — the posts themselves are untouched.
+
+### Changed
+
+- **Version number now has a single source of truth: `pyproject.toml` `[project].version`.** `fansly_downloader_ng.__version__` is resolved at startup (installed package metadata when available, otherwise `tomllib` read of the adjacent `pyproject.toml`), instead of a hand-maintained constant that had to be bumped in lockstep. Bumping is now one command (`poetry version patch` / `minor` / `major`), and the release workflow fails early if a pushed tag doesn't match the pyproject version.
+- `api/websocket.py` migrated from the legacy `websockets` client API to `websockets.asyncio.client`, with `user_agent_header=` and `ssl=` applied only for `wss://` URLs.
+- `(5,22)` typing announcements are dropped at the WS layer (`SILENT_SERVICE_EVENTS` in `api/websocket_protocol.py`) — neither logged nor dispatched, instead of being logged as no-op events.
+- `EXT-X-ENDLIST` in a livestream manifest is treated as terminal: recording finalizes immediately and the reconnect-grace machinery is removed.
+- `--stash-only` with YAML `daemon_mode: true` now silently disables the daemon for that run; the explicitly contradictory `--stash-only --daemon` raises a config error.
 
 ### Added
 
-- `targeted_creator.usernames`: validator enforces Fansly's
-  client-side rules (length 4-20, charset `[a-zA-Z0-9_-]`).
-  Operator typos surface at YAML load instead of at runtime.
-- Logging int fields tolerate thousand-separator commas
-  (`max_size: 209,715,200`).
+- Livestream + WS test infrastructure: a scripted-responder Fansly WS test server fixture (`tests/fixtures/api/fansly_ws_test_server.py`) with canonical payload builders, and IVS livestream factories/fixtures (sliding-window manifest scenarios, PyAV leaf-fakes) backing new end-to-end chat and recorder integration tests.
+- `docs/reference/Fansly-WebSocket-Protocol.md` substantially expanded: ack semantics, `(9,2)` gathering events, order-type discriminator, `n*1000+k` service convention, svc=58, wire-order races, per-recipient ack directionality.
+
+## [0.14.3] - 2026-05-14
+
+Post-launch cleanup of the per-handler logging schema introduced yesterday in v0.14.0. Several values the schema accepted weren't reachable from production (and vice versa) — operators using a value that one side accepted but the other didn't were hitting validation errors or runtime crashes. Plus config-load validators catching operator typos.
+
+### Fixed
+
+- `logging.<entry>.rotation_when`: schema and production now agree on `s/m/h/d/w`. `w` (weekly) reachable from YAML for the first time; `midnight` (which crashed at handler construction) rejected at YAML load.
+- `logging.<entry>.compression`: schema and production now agree on `gz/bz2/xz`, all three implemented for real via stdlib `gzip` / `bz2` / `lzma`. `bz2` and `xz` were YAML-accepted but crashed at rotation; `7z` and `lzha` were handler-accepted but broken (`shutil.make_archive` has no `7z`; `lzha` silently made `.zip`).
+
+### Added
+
+- `targeted_creator.usernames`: validator enforces Fansly's client-side rules (length 4-20, charset `[a-zA-Z0-9_-]`). Operator typos surface at YAML load instead of at runtime.
+- Logging int fields tolerate thousand-separator commas (`max_size: 209,715,200`).
 
 ### Removed
 
-- `logging.<entry>.format` and `logging.global.default_format`
-  (both introduced yesterday in v0.14.0). Format strings are now
-  source-only; the console handler's default is a callable that
-  a YAML string override would silently degrade.
+- `logging.<entry>.format` and `logging.global.default_format` (both introduced yesterday in v0.14.0). Format strings are now source-only; the console handler's default is a callable that a YAML string override would silently degrade.
 
 ## [0.14.2] - 2026-05-13
 
@@ -243,8 +250,7 @@ Stash integration enhancements for non-aligned library layouts and separate-host
 
 - **30-creator daemon pass: ~70 min → ~12 min (6× speedup); peak RSS: 9 GB → ~2.4 GB.** Cumulative effect of the entries below.
 - FanslyObject `_snapshot` now uses `PrivateAttr(default=None)` with initialization in `model_post_init`, rather than `default_factory=dict`. Pydantic 2.13's `init_private_attributes` calls `inspect.signature` on every `default_factory` per instance to decide whether the factory takes a validated-data argument; for C-implemented built-ins (`dict`) that lookup falls into `inspect._signature_fromstr` (~50 KB allocation per call, not cached upstream). At identity-map preload scale (~682K FanslyObject constructions across all model types) this dominated per-instance cost. Mirrors `stash-graphql-client@c701c4606` (the upstream sibling fix that ships for SGC-side entities).
-- 18 mutable list field defaults converted from `= []` to `Field(default_factory=list)`. Pydantic 2 deep-copies mutable field defaults per instance to prevent shared state; `Field(default_factory=list)` calls the factory directly without going through `copy.
-deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts, `_keep_alive` table, dispatch walks) per startup preload — confirmed by memray attribution dropping from 119 MB to 13 MB through the `copy.py` subtree.
+- 18 mutable list field defaults converted from `= []` to `Field(default_factory=list)`. Pydantic 2 deep-copies mutable field defaults per instance to prevent shared state; `Field(default_factory=list)` calls the factory directly without going through `copy.deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts, `_keep_alive` table, dispatch walks) per startup preload — confirmed by memray attribution dropping from 119 MB to 13 MB through the `copy.py` subtree.
 - `PostgresEntityStore._type_index: dict[type, set[int]]` secondary index. Per-type iteration paths (`filter`, `find` cache-first, `find_one`, `count`, `find_iter`, `invalidate_type`, `cache_stats`) now run in O(this type) instead of O(`_cache`). Mirrors MMsD `postgres_entity_store.py:333` / SGC `store.py` `_type_index`. Maintained alongside `_cache` in `cache_instance` / `invalidate*`.
 - Monotonic-clock TTL with per-type override: `PostgresEntityStore(default_ttl=...)` constructor argument and `store.set_ttl(model_type, ttl)` per-type setter. `_is_expired` uses `time.monotonic()` (immune to wall-clock changes). Daemon poll cadences span 30s (stories) to 10min (FYP), so per-type granularity matters; `get_from_cache` evicts and returns `None` once an entry's TTL has elapsed.
 - `cache_stats()` rewritten to walk `_type_index` (O(types)) instead of scanning `_cache` (O(N)); now also exposes the existing `_stats` hit/miss counters in the same payload.
@@ -256,8 +262,7 @@ deepcopy`. Eliminates ~106 MB of allocator churn (memo dicts, `_keep_alive` tabl
 
 - **`StashUnmappedFieldWarning` and other `warnings.warn()` output now reach loguru sinks.** Two compound failures: `logger.patch()` was treated as in-place but actually returns a new logger (so `extra["logger"]` was never bound on stdlib-routed records, and every sink's `record.extra.logger == "<name>"` filter rejected them), and `logging.captureWarnings(True)` was never called (so `warnings.warn()` never entered the stdlib logging path at all). Together, SGC's `StashUnmappedFieldWarning` and any other library's `warnings.warn()` output bypassed the rich console + log files entirely.
 - `InterceptHandler.emit` and `SQLAlchemyInterceptHandler.emit` previously fell back to `level = str(record.levelno)` on unknown level names; that string re-raised inside loguru's `.log()` because numeric strings are not registered level names. Pass the int through directly — loguru accepts ints natively.
-- `config/logging.py`'s console formatter now escapes `<` in record messages in addition to `{`/`}`, so traceback frame names like `<module>`, `<listcomp>`, and `<genexpr>` no longer crash loguru's colorizer with `ValueError: Tag "<module>" does not correspond to any
-known color directive`. Loguru re-parses callable formatter output to strip tags even when `colorize=False`, so the escape is required regardless of sink color setting.
+- `config/logging.py`'s console formatter now escapes `<` in record messages in addition to `{`/`}`, so traceback frame names like `<module>`, `<listcomp>`, and `<genexpr>` no longer crash loguru's colorizer with `ValueError: Tag "<module>" does not correspond to any known color directive`. Loguru re-parses callable formatter output to strip tags even when `colorize=False`, so the escape is required regardless of sink color setting.
 - `stash/processing/base.py` now catches `StashCapabilityError` distinct from `StashVersionError`, so per-feature appSchema gate failures surface as a clean error message rather than the bare exception that was leaking out of `get_client()`. Also broadens an over-narrow `except RuntimeError` (line 346): `stash_graphql_client.metadata_scan` raises `ValueError` on transport errors, which previously escaped uncaught.
 - `_shutdown_js_bridge` (`helpers/checkkey.py`) previously only called `connection.stop()`, which terminates the Node subprocess but leaves several JSPyBridge Python daemon threads (`com_thread`, `stdout_thread`, `EventLoop.callbackExecutor`, per-task threads) blocking on `stream.readline()` / `queue.get()` until each individually polls and notices the subprocess died. Now joins all of them explicitly.
 - Three daemon worker-loop bugs surfaced and fixed during test reform: `_handle_full_creator_download` was calling `download_wall(config, state)` without the required `wall_id`, `_refresh_following` was missing `get_creator_account_info`, and `_handle_timeline_only_item` was passing an empty `creator_name=""` downstream.
@@ -310,11 +315,11 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.yaml` template
 - New `[monitoring]` config section for activity-simulator phase durations and per-phase polling intervals
 - **New documentation**:
-  - [Architecture](reference/architecture.md) — canonical public architecture reference
-  - [Monitoring Daemon Cadence](reference/monitoring-cadence.md) — polling intervals + anti-detection rationale
-  - [Monitoring Daemon Architecture](planning/monitoring-daemon-architecture.md) — full daemon design document (intervals, endpoints, behaviors verified against production `main.js`)
-  - [Fansly WebSocket Protocol](reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints
-  - [Manual Token Extraction](guide/manual-token-extraction.md) — fallback browser-token extraction guide (salvaged from prof79 wiki)
+    - [Architecture](reference/architecture.md) — canonical public architecture reference
+    - [Monitoring Daemon Cadence](reference/monitoring-cadence.md) — polling intervals + anti-detection rationale
+    - [Monitoring Daemon Architecture](planning/monitoring-daemon-architecture.md) — full daemon design document (intervals, endpoints, behaviors verified against production `main.js`)
+    - [Fansly WebSocket Protocol](reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints
+    - [Manual Token Extraction](guide/manual-token-extraction.md) — fallback browser-token extraction guide (salvaged from prof79 wiki)
 - `CHANGELOG.md` (this file) — new Keep-a-Changelog format going forward
 - MkDocs + readthedocs-themed docs site with GHA deploy workflow to `gh-pages`
 - Daemon dispatch: explicit no-op handler pattern (`_handle_noop_events` + `_NOOP_DESCRIPTIONS` in `daemon/handlers.py`) distinguishes "known event, deliberately ignored" from "unknown event, coverage gap" in logs.
@@ -348,15 +353,15 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 ### Removed
 
 - **Retired settings** (silently dropped from legacy configs — no runtime code branches on them):
-  - `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era
-    `BackgroundSync` workaround, obsolete under PostgreSQL
-  - `metadata_handling` — no-op since the Pydantic EntityStore rewrite
-  - `separate_metadata` — SQLite-era flag
+    - `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era `BackgroundSync` workaround, obsolete under PostgreSQL
+    - `metadata_handling` — no-op since the Pydantic EntityStore rewrite
+    - `separate_metadata` — SQLite-era flag
 - `updater/` module (pycache-only remnant from the prof79-era self-updater, no tracked source)
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...HEAD
+[0.14.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.0...v0.14.1

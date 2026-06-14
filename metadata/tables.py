@@ -95,7 +95,12 @@ media = Table(
 media_locations = Table(
     "media_locations",
     metadata,
-    Column("mediaId", BigInteger, ForeignKey("media.id"), primary_key=True),
+    Column(
+        "mediaId",
+        BigInteger,
+        ForeignKey("media.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Column("locationId", BigInteger, primary_key=True),
     Column("location", String, nullable=True),
     # Explicit UC exists in the database (created by migration), redundant with PK
@@ -393,8 +398,18 @@ post_hashtags = Table(
 wall_posts = Table(
     "wall_posts",
     metadata,
-    Column("wallId", BigInteger, ForeignKey("walls.id"), primary_key=True),
-    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
+    Column(
+        "wallId",
+        BigInteger,
+        ForeignKey("walls.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "postId",
+        BigInteger,
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Index("idx_wall_posts_post", "postId"),
     Index("idx_wall_posts_wall_post", "wallId", "postId"),
 )

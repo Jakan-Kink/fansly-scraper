@@ -5,6 +5,8 @@ import atexit
 import contextlib
 import logging
 import time
+import tomllib
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
@@ -107,6 +109,20 @@ def test_cleanup_database_sync_idempotent(config_with_database, caplog):
     )
     # Still idempotent after multiple calls.
     assert config._database._cleanup_done.is_set()
+
+
+def test_version_linked_to_pyproject():
+    """__version__ derives from pyproject.toml [project].version — single source of truth.
+
+    The project is not installed as a package, so _resolve_version falls back
+    to reading pyproject.toml next to the entry script.
+    """
+    pyproject = Path(fdng.__file__).parent / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+        "version"
+    ]
+    assert fdng._resolve_version() == expected
+    assert fdng.__version__ == expected
 
 
 def test_print_logo(capsys):
