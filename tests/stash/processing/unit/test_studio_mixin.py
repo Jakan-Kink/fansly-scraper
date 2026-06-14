@@ -18,7 +18,11 @@ from tests.fixtures import (
     create_graphql_response,
     create_studio_dict,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 
 
 class TestStudioProcessingMixin:
@@ -67,9 +71,12 @@ class TestStudioProcessingMixin:
         )
 
         # Call process_creator_studio (respx will intercept HTTP calls)
-        result = await respx_stash_processor.process_creator_studio(
-            account=mock_account,
-        )
+        try:
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_creator_studio_both_exist")
 
         # === PERMANENT GraphQL call sequence assertions ===
         assert len(graphql_route.calls) == 3, (
@@ -144,9 +151,12 @@ class TestStudioProcessingMixin:
         )
 
         # Call process_creator_studio (respx will intercept HTTP calls)
-        result = await respx_stash_processor.process_creator_studio(
-            account=mock_account,
-        )
+        try:
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_creator_studio_create_new")
 
         # === PERMANENT GraphQL call sequence assertions ===
         assert len(graphql_route.calls) == 3, (
@@ -192,7 +202,7 @@ class TestStudioProcessingMixin:
         empty_result = create_find_studios_result(count=0, studios=[])
 
         # Mock GraphQL response (respx_stash_processor already has respx enabled)
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -202,11 +212,16 @@ class TestStudioProcessingMixin:
         )
 
         # Call process_creator_studio and expect error (respx will intercept HTTP calls)
-        with pytest.raises(
-            ValueError, match=r"Fansly Studio not found in Stash"
-        ) as excinfo:
-            await respx_stash_processor.process_creator_studio(
-                account=mock_account,
+        try:
+            with pytest.raises(
+                ValueError, match=r"Fansly Studio not found in Stash"
+            ) as excinfo:
+                await respx_stash_processor.process_creator_studio(
+                    account=mock_account,
+                )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_creator_studio_fansly_not_found"
             )
 
         # Verify error message
@@ -259,9 +274,14 @@ class TestStudioProcessingMixin:
         # (ERROR via loguru) and debug_print (DEBUG via stash_logger).
         caplog.set_level(logging.DEBUG)
 
-        result = await respx_stash_processor.process_creator_studio(
-            account=mock_account,
-        )
+        try:
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_creator_studio_creation_fails_then_retry"
+            )
 
         # === PERMANENT GraphQL call sequence assertions ===
         assert len(graphql_route.calls) == 3, (
@@ -359,9 +379,15 @@ class TestStudioProcessingMixin:
 
         caplog.set_level(logging.DEBUG)
 
-        result = await respx_stash_processor.process_creator_studio(
-            account=mock_account,
-        )
+        try:
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account,
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "process_creator_studio_creation_fails_retry_also_fails",
+            )
 
         # Verify result is None (line 141)
         assert result is None

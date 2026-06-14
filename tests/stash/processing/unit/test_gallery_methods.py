@@ -9,46 +9,26 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from faker import Faker
 
-from metadata import ContentType
 from stash.processing import StashProcessing
-from tests.fixtures import (
-    AttachmentFactory,
-    HashtagFactory,
-    PostFactory,
-    StudioFactory,
+from tests.fixtures.metadata import HashtagFactory, PostFactory
+from tests.fixtures.stash import StudioFactory
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op_with_vars,
+    dump_graphql_calls,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op_with_vars
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestGalleryLookupMethods:
     """Test gallery lookup methods of StashProcessing using respx."""
 
-    @pytest.fixture
-    def post_with_attachment(self):
-        """Create a post with attachment for testing (in-memory only)."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-        content_id = snowflake_id()
-        attachment = AttachmentFactory.build(
-            contentId=content_id,
-            contentType=ContentType.ACCOUNT_MEDIA,
-            pos=0,
-        )
-        return PostFactory.build(
-            id=post_id,
-            accountId=acct_id,
-            content="Test post content",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-            attachments=[attachment],
-        )
-
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_no_id(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id with no stash_id."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -68,7 +48,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method - should return None early without calling API
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_no_id")
 
         # Verify result and no API calls
         assert result is None
@@ -78,7 +61,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_stash_id_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id when gallery is found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -112,7 +95,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_found")
 
         # Verify result
         assert result is not None
@@ -127,7 +113,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_stash_id_not_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id when gallery not found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -147,7 +133,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_stash_id(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_not_found")
 
         # Verify result
         assert result is None
@@ -160,7 +149,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_title_not_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_title when no galleries match."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -187,9 +176,12 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_title(
-            post, "Test Title", studio
-        )
+        try:
+            result = await respx_stash_processor._get_gallery_by_title(
+                post, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_not_found")
 
         # Verify result
         assert result is None
@@ -207,7 +199,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_title_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_title when gallery matches."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -276,9 +268,12 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_title(
-            post, "Test Title", studio
-        )
+        try:
+            result = await respx_stash_processor._get_gallery_by_title(
+                post, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_found")
 
         # Verify result
         assert result is not None
@@ -301,7 +296,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_code_not_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_code when no galleries match."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -325,7 +320,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_code(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_code(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_not_found")
 
         # Verify result
         assert result is None
@@ -343,7 +341,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_code_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_code when gallery matches."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -381,7 +379,10 @@ class TestGalleryLookupMethods:
         )
 
         # Call method
-        result = await respx_stash_processor._get_gallery_by_code(post)
+        try:
+            result = await respx_stash_processor._get_gallery_by_code(post)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_found")
 
         # Verify result
         assert result is not None
@@ -401,7 +402,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_url_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_url when gallery is found with correct code."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -462,7 +463,10 @@ class TestGalleryLookupMethods:
 
         # Call method
         url = "https://example.com/gallery/123"
-        result = await respx_stash_processor._get_gallery_by_url(post, url)
+        try:
+            result = await respx_stash_processor._get_gallery_by_url(post, url)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_found")
 
         # Verify result
         assert result is not None
@@ -483,7 +487,7 @@ class TestGalleryLookupMethods:
     async def test_get_gallery_by_url_with_item_update(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _get_gallery_by_url updates item stash_id and gallery code."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -558,7 +562,12 @@ class TestGalleryLookupMethods:
 
         # Call method
         url = "https://example.com/gallery/456"
-        result = await respx_stash_processor._get_gallery_by_url(post, url)
+        try:
+            result = await respx_stash_processor._get_gallery_by_url(post, url)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_url_with_item_update"
+            )
 
         # Verify result
         assert result is not None
@@ -594,7 +603,7 @@ class TestGalleryCreation:
     async def test_create_new_gallery(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _create_new_gallery creates gallery with correct attributes."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -627,7 +636,7 @@ class TestHashtagProcessing:
     async def test_process_hashtags_to_tags_existing_tags(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _process_hashtags_to_tags with existing tags."""
         # Create real hashtag objects
         hashtag1 = HashtagFactory.build(value="test1")
@@ -665,7 +674,12 @@ class TestHashtagProcessing:
         )
 
         # Call method
-        result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        try:
+            result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_hashtags_to_tags_existing_tags"
+            )
 
         # Verify result
         assert len(result) == 2
@@ -691,7 +705,7 @@ class TestHashtagProcessing:
     async def test_process_hashtags_to_tags_create_new(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _process_hashtags_to_tags creates new tag when not found."""
         # Create real hashtag object
         hashtag = HashtagFactory.build(value="newtag")
@@ -719,7 +733,12 @@ class TestHashtagProcessing:
         )
 
         # Call method
-        result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        try:
+            result = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_hashtags_to_tags_create_new"
+            )
 
         # Verify result
         assert len(result) == 1
@@ -739,8 +758,8 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_short(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _generate_title_from_content with short content."""
         content = "Short content"
         username = faker.user_name()
@@ -758,8 +777,8 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_long(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _generate_title_from_content truncates long content."""
         content = "A" * 200  # Very long content
         username = faker.user_name()
@@ -778,8 +797,8 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_with_newlines(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _generate_title_from_content uses first line."""
         content = "First line\nSecond line\nThird line"
         username = faker.user_name()
@@ -797,8 +816,8 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_no_content(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _generate_title_from_content with no content."""
         username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
@@ -815,8 +834,8 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_with_position(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _generate_title_from_content with position info."""
         content = "Short content"
         username = faker.user_name()

@@ -14,13 +14,15 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     import asyncio
     import logging
-    from collections.abc import Callable, Sequence
+    from collections.abc import AsyncIterator, Sequence
     from datetime import datetime
     from typing import Any
 
     from stash_graphql_client import ServerCapabilities, StashContext
     from stash_graphql_client.store import StashEntityStore
     from stash_graphql_client.types import (
+        BaseFile,
+        Gallery,
         Image,
         ImageFile,
         Performer,
@@ -32,18 +34,37 @@ if TYPE_CHECKING:
 
     from config import FanslyConfig
     from download.core import DownloadState
-    from metadata import Account, Attachment, Database, Media, Message, Post
+    from metadata import (
+        Account,
+        Attachment,
+        Database,
+        Media,
+        Message,
+        Post,
+    )
 
 
 class HasMetadata(Protocol):
-    """Protocol for models that have metadata for Stash."""
+    """Protocol for models that have metadata for Stash (Post / Message).
 
-    id: int
-    content: str | None
-    createdAt: datetime
-    attachments: list[Any]
-    accountMentions: list[Account] | None
+    Read-only members are properties at the widest type — Post and Message
+    differ in nullability (e.g. ``Message.content: str`` vs
+    ``Post.content: str | None``), and attribute members are invariant, so
+    plain attributes could never match both models.
+    """
+
+    @property
+    def id(self) -> int | None: ...
+
+    @property
+    def content(self) -> str | None: ...
+
+    @property
+    def createdAt(self) -> datetime | None: ...
+
+    # Written through the protocol (gallery lookups stamp stash_id back).
     stash_id: int | None
+    attachments: list[Attachment]
 
 
 class StashProcessingProtocol(Protocol):
@@ -59,7 +80,7 @@ class StashProcessingProtocol(Protocol):
     config: FanslyConfig
     state: DownloadState
     context: StashContext
-    database: Database
+    database: Database | None
     log: logging.Logger
     _background_task: asyncio.Task | None
     _cleanup_event: asyncio.Event
@@ -70,10 +91,6 @@ class StashProcessingProtocol(Protocol):
     _performer: Performer | None
     _studio: Studio | None
     _stash_parent_task: str | None
-
-    # Media code indexes for O(1) lookups (id-only — see base.py rationale)
-    _scene_code_index: dict[str, list[str]]
-    _image_code_index: dict[str, list[str]]
 
     # --- Base class properties ---
 
@@ -94,13 +111,15 @@ class StashProcessingProtocol(Protocol):
         total_media: int | None = None,
     ) -> str: ...
 
-    async def find_scenes_by_media_codes(
-        self, media_codes: list[str]
-    ) -> dict[str, list[Scene]]: ...
+    async def _build_media_index(
+        self, items: Sequence[Post | Message]
+    ) -> dict[str, tuple[Media, list[Post | Message]]]: ...
 
-    async def find_images_by_media_codes(
-        self, media_codes: list[str]
-    ) -> dict[str, list[Image]]: ...
+    def _sweep_creator_files(self) -> AsyncIterator[BaseFile]: ...
+
+    async def _connect_stash(self) -> bool: ...
+
+    async def scan_creator_folder(self, paths: list[str] | None = None) -> None: ...
 
     # --- AccountProcessingMixin methods ---
 
@@ -133,75 +152,98 @@ class StashProcessingProtocol(Protocol):
 
     # --- MediaProcessingMixin methods ---
 
-    def _get_file_from_stash_obj(
-        self, stash_obj: Scene | Image
-    ) -> ImageFile | VideoFile | None: ...
+    async def _owned_scene(self, file: VideoFile) -> Scene | None: ...
 
-    async def _find_stash_files_by_path(
-        self, media_files: list[tuple[str, str]]
-    ) -> list[tuple[dict, Scene | Image]]: ...
+    def _image_files_all_local(self, image: Image) -> bool: ...
 
-    async def _find_stash_files_by_id(
+    async def _split_scene_for_file(
         self,
-        stash_files: list[tuple[str | int, str]],
-    ) -> list[tuple[dict, Scene | Image]]: ...
-
-    async def _process_media_batch_by_mimetype(
-        self,
-        media_list: Sequence[Media],
-        item: Any,
+        file: BaseFile,
+        media: Media,
+        item: Post | Message,
         account: Account,
-    ) -> dict[str, list[Image | Scene]]: ...
+        studio: Studio | None = None,
+    ) -> Scene: ...
 
-    def _chunk_list(
-        self, items: Sequence[str], chunk_size: int
-    ) -> list[Sequence[str]]: ...
+    async def _process_file_first(
+        self,
+        file: BaseFile,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]: ...
+
+    async def _adjudicate_image(
+        self,
+        file: ImageFile,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]: ...
+
+    async def _adjudicate_not_owned(
+        self,
+        file: VideoFile,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]: ...
+
+    async def _process_media_fast_path(
+        self,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]: ...
+
+    async def _fast_path_image(
+        self,
+        entity: Image,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> list[Scene | Image]: ...
+
+    async def _stamp_metadata(
+        self,
+        stash_obj: Scene | Image,
+        media: Media,
+        item: Post | Message,
+        account: Account,
+        studio: Studio | None = None,
+    ) -> None: ...
 
     # --- GalleryProcessingMixin methods ---
 
-    async def _process_item_gallery(
+    async def _get_or_create_gallery(
         self,
         item: HasMetadata,
         account: Account,
-        performer: Any,
+        performer: Performer,
         studio: Studio | None,
         item_type: str,
         url_pattern: str,
-    ) -> None: ...
+    ) -> Gallery | None: ...
 
     async def _has_media_content(self, item: HasMetadata) -> bool: ...
 
     # --- ContentProcessingMixin methods ---
 
+    def _reconstruct_attachment_lists(self) -> None: ...
+
+    def _reconstruct_mention_lists(self) -> None: ...
+
+    async def _gather_creator_posts(self, account: Account) -> list[Post]: ...
+
+    async def _gather_creator_messages(self, account: Account) -> list[Message]: ...
+
     async def _collect_media_from_attachments(
         self, attachments: list[Attachment]
     ) -> list[Media]: ...
-
-    async def _process_items_with_gallery(
-        self,
-        account: Account,
-        performer: Performer,
-        studio: Studio | None,
-        item_type: str,
-        items: list[Message | Post],
-        url_pattern_func: Callable,
-    ) -> None: ...
-
-    # --- BatchProcessingMixin methods ---
-
-    async def _setup_worker_pool(
-        self, items: list[Any], item_type: str
-    ) -> tuple[str, str, asyncio.Semaphore, asyncio.Queue]: ...
-
-    async def _run_worker_pool(
-        self,
-        items: list[Any],
-        task_name: str,
-        process_name: str,
-        semaphore: asyncio.Semaphore,
-        queue: asyncio.Queue,
-        process_item: Callable,
-    ) -> None: ...
 
     # --- StashProcessing composed class methods ---
 
@@ -209,4 +251,92 @@ class StashProcessingProtocol(Protocol):
         self,
         account: Account | None,
         performer: Performer | None,
+    ) -> None: ...
+
+    async def _run_file_first(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+    ) -> None: ...
+
+    async def _adjudicate_swept_file(
+        self,
+        file: BaseFile,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+        studio: Studio | None,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        media_with_id: list[Media],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None: ...
+
+    async def _fast_path_known_media(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+        studio: Studio | None,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        media_with_id: list[Media],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None: ...
+
+    @staticmethod
+    def _accumulate_entities(
+        media: Media,
+        owners: list[Post | Message],
+        entities: list[Scene | Image],
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        media_with_id: list[Media],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None: ...
+
+    async def _compose_gallery_for_item(
+        self,
+        item: Post | Message,
+        entities: list[Scene | Image],
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+    ) -> None: ...
+
+    async def process_creator_incremental(self) -> None: ...
+
+    def _finalize_creator(self, performer: Performer | None) -> None: ...
+
+    async def _run_file_first_incremental(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+    ) -> None: ...
+
+    async def _prepare_file_first(
+        self, account: Account
+    ) -> tuple[
+        dict[str, tuple[Media, list[Post | Message]]],
+        dict[int, tuple[Post | Message, list[Scene | Image]]],
+        list[Media],
+        list[tuple[Media, Scene]],
+    ]: ...
+
+    async def _safe_adjudicate(
+        self,
+        file: BaseFile,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+        studio: Studio | None,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        media_with_id: list[Media],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None: ...
+
+    async def _compose_and_flush(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        media_with_id: list[Media],
+        split_pairs: list[tuple[Media, Scene]],
     ) -> None: ...

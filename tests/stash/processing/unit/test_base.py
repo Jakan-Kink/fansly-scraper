@@ -6,12 +6,6 @@ import pytest
 import respx
 
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
-from tests.fixtures.stash.stash_type_factories import (
-    ImageFactory,
-    ImageFileFactory,
-    SceneFactory,
-    VideoFileFactory,
-)
 
 
 class TestStashProcessingBase:
@@ -59,127 +53,8 @@ class TestStashProcessingBase:
         assert title == "This is the title - 2/5"
 
 
-class TestSceneIndexing:
-    """Test _index_scene_files and find_scenes_by_media_codes (lines 222-265)."""
-
-    def test_index_scene_with_id_marker(self, respx_stash_processor):
-        """Scene files with _id_ marker are indexed by media code (lines 230-235)."""
-        video = VideoFileFactory(
-            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_987654.mp4"
-        )
-        scene = SceneFactory(id="100", files=[video])
-
-        respx_stash_processor._index_scene_files(scene)
-
-        assert "987654" in respx_stash_processor._scene_code_index
-        assert respx_stash_processor._scene_code_index["987654"] == ["100"]
-
-    def test_index_scene_with_preview_id_marker(self, respx_stash_processor):
-        """Scene files with _preview_id_ marker are indexed (line 230)."""
-        video = VideoFileFactory(
-            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_preview_id_111222.mp4"
-        )
-        scene = SceneFactory(id="101", files=[video])
-
-        respx_stash_processor._index_scene_files(scene)
-
-        assert "111222" in respx_stash_processor._scene_code_index
-
-    def test_index_scene_no_files_skips(self, respx_stash_processor):
-        """Scene without files is skipped (line 223-224)."""
-        scene = SceneFactory(id="102")
-        # files is UNSET by default from factory
-
-        respx_stash_processor._index_scene_files(scene)
-
-        assert len(respx_stash_processor._scene_code_index) == 0
-
-    @pytest.mark.asyncio
-    async def test_find_scenes_deduplicates(self, respx_stash_processor):
-        """find_scenes_by_media_codes deduplicates by ID (lines 258-264)."""
-        video1 = VideoFileFactory(
-            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_555.mp4"
-        )
-        scene = SceneFactory(id="200", files=[video1])
-        respx_stash_processor.store.add(scene)
-
-        respx_stash_processor._scene_code_index["555"].append(scene.id)
-        respx_stash_processor._scene_code_index["555"].append(scene.id)
-
-        result = await respx_stash_processor.find_scenes_by_media_codes(["555"])
-
-        assert len(result["555"]) == 1  # Deduplicated by ID
-
-    @pytest.mark.asyncio
-    async def test_find_scenes_no_match(self, respx_stash_processor):
-        """find_scenes_by_media_codes returns empty for unmatched codes (line 257)."""
-        result = await respx_stash_processor.find_scenes_by_media_codes(["nonexistent"])
-        assert result == {}
-
-
-class TestImageIndexing:
-    """Test _index_image_files and find_images_by_media_codes (lines 237-282)."""
-
-    def test_index_image_with_id_marker(self, respx_stash_processor):
-        """Image visual files with _id_ marker are indexed (lines 242-248)."""
-        img_file = ImageFileFactory(
-            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_333444.jpg"
-        )
-        image = ImageFactory(id="300", visual_files=[img_file])
-
-        respx_stash_processor._index_image_files(image)
-
-        assert "333444" in respx_stash_processor._image_code_index
-        assert respx_stash_processor._image_code_index["333444"] == ["300"]
-
-    def test_index_image_no_visual_files_skips(self, respx_stash_processor):
-        """Image without visual_files is skipped (line 239-240)."""
-        image = ImageFactory(id="301")
-        # visual_files is UNSET by default from factory
-
-        respx_stash_processor._index_image_files(image)
-
-        assert len(respx_stash_processor._image_code_index) == 0
-
-    @pytest.mark.asyncio
-    async def test_find_images_deduplicates(self, respx_stash_processor):
-        """find_images_by_media_codes deduplicates by ID (lines 275-281)."""
-        img_file = ImageFileFactory(
-            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_666.jpg"
-        )
-        image = ImageFactory(id="400", visual_files=[img_file])
-        respx_stash_processor.store.add(image)
-
-        respx_stash_processor._image_code_index["666"].append(image.id)
-        respx_stash_processor._image_code_index["666"].append(image.id)
-
-        result = await respx_stash_processor.find_images_by_media_codes(["666"])
-
-        assert len(result["666"]) == 1
-
-    @pytest.mark.asyncio
-    async def test_find_images_no_match(self, respx_stash_processor):
-        """find_images_by_media_codes returns empty for unmatched codes."""
-        result = await respx_stash_processor.find_images_by_media_codes(["nope"])
-        assert result == {}
-
-
-class TestPreloadCreatorMedia:
-    """Test _preload_creator_media edge cases."""
-
-    @pytest.mark.asyncio
-    async def test_no_base_path_skips(self, respx_stash_processor):
-        """No base_path → early return."""
-        respx_stash_processor.state.base_path = None
-
-        await respx_stash_processor._preload_creator_media()
-
-        assert len(respx_stash_processor._scene_code_index) == 0
-        assert len(respx_stash_processor._image_code_index) == 0
-
-
 class TestPreloadEntities:
-    """Test _preload_stash_entities and _preload_creator_media."""
+    """Test _preload_stash_entities."""
 
     @pytest.mark.asyncio
     async def test_preload_entities_makes_no_network_calls(self, respx_stash_processor):
@@ -198,11 +73,3 @@ class TestPreloadEntities:
             )
 
         assert route.call_count == 0
-
-    @pytest.mark.asyncio
-    async def test_preload_no_base_path(self, respx_stash_processor):
-        """No base_path set → early return from _preload_creator_media."""
-        respx_stash_processor.state.base_path = None
-
-        await respx_stash_processor._preload_creator_media()
-        assert len(respx_stash_processor._scene_code_index) == 0

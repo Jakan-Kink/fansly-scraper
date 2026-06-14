@@ -134,3 +134,5 @@ class StudioProcessingMixin(StashProcessingProtocol):
                 logger.debug(f"Created new studio: {studio.name} (ID: {studio.id})")
                 print_info(f"Studio created: {studio.name}")
                 return studio
+        # find/create raised and was swallowed above -> no studio resolved.
+        return None

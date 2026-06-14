@@ -212,7 +212,12 @@ class TestCreatorProcessing:
         await processor.context.get_client()
 
         # Call process_creator (no session= parameter)
-        account, performer = await processor.process_creator()
+        try:
+            account, performer = await processor.process_creator()
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_process_creator_creates_new_performer"
+            )
 
         # Verify results
         assert account.id == real_account.id
@@ -441,15 +446,15 @@ class TestCreatorProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findJob", finished_job_dict)
                 ),
-                # === Preload: _preload_creator_media() (after scan) ===
-                # Scenes and images only — galleries are cached on-demand
+                # Not a preload (retired): respx feeds these empties in order to the
+                # performer search's name+alias tiers (count=0 → falls to url tier).
                 httpx.Response(
                     200, json=create_graphql_response("findScenes", empty_scenes)
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findImages", empty_images)
                 ),
-                # process_creator: findPerformers query
+                # findPerformers url-tier (returns the match)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -470,27 +475,21 @@ class TestCreatorProcessing:
             processor.config._background_tasks = []
 
         # Call start_creator_processing - orchestration under test
-        await processor.start_creator_processing()
+        try:
+            await processor.start_creator_processing()
+        finally:
+            dump_graphql_calls(graphql_route.calls, "start_creator_processing")
 
-        # === PERMANENT GraphQL call sequence assertions ===
-        # 1 connect + 2 scan + 2 media preload + 1 findPerformers = 6
-        # (shared preload removed — uses lazy filter→find_one pattern instead)
+        # 6 calls: connect, scan (metadataScan + findJob), then the performer
+        # fuzzy-search's 3 findPerformers tiers (name/alias/url). No preload.
         assert len(graphql_route.calls) == 6, (
             f"Expected exactly 6 GraphQL calls, got {len(graphql_route.calls)}"
         )
-
-        # Call 0: connect_async
-        # Calls 1-3: _preload_stash_entities (findPerformers, findTags, findStudios)
-        # Call 4: metadataScan (scan_creator_folder)
-        # Call 0: connect_async
-        # Call 1: metadataScan (scan_creator_folder)
+        assert_op(graphql_route.calls[0], "ConfigurationDefaults")
         assert_op(graphql_route.calls[1], "metadataScan")
-
-        # Call 2: findJob (scan_creator_folder)
         assert_op(graphql_route.calls[2], "findJob")
-
-        # Calls 3-4: _preload_creator_media (findScenes, findImages)
-        # Call 5: findPerformers (process_creator)
+        assert_op(graphql_route.calls[3], "findPerformers")
+        assert_op(graphql_route.calls[4], "findPerformers")
         assert_op(graphql_route.calls[5], "findPerformers")
 
         # Verify orchestration: background task was created
@@ -554,7 +553,10 @@ class TestCreatorProcessing:
         await processor.context.get_client()
 
         # Call scan_creator_folder - uses respx-mocked HTTP
-        await processor.scan_creator_folder()
+        try:
+            await processor.scan_creator_folder()
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_scan_creator_folder")
 
         # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
         assert graphql_route.call_count == 4
@@ -691,7 +693,12 @@ class TestCreatorProcessing:
             mock_set_path.return_value = created_path
 
             # Call scan_creator_folder
-            await processor.scan_creator_folder()
+            try:
+                await processor.scan_creator_folder()
+            finally:
+                dump_graphql_calls(
+                    graphql_route.calls, "test_scan_creator_folder_no_base_path"
+                )
 
         # === PERMANENT GraphQL call sequence assertions ===
         assert len(graphql_route.calls) == 3, (
@@ -769,7 +776,13 @@ class TestCreatorProcessing:
         await processor.context.get_client()
 
         # Call scan_creator_folder - handles error gracefully and continues
-        await processor.scan_creator_folder()
+        try:
+            await processor.scan_creator_folder()
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_scan_creator_folder_wait_for_job_exception_handling",
+            )
 
         # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
         assert graphql_route.call_count == 4

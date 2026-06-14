@@ -235,9 +235,14 @@ class TestGalleryCreation:
             side_effect=[empty_performer_response] * 5,
         )
 
-        await respx_stash_processor._setup_gallery_performers(
-            gallery, post, main_performer
-        )
+        try:
+            await respx_stash_processor._setup_gallery_performers(
+                gallery, post, main_performer
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_setup_gallery_performers_mention_not_found"
+            )
 
         # Only main performer when mention not found
         assert len(gallery.performers) == 1
@@ -255,48 +260,18 @@ class TestGalleryOrchestration:
     Post objects without stash_id skip the stash_id lookup (no API call).
     """
 
-    @pytest.fixture
-    def orchestration_setup(self):
-        """Set up common data for orchestration tests."""
-        account_id = snowflake_id()
-        post_id = snowflake_id()
-
-        account = Account(id=account_id, username="test_user")
-        post = PostFactory.build(
-            id=post_id,
-            accountId=account_id,
-            content="Test post content",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-        # Set attachments after construction to bypass _prepare_post_data validator
-        # (which filters non-dict items). In production, attachments are de-nested
-        # before reaching this point.
-        post.attachments = [
-            AttachmentFactory.build(
-                postId=post_id,
-                contentId=post_id,
-                contentType=ContentType.ACCOUNT_MEDIA,
-                pos=0,
-            )
-        ]
-
-        performer = PerformerFactory.build(id="10100", name="test_user")
-        studio = StudioFactory.build(id="10200", name="Test Studio")
-
-        return {
-            "account": account,
-            "post": post,
-            "performer": performer,
-            "studio": studio,
-            "url_pattern": "https://test.com/{username}/post/{id}",
-        }
-
     @pytest.mark.asyncio
     async def test_gallery_found_by_stash_id(
         self,
         respx_stash_processor: StashProcessing,
     ):
-        """Test when gallery is found by stash_id (post has stash_id set)."""
+        """Test when gallery is found by stash_id (post has stash_id set).
+
+        Builds its own post with FRESH ids: stash_id must be set at
+        construction (post-build attribute writes are dropped), and reusing
+        the shared fixture's post id would hit the identity map and return
+        the cached stash_id-less instance.
+        """
         account_id = snowflake_id()
         post_id = snowflake_id()
 
@@ -308,6 +283,11 @@ class TestGalleryOrchestration:
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=999,
         )
+
+        # _get_or_create_gallery bails before any lookup for items without
+        # media content, so the post needs a media attachment. Post-build list
+        # assignment is the sanctioned route past the _prepare_post_data
+        # validator (which filters non-dict items).
         post.attachments = [
             AttachmentFactory.build(
                 postId=post_id,
@@ -338,14 +318,17 @@ class TestGalleryOrchestration:
             ],
         )
 
-        gallery = await respx_stash_processor._get_or_create_gallery(
-            post,
-            account,
-            performer,
-            studio,
-            "post",
-            "https://test.com/{username}/post/{id}",
-        )
+        try:
+            gallery = await respx_stash_processor._get_or_create_gallery(
+                post,
+                account,
+                performer,
+                studio,
+                "post",
+                "https://test.com/{username}/post/{id}",
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_gallery_found_by_stash_id")
 
         assert gallery is not None
         assert gallery.id == "999"
@@ -358,10 +341,10 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_code(
         self,
         respx_stash_processor: StashProcessing,
-        orchestration_setup,
+        gallery_orchestration_setup,
     ):
         """Test when gallery is found by code (first lookup for post without stash_id)."""
-        data = orchestration_setup
+        data = gallery_orchestration_setup
         post_id = str(data["post"].id)
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -429,14 +412,17 @@ class TestGalleryOrchestration:
             ],
         )
 
-        gallery = await respx_stash_processor._get_or_create_gallery(
-            data["post"],
-            data["account"],
-            data["performer"],
-            data["studio"],
-            "post",
-            data["url_pattern"],
-        )
+        try:
+            gallery = await respx_stash_processor._get_or_create_gallery(
+                data["post"],
+                data["account"],
+                data["performer"],
+                data["studio"],
+                "post",
+                data["url_pattern"],
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_gallery_found_by_code")
 
         assert gallery is not None
         assert gallery.id == "1001"
@@ -454,10 +440,10 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_title(
         self,
         respx_stash_processor: StashProcessing,
-        orchestration_setup,
+        gallery_orchestration_setup,
     ):
         """Test when gallery is found by title (code fails, title succeeds)."""
-        data = orchestration_setup
+        data = gallery_orchestration_setup
         post_id = str(data["post"].id)
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -508,14 +494,17 @@ class TestGalleryOrchestration:
             ],
         )
 
-        gallery = await respx_stash_processor._get_or_create_gallery(
-            data["post"],
-            data["account"],
-            data["performer"],
-            data["studio"],
-            "post",
-            data["url_pattern"],
-        )
+        try:
+            gallery = await respx_stash_processor._get_or_create_gallery(
+                data["post"],
+                data["account"],
+                data["performer"],
+                data["studio"],
+                "post",
+                data["url_pattern"],
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_gallery_found_by_title")
 
         assert gallery is not None
         assert gallery.id == "1002"
@@ -544,10 +533,10 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_url(
         self,
         respx_stash_processor: StashProcessing,
-        orchestration_setup,
+        gallery_orchestration_setup,
     ):
         """Test when gallery is found by URL (code + title fail, url succeeds)."""
-        data = orchestration_setup
+        data = gallery_orchestration_setup
         post_id = str(data["post"].id)
         expected_url = f"https://test.com/test_user/post/{post_id}"
 
@@ -614,14 +603,17 @@ class TestGalleryOrchestration:
             ],
         )
 
-        gallery = await respx_stash_processor._get_or_create_gallery(
-            data["post"],
-            data["account"],
-            data["performer"],
-            data["studio"],
-            "post",
-            data["url_pattern"],
-        )
+        try:
+            gallery = await respx_stash_processor._get_or_create_gallery(
+                data["post"],
+                data["account"],
+                data["performer"],
+                data["studio"],
+                "post",
+                data["url_pattern"],
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_gallery_found_by_url")
 
         assert gallery is not None
         assert gallery.id == "1003"
@@ -653,10 +645,10 @@ class TestGalleryOrchestration:
     async def test_gallery_created_when_not_found(
         self,
         respx_stash_processor: StashProcessing,
-        orchestration_setup,
+        gallery_orchestration_setup,
     ):
         """Test when no gallery found (all lookups fail, create new)."""
-        data = orchestration_setup
+        data = gallery_orchestration_setup
         post_id = str(data["post"].id)
 
         empty_find_galleries = httpx.Response(

@@ -176,7 +176,12 @@ class TestStashProcessingPerformer:
         test_account_1 = AccountFactory.build(username="test_user")
         test_account_1.stash_id = 123  # stash_id is int
 
-        performer = await respx_stash_processor._find_existing_performer(test_account_1)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(
+                test_account_1
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_find_existing_performer")
 
         # Verify performer was found
         assert performer is not None
@@ -191,7 +196,14 @@ class TestStashProcessingPerformer:
         test_account_2 = AccountFactory.build(username="test_user_2")
         test_account_2.stash_id = None
 
-        performer = await respx_stash_processor._find_existing_performer(test_account_2)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(
+                test_account_2
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_case_2"
+            )
 
         # Verify performer was found
         assert performer is not None
@@ -208,7 +220,14 @@ class TestStashProcessingPerformer:
         test_account_3 = AccountFactory.build(username="nonexistent_user")
         test_account_3.stash_id = None
 
-        performer = await respx_stash_processor._find_existing_performer(test_account_3)
+        try:
+            performer = await respx_stash_processor._find_existing_performer(
+                test_account_3
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_case_3"
+            )
 
         # Verify no performer found
         assert performer is None
@@ -334,10 +353,14 @@ class TestStashProcessingPerformer:
                 )
             ]
         )
-
-        await respx_stash_processor._update_performer_avatar(
-            test_account, test_performer
-        )
+        try:
+            await respx_stash_processor._update_performer_avatar(
+                test_account, test_performer
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_performer_avatar_no_images_found"
+            )
 
         # Verify findImages was called
         assert len(graphql_route.calls) == 1
@@ -417,10 +440,14 @@ class TestStashProcessingPerformer:
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=responses
         )
-
-        await respx_stash_processor._update_performer_avatar(
-            test_account, test_performer
-        )
+        try:
+            await respx_stash_processor._update_performer_avatar(
+                test_account, test_performer
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_update_performer_avatar_success"
+            )
 
         # _update_performer_avatar issues 2 findImages calls: once for path lookup,
         # then performerUpdate (success path attempts findImages again for verification)

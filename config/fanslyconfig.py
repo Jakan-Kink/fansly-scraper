@@ -214,6 +214,8 @@ class FanslyConfig:
     stash_mapped_path: Path | None = None
     stash_override_dldir_w_mapped: bool = False
     stash_require_stash_only_mode: bool = False
+    stash_enable_scene_split: bool | str = False
+    stash_scan_settle_s: float = 3.5
 
     # Logging
     # ``log_levels`` is the legacy flat ``{logger_name: level_string}``
@@ -245,22 +247,20 @@ class FanslyConfig:
             token = self.get_unscrambled_token()
             user_agent = self.user_agent
 
-            # Allow empty token if username/password are provided (for login flow)
-            has_login_credentials = self.username and self.password
-
-            if (
-                user_agent
-                and self.check_key
-                and (self.token_is_valid() or has_login_credentials)
-            ):
+            # Build the api whenever user_agent + check_key are present, even
+            # with an invalid/missing token. An empty-token api is intentional
+            # for the login flow AND for browser-token probing via
+            # get_client_user_name(alternate_token=...) during validation; the
+            # real token is applied only once validated.
+            if user_agent and self.check_key:
                 # Initialize rate limiter with visual display.
                 # The display thread is NOT started here — get_api() must stay
                 # I/O-free. setup_api() starts it after bootstrap completes.
                 rate_limiter = RateLimiter(self)
                 self._rate_limiter_display = RateLimiterDisplay(rate_limiter)
 
-                # Use empty string if token is invalid (for login flow)
-                # Otherwise use the valid unscrambled token
+                # Empty token when invalid/missing; the real unscrambled token
+                # otherwise.
                 api_token = token if self.token_is_valid() else ""
 
                 from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
@@ -541,6 +541,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
             else None,
             override_dldir_w_mapped=config.stash_override_dldir_w_mapped,
             require_stash_only_mode=config.stash_require_stash_only_mode,
+            enable_scene_split=config.stash_enable_scene_split,
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

@@ -697,6 +697,29 @@ class StashContextSection(_BaseSection):
     mapped_path: str | None = None
     override_dldir_w_mapped: bool = False
     require_stash_only_mode: bool = False
+    enable_scene_split: bool | Literal["dry-run"] = False
+    # Stash's index commit can lag the job-FINISHED signal by a few hundred
+    # ms; reading File/Scene/Image back without a settle window races.
+    scan_settle_s: float = Field(default=3.5, ge=0.0, le=30.0)
+
+    @field_validator("enable_scene_split", mode="before")
+    @classmethod
+    def _coerce_scene_split(cls, v: Any) -> bool | Literal["dry-run"]:
+        """Allow true/false or the literal "dry-run"; reject any other string."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            s = v.strip().lower()
+            if s == "dry-run":
+                return "dry-run"
+            if s in {"true", "yes", "on", "1"}:
+                return True
+            if s in {"false", "no", "off", "0"}:
+                return False
+            raise ValueError(
+                f'enable_scene_split must be true, false, or "dry-run"; got {v!r}'
+            )
+        return v
 
     @model_validator(mode="after")
     def _override_requires_mapped_path(self) -> StashContextSection:

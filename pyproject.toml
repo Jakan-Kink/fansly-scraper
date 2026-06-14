@@ -51,12 +51,13 @@ httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
-stash-graphql-client = ">=0.12.5"
+stash-graphql-client = ">=0.12.10"
 av = ">=17.0.0,<18.0.0"
 ruamel-yaml = ">=0.19.1,<0.21.0"
 filelock = ">=3.29.0,<4.0.0"
 prompt-toolkit = ">=3.0.52,<4.0.0"
 regex = "^2026.4.4"
+ua-generator = "^2.1.1"
 
 
 [tool.poetry.group.browser-auth]
@@ -109,6 +110,7 @@ pytest-loguru = ">=0.4.0"
 factory-boy = ">=3.3.3"
 pytest-rerunfailures = ">=16.1"
 respx = ">=0.22.0,<1.0.0"
+pytest-socket = "^0.8.0"
 
 
 [tool.bandit]
@@ -297,6 +299,15 @@ addopts = [
     # find-or-create-on-shared-Docker-Stash race) all run on the same xdist
     # worker. Tests without the marker still load-balance normally.
     "--dist=loadgroup",
+    # Network backstop (pytest-socket): block all sockets except localhost.
+    # respx-mocked unit tests open no real socket; integration tests legitimately
+    # reach only localhost (Postgres :5432, Stash :9999/:5000). A leaked external
+    # call (a missing respx mock falling through to real Fansly/CDN HTTP) hits a
+    # non-localhost socket and fails loudly instead of silently going to prod.
+    # --allow-unix-socket keeps asyncpg / local IPC working.
+    "--disable-socket",
+    "--allow-hosts=127.0.0.1,::1",
+    "--allow-unix-socket",
 ]
 timeout = 60
 timeout_func_only = true

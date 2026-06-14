@@ -88,8 +88,6 @@ class TestBackgroundProcessing:
             urls=["https://fansly.com/test_user"],
             parent_studio=fansly_studio,
         )
-        empty_galleries = {"count": 0, "galleries": []}
-
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # process_creator_studio: find Fansly parent
@@ -107,14 +105,16 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # process_creator_posts: check for existing galleries (has 1 post with attachment)
+                # _run_file_first: the creator's file sweep finds nothing.
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200, json={"data": {"findFiles": {"count": 0, "files": []}}}
                 ),
             ]
         )
 
-        # Act - let real flow execute with real database queries
+        # Act - run the full real wrapper (studio + stash_id + file-first content
+        # + cleanup). The seeded post has no Stash file, so the sweep's findFiles
+        # is empty and nothing is adjudicated.
         try:
             await respx_stash_processor._safe_background_processing(
                 account, mock_performer
@@ -131,8 +131,7 @@ class TestBackgroundProcessing:
         found_account = await entity_store.get(Account, acct_id)
         assert found_account is not None
 
-        # Verify GraphQL call sequence (no preload - continue_stash_processing
-        # is called directly, preload only happens in start_creator_processing)
+        # Verify GraphQL call sequence — the real studio flow then the real sweep.
         calls = graphql_route.calls
         assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
@@ -140,7 +139,7 @@ class TestBackgroundProcessing:
         assert_op(calls[0], "findStudios")
         assert_op(calls[1], "findStudios")
         assert_op(calls[2], "studioCreate")
-        assert_op(calls[3], "findGalleries")
+        assert_op(calls[3], "findFiles")
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
@@ -290,10 +289,16 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # _run_file_first: the creator's file sweep finds nothing.
+                httpx.Response(
+                    200, json={"data": {"findFiles": {"count": 0, "files": []}}}
+                ),
             ]
         )
 
-        # Act - let real orchestration flow execute
+        # Act - run the real wrapper end-to-end INCLUDING the file-first content
+        # flow. The creator has no Stash files, so the sweep's findFiles is empty
+        # and no entities are adjudicated.
         try:
             await respx_stash_processor.continue_stash_processing(
                 account, mock_performer
@@ -301,12 +306,9 @@ class TestBackgroundProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "test_continue_stash_processing")
 
-        # Assert - verify correct GraphQL requests were sent
-        # Only 3 calls: studio lookup + creation. No findGalleries because
-        # account has no posts/messages in database — _run_worker_pool exits
-        # with empty items.
+        # Assert - the real studio flow then the real file-first sweep.
         calls = graphql_route.calls
-        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
         # Verify GraphQL call sequence — studioCreate variables are part of
         # the same assertion since this test cares about the studio's identity.
@@ -318,6 +320,7 @@ class TestBackgroundProcessing:
             input__name="test_user (Fansly)",
             input__urls=["https://fansly.com/test_user"],
         )
+        assert_op(calls[3], "findFiles")
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_stash_id_update(
@@ -369,10 +372,15 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # _run_file_first: the creator's file sweep finds nothing.
+                httpx.Response(
+                    200, json={"data": {"findFiles": {"count": 0, "files": []}}}
+                ),
             ]
         )
 
-        # Act
+        # Act - run the real wrapper end-to-end (stash_id DB update + studio flow
+        # + file-first content). No Stash files → empty findFiles sweep.
         try:
             await respx_stash_processor.continue_stash_processing(
                 account, mock_performer
@@ -389,10 +397,9 @@ class TestBackgroundProcessing:
         assert updated_account is not None
         assert updated_account.stash_id == 456  # int, not str
 
-        # Verify GraphQL call sequence — no findGalleries calls because the
-        # account has no posts/messages, so _run_worker_pool exits early.
+        # Verify GraphQL call sequence — the real studio flow then the real sweep.
         calls = graphql_route.calls
-        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order — studioCreate variables are part of
         # the same assertion since this test cares about the studio's identity.
@@ -404,6 +411,7 @@ class TestBackgroundProcessing:
             input__name="test_user2 (Fansly)",
             input__urls=["https://fansly.com/test_user2"],
         )
+        assert_op(calls[3], "findFiles")
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_missing_inputs(
@@ -468,10 +476,14 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # _run_file_first: the creator's file sweep finds nothing.
+                httpx.Response(
+                    200, json={"data": {"findFiles": {"count": 0, "files": []}}}
+                ),
             ]
         )
 
-        # Act - Pass Performer object directly
+        # Act - Pass Performer object directly; run the full real wrapper.
         try:
             await respx_stash_processor.continue_stash_processing(account, performer)
         finally:
@@ -480,10 +492,9 @@ class TestBackgroundProcessing:
                 "test_continue_stash_processing_performer_dict",
             )
 
-        # Verify GraphQL call sequence — no findGalleries calls because the
-        # account has no posts/messages, so _run_worker_pool exits early.
+        # Verify GraphQL call sequence — the real studio flow then the real sweep.
         calls = graphql_route.calls
-        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order — studioCreate variables are part of
         # the same assertion since this test cares about the studio's identity.
@@ -495,6 +506,7 @@ class TestBackgroundProcessing:
             input__name="test_user3 (Fansly)",
             input__urls=["https://fansly.com/test_user3"],
         )
+        assert_op(calls[3], "findFiles")
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_performer_type(

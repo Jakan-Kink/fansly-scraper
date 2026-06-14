@@ -22,6 +22,7 @@ from config.schema import (
     MyAccountSection,
     OptionsSection,
     PostgresSection,
+    StashContextSection,
     TargetedCreatorSection,
 )
 
@@ -924,3 +925,62 @@ def test_repair_previews_rejects_garbage():
     with pytest.raises(ValidationError, match=r"dry-run"):
         OptionsSection(repair_previews="sometimes")
 
+
+class TestEnableSceneSplitValidator:
+    """enable_scene_split accepts True/False/"dry-run"; rejects other strings."""
+
+    def test_default_is_false(self) -> None:
+        section = StashContextSection.model_validate({})
+        assert section.enable_scene_split is False
+
+    def test_true_bool(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": True})
+        assert section.enable_scene_split is True
+
+    def test_false_bool(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": False})
+        assert section.enable_scene_split is False
+
+    def test_dry_run_literal(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": "dry-run"})
+        assert section.enable_scene_split == "dry-run"
+
+    def test_dry_run_case_insensitive(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": "Dry-Run"})
+        assert section.enable_scene_split == "dry-run"
+
+    def test_truthy_string_coerced_to_bool(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": "true"})
+        assert section.enable_scene_split is True
+
+    def test_falsy_string_coerced_to_bool(self) -> None:
+        section = StashContextSection.model_validate({"enable_scene_split": "off"})
+        assert section.enable_scene_split is False
+
+    def test_invalid_string_rejected(self) -> None:
+        with pytest.raises(ValidationError, match=r"dry-run"):
+            StashContextSection.model_validate({"enable_scene_split": "enabled"})
+
+
+class TestScanSettleSeconds:
+    """scan_settle_s: post-scan settle window, default 3.5, bounded 0..30."""
+
+    def test_default(self) -> None:
+        assert StashContextSection.model_validate({}).scan_settle_s == 3.5
+
+    def test_custom_value(self) -> None:
+        section = StashContextSection.model_validate({"scan_settle_s": 1.0})
+        assert section.scan_settle_s == 1.0
+
+    def test_zero_allowed(self) -> None:
+        assert (
+            StashContextSection.model_validate({"scan_settle_s": 0}).scan_settle_s == 0
+        )
+
+    def test_negative_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"scan_settle_s": -0.1})
+
+    def test_above_max_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"scan_settle_s": 30.1})

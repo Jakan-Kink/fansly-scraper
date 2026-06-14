@@ -315,6 +315,8 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         config.stash_require_stash_only_mode = (
             schema.stash_context.require_stash_only_mode
         )
+        config.stash_enable_scene_split = schema.stash_context.enable_scene_split
+        config.stash_scan_settle_s = schema.stash_context.scan_settle_s
 
 
 def _handle_config_error(e: Exception) -> None:

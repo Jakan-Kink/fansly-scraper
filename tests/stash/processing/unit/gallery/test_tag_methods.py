@@ -9,6 +9,8 @@ import respx
 
 from tests.fixtures import (
     HashtagFactory,
+    ImageFactory,
+    TagFactory,
     create_find_images_result,
     create_find_tags_result,
     create_graphql_response,
@@ -39,7 +41,7 @@ class TestTagMethods:
         new_tag_dict = create_tag_dict(id="456", name="new_tag")
 
         # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: findTags by name for first tag (found)
                 httpx.Response(
@@ -67,7 +69,10 @@ class TestTagMethods:
         )
 
         # Call the method
-        tags = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        try:
+            tags = await respx_stash_processor._process_hashtags_to_tags(hashtags)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_hashtags_to_tags")
 
         # Verify results
         assert len(tags) == 2
@@ -91,7 +96,7 @@ class TestTagMethods:
         existing_tag_dict = create_tag_dict(id="123", name="test_tag")
 
         # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: findTags by name (not found)
                 httpx.Response(
@@ -114,7 +119,12 @@ class TestTagMethods:
         )
 
         # Call the method
-        tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
+        try:
+            tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "process_hashtags_to_tags_already_exists"
+            )
 
         # Verify results
         assert len(tags) == 1
@@ -131,7 +141,7 @@ class TestTagMethods:
         empty_result = create_find_tags_result(count=0, tags=[])
 
         # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: findTags by name (not found)
                 httpx.Response(
@@ -156,7 +166,10 @@ class TestTagMethods:
 
         # Call the method - _get_or_create_tag raises on save failure,
         # asyncio.gather(return_exceptions=True) catches it, filter removes it
-        tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
+        try:
+            tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
+        finally:
+            dump_graphql_calls(graphql_route.calls, "process_hashtags_to_tags_error")
 
         # Verify no tags returned (save failure propagates as exception,
         # filtered out by asyncio.gather return_exceptions pattern)
@@ -220,8 +233,6 @@ class TestTagMethods:
     async def test_add_preview_tag_existing(self, respx_stash_processor):
         """Test _add_preview_tag with existing tag (should not add duplicate)."""
         # Note: respx_stash_processor already has respx.mock wrapper
-        from tests.fixtures import ImageFactory, TagFactory
-
         # Create tag and image with that tag
         existing_tag = TagFactory.build(id="400", name="Trailer")
         mock_image = ImageFactory.build(
@@ -235,7 +246,7 @@ class TestTagMethods:
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
         # Mock GraphQL response
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -245,7 +256,10 @@ class TestTagMethods:
         )
 
         # Call the method
-        await respx_stash_processor._add_preview_tag(mock_image)
+        try:
+            await respx_stash_processor._add_preview_tag(mock_image)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "add_preview_tag_existing")
 
         # Verify no additional tag was added
         assert len(mock_image.tags) == 1
@@ -258,7 +272,7 @@ class TestTagMethods:
         empty_result = create_find_tags_result(count=0, tags=[])
 
         # Mock GraphQL response
-        respx.post("http://localhost:9999/graphql").mock(
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
@@ -271,7 +285,10 @@ class TestTagMethods:
         mock_image.tags = []
 
         # Call the method
-        await respx_stash_processor._add_preview_tag(mock_image)
+        try:
+            await respx_stash_processor._add_preview_tag(mock_image)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "add_preview_tag_not_found")
 
         # Verify no tag was added
         assert len(mock_image.tags) == 0

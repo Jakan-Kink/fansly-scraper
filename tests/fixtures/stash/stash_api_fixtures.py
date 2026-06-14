@@ -480,6 +480,27 @@ def enable_scene_creation():
         Scene.__create_input_type__ = original_create_input_type
 
 
+@pytest.fixture
+def isolate_scene_create_input():
+    """Snapshot/restore the process-global ``Scene.__create_input_type__``.
+
+    Unlike ``enable_scene_creation`` (which sets the attr to enable creation),
+    this fixture only ISOLATES it: it snapshots the current value, forces it to
+    ``None`` so a test's preconditions are deterministic regardless of upstream
+    worker state, then restores the original on teardown (which runs even on
+    assertion failure). Use for tests that assert the guard's effect on the attr
+    without leaking that mutation into sibling tests.
+    """
+    original = getattr(Scene, "__create_input_type__", None)
+    Scene.__create_input_type__ = None
+    yield
+    if original is None:
+        with contextlib.suppress(AttributeError):
+            delattr(Scene, "__create_input_type__")
+    else:
+        Scene.__create_input_type__ = original
+
+
 @pytest_asyncio.fixture
 async def stash_cleanup_tracker():
     """Fixture that provides a cleanup context manager for Stash objects.

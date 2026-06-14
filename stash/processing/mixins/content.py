@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import traceback
-
-from stash_graphql_client.types import Performer, Studio
+from collections import defaultdict
 
 from metadata import (
     Account,
@@ -13,137 +11,118 @@ from metadata import (
     Media,
     Message,
     Post,
+    PostMention,
 )
 from metadata.models import get_store
-from textio import print_error, print_info
 
 from ...logging import debug_print
-from ...logging import processing_logger as logger
 from ..protocols import StashProcessingProtocol
+
+
+# contentType codes that carry no downloadable media.
+_NON_MEDIA_CONTENT_TYPES = {7, 7100}
 
 
 class ContentProcessingMixin(StashProcessingProtocol):
     """Content processing for posts and messages."""
 
-    async def process_creator_messages(
-        self,
-        account: Account,
-        performer: Performer,
-        studio: Studio | None = None,
-    ) -> None:
-        """Process creator message metadata.
+    def _reconstruct_attachment_lists(self) -> None:
+        """Rebuild the ``has_many`` attachment lists a cold preload leaves empty.
 
-        This method:
-        1. Retrieves message information from the identity map / database
-        2. Creates galleries for messages with media in parallel
-        3. Links media files to galleries
-        4. Associates galleries with performer and studio
+        ``preload`` resolves ``belongs_to`` (autolink) and ``habtm`` (assoc
+        tables) but never reconstructs ``has_many`` reverse-FK lists, so
+        ``Post.attachments`` / ``Message.attachments`` come back empty from a
+        cold identity map. STASH_ONLY runs no ``download_*`` populate, so the
+        startup ``preload`` is the only thing warming the cache — leaving every
+        post/message attachment-less and the gather (which filters on
+        ``bool(.attachments)``) a silent no-op.
+
+        Groups every cached ``Attachment`` by ``postId`` / ``messageId`` and
+        assigns the ordered lists onto the cached owners. Idempotent: owners
+        that already carry attachments are skipped, so after a normal download
+        warmed the graph this is a no-op. Assigns without dirtying the owner
+        (attachments is a relationship, excluded from DB writes) by updating the
+        dirty-tracking snapshot alongside the field.
+        """
+        store = get_store()
+        attachments = store.filter(Attachment)
+        if not attachments:
+            return
+
+        by_post: dict[int, list[Attachment]] = defaultdict(list)
+        by_message: dict[int, list[Attachment]] = defaultdict(list)
+        for att in attachments:
+            if att.contentType is not None and (
+                att.contentType.value in _NON_MEDIA_CONTENT_TYPES
+            ):
+                continue
+            if att.postId is not None:
+                by_post[att.postId].append(att)
+            elif att.messageId is not None:
+                by_message[att.messageId].append(att)
+
+        self._assign_attachment_lists(store.filter(Post), by_post)
+        self._assign_attachment_lists(store.filter(Message), by_message)
+
+    @staticmethod
+    def _assign_attachment_lists(
+        owners: list[Post] | list[Message],
+        grouped: dict[int, list[Attachment]],
+    ) -> None:
+        """Assign grouped attachments onto owners, ordered, without dirtying."""
+        for owner in owners:
+            if owner.attachments:
+                continue
+            atts = grouped.get(owner.id)
+            if not atts:
+                continue
+            ordered = sorted(atts, key=lambda a: (a.pos, a.id))
+            object.__setattr__(owner, "attachments", ordered)
+            owner._snapshot["attachments"] = ordered.copy()
+
+    def _reconstruct_mention_lists(self) -> None:
+        """Rebuild the ``Post.mentions`` has_many list a cold preload leaves empty.
+
+        Parallel to ``_reconstruct_attachment_lists``: ``preload`` loads
+        ``PostMention`` rows but never populates the ``Post.mentions`` reverse-FK
+        list, so STASH_ONLY (and a daemon pass on a post that aged out of the
+        identity map) would link no mentioned performers — ``_setup_gallery_
+        performers`` / ``_stamp_performers`` run against an empty list. Groups
+        cached ``PostMention`` by ``postId`` and assigns the id-ordered list onto
+        each mention-less post without dirtying it (``mentions`` is excluded from
+        DB writes). Idempotent: posts already carrying mentions are skipped.
+        """
+        store = get_store()
+        mentions = store.filter(PostMention)
+        if not mentions:
+            return
+
+        by_post: dict[int, list[PostMention]] = defaultdict(list)
+        for mention in mentions:
+            if mention.postId is not None:
+                by_post[mention.postId].append(mention)
+
+        for post in store.filter(Post):
+            if post.mentions:
+                continue
+            post_mentions = by_post.get(post.id)
+            if not post_mentions:
+                continue
+            ordered = sorted(post_mentions, key=lambda m: m.id or 0)
+            object.__setattr__(post, "mentions", ordered)
+            post._snapshot["mentions"] = ordered.copy()
+
+    async def _gather_creator_posts(self, account: Account) -> list[Post]:
+        """Gather the creator's posts that carry attachments.
+
+        Cache-first via the identity map, with a DB fallback when the cache
+        has not been populated. Returns only posts that have attachments.
 
         Args:
-            account: The Account object
-            performer: The Performer object
-            studio: Optional Studio object
-        """
+            account: The Account object whose posts to gather
 
-        def get_message_url(message: Message) -> str:
-            """Get URL for a message in a group."""
-            return f"https://fansly.com/messages/{message.groupId}/{message.id}"
-
-        store = get_store()
-        account_id = account.id
-
-        # Find groups this account belongs to — cache-first via filter()
-        account_groups = store.filter(
-            Group,
-            lambda g: g.users and any(u.id == account_id for u in g.users),
-        )
-        if not account_groups:
-            # Fallback: query DB (groups may not be fully loaded)
-            all_groups = await store.find(Group)
-            account_groups = [
-                g
-                for g in all_groups
-                if g.users and any(u.id == account_id for u in g.users)
-            ]
-
-        account_group_ids = {g.id for g in account_groups}
-
-        # Find messages in those groups that have attachments — cache-first
-        messages = store.filter(
-            Message,
-            lambda m: m.groupId in account_group_ids and bool(m.attachments),
-        )
-        if not messages and account_group_ids:
-            # Fallback: query DB
-            db_messages = await store.find(Message, groupId__in=list(account_group_ids))
-            messages = [m for m in db_messages if m.attachments]
-
-        debug_print(
-            {
-                "status": "found_messages",
-                "account_id": account_id,
-                "group_count": len(account_group_ids),
-                "message_count": len(messages),
-            }
-        )
-        print_info(f"Processing {len(messages)} messages...")
-
-        # Set up worker pool
-        task_name, process_name, semaphore, queue = await self._setup_worker_pool(
-            messages, "message"
-        )
-
-        async def process_message(message: Message) -> None:
-            async with semaphore:
-                try:
-                    await self._process_items_with_gallery(
-                        account=account,
-                        performer=performer,
-                        studio=studio,
-                        item_type="message",
-                        items=[message],
-                        url_pattern_func=get_message_url,
-                    )
-                except Exception as e:
-                    print_error(f"Error processing message {message.id}: {e}")
-                    logger.exception(
-                        f"Error processing message {message.id}",
-                        exc_info=e,
-                        traceback=True,
-                        stack_info=True,
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - process_creator_messages",
-                            "status": "message_processing_failed",
-                            "message_id": message.id,
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-
-        # Run the worker pool
-        await self._run_worker_pool(
-            items=messages,
-            task_name=task_name,
-            process_name=process_name,
-            semaphore=semaphore,
-            queue=queue,
-            process_item=process_message,
-        )
-
-    async def process_creator_posts(
-        self,
-        account: Account,
-        performer: Performer,
-        studio: Studio | None = None,
-    ) -> None:
-        """Process creator post metadata.
-
-        This method:
-        1. Retrieves post information from the identity map / database
-        2. Processes posts into Stash galleries
-        3. Handles media attachments and bundles
+        Returns:
+            List of Post objects with attachments
         """
         store = get_store()
         account_id = account.id
@@ -165,55 +144,62 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 "post_count": len(posts),
             }
         )
+        return posts
 
-        def get_post_url(post: Post) -> str:
-            return f"https://fansly.com/post/{post.id}"
+    async def _gather_creator_messages(self, account: Account) -> list[Message]:
+        """Gather the creator's messages that carry attachments.
 
-        print_info(f"Processing {len(posts)} posts...")
+        Resolves the account's groups first (cache-first with DB fallback),
+        then the messages in those groups that have attachments (again
+        cache-first with DB fallback).
 
-        # Set up worker pool
-        task_name, process_name, semaphore, queue = await self._setup_worker_pool(
-            posts, "post"
+        Args:
+            account: The Account object whose messages to gather
+
+        Returns:
+            List of Message objects with attachments
+        """
+        store = get_store()
+        account_id = account.id
+        account_group_ids = await self._resolve_account_group_ids(account_id)
+        if not account_group_ids:
+            return []
+
+        # Messages in those groups that have attachments — cache-first, DB fallback.
+        messages = store.filter(
+            Message,
+            lambda m: m.groupId in account_group_ids and bool(m.attachments),
         )
+        if not messages:
+            db_messages = await store.find(Message, groupId__in=list(account_group_ids))
+            messages = [m for m in db_messages if m.attachments]
 
-        async def process_post(post: Post) -> None:
-            async with semaphore:
-                try:
-                    await self._process_items_with_gallery(
-                        account=account,
-                        performer=performer,
-                        studio=studio,
-                        item_type="post",
-                        items=[post],
-                        url_pattern_func=get_post_url,
-                    )
-                except Exception as e:
-                    print_error(f"Error processing post {post.id}: {e}")
-                    logger.exception(
-                        f"Error processing post {post.id}",
-                        exc_info=e,
-                        traceback=True,
-                        stack_info=True,
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - process_creator_posts",
-                            "status": "post_processing_failed",
-                            "post_id": post.id,
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-
-        # Run the worker pool
-        await self._run_worker_pool(
-            items=posts,
-            task_name=task_name,
-            process_name=process_name,
-            semaphore=semaphore,
-            queue=queue,
-            process_item=process_post,
+        debug_print(
+            {
+                "status": "found_messages",
+                "account_id": account_id,
+                "group_count": len(account_group_ids),
+                "message_count": len(messages),
+            }
         )
+        return messages
+
+    @staticmethod
+    async def _resolve_account_group_ids(account_id: int) -> set[int]:
+        """Ids of groups the account belongs to (cache-first, DB fallback)."""
+        store = get_store()
+        groups = store.filter(
+            Group,
+            lambda g: g.users and any(u.id == account_id for u in g.users),
+        )
+        if not groups:
+            all_groups = await store.find(Group)
+            groups = [
+                g
+                for g in all_groups
+                if g.users and any(u.id == account_id for u in g.users)
+            ]
+        return {g.id for g in groups}
 
     async def _collect_media_from_attachments(
         self,
@@ -238,6 +224,9 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 if attachment.media.media:
                     media_list.append(attachment.media.media)
                 if attachment.media.preview:
+                    # Stamp preview media so downstream Stash tagging
+                    # ("Trailer") can detect it.
+                    attachment.media.preview.is_preview = True
                     media_list.append(attachment.media.preview)
 
             # Media bundles
@@ -247,16 +236,15 @@ class ContentProcessingMixin(StashProcessingProtocol):
                         if account_media.media:
                             media_list.append(account_media.media)
                         if account_media.preview:
+                            account_media.preview.is_preview = True
                             media_list.append(account_media.preview)
 
                 if attachment.bundle.preview:
+                    attachment.bundle.preview.is_preview = True
                     media_list.append(attachment.bundle.preview)
 
             # Aggregated posts (recursively collect media)
-            if (
-                getattr(attachment, "is_aggregated_post", False)
-                and attachment.aggregated_post
-            ):
+            if attachment.is_aggregated_post and attachment.aggregated_post:
                 agg_post = attachment.aggregated_post
                 if agg_post.attachments:
                     agg_media = await self._collect_media_from_attachments(
@@ -265,73 +253,3 @@ class ContentProcessingMixin(StashProcessingProtocol):
                     media_list.extend(agg_media)
 
         return media_list
-
-    async def _process_items_with_gallery(
-        self,
-        account: Account,
-        performer: Performer,
-        studio: Studio | None,
-        item_type: str,
-        items: list[Message | Post],
-        url_pattern_func: callable,
-    ) -> None:
-        """Process items (posts or messages) with gallery.
-
-        Args:
-            account: The Account object
-            performer: The Performer object
-            studio: Optional Studio object
-            item_type: Type of item being processed ("post" or "message")
-            items: List of items to process
-            url_pattern_func: Function to generate URLs for items
-        """
-        debug_print(
-            {
-                "method": f"StashProcessing - process_creator_{item_type}s",
-                "state": "entry",
-                "count": len(items),
-            }
-        )
-
-        for item in items:
-            attachment_count = len(item.attachments) if item.attachments else 0
-
-            try:
-                debug_print(
-                    {
-                        "method": f"StashProcessing - process_creator_{item_type}s",
-                        "status": f"processing_{item_type}",
-                        f"{item_type}_id": item.id,
-                        "attachment_count": attachment_count,
-                    }
-                )
-                await self._process_item_gallery(
-                    item=item,
-                    account=account,
-                    performer=performer,
-                    studio=studio,
-                    item_type=item_type,
-                    url_pattern=url_pattern_func(item),
-                )
-                debug_print(
-                    {
-                        "method": f"StashProcessing - process_creator_{item_type}s",
-                        "status": f"{item_type}_processed",
-                        f"{item_type}_id": item.id,
-                        "attachment_count": attachment_count,
-                    }
-                )
-            except Exception as e:
-                print_error(f"Failed to process {item_type} {item.id}: {e}")
-                logger.exception(f"Failed to process {item_type} {item.id}", exc_info=e)
-                debug_print(
-                    {
-                        "method": f"StashProcessing - process_creator_{item_type}s",
-                        "status": f"{item_type}_processing_failed",
-                        f"{item_type}_id": item.id,
-                        "attachment_count": attachment_count,
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
-                )
-                continue

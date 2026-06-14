@@ -19,7 +19,11 @@ from tests.fixtures import (
     create_gallery_dict,
     create_graphql_response,
 )
-from tests.fixtures.stash.stash_api_fixtures import assert_op, assert_op_with_vars
+from tests.fixtures.stash.stash_api_fixtures import (
+    assert_op,
+    assert_op_with_vars,
+    dump_graphql_calls,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -55,7 +59,10 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_found")
 
         # Verify gallery was found
         assert gallery is not None
@@ -84,7 +91,12 @@ class TestGalleryLookup:
             side_effect=[]  # Empty list catches any unexpected call
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "get_gallery_by_stash_id_no_stash_id"
+            )
 
         # Verify no gallery returned
         assert gallery is None
@@ -113,7 +125,10 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_not_found")
 
         # Verify no gallery returned
         assert gallery is None
@@ -191,9 +206,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_title(
-            post_obj, "Test Title", studio
-        )
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_title(
+                post_obj, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_found")
 
         # Verify gallery was found
         assert gallery is not None
@@ -239,9 +257,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_title(
-            post_obj, "Test Title", studio
-        )
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_title(
+                post_obj, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_not_found")
 
         # Verify no gallery returned
         assert gallery is None
@@ -318,9 +339,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_title(
-            post_obj, "Test Title", studio
-        )
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_title(
+                post_obj, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_wrong_date")
 
         # Verify no match (wrong date)
         assert gallery is None
@@ -394,9 +418,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_title(
-            post_obj, "Test Title", studio
-        )
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_title(
+                post_obj, "Test Title", studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_wrong_studio")
 
         # Verify no match (wrong studio)
         assert gallery is None
@@ -469,9 +496,12 @@ class TestGalleryLookup:
         )
 
         # Call without studio parameter
-        gallery = await respx_stash_processor._get_gallery_by_title(
-            post_obj, "Test Title", None
-        )
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_title(
+                post_obj, "Test Title", None
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_no_studio")
 
         # Verify gallery matches (no studio check)
         assert gallery is not None
@@ -510,7 +540,10 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_found")
 
         # Verify gallery was found
         assert gallery is not None
@@ -550,7 +583,10 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_not_found")
 
         # Verify no gallery returned
         assert gallery is None
@@ -589,7 +625,10 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_wrong_code")
 
         # Verify no match (wrong code)
         assert gallery is None
@@ -663,7 +702,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_url(
+                post_obj, test_url
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_found")
 
         # Verify gallery was found
         assert gallery is not None
@@ -708,7 +752,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_url(
+                post_obj, test_url
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_not_found")
 
         # Verify no gallery returned
         assert gallery is None
@@ -769,7 +818,12 @@ class TestGalleryLookup:
             ]
         )
 
-        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+        try:
+            gallery = await respx_stash_processor._get_gallery_by_url(
+                post_obj, test_url
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_wrong_url")
 
         # Verify no match (wrong URL)
         assert gallery is None

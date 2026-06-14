@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from stash_graphql_client.types import Image, Scene, Tag
-from stash_graphql_client.types.base import is_set
+from stash_graphql_client.types import Image, Scene, Tag, is_set
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
@@ -31,7 +30,7 @@ class TagProcessingMixin(StashProcessingProtocol):
         name_lower = name.lower()
         results = self.store.filter(
             Tag,
-            lambda t: (
+            lambda t: bool(
                 (is_set(t.name) and t.name and t.name.lower() == name_lower)
                 or (
                     is_set(t.aliases)
@@ -104,7 +103,7 @@ class TagProcessingMixin(StashProcessingProtocol):
 
             valid_tags = []
             for i, tag_or_exc in enumerate(tags):
-                if isinstance(tag_or_exc, Exception):
+                if isinstance(tag_or_exc, BaseException):
                     logger.warning(
                         f"Failed to get/create tag '{tag_names[i]}': {tag_or_exc}"
                     )

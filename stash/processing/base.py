@@ -7,9 +7,9 @@ import contextlib
 import logging
 import traceback
 import warnings
-from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Any
 
 from stash_graphql_client import ServerCapabilities, StashContext
@@ -20,16 +20,16 @@ from stash_graphql_client.errors import (
 )
 from stash_graphql_client.store import StashEntityStore
 from stash_graphql_client.types import (
+    BaseFile,
     Gallery,
     Image,
     Performer,
     Scene,
+    SceneCreateInput,
     Studio,
     Tag,
-    is_set,
 )
 
-from fileio.normalize import get_id_from_filename
 from metadata import Account, Database
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
@@ -40,8 +40,11 @@ from .protocols import StashProcessingProtocol
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
+
     from config import FanslyConfig
     from download.core import DownloadState
+    from metadata import Media, Message, Post
 
 
 class StashProcessingBase(StashProcessingProtocol):
@@ -65,20 +68,18 @@ class StashProcessingBase(StashProcessingProtocol):
     config: FanslyConfig
     state: DownloadState
     context: StashContext
-    database: Database
+    database: Database | None
     _account: Account | None
     _performer: Performer | None
     _studio: Studio | None
     _stash_parent_task: str | None
-    _scene_code_index: dict[str, list[str]]
-    _image_code_index: dict[str, list[str]]
 
     def __init__(
         self,
         config: FanslyConfig,
         state: DownloadState,
         context: StashContext,
-        database: Database,
+        database: Database | None,
         _background_task: asyncio.Task | None = None,
         _cleanup_event: asyncio.Event | None = None,
         _owns_db: bool = False,
@@ -109,10 +110,6 @@ class StashProcessingBase(StashProcessingProtocol):
         self._studio: Studio | None = None
         self._stash_parent_task: str | None = None
 
-        # Media code indexes — filename pattern: {date}_at_{time}_UTC_id_{media_id}.{ext}
-        self._scene_code_index: dict[str, list[str]] = defaultdict(list)
-        self._image_code_index: dict[str, list[str]] = defaultdict(list)
-
     @property
     def store(self) -> StashEntityStore:
         """Convenient access to Stash entity store.
@@ -141,125 +138,6 @@ class StashProcessingBase(StashProcessingProtocol):
         """
         for entity_type in (Performer, Tag, Studio, Gallery, Image, Scene):
             self.store.set_ttl(entity_type, None)
-
-    async def _preload_creator_media(self) -> None:
-        """Preload Scenes/Images for the current creator into the code indexes."""
-        if not self.state.base_path:
-            logger.debug("No base_path set, skipping creator media preload")
-            return
-
-        self._scene_code_index.clear()
-        self._image_code_index.clear()
-
-        await self._preload_creator_media_by_path()
-
-        logger.info(
-            f"Built media code indexes: {len(self._scene_code_index)} scene codes, "
-            f"{len(self._image_code_index)} image codes"
-        )
-
-        stats = self.store.cache_stats()
-        logger.info(
-            f"Cache after creator preload: {stats.total_entries} entries "
-            f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
-        )
-
-    async def _preload_creator_media_by_path(self) -> None:
-        """Path-scoped preload pass — queries Stash by translated base_path."""
-        if not self.state.base_path:
-            return
-
-        path_filter = get_stash_path(self.state.base_path, self.config).rstrip("/")
-        logger.info(f"Path-scoped preload from: {path_filter}")
-
-        try:
-            scene_count = 0
-            async for scene in self.store.find_iter(
-                Scene, query_batch=500, path__contains=path_filter
-            ):
-                scene_count += 1
-                self._index_scene_files(scene)
-
-            image_count = 0
-            async for image in self.store.find_iter(
-                Image, query_batch=500, path__contains=path_filter
-            ):
-                image_count += 1
-                self._index_image_files(image)
-
-            logger.info(
-                f"Path-scoped preload: {scene_count} scenes, {image_count} images"
-            )
-        except Exception as e:
-            logger.warning(f"Path-scoped preload failed (continuing anyway): {e}")
-
-    def _index_scene_files(self, scene: Scene) -> None:
-        """Index a scene's files by media code."""
-        if not is_set(scene.files) or not scene.files:
-            return
-        for f in scene.files:
-            if is_set(f.path) and f.path:
-                media_id, _ = get_id_from_filename(f.path)
-                if media_id is not None:
-                    self._scene_code_index[str(media_id)].append(scene.id)
-
-    def _index_image_files(self, image: Image) -> None:
-        """Index an image's visual files by media code."""
-        if not is_set(image.visual_files) or not image.visual_files:
-            return
-        for f in image.visual_files:
-            if is_set(f.path) and f.path:
-                media_id, _ = get_id_from_filename(f.path)
-                if media_id is not None:
-                    self._image_code_index[str(media_id)].append(image.id)
-
-    async def find_scenes_by_media_codes(
-        self, media_codes: list[str]
-    ) -> dict[str, list[Scene]]:
-        """Find scenes by media code."""
-        all_ids: set[str] = set()
-        code_to_ids: dict[str, list[str]] = {}
-        for code in media_codes:
-            ids = self._scene_code_index.get(code, [])
-            if not ids:
-                continue
-            unique_ids = list(dict.fromkeys(ids))
-            code_to_ids[code] = unique_ids
-            all_ids.update(unique_ids)
-
-        if not all_ids:
-            return {}
-
-        scenes = await self.store.get_many(Scene, list(all_ids))
-        by_id: dict[str, Scene] = {s.id: s for s in scenes if s is not None}
-        return {
-            code: [by_id[i] for i in ids if i in by_id]
-            for code, ids in code_to_ids.items()
-        }
-
-    async def find_images_by_media_codes(
-        self, media_codes: list[str]
-    ) -> dict[str, list[Image]]:
-        """Find images by media code."""
-        all_ids: set[str] = set()
-        code_to_ids: dict[str, list[str]] = {}
-        for code in media_codes:
-            ids = self._image_code_index.get(code, [])
-            if not ids:
-                continue
-            unique_ids = list(dict.fromkeys(ids))
-            code_to_ids[code] = unique_ids
-            all_ids.update(unique_ids)
-
-        if not all_ids:
-            return {}
-
-        images = await self.store.get_many(Image, list(all_ids))
-        by_id: dict[str, Image] = {i.id: i for i in images if i is not None}
-        return {
-            code: [by_id[i] for i in ids if i in by_id]
-            for code, ids in code_to_ids.items()
-        }
 
     @classmethod
     def from_config(
@@ -292,8 +170,14 @@ class StashProcessingBase(StashProcessingProtocol):
         )
         return instance
 
-    async def scan_creator_folder(self) -> None:
-        """Scan the creator's folder for media files."""
+    async def scan_creator_folder(self, paths: list[str] | None = None) -> None:
+        """Scan creator media into Stash, then settle before reads.
+
+        Args:
+            paths: Stash-visible paths to scan. Defaults to the creator's
+                whole folder; the incremental path passes the exact
+                just-downloaded file paths so Stash only re-indexes those.
+        """
         if not self.state.base_path:
             print_info("No download path set, attempting to create one...")
             try:
@@ -320,9 +204,10 @@ class StashProcessingBase(StashProcessingProtocol):
             "scanGenerateThumbnails": True,
             "scanGenerateClipPreviews": True,
         }
+        scan_paths = paths or [get_stash_path(self.state.base_path, self.config)]
         try:
             job_id = await self.context.client.metadata_scan(
-                paths=[get_stash_path(self.state.base_path, self.config)],
+                paths=scan_paths,
                 flags=flags,
             )
             print_info(f"Metadata scan job ID: {job_id}")
@@ -330,38 +215,51 @@ class StashProcessingBase(StashProcessingProtocol):
             finished_job = False
             while not finished_job:
                 try:
-                    finished_job = await self.context.client.wait_for_job(job_id)
+                    finished_job = bool(await self.context.client.wait_for_job(job_id))
                 except Exception:
                     finished_job = False
+
+            # The job-FINISHED signal can precede Stash's index commit; settle
+            # before any File/Scene/Image read-back.
+            if self.config.stash_scan_settle_s:
+                await asyncio.sleep(self.config.stash_scan_settle_s)
         except (RuntimeError, ValueError) as e:
             # ValueError catches the lib's own failure shape:
             # stash_graphql_client's ``metadata_scan`` raises
             # ``ValueError("Failed to start metadata scan: ...")``
             raise RuntimeError(f"Failed to process metadata: {e}") from e
 
-    async def start_creator_processing(self) -> None:
-        """Start processing creator metadata.
+    def _configure_scene_creation_guard(self) -> None:
+        """Enable Scene creation (the split's create path) only when the user
+        explicitly opted in via ``stash_enable_scene_split is True``.
 
-        This method:
-        1. Checks if StashContext is configured
-        2. Scans the creator folder
-        3. Processes the creator metadata
-        4. Continues processing in the background
+        SGC blocks ``Scene`` creation unless ``Scene.__create_input_type__`` is
+        set. We set it process-globally for the True mode only; ``"dry-run"`` and
+        ``False`` leave it unset, so a stray new-Scene save raises — a backstop
+        against accidental writes in non-split modes.
+        """
+        if self.config.stash_enable_scene_split is True:
+            Scene.__create_input_type__ = SceneCreateInput
+
+    async def _connect_stash(self) -> bool:
+        """Connect the Stash client and prepare guards + preload.
+
+        Returns False (after logging) when Stash is unconfigured or the server
+        is too old / missing a capability — the caller then skips processing.
         """
         if self.config.stash_context_conn is None:
             print_warning(
                 "StashContext is not configured. Skipping metadata processing."
             )
-            return
+            return False
 
-        # Initialize Stash client
         logger.debug(f"Initializing client on context {id(self.context)}")
         try:
             await self.context.get_client()
         except StashVersionError as e:
             print_error(f"Stash server too old: {e}")
             print_warning("Minimum required: Stash v0.30.0 (appSchema 75)")
-            return
+            return False
         except StashCapabilityError as e:
             # SGC 0.12.2+ raises this distinct from StashVersionError when a
             # per-feature appSchema gate fails at use time. get_client() itself
@@ -369,10 +267,10 @@ class StashProcessingBase(StashProcessingProtocol):
             # against future SGC versions that may surface capability checks
             # earlier in the connect path.
             print_error(f"Stash server missing required capability: {e}")
-            return
+            return False
         except RuntimeError as e:
             print_error(f"Failed to initialize Stash client: {e}")
-            return
+            return False
         logger.debug("Client initialized, proceeding with scan")
 
         # Surface v0.11 deprecation/unmapped field warnings in logs
@@ -381,12 +279,16 @@ class StashProcessingBase(StashProcessingProtocol):
         )
         warnings.filterwarnings("always", category=StashUnmappedFieldWarning)
 
+        self._configure_scene_creation_guard()
         await self._preload_stash_entities()
+        return True
 
-        # _preload_creator_media() must run AFTER scan_creator_folder()
-        # so it can index the files the scan discovers.
+    async def start_creator_processing(self) -> None:
+        """Connect, scan the creator folder, then process metadata in background."""
+        if not await self._connect_stash():
+            return
+
         await self.scan_creator_folder()
-        await self._preload_creator_media()
         account, performer = await self.process_creator()
 
         loop = asyncio.get_running_loop()
@@ -497,9 +399,8 @@ class StashProcessingBase(StashProcessingProtocol):
                 own_tasks = [
                     task
                     for task in background_tasks
-                    if task.get_coro().__qualname__.startswith(
-                        self.__class__.__module__
-                    )
+                    if (coro := task.get_coro()) is not None
+                    and coro.__qualname__.startswith(self.__class__.__module__)
                 ]
 
                 # Cancel own tasks
@@ -564,3 +465,72 @@ class StashProcessingBase(StashProcessingProtocol):
             title = f"{title} - {current_pos}/{total_media}"
 
         return title
+
+    async def _build_media_index(
+        self, items: Sequence[Post | Message]
+    ) -> dict[str, tuple[Media, list[Post | Message]]]:
+        """Map each downloaded file's leaf -> (Media, owning items).
+
+        Keyed on PurePath(local_filename).name (the leaf) so a swept Stash file
+        matches by basename. Includes variants (each has its own local_filename).
+        A Media shared across items carries every owner (earliest first, by id):
+        its adjudicated entity joins all their galleries, and the earliest owner
+        is canonical for the entity's own metadata. A leaf claimed by a DIFFERENT
+        Media is a collision — keep the first, warn.
+        """
+        index: dict[str, tuple[Media, list[Post | Message]]] = {}
+        for item in items:
+            media_list = await self._collect_media_from_attachments(
+                item.attachments or []
+            )
+            for media in media_list:
+                for m in (media, *(media.variants or [])):
+                    if m.local_filename:
+                        self._register_in_media_index(index, m, item)
+        for _media, owners in index.values():
+            owners.sort(key=lambda owner: owner.id or 0)
+        return index
+
+    @staticmethod
+    def _register_in_media_index(
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        media: Media,
+        item: Post | Message,
+    ) -> None:
+        """Record media under its leaf, fanning shared media to every owner.
+
+        First writer for a leaf wins the Media; a later same-Media item is
+        appended as an additional owner; a later DIFFERENT Media is a collision
+        (kept out, logged).
+        """
+        if media.local_filename is None:
+            # Caller (_build_media_index) only registers media with a filename.
+            raise ValueError(f"media {media.id} has no local_filename; cannot index.")
+        leaf = PurePath(media.local_filename).name
+        existing = index.get(leaf)
+        if existing is None:
+            index[leaf] = (media, [item])
+            return
+        existing_media, owners = existing
+        if existing_media is not media:
+            logger.warning(
+                f"Media-index leaf collision on {leaf!r}: media "
+                f"{existing_media.id} already claims it; ignoring media {media.id}."
+            )
+            return
+        if all(owner.id != item.id for owner in owners):
+            owners.append(item)
+
+    async def _sweep_creator_files(self) -> AsyncIterator[BaseFile]:
+        """Stream every Stash file under the creator's (Stash-visible) root.
+
+        Polymorphic: yields VideoFile / ImageFile / GalleryFile / BasicFile with
+        reverse fields populated on a capable server (resolve-on-demand otherwise).
+        """
+        if not self.state.base_path:
+            return
+        root = get_stash_path(self.state.base_path, self.config).rstrip("/")
+        # Trailing sep anchors the scope: a bare 'root' substring would also pull
+        # a sibling creator '/dl/annabelle/...' into '/dl/anna's sweep.
+        async for file in self.store.find_iter(BaseFile, path__contains=root + "/"):
+            yield file
