@@ -216,13 +216,6 @@
                   <li class="toctree-l1"><a class="reference internal" href="../request-signing/">Request Signing</a>
                   </li>
               </ul>
-              <p class="caption"><span class="caption-text">Planning</span></p>
-              <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
-                  </li>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
-                  </li>
-              </ul>
               <p class="caption"><span class="caption-text">Testing</span></p>
               <ul>
                   <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
@@ -685,7 +678,7 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 <ul>
 <li><code>1</code> = Delivered (message reached recipient's client)</li>
 <li><code>2</code> = Read (recipient opened/viewed the message)</li>
-<li><code>3</code> = Observed once (1/44 ackCommand samples), fired immediately after a welcome-PPV DM arrived while the operator was active in the thread. Hypothesis: "delivered-while-foregrounded" — needs more samples to confirm.</li>
+<li><code>3</code> = <strong>Delivered + read in a single ACK</strong> — fires when the recipient has the thread foregrounded at send time, so delivery and read collapse into one event instead of the usual <code>1</code>-then-<code>2</code> progression. Corroborated across two independent captures: first 1/44 samples (welcome-PPV DM, operator active in the thread); then 4 more samples on 2026-06-09 during a live back-and-forth, each firing ~3-4s after its message. One of the four was emitted by the <em>creator's</em> client acking the <em>operator's</em> message, confirming it fires for whichever party is foregrounded, not just the operator. Contrast in the same capture: a backgrounded message took <code>type=1</code> at +4s (delivered) then a separate <code>type=2</code> at +42min (read). Semantics inferred from timing plus the operator's firsthand "thread was open" observation, not a protocol spec — but two captures now agree.</li>
 </ul>
 <p>Fields: <code>groupId</code>, <code>messageIds[]</code>, <code>userId</code>, <code>userReadReceiptsEnabled</code>, <code>recipients[]</code>.</p>
 <p><code>userId</code> is the party <strong>whose client emitted the ACK</strong> — i.e., the <em>receiver</em> of the messages in <code>messageIds[]</code>, not the sender. <code>userId == self</code> means self read/received a message from the other party; <code>userId != self</code> means the other party read/received a message self sent (Fansly fans these back to the sender's WS for delivery/read-indicator UX). Daemon dispatch keys off the message-creation event <code>(5, 1)</code> rather than these ACKs; the <code>userId</code> discrimination matters mainly for analytics or anti-detection symmetry, not content archiving.</p>

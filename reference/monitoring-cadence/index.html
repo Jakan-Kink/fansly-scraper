@@ -116,13 +116,6 @@
                   <li class="toctree-l1"><a class="reference internal" href="../request-signing/">Request Signing</a>
                   </li>
               </ul>
-              <p class="caption"><span class="caption-text">Planning</span></p>
-              <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
-                  </li>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
-                  </li>
-              </ul>
               <p class="caption"><span class="caption-text">Testing</span></p>
               <ul>
                   <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
@@ -172,9 +165,8 @@
 <p>Reference data for the post-batch monitoring daemon (v0.13+). Intervals
 below are derived from analysis of Fansly's own frontend code in <code>main.js</code>
 — the daemon matches these cadences to minimize detection surface.</p>
-<p>See <a href="../../planning/monitoring-daemon-architecture/"><code>docs/planning/monitoring-daemon-architecture.md</code></a>
-for the overall daemon architecture. This page documents the <em>why</em> behind
-the intervals and the signals the daemon uses (and deliberately avoids).</p>
+<p>This page documents the <em>why</em> behind the intervals and the signals the
+daemon uses (and deliberately avoids).</p>
 <h2 id="polling-interval-reference">Polling Interval Reference<a class="headerlink" href="#polling-interval-reference" title="Permanent link">&para;</a></h2>
 <p>Fansly's frontend uses a three-tier visibility model (active tab, idle,
 hidden) with different poll cadences for each resource. The daemon matches

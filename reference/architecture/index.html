@@ -166,13 +166,6 @@
                   <li class="toctree-l1"><a class="reference internal" href="../request-signing/">Request Signing</a>
                   </li>
               </ul>
-              <p class="caption"><span class="caption-text">Planning</span></p>
-              <ul>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/monitoring-daemon-architecture/">Monitoring Daemon Architecture</a>
-                  </li>
-                  <li class="toctree-l1"><a class="reference internal" href="../../planning/STASH_ORM_MIGRATION_GUIDE/">Stash ORM Migration Guide</a>
-                  </li>
-              </ul>
               <p class="caption"><span class="caption-text">Testing</span></p>
               <ul>
                   <li class="toctree-l1"><a class="reference internal" href="../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
@@ -476,9 +469,9 @@ cycles:</p>
   <code>stash-graphql-client</code>'s public API.</li>
 <li>The SGC v0.12 batched-mutation work (<code>save_batch</code>,
   <code>execute_batch</code>, <code>save_all</code>) was motivated in part by profiling this
-  project's per-creator Stash push workload; adoption in
-  fansly-downloader-ng is tracked in the
-  <a href="../../planning/STASH_ORM_MIGRATION_GUIDE/#phase-4-advanced-features">Stash ORM Migration Guide Phase 4</a>.</li>
+  project's per-creator Stash push workload, and is now adopted here —
+  the file-first sweep accumulates mutations in the identity map and
+  flushes once via <code>store.save_all()</code>.</li>
 </ul>
 <p>If you're learning one store's API, the other's will feel familiar —
 aside from the backend-specific operators (GraphQL filter types vs.
@@ -547,9 +540,9 @@ workflows for pushing Fansly metadata into Stash:</p>
 <li>StashClient itself (22 entity-specific mixins) is in the external
   package</li>
 </ul>
-<p>See <a href="../../planning/STASH_ORM_MIGRATION_GUIDE/#phase-4-advanced-features"><code>docs/planning/STASH_ORM_MIGRATION_GUIDE.md</code></a>
-for the planned migration to SGC v0.12's batched mutations,
-<code>__side_mutations__</code> mechanism, and ActiveRecord-style relationship DSL.</p>
+<p>The Stash processing layer uses SGC v0.12's batched mutations
+(<code>save_all</code>), the <code>__side_mutations__</code> mechanism, and the
+ActiveRecord-style relationship DSL (<code>belongs_to</code> / <code>habtm</code> / <code>has_many</code>).</p>
 <h2 id="deduplication-system">Deduplication System<a class="headerlink" href="#deduplication-system" title="Permanent link">&para;</a></h2>
 <h3 id="current-database-stored-content-hash">Current: database-stored content hash<a class="headerlink" href="#current-database-stored-content-hash" title="Permanent link">&para;</a></h3>
 <ul>
