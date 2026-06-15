@@ -329,7 +329,7 @@ files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "sys_platform == \"win32\"", dev = "sys_platform == \"win32\" or platform_system == \"Windows\"", test = "sys_platform == \"win32\""}
+markers = {main = "sys_platform == \"win32\"", dev = "platform_system == \"Windows\" or sys_platform == \"win32\"", test = "sys_platform == \"win32\""}
 
 [[package]]
 name = "coverage"
@@ -3543,14 +3543,14 @@ markers = {main = "sys_platform == \"win32\"", test = "platform_system == \"Wind
 
 [[package]]
 name = "ua-generator"
-version = "2.1.1"
+version = "2.1.2"
 description = "A random user-agent generator"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "ua_generator-2.1.1-py3-none-any.whl", hash = "sha256:d8fd6e39e44dc057dd232d5f808fe0f61dab4a3163903cfe24446777ecdd2ec4"},
-    {file = "ua_generator-2.1.1.tar.gz", hash = "sha256:c01984c1055da4900c8a1f4c419f229fa454caf42d8642267aec1904110d1c8d"},
+    {file = "ua_generator-2.1.2-py3-none-any.whl", hash = "sha256:18a52f4bebdc43963defb071cd66a2a68f84607767403d425a9fcf7542aeb727"},
+    {file = "ua_generator-2.1.2.tar.gz", hash = "sha256:f28c8050461cce6fb209acb861a8d65bab84654842e546a6b4a4b07fb220865b"},
 ]
 
 [[package]]
@@ -3878,4 +3878,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "0d673b2fc1caef2339cbd58f29e19298438a97cbe05c8108cc5a8e9194a39a4f"
+content-hash = "c27374fe2c7b3150c5a963c09e1f2fe2a6e8e3db3524669c695febaf986d15f6"
