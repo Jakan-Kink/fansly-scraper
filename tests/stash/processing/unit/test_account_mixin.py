@@ -14,6 +14,7 @@ from PIL import Image
 from stash_graphql_client.types import Image as SGCImage
 from stash_graphql_client.types import Performer
 
+from metadata import PostMention
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
@@ -352,6 +353,61 @@ class TestAccountProcessingMixin:
         # Verify performer was found by username
         assert performer.id == "999"
         assert performer.name == "test_user"
+        assert graphql_route.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "make_entity",
+        [
+            pytest.param(
+                lambda: AccountFactory.build(
+                    id=snowflake_id(), username="dual_user", stash_id=None
+                ),
+                id="account_by_username",
+            ),
+            pytest.param(
+                lambda: PostMention(
+                    id=snowflake_id(), postId=snowflake_id(), handle="dual_user"
+                ),
+                id="postmention_by_handle",
+            ),
+        ],
+    )
+    async def test_find_existing_performer_accepts_account_and_postmention(
+        self, respx_stash_processor, make_entity
+    ):
+        """Both arms of the ``Account | PostMention`` param resolve a performer.
+
+        Account resolves via ``username``, PostMention via ``handle`` (the
+        isinstance-narrowed branch). One backing name lets a single
+        findPerformers mock serve either type. Guards against re-narrowing the
+        param back to ``Account`` (which would drop the mention path).
+        """
+        entity = make_entity()
+        await respx_stash_processor.context.get_client()
+
+        performer_dict = create_performer_dict(id="999", name="dual_user")
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 1, "performers": [performer_dict]},
+                    ),
+                ),
+            ]
+        )
+
+        try:
+            performer = await respx_stash_processor._find_existing_performer(entity)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_dual_type"
+            )
+
+        assert performer is not None
+        assert performer.name == "dual_user"
         assert graphql_route.call_count == 1
 
     @pytest.mark.asyncio

@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, SecretStr
 from stash_graphql_client import StashClient, StashContext
@@ -147,7 +147,7 @@ class FanslyConfig:
     pg_host: str = "localhost"
     pg_port: int = 5432
     pg_database: str = "fansly_metadata"
-    pg_user: str = "fansly_user"
+    pg_user: str | None = "fansly_user"
     pg_password: str | None = None  # Prefer using FANSLY_PG_PASSWORD env var
 
     # PostgreSQL SSL/TLS settings
@@ -222,7 +222,7 @@ class FanslyConfig:
     stash_mapped_path: Path | None = None
     stash_override_dldir_w_mapped: bool = False
     stash_require_stash_only_mode: bool = False
-    stash_enable_scene_split: bool | str = False
+    stash_enable_scene_split: bool | Literal["dry-run"] = False
     stash_scan_settle_s: float = 3.5
 
     # Logging
@@ -269,7 +269,7 @@ class FanslyConfig:
 
                 # Empty token when invalid/missing; the real unscrambled token
                 # otherwise.
-                api_token = token if self.token_is_valid() else ""
+                api_token = (token or "") if self.token_is_valid() else ""
 
                 from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
 

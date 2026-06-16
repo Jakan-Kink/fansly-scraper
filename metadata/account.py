@@ -38,8 +38,9 @@ async def process_media_bundles_data(
         return
 
     account_id = None
-    if data.get("messages") or data.get("posts"):
-        first_item = (data.get("messages") or data.get("posts"))[0]
+    items = data.get("messages") or data.get("posts")
+    if items:
+        first_item = items[0]
         for field in id_fields:
             if account_id := first_item.get(field):
                 break
@@ -231,4 +232,5 @@ async def process_account_data(
         )
 
     # Remove stub tracking
-    await remove_stub("accounts", account.id)
+    if account.id is not None:
+        await remove_stub("accounts", account.id)

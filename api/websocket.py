@@ -21,6 +21,7 @@ from collections.abc import Callable
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any
 
+from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosedOK, WebSocketException
 
@@ -150,7 +151,7 @@ class _ChildWebSocket:
         self.session_id: str | None = None
         self.websocket_session_id: str | None = None
         self.account_id: str | None = None
-        self.websocket = None
+        self.websocket: ClientConnection | None = None
         self._ping_task: asyncio.Task | None = None
         # Signalled by the subprocess supervisor on shutdown request.
         # _maintain_connection and ping_worker check .is_set() to exit
@@ -216,9 +217,9 @@ class _ChildWebSocket:
         jar = self.http_client.cookies.jar
         try:
             with jar._cookies_lock:  # type: ignore[attr-defined]
-                return {c.name: c.value for c in jar}
+                return {c.name: c.value for c in jar if c.value is not None}
         except AttributeError:
-            return {c.name: c.value for c in list(jar)}
+            return {c.name: c.value for c in list(jar) if c.value is not None}
 
     def _create_cookie_header(self) -> str:
         """Create Cookie header from the current cookie snapshot.
@@ -1077,7 +1078,7 @@ class FanslyWebSocket:
         on_unauthorized: Callable[[], Any] | None = None,
         on_rate_limited: Callable[[], Any] | None = None,
         base_url: str | None = None,
-        http_client: httpx.Client | None = None,
+        http_client: httpx.AsyncClient | httpx.Client | None = None,
     ) -> None:
         self.token = token
         self.user_agent = user_agent
@@ -1312,7 +1313,9 @@ class FanslyWebSocket:
     def _snapshot_cookies(self) -> dict[str, str]:
         if self.http_client is None:
             return dict(self.cookies)
-        return {c.name: c.value for c in self.http_client.cookies.jar}
+        return {
+            c.name: c.value for c in self.http_client.cookies.jar if c.value is not None
+        }
 
     def _send_cmd(self, cmd: dict[str, Any]) -> None:
         if self._cmd_q is None:

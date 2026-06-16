@@ -554,12 +554,14 @@ class PostgresEntityStore:
         if sort_spec:
             self._validate_order_by(model_type, sort_spec)
 
+        results: list[T]
         if model_type in self._fully_loaded:
             ids = self._type_index.get(model_type, set())
             results = [
-                obj  # type: ignore[misc]
+                obj
                 for eid in ids
                 if (obj := self._cache.get((model_type, eid))) is not None
+                and isinstance(obj, model_type)
                 and _matches_filters(obj, parsed)
             ]
             if sort_spec:
@@ -573,14 +575,14 @@ class PostgresEntityStore:
             order_by=sort_spec,
         )
         self._stats["find_pg_hits"] += len(rows)
-        results: list[T] = []
+        results = []
         for row in rows:
             obj = model_type.model_validate(
                 self._prepare_row_data(model_type, dict(row))
             )
             obj._is_new = False  # loaded from DB
             self._autolink_relationships(obj)
-            results.append(obj)  # type: ignore[arg-type]
+            results.append(obj)
         return results
 
     async def find_one(
@@ -604,9 +606,10 @@ class PostgresEntityStore:
             ids = self._type_index.get(model_type, set())
             if sort_spec:
                 matches = [
-                    obj  # type: ignore[misc]
+                    obj
                     for eid in ids
                     if (obj := self._cache.get((model_type, eid))) is not None
+                    and isinstance(obj, model_type)
                     and _matches_filters(obj, parsed)
                 ]
                 if not matches:
@@ -679,9 +682,10 @@ class PostgresEntityStore:
         if model_type in self._fully_loaded:
             ids = self._type_index.get(model_type, set())
             all_matches = [
-                obj  # type: ignore[misc]
+                obj
                 for eid in ids
                 if (obj := self._cache.get((model_type, eid))) is not None
+                and isinstance(obj, model_type)
                 and _matches_filters(obj, parsed)
             ]
             if sort_spec:
@@ -932,7 +936,7 @@ class PostgresEntityStore:
 
     async def _sync_associations(
         self,
-        conn: asyncpg.Connection,
+        conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
         obj: FanslyObject,
         only_fields: set[str] | None = None,
     ) -> None:
@@ -1561,10 +1565,10 @@ class PostgresEntityStore:
             reverse = direction is SortDirection.DESC
             results = sorted(
                 results,
-                key=lambda obj, c=col: (
+                key=lambda obj: (
                     # None-safe: sort None values last (ASC) or first (DESC)
-                    (0, getattr(obj, c, None))
-                    if getattr(obj, c, None) is not None
+                    (0, getattr(obj, col, None))
+                    if getattr(obj, col, None) is not None
                     else (1, None)
                 ),
                 reverse=reverse,

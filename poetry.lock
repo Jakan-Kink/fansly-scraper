@@ -3543,14 +3543,14 @@ markers = {main = "sys_platform == \"win32\"", test = "platform_system == \"Wind
 
 [[package]]
 name = "ua-generator"
-version = "2.1.1"
+version = "2.1.2"
 description = "A random user-agent generator"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "ua_generator-2.1.1-py3-none-any.whl", hash = "sha256:d8fd6e39e44dc057dd232d5f808fe0f61dab4a3163903cfe24446777ecdd2ec4"},
-    {file = "ua_generator-2.1.1.tar.gz", hash = "sha256:c01984c1055da4900c8a1f4c419f229fa454caf42d8642267aec1904110d1c8d"},
+    {file = "ua_generator-2.1.2-py3-none-any.whl", hash = "sha256:18a52f4bebdc43963defb071cd66a2a68f84607767403d425a9fcf7542aeb727"},
+    {file = "ua_generator-2.1.2.tar.gz", hash = "sha256:f28c8050461cce6fb209acb861a8d65bab84654842e546a6b4a4b07fb220865b"},
 ]
 
 [[package]]

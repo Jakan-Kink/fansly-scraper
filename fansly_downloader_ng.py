@@ -301,7 +301,10 @@ async def load_client_account_into_db(
             "main - client-account-data",
             response.json(),
         )
-        creator_dict = api.get_json_response_contents(response)[0]
+        accounts = api.get_json_response_contents(response)
+        if not isinstance(accounts, list):
+            raise TypeError("Fansly API: expected an accounts array response")
+        creator_dict = accounts[0]
     except Exception as e:
         print_error(f"Error getting client account info: {e}")
         print_error(f"Error getting client account info: {traceback.format_exc()}")
@@ -442,6 +445,10 @@ async def main(config: FanslyConfig) -> int:
                         subs_data = config.get_api().get_json_response_contents(
                             subs_response
                         )
+                        if not isinstance(subs_data, dict):
+                            raise RuntimeError(
+                                "Fansly API: expected a subscriptions object response"
+                            )
                         added = await process_subscriptions_response(subs_data)
                         if added:
                             print_info(

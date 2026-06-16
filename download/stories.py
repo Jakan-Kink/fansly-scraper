@@ -41,11 +41,14 @@ async def download_stories(
     """
     store = get_store()
 
+    if state.creator_id is None:
+        print_warning("Cannot check stories: no creator ID set.")
+        return
+
     # Early exit if we already know there are no active stories
-    if state.creator_id:
-        story_state = await store.get(MediaStoryState, state.creator_id)
-        if story_state and not story_state.hasActiveStories:
-            return
+    story_state = await store.get(MediaStoryState, state.creator_id)
+    if story_state and not story_state.hasActiveStories:
+        return
 
     print_info("Checking for active Stories...")
 
@@ -56,6 +59,8 @@ async def download_stories(
         response.raise_for_status()
 
         stories_response = config.get_api().get_json_response_contents(response)
+        if not isinstance(stories_response, dict):
+            raise TypeError("Fansly API: expected a stories object response")
         media_stories = stories_response.get("mediaStories", [])
 
         if not media_stories:

@@ -4,11 +4,13 @@ These tests use REAL database objects and EntityStore from fixtures.
 Only external calls (like hash calculation) are mocked using patch.
 """
 
+import io
 import re
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from loguru import logger as loguru_logger
 from PIL import Image
 
 from download.types import DownloadType
@@ -455,8 +457,18 @@ async def test_dedupe_init_full_pipeline(entity_store, config, tmp_path):
     )
     await store.save(no_name_media)
 
-    with patch("imagehash.phash", return_value="test_hash"):
-        await dedupe_init(config, state)
+    warning_sink = io.StringIO()
+    sink_id = loguru_logger.add(warning_sink, level="WARNING")
+    try:
+        with patch("imagehash.phash", return_value="test_hash"):
+            await dedupe_init(config, state)
+    finally:
+        loguru_logger.remove(sink_id)
+
+    # Regression: the hash-pool cleanup must not spuriously warn. It previously
+    # called pool.join(timeout=1.0) — multiprocessing.Pool.join takes no args,
+    # so it raised TypeError on every run, caught and logged as this warning.
+    assert "Error cleaning up process pool" not in warning_sink.getvalue()
 
     # DB cleanup happened
     updated_missing = await store.get(Media, missing_media.id)

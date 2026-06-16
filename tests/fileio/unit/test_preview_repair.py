@@ -173,6 +173,37 @@ async def test_safe_move_identical_unlinks_source(entity_store, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_safe_move_identical_reconciles_local_filename(entity_store, tmp_path):
+    """Identical-duplicate branch must repoint the record at the survivor.
+
+    The source file is unlinked as a byte-identical duplicate, so its content
+    now lives only at ``target``. The source Media's ``local_filename`` must be
+    updated to the surviving file and persisted; otherwise the DB record is
+    stranded pointing at a deleted file.
+    """
+    store = entity_store
+    acct_id = snowflake_id()
+    mid = snowflake_id()
+    await store.save(AccountFactory.build(id=acct_id))
+    src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
+    target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
+    src.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    src.write_bytes(b"identical")
+    target.write_bytes(b"identical")
+    await store.save(
+        MediaFactory.build(id=mid, accountId=acct_id, local_filename=src.name)
+    )
+
+    moved = await _safe_move(src, target, media_id=mid)
+
+    assert moved is None  # collision resolved on disk
+    assert not src.exists()  # source removed as duplicate
+    refreshed = await store.get(Media, mid)
+    assert refreshed.local_filename == target.name  # repointed at survivor
+
+
+@pytest.mark.asyncio
 async def test_safe_move_different_skips_and_keeps_both(entity_store, tmp_path):
     store = entity_store
     acct_id = snowflake_id()

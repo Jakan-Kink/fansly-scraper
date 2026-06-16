@@ -91,7 +91,11 @@ async def _safe_move(source: Path, target: Path, *, media_id: int) -> Path | Non
 
     if await asyncio.to_thread(target.exists):
         if await _files_identical(source, target):
+            # Byte-identical duplicate: the source content now lives only at
+            # target, so repoint the record at the survivor — not the file we
+            # just deleted — or the DB strands a Media on a nonexistent path.
             await asyncio.to_thread(source.unlink)
+            await _repoint_media(media_id, target.name)
         else:
             logger.warning(
                 f"preview_repair: target exists with different content, "
@@ -102,12 +106,26 @@ async def _safe_move(source: Path, target: Path, *, media_id: int) -> Path | Non
     await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
     await asyncio.to_thread(source.rename, target)
 
+    await _repoint_media(media_id, target.name)
+    return target
+
+
+async def _repoint_media(media_id: int, new_basename: str) -> None:
+    """Point a Media's ``local_filename`` at ``new_basename`` and persist it.
+
+    No-op (with a debug note) when the id has no Media record, so a file
+    operation without a matching DB row doesn't pass silently.
+    """
     store = get_store()
     media = await store.get(Media, media_id)
-    if media is not None:
-        media.local_filename = target.name
-        await store.save(media)
-    return target
+    if media is None:
+        logger.debug(
+            f"preview_repair: no Media for id={media_id}; "
+            f"local_filename not updated to {new_basename!r}"
+        )
+        return
+    media.local_filename = new_basename
+    await store.save(media)
 
 
 async def repair_preview_folder_items(

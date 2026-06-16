@@ -198,9 +198,20 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.pg_max_overflow = pg.pg_max_overflow
     config.pg_pool_timeout = pg.pg_pool_timeout
 
+    # cache/monitoring are guaranteed non-None by ConfigSchema's
+    # _instantiate_managed_optional_sections validator; bind to locals so the
+    # invariant is explicit and the section accesses below type-check.
+    cache = schema.cache
+    monitoring = schema.monitoring
+    if cache is None or monitoring is None:
+        raise RuntimeError(
+            "ConfigSchema.cache/monitoring must be instantiated "
+            "(see _instantiate_managed_optional_sections)"
+        )
+
     # --- Cache ---
-    config.cached_device_id = schema.cache.device_id
-    config.cached_device_id_timestamp = schema.cache.device_id_timestamp
+    config.cached_device_id = cache.device_id
+    config.cached_device_id_timestamp = cache.device_id_timestamp
 
     # --- Logging ---
     log = schema.logging
@@ -254,49 +265,37 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     # runs silently re-triggers a full pass on every invocation — the
     # regression this consume-and-reset heals.
     if config.monitoring_session_baseline is None:
-        config.monitoring_session_baseline = schema.monitoring.session_baseline
-    if schema.monitoring.session_baseline is not None:
-        schema.monitoring.session_baseline = None
+        config.monitoring_session_baseline = monitoring.session_baseline
+    if monitoring.session_baseline is not None:
+        monitoring.session_baseline = None
     # daemon_mode: only populate from schema if not already enabled via CLI
     if not config.daemon_mode:
-        config.daemon_mode = schema.monitoring.daemon_mode
+        config.daemon_mode = monitoring.daemon_mode
     # Daemon mode is non-interactive by definition — it runs unattended.
     if config.daemon_mode:
         config.interactive = False
     config.unrecoverable_error_timeout_seconds = (
-        schema.monitoring.unrecoverable_error_timeout_seconds
+        monitoring.unrecoverable_error_timeout_seconds
     )
-    config.monitoring_dashboard_enabled = schema.monitoring.dashboard_enabled
-    config.monitoring_active_duration_minutes = (
-        schema.monitoring.active_duration_minutes
-    )
-    config.monitoring_idle_duration_minutes = schema.monitoring.idle_duration_minutes
-    config.monitoring_hidden_duration_minutes = (
-        schema.monitoring.hidden_duration_minutes
-    )
+    config.monitoring_dashboard_enabled = monitoring.dashboard_enabled
+    config.monitoring_active_duration_minutes = monitoring.active_duration_minutes
+    config.monitoring_idle_duration_minutes = monitoring.idle_duration_minutes
+    config.monitoring_hidden_duration_minutes = monitoring.hidden_duration_minutes
     config.monitoring_timeline_poll_active_seconds = (
-        schema.monitoring.timeline_poll_active_seconds
+        monitoring.timeline_poll_active_seconds
     )
-    config.monitoring_timeline_poll_idle_seconds = (
-        schema.monitoring.timeline_poll_idle_seconds
-    )
-    config.monitoring_story_poll_active_seconds = (
-        schema.monitoring.story_poll_active_seconds
-    )
-    config.monitoring_story_poll_idle_seconds = (
-        schema.monitoring.story_poll_idle_seconds
-    )
-    config.monitoring_heartbeat_interval_minutes = (
-        schema.monitoring.heartbeat_interval_minutes
-    )
+    config.monitoring_timeline_poll_idle_seconds = monitoring.timeline_poll_idle_seconds
+    config.monitoring_story_poll_active_seconds = monitoring.story_poll_active_seconds
+    config.monitoring_story_poll_idle_seconds = monitoring.story_poll_idle_seconds
+    config.monitoring_heartbeat_interval_minutes = monitoring.heartbeat_interval_minutes
     config.monitoring_livestream_recording_enabled = (
-        schema.monitoring.livestream_recording_enabled
+        monitoring.livestream_recording_enabled
     )
     config.monitoring_livestream_poll_interval_seconds = (
-        schema.monitoring.livestream_poll_interval_seconds
+        monitoring.livestream_poll_interval_seconds
     )
     config.monitoring_livestream_manifest_poll_interval_seconds = (
-        schema.monitoring.livestream_manifest_poll_interval_seconds
+        monitoring.livestream_manifest_poll_interval_seconds
     )
 
     # --- StashContext (optional) ---

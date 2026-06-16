@@ -32,6 +32,8 @@ _spec = importlib.util.spec_from_file_location(
     "metadata_tables",
     Path(__file__).parent.parent / "metadata" / "tables.py",
 )
+if _spec is None or _spec.loader is None:
+    raise RuntimeError("Could not load metadata/tables.py for Alembic autogenerate")
 _tables_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_tables_mod)
 target_metadata = _tables_mod.metadata

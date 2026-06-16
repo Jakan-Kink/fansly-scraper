@@ -1,7 +1,7 @@
 """Common Utility Functions"""
 
 import webbrowser
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,7 @@ def parse_timestamp(v: Any) -> Any:
     return v
 
 
-def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
+def batch_list(input_list: Sequence[Any], batch_size: int) -> Iterable[list[Any]]:
     """Yield successive n-sized batches from input_list.
 
     :param input_list: An arbitrary list to split into equal-sized chunks.
@@ -47,7 +47,7 @@ def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
         )
 
     for i in range(0, len(input_list), batch_size):
-        yield input_list[i : i + batch_size]
+        yield list(input_list[i : i + batch_size])
 
 
 def is_valid_post_id(post_id: str) -> bool:

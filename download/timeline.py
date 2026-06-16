@@ -4,6 +4,7 @@ import traceback
 
 # from pprint import pprint
 from asyncio import sleep
+from collections.abc import Sequence
 
 from httpx import Response
 
@@ -63,7 +64,7 @@ async def process_timeline_data(
 async def process_timeline_media(
     config: FanslyConfig,
     state: DownloadState,
-    all_media_ids: list[str],
+    all_media_ids: Sequence[int | str],
 ) -> bool:
     """Process timeline media — fetch info and download accessible items.
 
@@ -148,14 +149,14 @@ async def download_timeline(
                 timeline = config.get_api().get_json_response_contents(
                     timeline_response
                 )
+                if not isinstance(timeline, dict):
+                    raise TypeError("Fansly API: expected a timeline object response")
 
                 # Probe must run before process_timeline_data populates the
                 # identity map, otherwise the cache check trivially succeeds.
                 if probe_pending and timeline_cursor == 0:
                     store = get_store()
-                    posts_on_page = (
-                        timeline.get("posts", []) if isinstance(timeline, dict) else []
-                    )
+                    posts_on_page = timeline.get("posts", [])
                     all_known = bool(posts_on_page) and all(
                         store.get_from_cache(Post, int(post["id"])) is not None
                         for post in posts_on_page
@@ -251,7 +252,6 @@ async def download_timeline(
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            e._handled = True
             break  # Break out of the loop to stop processing this timeline
 
         except Exception:

@@ -405,6 +405,7 @@ exclude = [
     "venv_test/",
     "alembic/versions/",
     "scripts/",
+    "db_init_scratch.py",
 ]
 
 # Keep these basic checks
@@ -437,6 +438,15 @@ ignore_errors = true
 # Skip scripts completely
 [[tool.mypy.overrides]]
 module = "scripts.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+follow_imports = "skip"
+ignore_errors = true
+
+# Skip the one-off db bootstrap script (PR-supplied, not production code)
+[[tool.mypy.overrides]]
+module = "db_init_scratch"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 check_untyped_defs = false

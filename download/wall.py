@@ -2,6 +2,7 @@
 
 import traceback
 from asyncio import sleep
+from collections.abc import Sequence
 from typing import Any
 
 from httpx import Response
@@ -66,7 +67,7 @@ async def process_wall_data(
 async def process_wall_media(
     config: FanslyConfig,
     state: DownloadState,
-    media_ids: list[str],
+    media_ids: Sequence[int | str],
 ) -> bool:
     """Process wall media — fetch info and download accessible items.
 
@@ -173,6 +174,8 @@ async def download_wall(
 
             if wall_response.status_code == 200:
                 wall_data = config.get_api().get_json_response_contents(wall_response)
+                if not isinstance(wall_data, dict):
+                    raise TypeError("Fansly API: expected a wall object response")
 
                 await process_wall_data(
                     config,
@@ -257,7 +260,6 @@ async def download_wall(
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            e._handled = True
             break  # Break out of the loop to stop processing this wall
 
         except Exception:

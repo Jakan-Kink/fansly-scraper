@@ -59,15 +59,14 @@ def get_qs_value(url: str, key: str, default: str | None = None) -> str | None:
     qs = parsed_url.query
     parsed_qs = parse_qs(qs)
 
-    result = parsed_qs.get(key, default)
+    if key not in parsed_qs:
+        return default
 
-    if result is default:
-        return result
-
-    if len(result) == 0:
+    values = parsed_qs[key]
+    if len(values) == 0:
         return None
 
-    return result[0]
+    return values[0]
 
 
 def get_flat_qs_dict(url: str) -> dict[str, str]:

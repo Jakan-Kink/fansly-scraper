@@ -902,7 +902,10 @@ def _mux_ivs_segments(  # noqa: PLR0911  # multiple early-exit paths for failure
                             packet.stream = output_video_stream
                             output.mux(packet)
                             seg_muxed_video += 1
-                        elif packet.stream is input_audio:
+                        elif (
+                            packet.stream is input_audio
+                            and output_audio_stream is not None
+                        ):
                             if seg_audio_first_ts is None:
                                 seg_audio_first_ts = min(pkt_pts, pkt_dts)
                             packet.pts = pkt_pts - seg_audio_first_ts + audio_pts_offset

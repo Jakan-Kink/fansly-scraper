@@ -164,8 +164,12 @@ class DatabaseLogger:
         self.reset_stats()
 
 
+_db_logger: DatabaseLogger | None = None
+
+
 def get_db_logger() -> DatabaseLogger:
     """Get the global DatabaseLogger singleton, initializing if needed."""
-    if not hasattr(get_db_logger, "instance"):
-        get_db_logger.instance = DatabaseLogger()
-    return get_db_logger.instance
+    global _db_logger
+    if _db_logger is None:
+        _db_logger = DatabaseLogger()
+    return _db_logger

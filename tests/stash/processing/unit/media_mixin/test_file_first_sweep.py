@@ -271,3 +271,64 @@ class TestBuildMediaIndex:
         output = sink.getvalue()
         assert "leaf collision" in output
         assert str(second.id) in output
+
+    @pytest.mark.asyncio
+    async def test_leaf_collision_same_download_target_unions_owners(
+        self, entity_store, respx_stash_processor
+    ):
+        """Distinct media resolving to the SAME downloaded file union owners.
+
+        When two media share a download target (same ``download_id``) they
+        render to the same leaf — they are one physical file. Dropping all but
+        the first would strip the dropped owners' gallery joins. The index must
+        keep the first media canonical but carry BOTH owning posts, and must NOT
+        warn (this is same-file dedup, not an ambiguous basename clash).
+        """
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="test_user")
+        await entity_store.save(account)
+
+        target_id = snowflake_id()  # shared download-target (variant) id
+        leaf_name = f"2026-01-01_at_00-00_UTC_id_{target_id}.mp4"
+
+        media_objs = []
+        posts = []
+        for _ in range(2):
+            m = MediaFactory.build(
+                id=snowflake_id(),  # distinct media ids
+                accountId=acct_id,
+                mimetype="video/mp4",
+                is_downloaded=True,
+                download_id=target_id,  # same target -> same file -> same leaf
+                local_filename=f"/dl/test_user/{leaf_name}",
+            )
+            await entity_store.save(m)
+            media_objs.append(m)
+            am = AccountMediaFactory.build(
+                id=snowflake_id(), accountId=acct_id, mediaId=m.id
+            )
+            await entity_store.save(am)
+            post = PostFactory.build(id=snowflake_id(), accountId=acct_id)
+            post.attachments = [
+                AttachmentFactory.build(
+                    postId=post.id,
+                    contentId=am.id,
+                    contentType=ContentType.ACCOUNT_MEDIA,
+                    pos=0,
+                )
+            ]
+            posts.append(post)
+
+        sink = io.StringIO()
+        sink_id = loguru_logger.add(sink, level="WARNING")
+        try:
+            index = await respx_stash_processor._build_media_index(posts)
+        finally:
+            loguru_logger.remove(sink_id)
+
+        got_media, owners = index[leaf_name]
+        assert got_media is media_objs[0]  # first writer canonical
+        # Both owning posts present (no dropped gallery joins).
+        assert sorted(o.id for o in owners) == sorted(p.id for p in posts)
+        # Same-file dedup is not an ambiguous collision — no warning.
+        assert "leaf collision" not in sink.getvalue()

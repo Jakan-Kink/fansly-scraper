@@ -48,6 +48,8 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
         return
 
     groups_data = config.get_api().get_json_response_contents(groups_response)
+    if not isinstance(groups_data, dict):
+        raise TypeError("Fansly API: expected a message-groups object response")
     await process_groups_response(config, state, groups_data)
     groups_list = groups_data["aggregationData"]["groups"]
 
@@ -99,6 +101,8 @@ async def download_messages_for_group(
         return
 
     groups_data = config.get_api().get_json_response_contents(groups_response)
+    if not isinstance(groups_data, dict):
+        raise TypeError("Fansly API: expected a message-groups object response")
     await process_groups_response(config, state, groups_data)
     groups_list = groups_data["aggregationData"]["groups"]
 
@@ -168,6 +172,8 @@ async def _download_group_message_loop(
 
         # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
         messages = config.get_api().get_json_response_contents(messages_response)
+        if not isinstance(messages, dict):
+            raise TypeError("Fansly API: expected a messages object response")
 
         try:
             await check_page_duplicates(
@@ -180,7 +186,6 @@ async def _download_group_message_loop(
             )
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            e._handled = True
             return
 
         await process_messages_metadata(config, state, messages)

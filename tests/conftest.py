@@ -609,7 +609,7 @@ def mock_download_config():
     For tests that need database access, use the 'config' fixture instead.
     """
     return FanslyConfigFactory(
-        download_path=Path("/test/download/path"),
+        download_directory=Path("/test/download/path"),
         program_version="0.0.0-test",
     )
 

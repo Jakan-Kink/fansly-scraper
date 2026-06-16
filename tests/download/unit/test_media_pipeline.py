@@ -219,6 +219,36 @@ class TestDownloadFunctions:
 
         assert "404" in str(excinfo.value)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "invoke",
+        [
+            pytest.param(
+                lambda cfg, _state, media, path: _download_regular_file(
+                    cfg, media, path
+                ),
+                id="regular",
+            ),
+            pytest.param(
+                _download_m3u8_file,
+                id="m3u8",
+            ),
+        ],
+    )
+    async def test_download_raises_when_download_url_unset(
+        self, invoke, mock_config, entity_store, tmp_path
+    ):
+        """Both download fns raise DownloadError when download_url is None.
+
+        download_url is the transient field parse_media_info populates; if it
+        never resolved, the guard fails fast with DownloadError instead of
+        passing None into get_with_ngsw / download_m3u8.
+        """
+        media = _make_media(snowflake_id())
+        media.download_url = None
+        with pytest.raises(DownloadError):
+            await invoke(mock_config, DownloadState(), media, tmp_path / "out.bin")
+
 
 # ── _download_m3u8_file ─────────────────────────────────────────────────
 

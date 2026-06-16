@@ -6,16 +6,16 @@ Patches time.sleep to avoid real delays; time.time for deterministic timing.
 
 import asyncio
 import time
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from api.rate_limiter import RateLimiter
+from config import FanslyConfig
 
 
-def _make_config(**overrides):
-    """Build a stub config with rate limiter defaults."""
+def _make_config(**overrides) -> FanslyConfig:
+    """Build a real FanslyConfig with rate limiter defaults."""
     defaults = {
         "rate_limiting_enabled": True,
         "rate_limiting_adaptive": True,
@@ -26,7 +26,7 @@ def _make_config(**overrides):
         "rate_limiting_max_backoff_seconds": 300,
     }
     defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    return FanslyConfig(program_version="0.13.0-test", **defaults)
 
 
 class TestRateLimiterInit:
@@ -82,6 +82,39 @@ class TestAdaptiveBackoff:
         rl._apply_adaptive_backoff(200)
         assert rl.consecutive_successes == 0  # reset after reduction
         assert rl.current_backoff_seconds < 45.0
+
+    def test_backoff_reduction_pulls_back_token_freeze(self):
+        """Bug B regression: reducing backoff must also pull back the token freeze.
+
+        On a 429 the bucket is frozen by pushing ``last_refill`` into the future
+        (``last_backoff_time + current_backoff_seconds``); ``_refill_tokens`` then
+        adds nothing while ``now < last_refill``. When later successes *reduce*
+        ``current_backoff_seconds`` (the reduce path, line ~247), the reservation
+        side shrinks (and ``_next_allowed_at`` is clamped, line ~223) but
+        ``last_refill`` is never re-synced — so the freeze outlives the backoff.
+        The reservation side then says "go" while the bucket stays empty, and
+        ``async_wait_for_request`` livelocks in the token loop emitting
+        ``Token wait`` every refill interval (observed in the field as ~45s of spam
+        before a single request fired).
+
+        Invariant: after any downward backoff adjustment, the remaining freeze
+        window must not exceed the current backoff window.
+        """
+        rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0  # floor > 0 → reduce path (not full clear)
+
+        rl._apply_adaptive_backoff(429)  # backoff=30s; last_refill pushed +30s
+        assert rl.last_refill > time.time()  # bucket frozen into the future
+
+        rl._apply_adaptive_backoff(200)  # 1/2 successes
+        rl._apply_adaptive_backoff(200)  # 2/2 → backoff reduced 30s → 20s
+
+        freeze_window = rl.last_refill - rl.last_backoff_time
+        assert freeze_window <= rl.current_backoff_seconds + 0.5, (
+            f"token freeze spans {freeze_window:.1f}s but backoff is only "
+            f"{rl.current_backoff_seconds:.1f}s — last_refill was not pulled back "
+            "when backoff was reduced (Bug B: token-loop livelock)."
+        )
 
     def test_backoff_at_minimum_floor(self):
         """Lines 225-226: backoff at minimum floor after consecutive successes.

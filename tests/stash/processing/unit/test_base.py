@@ -52,6 +52,11 @@ class TestStashProcessingBase:
         # Verify position is appended
         assert title == "This is the title - 2/5"
 
+        # Test case 5: No content AND no created_at → username-only fallback.
+        # created_at is Optional; a missing date must not crash the date format.
+        title = respx_stash_processor._generate_title_from_content(None, username, None)
+        assert title == username
+
 
 class TestPreloadEntities:
     """Test _preload_stash_entities."""

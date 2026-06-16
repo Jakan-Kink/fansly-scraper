@@ -63,6 +63,8 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
 
         # post object contains: posts, aggregatedPosts, accountMediaBundles, accountMedia, accounts, tips, tipGoals, stories, polls
         post_object = config.get_api().get_json_response_contents(post_response)
+        if not isinstance(post_object, dict):
+            raise TypeError("Fansly API: expected a single-post object response")
         await process_timeline_posts(config, state, post_object)
 
         # if access to post content / post contains content

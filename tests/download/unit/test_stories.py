@@ -550,23 +550,19 @@ async def test_download_stories_no_stories_in_response(
 
 
 @pytest.mark.asyncio
-async def test_download_stories_no_creator_id_skips_cache_check(
+async def test_download_stories_no_creator_id_returns_early(
     respx_fansly_api, entity_store, mock_config, tmp_path, monkeypatch
 ):
-    """state.creator_id falsy → skip cache lookup, go straight to API call.
+    """state.creator_id is None → return early without touching the API.
 
-    Covers partial branch 45->50: when ``state.creator_id`` is None/0,
-    the cache-lookup block is skipped entirely and execution falls
-    through to the ``print_info("Checking for active Stories...")`` line.
-
-    The API call still happens with ``creator_id=None`` — but the test
-    just verifies the cache-skip branch fired and the function exits
-    cleanly (the empty-stories response means no FK pressure).
+    Stories cannot be fetched without a creator id — the endpoint requires
+    ``accountId`` — so the function guards and returns before any API call.
+    Previously it fell through and issued a request with a literal
+    ``accountId=None``; the guard makes that impossible.
     """
     config = mock_config
     config.download_directory = tmp_path
 
-    # creator_id is None — exercises the False branch of `if state.creator_id`.
     state = DownloadState(creator_id=None, creator_name="no_id")
 
     stories_route = respx.get(FanslyApi.MEDIA_STORIES_NEW_ENDPOINT).mock(
@@ -580,8 +576,9 @@ async def test_download_stories_no_creator_id_skips_cache_check(
     finally:
         dump_fansly_calls(stories_route.calls, "stories-no-creator-id")
 
-    # The function reached the API call (cache check was skipped).
-    assert state.download_type == DownloadType.STORIES
+    # Guard fired: no API call, and download_type never advanced to STORIES.
+    assert not stories_route.called
+    assert state.download_type != DownloadType.STORIES
 
 
 @pytest.mark.asyncio

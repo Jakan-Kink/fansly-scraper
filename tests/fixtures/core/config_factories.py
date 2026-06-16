@@ -26,7 +26,8 @@ Usage:
 import os
 from pathlib import Path
 
-from factory import Factory, LazyAttribute, LazyFunction
+from factory.base import Factory
+from factory.declarations import LazyFunction
 
 from config import FanslyConfig
 from config.modes import DownloadMode
@@ -81,7 +82,6 @@ class FanslyConfigFactory(Factory):
     # Private fields (None by default)
     _api = None
     _database = None
-    _base = None
     _stash = None
     _background_tasks = LazyFunction(list)
 
@@ -95,8 +95,7 @@ class FanslyConfigFactory(Factory):
 
     # Download settings
     download_mode = DownloadMode.NOTSET
-    download_path = LazyFunction(lambda: Path("/tmp/test_downloads"))  # noqa: S108
-    local_directory = LazyAttribute(lambda o: str(o.download_path))
+    download_directory = LazyFunction(lambda: Path("/tmp/test_downloads"))  # noqa: S108
 
     # PostgreSQL settings - default to safe non-existent database
     # This prevents accidental connections to production/test databases
@@ -110,29 +109,12 @@ class FanslyConfigFactory(Factory):
 
     # UI/UX settings
     interactive = False  # Non-interactive by default for tests
-    textio_debug = False
     show_downloads = False
-    show_skipped = False
-
-    # Stash integration
-    stash_enabled = False
-    stash_url = None
-    stash_api_key = None
-
-    # Download filtering
-    download_media = True
-    download_previews = False
-    show_metadata = False
+    show_skipped_downloads = False
 
     # File management
-    update_times = True
     separate_messages = False
     separate_previews = False
-
-    # Advanced options
-    dedupe_model = None
-    quality = None
-    quality_str = None
 
 
 __all__ = [

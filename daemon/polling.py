@@ -104,7 +104,7 @@ async def poll_story_states(
     """
     try:
         response = await config.get_api().get_story_states_following()
-        states: list[dict] = config.get_api().get_json_response_contents(response)
+        states = config.get_api().get_json_response_contents(response)
     except httpx.HTTPError as exc:
         logger.warning("daemon.polling: story states API call failed — {}", exc)
         return []

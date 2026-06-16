@@ -48,7 +48,7 @@ async def process_account_walls(
 async def process_wall_posts(
     config: FanslyConfig,
     state: DownloadState,
-    wall_id: str,
+    wall_id: int | str,
     posts_data: dict,
 ) -> None:
     """Process posts from a specific wall."""

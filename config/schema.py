@@ -22,12 +22,14 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     PrivateAttr,
     SecretStr,
     ValidationError,
     field_validator,
     model_validator,
 )
+from pydantic_core import ErrorDetails
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
@@ -41,7 +43,7 @@ from config.modes import DownloadMode
 # ``_sync_to_map`` then forces the containing section to render. Default
 # policy is "conditional" — fields render only when in ``model_fields_set``.
 # See docs/configuration/render-policy.md (TODO) for full semantics.
-_ALWAYS: dict[str, str] = {"render": "always"}
+_ALWAYS: dict[str, JsonValue] = {"render": "always"}
 
 
 def _is_always(field_info: Any) -> bool:
@@ -108,7 +110,7 @@ _ERROR_FORMATTERS: dict[str, Any] = {
 }
 
 
-def _pretty_error_message(err: dict[str, Any]) -> str:
+def _pretty_error_message(err: ErrorDetails) -> str:
     """Render one Pydantic error dict as a plain-English sentence.
 
     Dispatches via ``_ERROR_FORMATTERS`` for known types. ``value_error``

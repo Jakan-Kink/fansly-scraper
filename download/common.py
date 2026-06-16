@@ -32,7 +32,7 @@ def get_unique_media_ids(info_object: dict[str, Any]) -> list[int]:
 
     account_media_ids = [int(media["id"]) for media in account_media if check(media)]
 
-    bundle_media_ids = []
+    bundle_media_ids: list[int] = []
     for id_list in [
         bundle["accountMediaIds"] for bundle in media_bundles if check(bundle)
     ]:

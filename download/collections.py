@@ -23,6 +23,8 @@ async def download_collections(config: FanslyConfig, state: DownloadState) -> No
     if collections_response.status_code == 200:
         json_output(1, "Download Collections", collections_response.json())
         collections = config.get_api().get_json_response_contents(collections_response)
+        if not isinstance(collections, dict):
+            raise TypeError("Fansly API: expected a collections object response")
 
         # Process accounts present in the collections response
         for account_data in collections.get("accounts", []):

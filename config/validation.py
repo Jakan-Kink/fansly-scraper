@@ -343,10 +343,12 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
     ua_browser = _BROWSER_NAME_TO_UA_BROWSER.get(
         config.token_from_browser_name or "", "chrome"
     )
+    # ua_generator types platform/browser as a closed Literal; our lookup
+    # dicts only ever yield valid tokens, so a plain str is correct at runtime.
     user_agent = ua_generator.generate(
         device="desktop",
-        platform=ua_platform,
-        browser=ua_browser,
+        platform=ua_platform,  # type: ignore[arg-type]
+        browser=ua_browser,  # type: ignore[arg-type]
         options=_UA_OPTIONS,
     ).text
     if ua_platform == "macos":

@@ -45,16 +45,18 @@ class TestUpdateGlobalStatistics:
         assert gs.total_timeline_pictures == 20
         assert gs.total_timeline_videos == 8
 
-    def test_initializes_missing_download_stats(self):
-        """Lines 46-63: both download_state and global_state lack download_stats attr."""
+    def test_download_stats_zero_initialized_by_default(self):
+        """download_stats is a dataclass field — present and zeroed on fresh states."""
         gs = GlobalState()
         ds = DownloadState()
 
-        # Ensure download_stats doesn't exist
-        if hasattr(ds, "download_stats"):
-            delattr(ds, "download_stats")
-        if hasattr(gs, "download_stats"):
-            delattr(gs, "download_stats")
+        # Field default_factory guarantees presence; no lazy init needed.
+        for state in (gs, ds):
+            assert state.download_stats["total_count"] == 0
+            assert state.download_stats["skipped_count"] == 0
+            assert state.download_stats["failed_count"] == 0
+            assert state.download_stats["total_size"] == 0
+            assert state.download_stats["total_size_str"] == "0 B"
 
         update_global_statistics(gs, ds)
 

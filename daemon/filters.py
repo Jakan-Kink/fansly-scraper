@@ -145,8 +145,11 @@ async def should_process_creator(
     # -- Paginate until non-pinned found or cap reached -----------------------
     for _page in range(MAX_FILTER_PAGES):
         try:
-            response = await config._api.get_timeline(creator_id, cursor)
-            data = config._api.get_json_response_contents(response)
+            api = config.get_api()
+            response = await api.get_timeline(creator_id, cursor)
+            data = api.get_json_response_contents(response)
+            if not isinstance(data, dict):
+                raise TypeError("Fansly API: expected a timeline object response")
             posts: list[dict] = data.get("posts", [])
         except Exception as exc:
             logger.warning(
