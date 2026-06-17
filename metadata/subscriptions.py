@@ -265,7 +265,7 @@ async def record_follow_observation(
 
     prior = store.filter(
         FollowEvent,
-        lambda e, aid=account_id: e.accountId == aid,
+        lambda e: e.accountId == account_id,
     )
     prior_sorted = sorted(prior, key=lambda e: e.observed_at, reverse=True)
     latest = prior_sorted[0] if prior_sorted else None

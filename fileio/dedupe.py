@@ -66,7 +66,7 @@ async def migrate_full_paths_to_filenames() -> None:
 
         for media in records:
             try:
-                new_filename = get_filename_only(media.local_filename)
+                new_filename = get_filename_only(media.local_filename or "")
                 media.local_filename = new_filename
                 await store.save(media)
                 updated += 1
@@ -364,7 +364,9 @@ async def get_or_create_media(
         media_by_id.is_downloaded = True
         media_by_id.mimetype = mimetype
         if not media_by_id.accountId:
-            media_by_id.accountId = await get_account_id(state)
+            account_id = await get_account_id(state)
+            if account_id is not None:
+                media_by_id.accountId = account_id
         await store.save(media_by_id)
 
         hash_verified = bool(file_hash)
@@ -823,12 +825,12 @@ async def dedupe_init(
             progress_mgr.update_task(db_check_task, advance=1)
 
     # Get updated counts
-    result = await store.find(
+    final_media = await store.find(
         Media,
         is_downloaded=True,
         accountId=state.creator_id,
     )
-    final_downloaded = len(result)
+    final_downloaded = len(final_media)
 
     # Log final statistics
     json_output(
@@ -987,7 +989,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     if duplicate_media:
                         # Found duplicate by hash - check if its file exists
                         db_file_exists = await _check_file_exists(
-                            state.download_path, duplicate_media.local_filename
+                            state.download_path, duplicate_media.local_filename or ""
                         )
                         if db_file_exists:
                             # Duplicate exists - update this record to reference it
@@ -1077,7 +1079,10 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
             is_downloaded=True,
         )
         for existing in existing_by_id_pattern:
-            if existing.local_filename not in paths_to_check:
+            if (
+                existing.local_filename
+                and existing.local_filename not in paths_to_check
+            ):
                 paths_to_check.append(existing.local_filename)
 
     for path_to_check in paths_to_check:
@@ -1099,7 +1104,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 if file_hash and file_hash == existing_by_name.content_hash:
                     # Same content but wrong filename - check if DB's file exists
                     db_file_exists = await _check_file_exists(
-                        state.download_path, existing_by_name.local_filename
+                        state.download_path, existing_by_name.local_filename or ""
                     )
 
                     if db_file_exists:
@@ -1119,7 +1124,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
         if media:
             # Found by hash - check if DB's file exists
             db_file_exists = await _check_file_exists(
-                state.download_path, media.local_filename
+                state.download_path, media.local_filename or ""
             )
 
             if db_file_exists:

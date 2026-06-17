@@ -320,6 +320,31 @@ async def test_download_messages_groups_api_non_200_logs_and_returns(
 
 
 @pytest.mark.asyncio
+async def test_download_messages_non_object_groups_raises(
+    respx_fansly_api, entity_store, mock_config, tmp_path
+):
+    """A groups envelope whose ``response`` is an array (not an object) trips
+    ``expect_dict`` with a precise TypeError — exercises the shape guard end
+    to end through the real download pipeline."""
+    config = mock_config
+    config.download_directory = tmp_path
+    config.interactive = False
+
+    route = respx.get(FanslyApi.MESSAGING_GROUPS_ENDPOINT).mock(
+        side_effect=[httpx.Response(200, json={"success": True, "response": []})]
+    )
+
+    state = DownloadState()
+    state.creator_id = snowflake_id()
+
+    try:
+        with pytest.raises(TypeError, match="message-groups response"):
+            await download_messages(config, state)
+    finally:
+        dump_fansly_calls(route.calls, label="messages_non_object_groups")
+
+
+@pytest.mark.asyncio
 async def test_download_messages_message_page_non_200_logs_and_returns(
     respx_fansly_api, entity_store, mock_config, tmp_path, monkeypatch
 ):

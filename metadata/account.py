@@ -9,6 +9,8 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Any
 
+from stash_graphql_client.types import is_set
+
 from textio import json_output
 
 from .entity_store import PostgresEntityStore
@@ -91,7 +93,7 @@ async def _process_single_bundle(
         )
 
     # Save preview Media first if resolved (FK constraint)
-    if bundle_obj.preview:
+    if is_set(bundle_obj.preview) and bundle_obj.preview is not None:
         await store.save(bundle_obj.preview)
 
     await store.save(bundle_obj)
@@ -208,9 +210,9 @@ async def process_account_data(
     # save() handles related-entity ordering + junction-FK stub creation.
     await store.save(account)
 
-    if account.timelineStats:
+    if is_set(account.timelineStats) and account.timelineStats is not None:
         await store.save(account.timelineStats)
-    if account.mediaStoryState:
+    if is_set(account.mediaStoryState) and account.mediaStoryState is not None:
         await store.save(account.mediaStoryState)
 
     # Subscription FKs to Account → run AFTER store.save(account) so the

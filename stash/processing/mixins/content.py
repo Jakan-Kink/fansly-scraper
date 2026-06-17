@@ -108,14 +108,15 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 by_post[mention.postId].append(mention)
 
         for post in store.filter(Post):
-            if post.mentions:
+            if post.mentions or post.id is None:
                 continue
             post_mentions = by_post.get(post.id)
             if not post_mentions:
                 continue
             ordered = sorted(post_mentions, key=lambda m: m.id or 0)
             object.__setattr__(post, "mentions", ordered)
-            post._snapshot["mentions"] = ordered.copy()
+            if post._snapshot is not None:
+                post._snapshot["mentions"] = ordered.copy()
 
     async def _gather_creator_posts(self, account: Account) -> list[Post]:
         """Gather the creator's posts that carry attachments.
@@ -197,7 +198,7 @@ class ContentProcessingMixin(StashProcessingProtocol):
         store = get_store()
         groups = store.filter(
             Group,
-            lambda g: g.users and any(u.id == account_id for u in g.users),
+            lambda g: bool(g.users) and any(u.id == account_id for u in g.users),
         )
         if not groups:
             all_groups = await store.find(Group)
@@ -206,7 +207,7 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 for g in all_groups
                 if g.users and any(u.id == account_id for u in g.users)
             ]
-        return {g.id for g in groups}
+        return {g.id for g in groups if g.id is not None}
 
     async def _collect_media_from_attachments(
         self,

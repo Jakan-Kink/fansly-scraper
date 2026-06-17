@@ -9,6 +9,7 @@ from httpx import Response
 
 from config import FanslyConfig
 from errors import ApiError, DuplicatePageError
+from helpers.common import expect_dict, expect_list
 from helpers.rich_progress import get_progress_manager
 from helpers.timer import timing_jitter
 from metadata import Wall, process_wall_posts
@@ -99,7 +100,7 @@ async def download_wall(
     store = get_store()
 
     # Get wall name from database
-    wall = await store.get(Wall, wall_id)
+    wall = await store.get(Wall, int(wall_id))
     wall_name = wall.name if wall and wall.name else None
     wall_info = f"'{wall_name}' ({wall_id})" if wall_name else wall_id
 
@@ -231,10 +232,11 @@ async def download_wall(
                     await sleep(timing_jitter(2, 4))
 
                     # Get last post ID for next page
-                    before_cursor = wall_data["posts"][-1]["id"]
+                    page_posts = expect_list(wall_data["posts"], "wall posts")
+                    before_cursor = str(expect_dict(page_posts[-1], "post")["id"])
 
                     # If we got fewer than 15 posts, we've reached the end
-                    if len(wall_data["posts"]) < 15:
+                    if len(page_posts) < 15:
                         break
 
                 except IndexError:

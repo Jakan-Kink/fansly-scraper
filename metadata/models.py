@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -32,6 +32,10 @@ from stash_graphql_client.types.unset import UNSET, UnsetType
 
 from errors import StubNotImplementedError
 from helpers.common import parse_timestamp
+
+
+if TYPE_CHECKING:
+    from metadata.entity_store import PostgresEntityStore
 
 
 # ── Snowflake ID type ───────────────────────────────────────────────────
@@ -66,7 +70,7 @@ SnowflakeId = Annotated[int, BeforeValidator(_validate_snowflake)]
 # ── Module-level store accessor ──────────────────────────────────────────
 
 
-def get_store() -> Any:
+def get_store() -> PostgresEntityStore:
     """Get the global EntityStore singleton.
 
     Returns the store set on FanslyObject._store. Raises RuntimeError if

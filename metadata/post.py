@@ -54,7 +54,7 @@ async def process_pinned_posts(
             }
         )
 
-    if junction_rows:
+    if junction_rows and account.id is not None:
         await store.sync_junction(
             "pinned_posts", "accountId", account.id, junction_rows
         )

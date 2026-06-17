@@ -18,6 +18,7 @@ from pydantic import JsonValue
 
 from api.websocket import FanslyWebSocket
 from config.logging import textio_logger as logger
+from helpers.common import JsonDict, expect_dict, str_or_none
 from helpers.timer import timing_jitter
 from helpers.web import get_flat_qs_dict, split_url
 
@@ -936,7 +937,7 @@ class FanslyApi:
 
         return True
 
-    async def login(self, username: str, password: str) -> dict[str, Any]:
+    async def login(self, username: str, password: str) -> JsonDict:
         """Login to Fansly and obtain session token.
 
         This performs the login flow to obtain an authorization token and session cookie.
@@ -1295,7 +1296,7 @@ class FanslyApi:
 
     def get_json_response_contents(
         self, response: httpx.Response
-    ) -> dict[str, Any] | list[Any]:
+    ) -> JsonDict | list[JsonValue]:
         """Validate response, extract the object/array payload, convert IDs to ints."""
         self.validate_json_response(response)
         json_data = response.json()["response"]
@@ -1325,12 +1326,11 @@ class FanslyApi:
             alternate_token=alternate_token
         )
 
-        response_contents = self.get_json_response_contents(account_response)
-        if not isinstance(response_contents, dict):
-            raise TypeError("Fansly API: expected an account info object")
-
-        account_info = response_contents["account"]
-        username = account_info["username"]
+        response_contents = expect_dict(
+            self.get_json_response_contents(account_response), "account info response"
+        )
+        account_info = expect_dict(response_contents["account"], "account")
+        username = str_or_none(account_info["username"])
 
         if username:
             return username

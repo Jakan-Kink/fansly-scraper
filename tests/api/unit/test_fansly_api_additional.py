@@ -526,15 +526,17 @@ class TestGetClientUserName:
     """Cover get_client_user_name edge case."""
 
     @pytest.mark.asyncio
-    async def test_empty_username_returns_none(self, respx_fansly_api):
-        """Empty username in API response returns None."""
+    @pytest.mark.parametrize("username_value", ["", None])
+    async def test_falsy_username_returns_none(self, respx_fansly_api, username_value):
+        """Empty or null username returns None. The null case exercises the
+        ``str_or_none`` None-branch; both fall through to the falsy return."""
         route = respx.get(respx_fansly_api.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
                     json={
                         "success": "true",
-                        "response": {"account": {"username": ""}},
+                        "response": {"account": {"username": username_value}},
                     },
                 )
             ]
@@ -542,6 +544,6 @@ class TestGetClientUserName:
         try:
             result = await respx_fansly_api.get_client_user_name()
         finally:
-            dump_fansly_calls(route.calls, "test_empty_username_returns_none")
+            dump_fansly_calls(route.calls, "test_falsy_username_returns_none")
 
         assert result is None

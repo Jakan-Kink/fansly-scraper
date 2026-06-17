@@ -8,11 +8,11 @@ from typing import Any
 
 from textio import json_output
 
-from .models import Account, Group, Media, Message, get_store
+from .models import Account, FanslyObject, Group, Media, Message, get_store
 
 
 # Table name → model type mapping for existence checks
-_TABLE_MODEL_MAP: dict[str, type] = {
+_TABLE_MODEL_MAP: dict[str, type[FanslyObject]] = {
     "accounts": Account,
     "media": Media,
     "messages": Message,

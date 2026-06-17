@@ -182,6 +182,31 @@ class TestDownloadCollections:
         )
 
     @pytest.mark.asyncio
+    async def test_non_list_accounts_raises(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path
+    ):
+        """A collections payload whose ``accounts`` is not an array trips
+        ``expect_list`` with a precise TypeError, through the real pipeline."""
+        mock_config.download_directory = tmp_path
+        mock_config.interactive = False
+
+        route = respx.get(url__startswith=FanslyApi.ACCOUNT_MEDIA_ORDERS_ENDPOINT).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"success": True, "response": {"accounts": "not-a-list"}},
+                )
+            ]
+        )
+
+        state = DownloadState(creator_name="bad_collection_user")
+        try:
+            with pytest.raises(TypeError, match="accounts"):
+                await download_collections(mock_config, state)
+        finally:
+            dump_fansly_calls(route.calls, label="collections_non_list_accounts")
+
+    @pytest.mark.asyncio
     async def test_success_empty_media_skips_batch_loop(
         self, respx_fansly_api, mock_config, entity_store, tmp_path, monkeypatch
     ):

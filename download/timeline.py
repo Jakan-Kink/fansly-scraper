@@ -10,6 +10,7 @@ from httpx import Response
 
 from config import FanslyConfig
 from errors import ApiError, DuplicatePageError
+from helpers.common import expect_dict, expect_list
 from helpers.timer import timing_jitter
 from metadata import process_timeline_posts
 from metadata.models import Post, get_store
@@ -156,9 +157,14 @@ async def download_timeline(
                 # identity map, otherwise the cache check trivially succeeds.
                 if probe_pending and timeline_cursor == 0:
                     store = get_store()
-                    posts_on_page = timeline.get("posts", [])
+                    posts_on_page = expect_list(
+                        timeline.get("posts", []), "timeline posts"
+                    )
                     all_known = bool(posts_on_page) and all(
-                        store.get_from_cache(Post, int(post["id"])) is not None
+                        store.get_from_cache(
+                            Post, int(str(expect_dict(post, "post")["id"]))
+                        )
+                        is not None
                         for post in posts_on_page
                     )
                     if all_known:
@@ -225,7 +231,10 @@ async def download_timeline(
                     # Slow down to avoid the Fansly rate-limit which was introduced in late August 2023
                     await sleep(timing_jitter(2, 4))
 
-                    timeline_cursor = timeline["posts"][-1]["id"]
+                    page_posts = expect_list(timeline["posts"], "timeline posts")
+                    timeline_cursor = int(
+                        str(expect_dict(page_posts[-1], "post")["id"])
+                    )
 
                 except IndexError:
                     # break the whole while loop, if end is reached

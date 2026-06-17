@@ -44,6 +44,7 @@ from download.livestream_chat import (
     unregister_chat_recorder,
 )
 from fileio.livestream import _unique_output_path
+from helpers.common import expect_dict
 from metadata.models import StreamChannel
 from pathio.livestream import _build_output_path, _get_segments_base
 
@@ -293,10 +294,10 @@ async def _get_authenticated_playback_url(
         response = await api.get_streaming_channel(creator_id)
         data = api.get_json_response_contents(response)
         if isinstance(data, dict):
-            stream = data.get("stream") or {}
+            stream = expect_dict(data.get("stream") or {}, "stream")
             auth_url = stream.get("playbackUrl") or data.get("playbackUrl")
             if auth_url:
-                return auth_url
+                return str(auth_url)
     except Exception as exc:
         logger.warning(
             "download.livestream: get_streaming_channel({}) failed — {}; "

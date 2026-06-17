@@ -3,7 +3,13 @@
 from config import FanslyConfig
 from fileio.dedupe import dedupe_init
 from fileio.preview_repair import repair_preview_folder_items
-from helpers.common import get_post_id_from_request, is_valid_post_id
+from helpers.common import (
+    expect_dict,
+    expect_list,
+    get_post_id_from_request,
+    is_valid_post_id,
+    str_or_none,
+)
 from metadata import process_timeline_posts
 from textio import input_enter_continue, print_error, print_info, print_warning
 from textio.prompts import aprompt_text
@@ -62,27 +68,37 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
         creator_username, creator_display_name = None, None
 
         # post object contains: posts, aggregatedPosts, accountMediaBundles, accountMedia, accounts, tips, tipGoals, stories, polls
-        post_object = config.get_api().get_json_response_contents(post_response)
-        if not isinstance(post_object, dict):
-            raise TypeError("Fansly API: expected a single-post object response")
+        post_object = expect_dict(
+            config.get_api().get_json_response_contents(post_response),
+            "single-post response",
+        )
         await process_timeline_posts(config, state, post_object)
 
+        bundles = expect_list(post_object["accountMediaBundles"], "accountMediaBundles")
+        media = expect_list(post_object["accountMedia"], "accountMedia")
         # if access to post content / post contains content
-        if post_object["accountMediaBundles"] or post_object["accountMedia"]:
+        if bundles or media:
             # parse post creator name
             if creator_username is None:  # pragma: no branch
                 # the post creators reliable accountId
-                if post_object["accountMediaBundles"]:
-                    state.creator_id = post_object["accountMediaBundles"][0][
-                        "accountId"
-                    ]
+                if bundles:
+                    state.creator_id = int(
+                        str(expect_dict(bundles[0], "media bundle")["accountId"])
+                    )
                 else:
-                    state.creator_id = post_object["accountMedia"][0]["accountId"]
+                    state.creator_id = int(
+                        str(expect_dict(media[0], "account media")["accountId"])
+                    )
 
+                accounts = expect_list(post_object.get("accounts", []), "accounts")
                 creator_display_name, creator_username = next(
-                    (account.get("displayName"), account.get("username"))
-                    for account in post_object.get("accounts", [])
-                    if account.get("id") == state.creator_id
+                    (
+                        str_or_none(acct.get("displayName")),
+                        str_or_none(acct.get("username")),
+                    )
+                    for account in accounts
+                    if (acct := expect_dict(account, "account")).get("id")
+                    == state.creator_id
                 )
 
                 # Override the creator's name with the one from the posting.
@@ -96,7 +112,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
                     )
                 else:
                     print_info(
-                        f"Inspecting post {post_id} by {creator_username.capitalize()}"
+                        f"Inspecting post {post_id} by {(creator_username or '').capitalize()}"
                     )
 
             # Deferred deduplication init because directory may have changed

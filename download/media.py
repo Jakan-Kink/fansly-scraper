@@ -19,7 +19,7 @@ from config import FanslyConfig
 from errors import DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file, get_filename_only
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
-from helpers.common import batch_list
+from helpers.common import batch_list, expect_dict
 from helpers.rich_progress import get_progress_manager
 from helpers.timer import timing_jitter
 from media import parse_media_info
@@ -95,7 +95,10 @@ async def fetch_and_process_media(
                 try:
                     all_media.append(
                         await parse_media_info(
-                            state, info, post_id, interactive=config.interactive
+                            state,
+                            expect_dict(info, "media info"),
+                            post_id,
+                            interactive=config.interactive,
                         )
                     )
                 except Exception:
@@ -140,14 +143,12 @@ async def refresh_locked_account_media(
 
     locked_am = store.filter(
         AccountMedia,
-        lambda am, cid=creator_id: (
-            am.accountId == cid and not am.deleted and not am.access
-        ),
+        lambda am: am.accountId == creator_id and not am.deleted and not am.access,
     )
     locked_bundles = store.filter(
         AccountMediaBundle,
-        lambda b, cid=creator_id: (
-            b.accountId == cid
+        lambda b: (
+            b.accountId == creator_id
             and not b.deleted
             and not b.access
             and not b.purchased
@@ -155,7 +156,7 @@ async def refresh_locked_account_media(
         ),
     )
 
-    refresh_ids: set[int] = {am.id for am in locked_am}
+    refresh_ids: set[int] = {am.id for am in locked_am if am.id is not None}
     for bundle in locked_bundles:
         for am in bundle.accountMedia or []:
             if am.id is not None:
@@ -460,7 +461,7 @@ async def _download_m3u8_file(
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
                     f"Deduplication [Hash]: {_media_type_label(media.mimetype)} '{temp_path.name}' → "
-                    f"skipped (duplicate of {Path(existing_by_hash.local_filename).name})"
+                    f"skipped (duplicate of {Path(existing_by_hash.local_filename or '').name})"
                 )
             state.add_duplicate()
             return True

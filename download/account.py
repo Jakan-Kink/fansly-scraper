@@ -10,6 +10,7 @@ from stash_graphql_client.types import is_set
 from config import FanslyConfig
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
+from helpers.common import expect_dict
 from helpers.timer import timing_jitter
 from metadata import Account, TimelineStats, process_account_data
 from metadata.models import get_store
@@ -121,10 +122,10 @@ def _extract_account_data(
         response_data = config.get_api().get_json_response_contents(response)
         # Client account info is wrapped in an 'account' key
         if isinstance(response_data, dict) and "account" in response_data:
-            return response_data["account"]
+            return expect_dict(response_data["account"], "account")
         # Creator account info is in a list
         if isinstance(response_data, list):
-            return response_data[0]
+            return expect_dict(response_data[0], "account")
 
     except httpx.HTTPStatusError as e:
         if response.status_code == 401:
@@ -266,7 +267,8 @@ async def get_creator_account_info(
     # flags that look at this field). Unreliable alone — see notes above.
     if (
         db_fetched_at
-        and account.timelineStats
+        and is_set(account.timelineStats)
+        and account.timelineStats is not None
         and account.timelineStats.fetchedAt == db_fetched_at
     ):
         state.fetched_timeline_duplication = True
@@ -277,7 +279,7 @@ async def get_creator_account_info(
     # match while counts change (post added to existing wall). Only
     # when BOTH are identical is it safe to skip the timeline+wall scan.
     api_stats_snapshot: tuple | None = None
-    if account.timelineStats:
+    if is_set(account.timelineStats) and account.timelineStats is not None:
         api_stats_snapshot = (
             account.timelineStats.imageCount,
             account.timelineStats.videoCount,
@@ -418,7 +420,8 @@ async def _get_following_page(
         raise TypeError("Fansly API: expected an account-details array response")
     await asyncio.sleep(timing_jitter(2, 4))
 
-    return account_data, len(account_ids)
+    accounts = [expect_dict(a, "account") for a in account_data]
+    return accounts, len(account_ids)
 
 
 async def get_following_accounts(

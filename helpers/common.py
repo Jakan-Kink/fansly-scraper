@@ -6,6 +6,36 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import JsonValue
+
+
+# A JSON object: string keys mapping to JSON values. Prefer over
+# dict[str, Any] for genuine JSON payloads — keeps value typing honest.
+JsonDict = dict[str, JsonValue]
+
+
+def expect_dict(value: JsonValue, what: str) -> JsonDict:
+    """Narrow a JSON value to an object, or raise a precise TypeError."""
+    if not isinstance(value, dict):
+        raise TypeError(
+            f"Fansly API: expected {what} to be an object, got {type(value).__name__}"
+        )
+    return value
+
+
+def expect_list(value: JsonValue, what: str) -> list[JsonValue]:
+    """Narrow a JSON value to an array, or raise a precise TypeError."""
+    if not isinstance(value, list):
+        raise TypeError(
+            f"Fansly API: expected {what} to be an array, got {type(value).__name__}"
+        )
+    return value
+
+
+def str_or_none(value: JsonValue) -> str | None:
+    """Coerce an optional JSON string field to str, preserving None."""
+    return None if value is None else str(value)
+
 
 def parse_timestamp(v: Any) -> Any:
     """Coerce a Fansly timestamp to a UTC datetime.
