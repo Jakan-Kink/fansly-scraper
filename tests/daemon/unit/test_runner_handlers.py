@@ -150,6 +150,31 @@ class TestHandleMessagesItem:
             "download_messages_for_group failed for group 999" in m for m in errors
         )
 
+    @pytest.mark.asyncio
+    async def test_out_of_scope_sender_skipped(
+        self, config, entity_store, monkeypatch, caplog
+    ):
+        """Lines 269-273: sender_id set but creator out of -u scope → debug log
+        + early return; download_messages_for_group is never called."""
+        caplog.set_level(logging.DEBUG)
+        config.use_following = False
+        config.user_names = {"someone_else"}
+        sender_id = snowflake_id()  # no Account saved → _is_creator_in_scope False
+
+        called: list[int] = []
+
+        async def _fake_download(_config, _state, group_id):
+            called.append(group_id)
+
+        monkeypatch.setattr("daemon.runner.download_messages_for_group", _fake_download)
+
+        item = DownloadMessagesForGroup(group_id=400, sender_id=sender_id)
+        await _handle_messages_item(config, item)
+
+        assert called == []
+        debug = _logged(caplog, "DEBUG")
+        assert any("out of scope" in m and str(sender_id) in m for m in debug)
+
 
 # ---------------------------------------------------------------------------
 # _handle_full_creator_item — gaps (lines 262-266 unknown, 282-288 exception)
@@ -197,6 +222,27 @@ class TestHandleFullCreatorItemBranches:
 
         errors = _logged(caplog, "ERROR")
         assert any("FullCreatorDownload failed for full_creator" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_out_of_scope_creator_skipped(
+        self, config, entity_store, monkeypatch, caplog
+    ):
+        """Lines 319-323: creator out of -u scope → debug log + early return,
+        before name resolution or any download."""
+        caplog.set_level(logging.DEBUG)
+        config.use_following = False
+        config.user_names = {"someone_else"}
+
+        async def _should_not_run(*_a, **_k):
+            raise AssertionError("download attempted for out-of-scope creator")
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _should_not_run)
+
+        item = FullCreatorDownload(creator_id=snowflake_id())  # not in store/scope
+        await _handle_full_creator_item(config, item)
+
+        debug = _logged(caplog, "DEBUG")
+        assert any("FullCreatorDownload" in m and "out of scope" in m for m in debug)
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +323,115 @@ class TestHandleRedownloadItem:
 
         errors = _logged(caplog, "ERROR")
         assert any("RedownloadCreatorMedia failed for ppv_err" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_targeted_ppv_shortcut(
+        self, config, entity_store, monkeypatch, caplog
+    ):
+        """Lines 390-409: a pure-PPV item with resolvable targeted media ids and
+        no conflicting pending reason takes the targeted fetch path (account info
+        → fetch_and_process_media → process_download_accessible_media) and skips
+        the full re-walk (download_timeline never called)."""
+        caplog.set_level(logging.INFO)
+        creator_id = snowflake_id()
+        account = AccountFactory.build(id=creator_id, username="ppv_targeted")
+        await entity_store.save(account)
+
+        called: list[str] = []
+
+        async def _info(*_a, **_k):
+            called.append("get_creator_account_info")
+
+        async def _fetch(_config, _state, ids):
+            called.append(f"fetch:{sorted(ids)}")
+            return ["accessible"]
+
+        async def _process(*_a, **_k):
+            called.append("process_download_accessible_media")
+
+        async def _tl(*_a, **_k):
+            called.append("download_timeline")
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _info)
+        monkeypatch.setattr("daemon.runner.fetch_and_process_media", _fetch)
+        monkeypatch.setattr("daemon.runner.process_download_accessible_media", _process)
+        monkeypatch.setattr("daemon.runner.download_timeline", _tl)
+
+        am_id = snowflake_id()
+        item = RedownloadCreatorMedia(creator_id=creator_id, account_media_id=am_id)
+        await _handle_redownload_item(config, item)
+
+        assert called == [
+            "get_creator_account_info",
+            f"fetch:{[am_id]}",
+            "process_download_accessible_media",
+        ]
+        assert "download_timeline" not in called
+        info = _logged(caplog, "INFO")
+        assert any("PPV targeted re-download for ppv_targeted" in m for m in info)
+
+    @pytest.mark.asyncio
+    async def test_targeted_ppv_empty_accessible_skips_process(
+        self, config, entity_store, monkeypatch
+    ):
+        """Branch 400->409: the targeted fetch returns no accessible media →
+        process_download_accessible_media is skipped and the handler returns."""
+        creator_id = snowflake_id()
+        await entity_store.save(
+            AccountFactory.build(id=creator_id, username="ppv_empty")
+        )
+
+        called: list[str] = []
+
+        async def _info(*_a, **_k):
+            called.append("info")
+
+        async def _fetch(_config, _state, _ids):
+            called.append("fetch")
+            return []
+
+        async def _process(*_a, **_k):
+            called.append("process")
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _info)
+        monkeypatch.setattr("daemon.runner.fetch_and_process_media", _fetch)
+        monkeypatch.setattr("daemon.runner.process_download_accessible_media", _process)
+
+        item = RedownloadCreatorMedia(
+            creator_id=creator_id, account_media_id=snowflake_id()
+        )
+        await _handle_redownload_item(config, item)
+
+        assert called == ["info", "fetch"]  # process skipped on empty accessible
+
+    @pytest.mark.asyncio
+    async def test_targeted_ppv_exception_re_raised(
+        self, config, entity_store, monkeypatch, caplog
+    ):
+        """Lines 402-408: a download error in the targeted path logs + re-raises."""
+        caplog.set_level(logging.ERROR)
+        creator_id = snowflake_id()
+        await entity_store.save(
+            AccountFactory.build(id=creator_id, username="ppv_tgt_err")
+        )
+
+        async def _info(*_a, **_k):
+            return None
+
+        async def _fetch(*_a, **_k):
+            raise RuntimeError("targeted boom")
+
+        monkeypatch.setattr("daemon.runner.get_creator_account_info", _info)
+        monkeypatch.setattr("daemon.runner.fetch_and_process_media", _fetch)
+
+        item = RedownloadCreatorMedia(
+            creator_id=creator_id, account_media_id=snowflake_id()
+        )
+        with pytest.raises(RuntimeError, match="targeted boom"):
+            await _handle_redownload_item(config, item)
+
+        errors = _logged(caplog, "ERROR")
+        assert any("targeted path failed for ppv_tgt_err" in m for m in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -1045,3 +1200,119 @@ class TestCollectPpvTargetedMediaIds:
         (legacy/unknown payload — falls back to full re-walk)."""
         item = RedownloadCreatorMedia(creator_id=snowflake_id())
         assert await _collect_ppv_targeted_media_ids(item) == []
+
+
+# ---------------------------------------------------------------------------
+# _on_service_event — chat routing + notification-unwrap guard branches
+# (lines 1270-1278, 1285->1308, 1287->1308, 1291->1308, 1293->1308,
+#  1296-1297, 1310->1319)
+# ---------------------------------------------------------------------------
+
+
+class TestOnServiceEventBranchEdges:
+    """Chat routing and the notification-unwrap / subscription guard arms."""
+
+    def _make_handler(self):
+        sim = RecordingSimulator()
+        queue: asyncio.Queue = asyncio.Queue()
+        budget = ErrorBudget(timeout_seconds=3600)
+        return sim, queue, budget, _make_ws_handler(sim, queue, budget)
+
+    @pytest.mark.asyncio
+    async def test_chat_message_routed_only_with_room_id(self, monkeypatch):
+        """(46, 10) routes a chatRoomMessage carrying chatRoomId to the chat
+        sink (1270-1277); a payload missing chatRoomId yields room_id=None and
+        is not routed (1274-1276), and a non-dict chatRoomMessage is skipped."""
+        _sim, queue, _budget, handler = self._make_handler()
+        routed: list[tuple[int, dict]] = []
+
+        async def _route(room_id, chat_msg):
+            routed.append((room_id, chat_msg))
+
+        monkeypatch.setattr("daemon.runner.route_ws_chat_message", _route)
+
+        room_id = snowflake_id()
+        msg = {"chatRoomId": str(room_id), "x": 1}
+        await handler(
+            {"serviceId": 46, "event": json.dumps({"type": 10, "chatRoomMessage": msg})}
+        )
+        await handler(  # missing chatRoomId → expect_int KeyError → not routed
+            {"serviceId": 46, "event": json.dumps({"type": 10, "chatRoomMessage": {}})}
+        )
+        await handler(  # chatRoomMessage not a dict → guard skips
+            {"serviceId": 46, "event": json.dumps({"type": 10, "chatRoomMessage": 5})}
+        )
+
+        assert routed == [(room_id, msg)]
+        assert queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_notification_unwrap_guards_skip_apply(self, monkeypatch):
+        """(9, 1) notification shapes that fail each guard fall through without
+        calling apply_subscription_ws_event: non-dict notification (1285->1308),
+        non-int inner type (1287->1308), non-15 synthetic service (1291->1308),
+        and a non-dict subscription under svc=15 (1293->1308)."""
+        _sim, _queue, _budget, handler = self._make_handler()
+        applied: list = []
+
+        async def _apply(payload):
+            applied.append(payload)
+
+        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", _apply)
+
+        for notification in (
+            "not-a-dict",
+            {"type": "not-an-int"},
+            {"type": 5001},  # 5001 → svc=5, type=1 (not 15)
+            {"type": 15007},  # svc=15 but no subscription dict
+        ):
+            await handler(
+                {
+                    "serviceId": 9,
+                    "event": json.dumps({"type": 1, "notification": notification}),
+                }
+            )
+
+        assert applied == []
+
+    @pytest.mark.asyncio
+    async def test_notification_apply_exception_logged(self, monkeypatch, caplog):
+        """(9, 1) → synthetic svc=15 with a subscription dict, but
+        apply_subscription_ws_event raises → except logs, no crash (1296-1297)."""
+        caplog.set_level(logging.ERROR)
+        _sim, _queue, _budget, handler = self._make_handler()
+
+        async def _raises(_payload):
+            raise RuntimeError("apply boom")
+
+        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", _raises)
+
+        await handler(
+            {
+                "serviceId": 9,
+                "event": json.dumps(
+                    {
+                        "type": 1,
+                        "notification": {"type": 15007, "subscription": {"id": "1"}},
+                    }
+                ),
+            }
+        )
+
+        errors = _logged(caplog, "ERROR")
+        assert any("apply_subscription_ws_event" in m for m in errors)
+
+    @pytest.mark.asyncio
+    async def test_svc15_without_subscription_dict_skips_apply(self, monkeypatch):
+        """(15, 5) with no subscription dict skips the apply side-effect and
+        proceeds to the dispatcher (line 1310->1319)."""
+        _sim, _queue, _budget, handler = self._make_handler()
+        applied: list = []
+
+        async def _apply(payload):
+            applied.append(payload)
+
+        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", _apply)
+
+        await handler({"serviceId": 15, "event": json.dumps({"type": 5})})
+        assert applied == []

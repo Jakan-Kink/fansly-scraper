@@ -913,6 +913,7 @@ class TestSimulatorTickLoopHeartbeat:
 
 from daemon.handlers import (  # noqa: E402 — deferred to keep section's import scope local
     CheckCreatorAccess,
+    DownloadMessagesForGroup,
     FullCreatorDownload,
     RedownloadCreatorMedia,
 )
@@ -932,12 +933,14 @@ class TestWorkerLoopExceptionPaths:
         async def _cancelled_get():
             raise asyncio.CancelledError
 
-        async def _wait_for(_coro, **_kwargs):
+        async def _wait_for(coro, **_kwargs):
             # Production calls asyncio.wait_for(queue.get(), timeout=1.0) —
             # the timeout kwarg is part of asyncio.wait_for's contract.
             # Accept it via **kwargs so we don't bind to the literal "timeout"
             # parameter name (which trips ASYNC109) yet still match the
-            # caller's keyword-arg shape.
+            # caller's keyword-arg shape. Close the intercepted queue.get()
+            # coroutine so it isn't left un-awaited (RuntimeWarning) on GC.
+            coro.close()
             raise asyncio.CancelledError
 
         monkeypatch.setattr("daemon.runner.asyncio.wait_for", _wait_for)
@@ -1059,6 +1062,71 @@ class TestWorkerLoopExceptionPaths:
         )
 
         assert marked == [creator_id]
+
+    @pytest.mark.asyncio
+    async def test_success_non_postprocessed_item_skips_mark(
+        self, config, entity_store, monkeypatch
+    ):
+        """Branch 992->997: a clean handler success for an item in neither
+        post-processing group (DownloadMessagesForGroup) goes straight to
+        task_done without calling mark_creator_processed."""
+        marked: list[int] = []
+
+        async def _noop_handler(_config, _item):
+            return None
+
+        async def _mark(cid):
+            marked.append(cid)
+
+        monkeypatch.setattr("daemon.runner._handle_work_item", _noop_handler)
+        monkeypatch.setattr("daemon.runner.mark_creator_processed", _mark)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        await queue.put(
+            DownloadMessagesForGroup(group_id=500, sender_id=snowflake_id())
+        )
+        stop_event = asyncio.Event()
+
+        async def _stop_when_drained():
+            await queue.join()
+            stop_event.set()
+
+        await asyncio.gather(
+            _worker_loop(config, queue, stop_event, use_following=False),
+            _stop_when_drained(),
+        )
+
+        assert marked == []
+
+    @pytest.mark.asyncio
+    async def test_handler_error_without_budget_continues(
+        self, config, monkeypatch, caplog
+    ):
+        """Branch 971->997: a handler error with budget=None skips the
+        ErrorBudget.on_error call and still drains via task_done."""
+        caplog.set_level(logging.ERROR)
+
+        async def _raises(_config, _item):
+            raise RuntimeError("no-budget boom")
+
+        monkeypatch.setattr("daemon.runner._handle_work_item", _raises)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        await queue.put(FullCreatorDownload(creator_id=snowflake_id()))
+        stop_event = asyncio.Event()
+
+        async def _stop_when_drained():
+            await queue.join()
+            stop_event.set()
+
+        # No budget passed → budget is None inside the loop.
+        await asyncio.gather(
+            _worker_loop(config, queue, stop_event, use_following=False),
+            _stop_when_drained(),
+        )
+
+        errors = _logged(caplog, "ERROR")
+        assert any("no-budget boom" in m for m in errors)
 
 
 class TestRefreshFollowing:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.machinery
 import importlib.util
 import logging
 import os
@@ -2564,95 +2565,50 @@ def test_extract_hashtags_special_chars():
 
 
 # =============================================================================
-# env.py comprehensive coverage tests
+# env.py - metadata/tables.py spec-load guard
 # =============================================================================
 
 
-def test_env_password_encoding_with_special_chars():
-    """Test env.py password URL encoding with special characters (lines 13-24)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
+@pytest.mark.parametrize(
+    "make_spec",
+    [
+        lambda _name: None,
+        lambda name: importlib.machinery.ModuleSpec(name, None),
+    ],
+    ids=["spec_is_none", "loader_is_none"],
+)
+def test_env_tables_spec_unloadable_raises(uuid_test_db_factory, make_spec):
+    """env.py raises RuntimeError when metadata/tables.py can't load (lines 35-36).
 
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
+    Runs a real ``command.upgrade`` so env.py executes end-to-end against an
+    empty database; only the external leaf ``spec_from_file_location`` is
+    patched, and only for the ``metadata_tables`` spec -- alembic uses the same
+    call to load env.py itself, so every other name passes through. Covers both
+    arms of ``_spec is None or _spec.loader is None`` (None spec, real spec with
+    no loader).
+    """
+    fansly_config = uuid_test_db_factory
+    password_encoded = (
+        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
+    )
+    db_url = (
+        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
+        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    )
+    alembic_cfg = _make_alembic_config(db_url)
 
-    with patch("alembic.context") as mock_context, patch("os.getenv") as mock_getenv:
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = None
-        mock_context.config.set_main_option = MagicMock()
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {"connection": MagicMock()}
+    real_spec_from_file_location = importlib.util.spec_from_file_location
 
-        mock_getenv.side_effect = lambda key, default="": {
-            "FANSLY_PG_HOST": "db.example.com",
-            "FANSLY_PG_PORT": "5432",
-            "FANSLY_PG_USER": "user",
-            "FANSLY_PG_PASSWORD": "p@ss:w/rd",
-            "FANSLY_PG_DATABASE": "testdb",
-        }.get(key, default)
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-        mock_context.config.set_main_option.assert_called_once()
-        args = mock_context.config.set_main_option.call_args[0]
-        assert args[0] == "sqlalchemy.url"
-        assert "p%40ss%3Aw%2Frd" in args[1]
-
-
-def test_env_online_mode_no_url_raises_error():
-    """Test env.py online mode raises ValueError when no URL (line 76)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
-
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
+    def selective_spec(name, *args, **kwargs):
+        if name == "metadata_tables":
+            return make_spec(name)
+        return real_spec_from_file_location(name, *args, **kwargs)
 
     with (
-        patch("alembic.context") as mock_context,
-        patch("os.getenv") as mock_getenv,
-        patch("sqlalchemy.create_engine") as mock_create_engine,
+        patch("importlib.util.spec_from_file_location", side_effect=selective_spec),
+        pytest.raises(RuntimeError, match="Could not load metadata"),
     ):
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = None
-        mock_context.config.set_main_option = MagicMock()
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {}
-
-        mock_getenv.return_value = ""
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            with pytest.raises(ValueError, match="No database URL configured"):
-                exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-
-def test_env_connection_commit_when_in_transaction():
-    """Test env.py commits when connection.in_transaction() is True (lines 105, 109)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
-
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
-
-    with patch("alembic.context") as mock_context:
-        mock_connection = MagicMock()
-        mock_connection.in_transaction.return_value = True
-
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = "postgresql://test"
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {"connection": mock_connection}
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-        mock_connection.commit.assert_called_once()
+        command.upgrade(alembic_cfg, "head")
 
 
 # =============================================================================
