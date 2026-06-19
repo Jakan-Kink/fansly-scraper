@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
 
-from stash_graphql_client.types import Gallery, GalleryChapter, Studio, is_set
+from stash_graphql_client.types import (
+    Gallery,
+    GalleryChapter,
+    Performer,
+    Studio,
+    is_set,
+)
 
 from metadata import Account, ContentType, Post
 
@@ -255,7 +260,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         self,
         gallery: Gallery,
         item: HasMetadata,
-        performer: Any,
+        performer: Performer | None,
     ) -> None:
         """Set up performers for a gallery.
 
@@ -356,7 +361,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         self,
         item: HasMetadata,
         account: Account,
-        performer: Any,
+        performer: Performer | None,
         studio: Studio | None,
         item_type: str,  # noqa: ARG002
         url_pattern: str,

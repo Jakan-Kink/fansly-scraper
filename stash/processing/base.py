@@ -10,7 +10,7 @@ import warnings
 from copy import deepcopy
 from datetime import datetime
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Self
 
 from stash_graphql_client import ServerCapabilities, StashContext
 from stash_graphql_client.errors import (
@@ -144,7 +144,7 @@ class StashProcessingBase(StashProcessingProtocol):
         cls,
         config: FanslyConfig,
         state: DownloadState,
-    ) -> Any:  # Return type will be the derived class
+    ) -> Self:
         """Create processor from config.
 
         Args:
@@ -300,7 +300,7 @@ class StashProcessingBase(StashProcessingProtocol):
     async def _safe_background_processing(
         self,
         account: Account | None,
-        performer: Any | None,
+        performer: Performer | None,
     ) -> None:
         """Safely handle background processing with cleanup.
 
