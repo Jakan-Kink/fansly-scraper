@@ -158,6 +158,62 @@ class TestChatWsLoopE2E:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(30)
+    async def test_non_dict_event_payload_is_skipped_not_fatal(
+        self,
+        ws_server,
+        config_wired,
+        tmp_path,
+    ) -> None:
+        """A svc=46 event whose decoded payload is a JSON array (not an
+        object) must be skipped without killing the loop — regression for the
+        pre-JsonValue-tightening ``AttributeError`` on ``event.get`` (now
+        guarded by ``isinstance(event, dict)``). A valid chat message pushed
+        afterward still records, proving the loop survived the malformed frame.
+        """
+        chat_room_id = snowflake_id()
+        chat_path = tmp_path / "chat.jsonl"
+        recorder = ChatRecorder(chat_path)
+        stop_event = asyncio.Event()
+
+        task = asyncio.create_task(
+            _chat_ws_loop(
+                config_wired,
+                chat_room_id,
+                recorder,
+                stop_event,
+                log_prefix="[test-malformed]",
+                ws_factory=_make_chat_ws_factory(ws_server.base_url),
+            )
+        )
+        try:
+            await ws_server.wait_for_chat_room_joined(chat_room_id, timeout=5.0)
+
+            # Malformed envelope: the decoded ``d`` is a JSON array, not an
+            # object — covers the isinstance(envelope, dict) guard.
+            ws_server.push(
+                {"t": 10000, "d": json.dumps([1, 2, 3])}
+            )  # 10000=SERVICE_EVENT
+            # Malformed event: a svc=46 frame whose event decodes to an array —
+            # covers the isinstance(event, dict) guard.
+            ws_server.push_service_event(service_id=46, inner=[1, 2, 3])  # type: ignore[arg-type]  # deliberately non-object event
+
+            # Valid chat message after it — only this one should record.
+            ws_server.push_chat_message(
+                chat_room_id=chat_room_id,
+                message={"id": snowflake_id(), "content": "after malformed"},
+            )
+
+            lines = await _read_jsonl_lines(chat_path, expected=1, timeout=5.0)
+        finally:
+            stop_event.set()
+            await asyncio.wait_for(task, timeout=5.0)
+            dump_ws_server_state(ws_server)
+
+        assert len(lines) == 1
+        assert lines[0]["content"] == "after malformed"
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
     async def test_dedups_duplicate_messages(
         self,
         ws_server,

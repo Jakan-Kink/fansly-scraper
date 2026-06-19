@@ -7,10 +7,12 @@ and story states.
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from pydantic import JsonValue
 from stash_graphql_client.types import is_set
 
+from helpers.common import JsonDict, expect_dict, expect_int, expect_list
 from textio import json_output
 
 from .entity_store import PostgresEntityStore
@@ -29,7 +31,7 @@ if TYPE_CHECKING:
 
 async def process_media_bundles_data(
     config: FanslyConfig,
-    data: dict[str, Any],
+    data: JsonDict,
     id_fields: list[str] | None = None,
 ) -> None:
     """Process media bundles from data."""
@@ -39,25 +41,27 @@ async def process_media_bundles_data(
     if "accountMediaBundles" not in data:
         return
 
-    account_id = None
-    items = data.get("messages") or data.get("posts")
+    account_id: JsonValue = None
+    raw_items = data.get("messages") or data.get("posts")
+    items = expect_list(raw_items, "messages/posts") if raw_items else None
     if items:
-        first_item = items[0]
+        first_item = expect_dict(items[0], "message/post item")
         for field in id_fields:
             if account_id := first_item.get(field):
                 break
 
     if account_id:
-        account_id = int(account_id)
         await process_media_bundles(
             config=config,
-            account_id=account_id,
-            media_bundles=data["accountMediaBundles"],
+            account_id=expect_int(account_id, "senderId/recipientId"),
+            media_bundles=expect_list(
+                data["accountMediaBundles"], "accountMediaBundles"
+            ),
         )
 
 
 async def _process_single_bundle(
-    bundle: dict,
+    bundle: JsonDict,
     account_id: int,
     config: FanslyConfig,
 ) -> None:
@@ -76,7 +80,9 @@ async def _process_single_bundle(
     bundle.setdefault("accountId", account_id)
 
     # Capture all accountMediaIds before model_validate resolves (and drops) them
-    all_media_ids = [int(mid) for mid in bundle.get("accountMediaIds", [])]
+    raw_ids = bundle.get("accountMediaIds")
+    ids_list = expect_list(raw_ids, "accountMediaIds") if raw_ids is not None else []
+    all_media_ids = [expect_int(mid, "accountMediaId") for mid in ids_list]
 
     bundle_obj = AccountMediaBundle.model_validate(bundle)
 
@@ -159,13 +165,13 @@ async def _backfill_missing_account_media(
 async def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
-    media_bundles: list[dict],
+    media_bundles: list[JsonValue],
 ) -> None:
     """Process media bundles for an account."""
     media_bundles = copy.deepcopy(media_bundles)
     for bundle in media_bundles:
         await _process_single_bundle(
-            bundle=bundle,
+            bundle=expect_dict(bundle, "media bundle"),
             account_id=account_id,
             config=config,
         )
@@ -173,7 +179,7 @@ async def process_media_bundles(
 
 async def process_account_data(
     config: FanslyConfig,
-    data: dict[str, Any],
+    data: JsonDict,
     state: DownloadState | None = None,  # noqa: ARG001
 ) -> None:
     """Process account data from the API and store in the database.
@@ -230,7 +236,7 @@ async def process_account_data(
         await process_account_walls(
             config=config,
             account=account,
-            walls_data=data["walls"],
+            walls_data=expect_list(data["walls"], "walls"),
         )
 
     # Remove stub tracking

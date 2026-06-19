@@ -9,8 +9,11 @@ timeline responses).
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from pydantic import JsonValue
+
+from helpers.common import JsonDict, expect_dict, expect_list
 from textio import json_output
 
 from .media import process_media_info
@@ -23,7 +26,7 @@ if TYPE_CHECKING:
 
 async def process_media_stories(
     config: FanslyConfig,
-    stories_response: dict[str, Any],
+    stories_response: JsonDict,
 ) -> list[MediaStory]:
     """Persist MediaStory records and their AccountMedia from a stories response.
 
@@ -45,22 +48,23 @@ async def process_media_stories(
     store = get_store()
     data = copy.deepcopy(stories_response)
 
-    media_stories_raw = data.get("mediaStories", [])
+    media_stories_raw = expect_list(data.get("mediaStories") or [], "mediaStories")
     if not media_stories_raw:
         return []
 
     # Extract and persist accountMedia from aggregationData
-    aggregation = data.get("aggregationData", {})
-    account_media = aggregation.get("accountMedia", [])
+    aggregation = expect_dict(data.get("aggregationData") or {}, "aggregationData")
+    account_media = expect_list(aggregation.get("accountMedia") or [], "accountMedia")
 
     batch_size = 15
     for i in range(0, len(account_media), batch_size):
-        batch = account_media[i : i + batch_size]
+        batch: list[JsonValue] = account_media[i : i + batch_size]
         await process_media_info(config, {"batch": batch})
 
     # Persist each MediaStory wrapper
     saved: list[MediaStory] = []
-    for story_dict in media_stories_raw:
+    for raw_story in media_stories_raw:
+        story_dict = expect_dict(raw_story, "mediaStory")
         if "accountId" not in story_dict:
             json_output(
                 1,

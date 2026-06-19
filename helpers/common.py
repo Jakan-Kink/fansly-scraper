@@ -4,7 +4,6 @@ import webbrowser
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from pydantic import JsonValue
 
@@ -37,7 +36,20 @@ def str_or_none(value: JsonValue) -> str | None:
     return None if value is None else str(value)
 
 
-def parse_timestamp(v: Any) -> Any:
+def expect_int(value: JsonValue, what: str) -> int:
+    """Narrow a JSON scalar to an int, or raise a precise TypeError.
+
+    Accepts the int-like scalars Fansly delivers (str/int/float/bool); a
+    container or None means the field was not the id-like scalar expected.
+    """
+    if isinstance(value, (str, int, float)):
+        return int(value)
+    raise TypeError(
+        f"Fansly API: expected {what} to be an int, got {type(value).__name__}"
+    )
+
+
+def parse_timestamp(v: object) -> datetime | object:
     """Coerce a Fansly timestamp to a UTC datetime.
 
     Accepts epoch milliseconds or seconds (int/float, disambiguated by the
@@ -58,18 +70,18 @@ def parse_timestamp(v: Any) -> Any:
     return v
 
 
-def batch_list(input_list: Sequence[Any], batch_size: int) -> Iterable[list[Any]]:
+def batch_list[T](input_list: Sequence[T], batch_size: int) -> Iterable[list[T]]:
     """Yield successive n-sized batches from input_list.
 
     :param input_list: An arbitrary list to split into equal-sized chunks.
-    :type input_list: list[Any]
+    :type input_list: Sequence[T]
 
     :param batch_size: The number of elements in a chunk to
         split the list into. Batch size must be >= 1.
     :type batch_size: int
 
     :return: An iterable of sub-lists of size `batch_size`.
-    :rtype: Iterable[list[Any]]
+    :rtype: Iterable[list[T]]
     """
     if batch_size < 1:
         raise ValueError(

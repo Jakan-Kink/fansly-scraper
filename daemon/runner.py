@@ -33,12 +33,14 @@ import contextlib
 import json
 import signal
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import httpx
 from loguru import logger
+from pydantic import JsonValue
 
 from api.websocket import FanslyWebSocket
 from api.websocket_protocol import (
@@ -93,6 +95,7 @@ from download.core import (
 from download.media import fetch_and_process_media
 from download.types import DownloadType
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
+from helpers.common import JsonDict, expect_int
 from metadata.models import Account, AccountMediaBundle, Message, get_store
 from metadata.subscriptions import (
     _access_changed_accounts,
@@ -1093,7 +1096,7 @@ async def _following_refresh_loop(
 async def _simulator_tick_loop(
     simulator: ActivitySimulator,
     stop_event: asyncio.Event,
-    ws: Any,
+    ws: FanslyWebSocket,
     refresh_event: asyncio.Event,
     budget: ErrorBudget,
     dashboard: DaemonDashboard | NullDashboard,
@@ -1197,7 +1200,7 @@ def _make_ws_handler(
     simulator: ActivitySimulator,
     queue: asyncio.Queue[WorkItem],
     budget: ErrorBudget | None = None,
-) -> Any:
+) -> Callable[[JsonValue], Awaitable[None]]:
     """Build an async callback suitable for FanslyWebSocket.register_handler.
 
     The returned coroutine decodes the ServiceEvent envelope and calls
@@ -1213,7 +1216,7 @@ def _make_ws_handler(
         An async callable compatible with register_handler(MSG_SERVICE_EVENT, ...).
     """
 
-    async def _on_service_event(event_data: Any) -> None:
+    async def _on_service_event(event_data: JsonValue) -> None:
         """Handle a decoded MSG_SERVICE_EVENT envelope from the WebSocket.
 
         Args:
@@ -1225,14 +1228,12 @@ def _make_ws_handler(
         service_id = event_data.get("serviceId")
         raw_event = event_data.get("event")
 
-        if service_id is None:
+        if not isinstance(service_id, int):
             return
 
         try:
-            inner: dict[str, Any] = (
-                json.loads(raw_event)
-                if isinstance(raw_event, str)
-                else (raw_event or {})
+            decoded: JsonValue = (
+                json.loads(raw_event) if isinstance(raw_event, str) else raw_event
             )
         except (json.JSONDecodeError, TypeError) as exc:
             ws_logger.warning(
@@ -1243,8 +1244,10 @@ def _make_ws_handler(
             )
             return
 
+        inner: JsonDict = decoded if isinstance(decoded, dict) else {}
+
         event_type = inner.get("type")
-        if event_type is None:
+        if not isinstance(event_type, int):
             return
 
         ws_logger.debug(
@@ -1267,7 +1270,7 @@ def _make_ws_handler(
             chat_msg = inner.get("chatRoomMessage")
             if isinstance(chat_msg, dict):
                 try:
-                    room_id = int(chat_msg["chatRoomId"])
+                    room_id = expect_int(chat_msg["chatRoomId"], "chatRoomId")
                 except (KeyError, TypeError, ValueError):
                     room_id = None
                 if room_id is not None:
@@ -1352,7 +1355,7 @@ def _make_ws_handler(
 async def run_daemon(
     config: FanslyConfig,
     *,
-    ws_factory: Any = None,
+    ws_factory: Callable[[FanslyConfig], FanslyWebSocket] | None = None,
     stop_event: asyncio.Event | None = None,
     bootstrap: DaemonBootstrap | None = None,
 ) -> int:

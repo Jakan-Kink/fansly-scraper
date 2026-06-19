@@ -381,6 +381,12 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
     pytest.param(
         5,
         1,
+        {"message": {"groupId": [1, 2], "attachments": [{"contentType": 1}]}},
+        id="malformed_non_scalar_group_id",  # list isn't an int-like scalar
+    ),
+    pytest.param(
+        5,
+        1,
         {"message": {"groupId": None, "attachments": [{"contentType": 1}]}},
         id="malformed_null_group_id",
     ),

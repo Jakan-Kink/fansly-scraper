@@ -2,10 +2,12 @@
 
 import asyncio
 import traceback
-from typing import Any
+
+from pydantic import JsonValue
 
 from config import FanslyConfig
 from errors import ApiError, DuplicateCountError, DuplicatePageError
+from helpers.common import JsonDict, expect_dict, expect_int, expect_list
 from metadata import Media, Message, Post, Wall
 from metadata.models import get_store
 from pathio import set_create_directory_for_download
@@ -16,27 +18,37 @@ from .media import download_media
 from .types import DownloadType
 
 
-def get_unique_media_ids(info_object: dict[str, Any]) -> list[int]:
+def get_unique_media_ids(info_object: JsonDict) -> list[int]:
     """Extracts a unique list of media IDs from `accountMedia` and
     `accountMediaBundles` of prominent Fansly API objects.
     """
-    account_media = info_object.get("accountMedia", [])
-    media_bundles = info_object.get("accountMediaBundles", [])
+    account_media = expect_list(info_object.get("accountMedia", []), "accountMedia")
+    media_bundles = expect_list(
+        info_object.get("accountMediaBundles", []), "accountMediaBundles"
+    )
 
-    def check(item: Any) -> bool:
+    def check(item: JsonValue) -> bool:
         if item is None:
             raise ApiError(
                 "Media items in response are empty - this is most probably a Fansly API/countermeasure issue."
             )
         return True
 
-    account_media_ids = [int(media["id"]) for media in account_media if check(media)]
+    account_media_ids = [
+        expect_int(expect_dict(media, "accountMedia")["id"], "id")
+        for media in account_media
+        if check(media)
+    ]
 
     bundle_media_ids: list[int] = []
-    for id_list in [
-        bundle["accountMediaIds"] for bundle in media_bundles if check(bundle)
-    ]:
-        bundle_media_ids.extend(int(mid) for mid in id_list)
+    for bundle in media_bundles:
+        if not check(bundle):
+            continue
+        id_list = expect_list(
+            expect_dict(bundle, "accountMediaBundle")["accountMediaIds"],
+            "accountMediaIds",
+        )
+        bundle_media_ids.extend(expect_int(mid, "accountMediaId") for mid in id_list)
 
     all_media_ids: set[int] = set()
     for media_id in account_media_ids:
@@ -56,7 +68,7 @@ _PAGE_TYPE_CONFIG: dict[str, tuple[str, type]] = {
 
 async def check_page_duplicates(
     config: FanslyConfig,
-    page_data: dict[str, Any],
+    page_data: JsonDict,
     page_type: str,
     page_id: int | str | None = None,
     cursor: int | str | None = None,
@@ -79,14 +91,19 @@ async def check_page_duplicates(
         return
     data_key, model_class = page_config
 
-    items = page_data.get(data_key)
-    if not items:
+    items_raw = page_data.get(data_key)
+    if not items_raw:
         return
+    items = expect_list(items_raw, data_key)
 
     store = get_store()
 
     all_in_metadata = all(
-        store.get_from_cache(model_class, item["id"]) is not None for item in items
+        store.get_from_cache(
+            model_class, expect_int(expect_dict(item, data_key)["id"], "id")
+        )
+        is not None
+        for item in items
     )
 
     if all_in_metadata:

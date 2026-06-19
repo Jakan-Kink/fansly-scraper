@@ -371,7 +371,11 @@ class TestFullMediaPipeline:
 
     @pytest.mark.asyncio
     async def test_process_media_item_dict_non_dict(self, entity_store, mock_config):
-        await process_media_item_dict(mock_config, "not_a_dict")
+        # process_media_item_dict now takes JsonDict; the defensive non-dict
+        # guard was removed (its sole production caller isinstance-narrows
+        # first). A non-dict therefore raises rather than silently returning.
+        with pytest.raises(AttributeError):
+            await process_media_item_dict(mock_config, "not_a_dict")  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
     async def test_should_skip_media(self):

@@ -17,6 +17,7 @@ import pytest
 
 from helpers.common import (
     batch_list,
+    expect_int,
     get_post_id_from_request,
     is_valid_post_id,
     open_location,
@@ -72,6 +73,41 @@ def test_batch_list_invalid_batch_size_raises(batch_size):
         ValueError, match=f"Invalid batch size of {batch_size} is less than 1"
     ):
         list(batch_list([1, 2, 3], batch_size))
+
+
+# ---------------------------------------------------------------------------
+# expect_int — JSON-scalar → int narrowing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("123", 123, id="numeric_str"),
+        pytest.param(123, 123, id="int"),
+        pytest.param(12.9, 12, id="float_truncates"),
+        pytest.param(True, 1, id="bool"),
+    ],
+)
+def test_expect_int_coerces_scalars(value, expected):
+    """expect_int coerces int-like JSON scalars with a single int() call."""
+    assert expect_int(value, "id") == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param([1, 2], id="list"),
+        pytest.param({"a": 1}, id="dict"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_expect_int_non_scalar_raises(value):
+    """A container or None is not an id-like scalar — precise TypeError."""
+    with pytest.raises(
+        TypeError, match=f"expected id to be an int, got {type(value).__name__}"
+    ):
+        expect_int(value, "id")
 
 
 # ---------------------------------------------------------------------------

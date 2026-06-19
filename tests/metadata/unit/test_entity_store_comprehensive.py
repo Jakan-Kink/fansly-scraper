@@ -501,6 +501,24 @@ class TestCacheManagement:
                 await db._asyncpg_pool.close()
             db.close_sync()
 
+    @pytest.mark.asyncio
+    async def test_get_from_cache_by_type_name_resolves_str_type_and_none(
+        self, entity_store
+    ):
+        """get_from_cache_by_type_name accepts a name str, a type (resolved via
+        __name__), or None (→ None) — lets cache-resolution pass a
+        RelationshipMetadata.inverse_type (str | type | None) straight through.
+        """
+        acct = Account(id=snowflake_id(), username="by_type_name")
+        await entity_store.save(acct)
+
+        # str name and type object both resolve to the same cached instance.
+        assert entity_store.get_from_cache_by_type_name("Account", acct.id) is acct
+        assert entity_store.get_from_cache_by_type_name(Account, acct.id) is acct
+        # None → None (no type to resolve); unknown name → None.
+        assert entity_store.get_from_cache_by_type_name(None, acct.id) is None
+        assert entity_store.get_from_cache_by_type_name("Nope", acct.id) is None
+
 
 # ── Preload with data ────────────────────────────────────────────────────
 

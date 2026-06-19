@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
+from pydantic import JsonValue
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from api.websocket import _ChildWebSocket
@@ -155,17 +156,21 @@ async def _chat_ws_loop(
                 )
             )
 
-            async def _on_service_event(data: dict | str) -> None:
+            async def _on_service_event(data: JsonValue) -> None:
                 try:
                     envelope = json.loads(data) if isinstance(data, str) else data
+                    if not isinstance(envelope, dict):
+                        return
                     if envelope.get("serviceId") != 46:
                         return
                     raw_event = envelope.get("event")
                     event = (
                         json.loads(raw_event)
                         if isinstance(raw_event, str)
-                        else (raw_event or {})
+                        else raw_event
                     )
+                    if not isinstance(event, dict):
+                        return
                     if event.get("type") != 10:
                         return
                     chat_msg = event.get("chatRoomMessage")

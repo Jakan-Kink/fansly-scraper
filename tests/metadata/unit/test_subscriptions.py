@@ -19,6 +19,7 @@ from metadata import (
 )
 from metadata.subscriptions import (
     _access_changed_accounts,
+    apply_subscription_snapshot,
     apply_subscription_ws_event,
     consume_access_change,
     get_access_changed_accounts,
@@ -631,6 +632,68 @@ def test_current_subscription_handles_mixed_none_timestamps():
     # Empty list → None.
     account.subscriptions = []
     assert account.current_subscription is None
+
+
+# ── _process_single_plan edge paths (via process_subscriptions_response) ─────
+
+
+@pytest.mark.asyncio
+async def test_process_single_plan_edge_paths(entity_store):
+    """Plan branches through the real response entry point: a plan missing
+    its required id is skipped (no row); a plan with no ``promos`` key
+    persists with zero promo rows; a non-dict promo entry is skipped rather
+    than validated.
+    """
+    store = entity_store
+    creator = snowflake_id()
+    tier = snowflake_id()
+    plan_no_promos = snowflake_id()
+    plan_bad_promo = snowflake_id()
+    await store.save(Account(id=creator, username="plan_edges"))
+
+    response = {
+        "subscriptionPlans": [
+            # No "promos" key → pop returns None → promo loop skipped entirely.
+            {
+                "id": plan_no_promos,
+                "accountId": creator,
+                "subscriptionTierId": tier,
+                "billingCycle": 30,
+                "price": 5000,
+                "useAmounts": 0,
+            },
+            # Non-dict promo entry → that entry is skipped, plan still persists.
+            {
+                "id": plan_bad_promo,
+                "accountId": creator,
+                "subscriptionTierId": tier,
+                "billingCycle": 30,
+                "price": 5000,
+                "useAmounts": 0,
+                "promos": [12345],
+            },
+            # Missing required id → json_output + early return, never persisted.
+            {"accountId": creator, "subscriptionTierId": tier},
+        ]
+    }
+
+    await process_subscriptions_response(response)
+
+    assert store.get_from_cache(SubscriptionPlan, plan_no_promos) is not None
+    assert store.get_from_cache(SubscriptionPlan, plan_bad_promo) is not None
+    # Only the two valid plans persisted (the id-less plan was skipped).
+    assert len(store.filter(SubscriptionPlan, lambda _p: True)) == 2
+    # No promo rows: plan_no_promos had none, the non-dict entry was skipped.
+    assert not store.filter(SubscriptionPromo, lambda _p: True)
+
+
+@pytest.mark.asyncio
+async def test_apply_subscription_snapshot_ignores_non_dict():
+    """The defensive non-dict guard on apply_subscription_snapshot is a no-op
+    (REST-embedded ``Account.subscription`` may be absent or malformed)."""
+    assert await apply_subscription_snapshot(None) is None
+    assert await apply_subscription_snapshot("garbage") is None
+    assert get_access_changed_accounts() == {}
 
 
 def test_subscription_coerces_int_id_fields_to_string():

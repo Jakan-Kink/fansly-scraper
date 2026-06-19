@@ -779,6 +779,18 @@ class TestOnServiceEvent:
         assert queue.empty()
 
     @pytest.mark.asyncio
+    async def test_non_dict_decoded_payload_returns_silently(self):
+        """A decoded payload that isn't an object — a JSON array string or a
+        raw non-dict ``event`` — degrades to an empty inner dict instead of
+        raising. Regression guard: before the JsonValue tightening, ``inner``
+        held the list and ``inner.get`` raised AttributeError.
+        """
+        _sim, queue, _budget, handler = self._make_handler()
+        await handler({"serviceId": 5, "event": "[1, 2, 3]"})  # JSON array string
+        await handler({"serviceId": 5, "event": [1, 2, 3]})  # raw non-dict
+        assert queue.empty()
+
+    @pytest.mark.asyncio
     async def test_unknown_event_type_logs_debug_and_returns(self, caplog):
         caplog.set_level(logging.DEBUG)
         _sim, queue, _budget, handler = self._make_handler()
