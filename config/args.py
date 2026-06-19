@@ -4,7 +4,7 @@ import argparse
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, get_args
+from typing import get_args
 
 from pydantic import BaseModel, SecretStr
 
@@ -91,12 +91,12 @@ _SHOW_CONFIG_SECTIONS: list[tuple[str, type[BaseModel]]] = [
 ]
 
 
-def _is_blank_eligible(annotation: Any) -> bool:
+def _is_blank_eligible(annotation: object) -> bool:
     """True iff the field's type annotation includes ``None`` (X | None / Optional[X])."""
     return type(None) in get_args(annotation)
 
 
-def _format_field_value(value: Any, *, blank_eligible: bool) -> str:
+def _format_field_value(value: object, *, blank_eligible: bool) -> str:
     """Render a field's value for ``--show-config`` output.
 
     Rules:

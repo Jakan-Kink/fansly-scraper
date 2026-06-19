@@ -14,6 +14,7 @@ from pydantic import SecretStr, ValidationError
 
 from config.modes import DownloadMode
 from config.schema import (
+    CacheSection,
     ConfigSchema,
     LoggingSection,
     LogicSection,
@@ -23,6 +24,7 @@ from config.schema import (
     PostgresSection,
     StashContextSection,
     TargetedCreatorSection,
+    _python_to_yaml_value,
 )
 
 
@@ -944,6 +946,12 @@ class TestEnableSceneSplitValidator:
         with pytest.raises(ValidationError, match=r"dry-run"):
             StashContextSection.model_validate({"enable_scene_split": "enabled"})
 
+    def test_non_bool_non_str_rejected(self) -> None:
+        """A non-bool/non-str value falls to the validator's `return v` tail
+        (schema.py:730); Pydantic then rejects the int against the field type."""
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"enable_scene_split": 123})
+
 
 class TestScanSettleSeconds:
     """scan_settle_s: post-scan settle window, default 3.5, bounded 0..30."""
@@ -967,3 +975,140 @@ class TestScanSettleSeconds:
     def test_above_max_rejected(self) -> None:
         with pytest.raises(ValidationError):
             StashContextSection.model_validate({"scan_settle_s": 30.1})
+
+
+# ---------------------------------------------------------------------------
+# mode="before" validator defensive tails (the `return v` / early-return arms)
+# ---------------------------------------------------------------------------
+
+
+class TestValidatorPassthroughTails:
+    """The defensive ``return v`` arms of the section before-validators.
+
+    Each runs when the input is not one of the types the validator handles;
+    the value is passed straight to Pydantic, which then accepts (when the
+    type is still valid, e.g. an ISO string for a datetime) or rejects it.
+    """
+
+    def test_drop_retired_fields_ignores_non_dict_input(self) -> None:
+        """_drop_retired_fields takes its non-dict arm (schema.py:158->161)."""
+        with pytest.raises(ValidationError):
+            OptionsSection.model_validate(123)  # type: ignore[arg-type]
+
+    def test_download_mode_non_string_rejected(self) -> None:
+        """DownloadMode is a StrEnum, so only a genuinely non-str value reaches
+        the validator's ``return v`` tail (schema.py:332); Pydantic rejects it."""
+        with pytest.raises(ValidationError):
+            OptionsSection(download_mode=123)  # type: ignore[arg-type]
+
+    def test_repair_previews_non_bool_non_str_rejected(self) -> None:
+        """repair_previews passes a non-bool/non-str through (schema.py:351)."""
+        with pytest.raises(ValidationError):
+            OptionsSection(repair_previews=123)  # type: ignore[arg-type]
+
+    def test_session_baseline_iso_string_parsed_after_passthrough(self) -> None:
+        """A str session_baseline isn't None/datetime, so the validator returns
+        it (schema.py:789) and Pydantic parses it to an aware datetime."""
+        section = MonitoringSection.model_validate(
+            {"session_baseline": "2024-01-01T12:00:00+00:00"}
+        )
+        assert section.session_baseline == datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+
+
+class TestLegacyLoggingMigrationEdges:
+    """Defensive arms of LoggingSection._migrate_legacy_logging (mode=before)."""
+
+    def test_non_dict_input_returned_early(self) -> None:
+        """Non-dict input returns before migration (schema.py:622)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate("not-a-dict")  # type: ignore[arg-type]
+
+    def test_legacy_alias_skipped_when_target_already_non_dict(self) -> None:
+        """A legacy single-target alias whose destination key is already a
+        non-dict skips the setdefault (schema.py:635->631)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate({"sqlalchemy": "INFO", "db": "not-a-dict"})
+
+    def test_textio_fanout_skipped_when_target_non_dict(self) -> None:
+        """The textio→(main_log, rich_handler) fan-out skips a non-dict target
+        (schema.py:642->640)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate({"textio": "INFO", "main_log": "not-a-dict"})
+
+
+def test_managed_optional_sections_coerced_from_explicit_null() -> None:
+    """Explicit YAML null for cache/monitoring/logic is coerced back to empty
+    section instances so runtime access needs no null guard (schema.py:856, 858,
+    860). They default via default_factory, so only an explicit null reaches it.
+    """
+    schema = ConfigSchema.model_validate(
+        {"cache": None, "monitoring": None, "logic": None}
+    )
+    assert isinstance(schema.cache, CacheSection)
+    assert isinstance(schema.monitoring, MonitoringSection)
+    assert isinstance(schema.logic, LogicSection)
+
+
+def test_override_dldir_without_mapped_path_rejected() -> None:
+    """override_dldir_w_mapped=true with no mapped_path is rejected at load
+    (schema.py:741) -- the flag would otherwise silently no-op."""
+    with pytest.raises(ValidationError, match=r"mapped_path"):
+        StashContextSection.model_validate({"override_dldir_w_mapped": True})
+
+
+def test_load_yaml_bounds_error_uses_pydantic_fallback_message(
+    tmp_path: Path,
+) -> None:
+    """A bounds violation has no bespoke formatter, so _pretty_error_message
+    falls back to Pydantic's own msg (schema.py:140) inside load_yaml's
+    ValidationError handler, and the error-type is surfaced in the line."""
+    cfg = tmp_path / "out_of_range.yaml"
+    cfg.write_text(
+        "monitoring:\n  livestream_manifest_poll_interval_seconds: 99\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as exc_info:
+        ConfigSchema.load_yaml(cfg)
+    msg = str(exc_info.value)
+    assert "livestream_manifest_poll_interval_seconds" in msg
+    assert "less_than_equal" in msg
+
+
+def test_python_to_yaml_value_normalizes_list_of_tuples() -> None:
+    """A list of tuples/lists is emitted as a list of lists (schema.py:1042)."""
+    assert _python_to_yaml_value([(1, 2), (3, 4)], [(1, 2), (3, 4)]) == [[1, 2], [3, 4]]
+
+
+class TestDumpCascadeEdges:
+    """Cascade-up deletions and yaml-map reuse in the dump path."""
+
+    def test_dump_yaml_string_reuses_loaded_yaml_map(
+        self, sample_yaml_path: Path
+    ) -> None:
+        """After load_yaml populates _yaml_map, dump_yaml_string reuses it rather
+        than building a fresh CommentedMap (schema.py:927->929)."""
+        schema = ConfigSchema.load_yaml(sample_yaml_path)
+        out = schema.dump_yaml_string()
+        assert isinstance(out, str)
+        assert out
+
+    def test_optional_section_set_to_none_dropped_on_dump(self, tmp_path: Path) -> None:
+        """A stash_context present on disk but None at runtime is deleted from
+        the YAML on dump (schema.py:1074)."""
+        cfg = tmp_path / "with_stash.yaml"
+        cfg.write_text('stash_context:\n  apikey: "abc"\n', encoding="utf-8")
+        schema = ConfigSchema.load_yaml(cfg)
+        schema.stash_context = None
+        out = tmp_path / "out.yaml"
+        schema.dump_yaml(out)
+        assert "stash_context" not in out.read_text(encoding="utf-8")
+
+    def test_empty_section_on_disk_dropped_on_dump(self, tmp_path: Path) -> None:
+        """A section present on disk with nothing renderable (empty cache, no
+        always-leaves) is removed on dump via cascade-up (schema.py:1081)."""
+        cfg = tmp_path / "empty_cache.yaml"
+        cfg.write_text("cache: {}\n", encoding="utf-8")
+        schema = ConfigSchema.load_yaml(cfg)
+        out = tmp_path / "out.yaml"
+        schema.dump_yaml(out)
+        assert "cache" not in out.read_text(encoding="utf-8")

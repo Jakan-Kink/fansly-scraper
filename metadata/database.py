@@ -23,7 +23,7 @@ from sqlalchemy import create_engine, event
 
 from config import db_logger
 
-from .entity_store import PostgresEntityStore
+from .entity_store import DbConfig, PostgresEntityStore
 
 
 if TYPE_CHECKING:
@@ -132,15 +132,16 @@ class Database:
         # event loop). Without this, `_get_pool()`'s fallback path raises
         # "cannot create a thread-local pool" whenever the calling loop
         # differs from the one the shared pool was constructed on.
+        db_config: DbConfig = {
+            "host": config.pg_host,
+            "port": int(config.pg_port),
+            "database": config.pg_database,
+            "user": config.pg_user,
+            "password": password,
+        }
         self._entity_store = PostgresEntityStore(
             self._asyncpg_pool,
-            db_config={
-                "host": config.pg_host,
-                "port": int(config.pg_port),
-                "database": config.pg_database,
-                "user": config.pg_user,
-                "password": password,
-            },
+            db_config=db_config,
         )
         self._entity_store.register_models()
 

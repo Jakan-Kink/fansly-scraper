@@ -24,7 +24,7 @@ from collections import defaultdict
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any, TypedDict, TypeVar
 
 import asyncpg
 from stash_graphql_client.types.unset import UnsetType
@@ -146,6 +146,25 @@ class SortDirection(StrEnum):
 OrderBySpec = list[tuple[str, SortDirection]]
 
 
+class CacheStats(TypedDict):
+    """Snapshot of identity-map occupancy returned by ``cache_stats()``."""
+
+    total: int
+    by_type: dict[str, int]
+    fully_loaded: list[str]
+    stats: dict[str, int]
+
+
+class DbConfig(TypedDict):
+    """asyncpg connection parameters for per-thread pool creation."""
+
+    host: str
+    port: int
+    database: str
+    user: str | None
+    password: str | None
+
+
 def _normalize_order_by(
     order_by: str | tuple[str, SortDirection] | OrderBySpec | None,
 ) -> OrderBySpec:
@@ -181,7 +200,7 @@ def _parse_lookup(key: str) -> tuple[str, str]:
     return key, "exact"
 
 
-def _resolve_field_value(obj: Any, field_path: str) -> Any:
+def _resolve_field_value(obj: FanslyObject, field_path: str) -> object:
     """Resolve a potentially nested field path on an object.
 
     Simple fields return the attribute value directly.
@@ -193,7 +212,7 @@ def _resolve_field_value(obj: Any, field_path: str) -> Any:
         return getattr(obj, field_path, None)
 
     parts = field_path.split("__")
-    value: Any = obj
+    value: object = obj
     for i, part in enumerate(parts):
         if value is None:
             return None
@@ -239,7 +258,7 @@ class PostgresEntityStore:
         self,
         pool: asyncpg.Pool,
         *,
-        db_config: dict[str, Any] | None = None,
+        db_config: DbConfig | None = None,
         default_ttl: timedelta | int | None = None,
     ) -> None:
         self.pool = pool
@@ -423,9 +442,13 @@ class PostgresEntityStore:
         return (time.monotonic() - cached_at) > ttl.total_seconds()
 
     def get_from_cache_by_type_name(
-        self, type_name: str, entity_id: int
+        self, type_name: str | type | None, entity_id: int
     ) -> FanslyObject | None:
-        """Lookup by type name string."""
+        """Lookup by type name, resolving a type to its name; None → None."""
+        if isinstance(type_name, type):
+            type_name = type_name.__name__
+        if type_name is None:
+            return None
         return get_from_cache_by_type_name(self, type_name, entity_id)
 
     @staticmethod
@@ -473,7 +496,9 @@ class PostgresEntityStore:
                 self._sync_autolink_snapshot(obj, field_name, cached)
 
     @staticmethod
-    def _sync_autolink_snapshot(obj: FanslyObject, field_name: str, value: Any) -> None:
+    def _sync_autolink_snapshot(
+        obj: FanslyObject, field_name: str, value: FanslyObject | None
+    ) -> None:
         """Keep the dirty-tracking snapshot in step with an autolink hydration.
 
         Autolink resolves an UNSET singular relationship from the identity map;
@@ -1617,7 +1642,7 @@ class PostgresEntityStore:
         self._cache_timestamps.clear()
         self._fully_loaded.clear()
 
-    def cache_stats(self) -> dict[str, Any]:
+    def cache_stats(self) -> CacheStats:
         by_type = {
             model_type.__name__: len(ids)
             for model_type, ids in self._type_index.items()
