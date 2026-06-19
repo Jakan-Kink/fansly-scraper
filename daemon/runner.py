@@ -634,11 +634,9 @@ async def _run_incremental_stash(config: FanslyConfig, state: DownloadState) -> 
             state.creator_name,
             exc,
         )
-    finally:
-        await processor.cleanup()
 
 
-_WORK_DISPATCH: dict[type[WorkItem], Any] = {
+_WORK_DISPATCH: dict[type[WorkItem], Callable[..., Awaitable[None]]] = {
     DownloadMessagesForGroup: _handle_messages_item,
     FullCreatorDownload: _handle_full_creator_item,
     RedownloadCreatorMedia: _handle_redownload_item,
@@ -1448,10 +1446,33 @@ async def run_daemon(
         )
 
 
+@contextlib.asynccontextmanager
+async def _daemon_stash_context(config: FanslyConfig) -> AsyncIterator[None]:
+    """Hold the shared Stash context open for the whole daemon run.
+
+    Entering increments the SGC context's reference count (and opens the
+    singleton client once); exiting decrements it, so the client is closed only
+    when this outer hold releases at daemon shutdown -- never by an individual
+    incremental pass. No-op when Stash is inactive; on a failed initial connect
+    it logs and continues, leaving passes to connect lazily.
+    """
+    async with contextlib.AsyncExitStack() as stack:
+        if config.stash_active:
+            try:
+                await stack.enter_async_context(config.get_stash_context())
+            except Exception as exc:
+                logger.warning(
+                    "daemon.runner: could not pre-open Stash context "
+                    "(incremental passes will connect lazily) - {}",
+                    exc,
+                )
+        yield
+
+
 async def _run_daemon_body(
     *,
     config: FanslyConfig,
-    ws_factory: Any,
+    ws_factory: Callable[[FanslyConfig], FanslyWebSocket] | None,
     simulator: ActivitySimulator,
     budget: ErrorBudget,
     stop_event: asyncio.Event,
@@ -1470,8 +1491,8 @@ async def _run_daemon_body(
     # When a bootstrap is supplied, reuse its already-started WS and just
     # re-register the handler with a budget-aware closure. Otherwise
     # build a fresh WS (legacy path for tests / non-bootstrapped callers).
-    if bootstrap is not None and bootstrap.ws_started:
-        ws: Any = bootstrap.ws
+    if bootstrap is not None and bootstrap.ws_started and bootstrap.ws is not None:
+        ws: FanslyWebSocket = bootstrap.ws
         ws.register_handler(
             MSG_SERVICE_EVENT,
             _make_ws_handler(simulator, queue, budget),
@@ -1585,39 +1606,40 @@ async def _run_daemon_body(
 
     exit_code = EXIT_SUCCESS
 
-    try:
-        await asyncio.gather(*all_tasks, return_exceptions=False)
-    except DaemonUnrecoverableError as exc:
-        logger.error("daemon.runner: exiting (unrecoverable): {}", exc)
-        exit_code = DAEMON_UNRECOVERABLE
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        pass
-    finally:
-        logger.info("daemon.runner: stopping tasks")
-        stop_event.set()
-        refresh_event.set()  # wake _following_refresh_loop so it can exit
-
-        # Cancel pollers FIRST (stop producing new work)
-        for task in poller_tasks:
-            task.cancel()
-        await asyncio.gather(*poller_tasks, return_exceptions=True)
-
-        # Drain worker — let it process remaining queue items, but cap the wait
+    async with _daemon_stash_context(config):
         try:
-            await asyncio.wait_for(worker_task, timeout=30.0)
-        except TimeoutError:
-            logger.warning("daemon.runner: worker did not drain in 30s; cancelling")
-            worker_task.cancel()
-            await asyncio.gather(worker_task, return_exceptions=True)
+            await asyncio.gather(*all_tasks, return_exceptions=False)
+        except DaemonUnrecoverableError as exc:
+            logger.error("daemon.runner: exiting (unrecoverable): {}", exc)
+            exit_code = DAEMON_UNRECOVERABLE
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
+        finally:
+            logger.info("daemon.runner: stopping tasks")
+            stop_event.set()
+            refresh_event.set()  # wake _following_refresh_loop so it can exit
 
-        try:
-            await ws.stop_thread()
-        except Exception as exc:
-            ws_logger.warning("daemon.runner: error stopping WebSocket - {}", exc)
+            # Cancel pollers FIRST (stop producing new work)
+            for task in poller_tasks:
+                task.cancel()
+            await asyncio.gather(*poller_tasks, return_exceptions=True)
 
-        logger.info(
-            "daemon.runner: shutdown complete at {}",
-            datetime.now(UTC).isoformat(),
-        )
+            # Drain worker — let it process remaining queue items, but cap the wait
+            try:
+                await asyncio.wait_for(worker_task, timeout=30.0)
+            except TimeoutError:
+                logger.warning("daemon.runner: worker did not drain in 30s; cancelling")
+                worker_task.cancel()
+                await asyncio.gather(worker_task, return_exceptions=True)
+
+            try:
+                await ws.stop_thread()
+            except Exception as exc:
+                ws_logger.warning("daemon.runner: error stopping WebSocket - {}", exc)
+
+            logger.info(
+                "daemon.runner: shutdown complete at {}",
+                datetime.now(UTC).isoformat(),
+            )
 
     return exit_code
