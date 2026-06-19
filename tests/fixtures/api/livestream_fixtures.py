@@ -415,3 +415,265 @@ def make_ivs_av_open_fake(
         )
 
     return _fake_open
+
+
+# ── Per-segment failure-injection toolkit (mux branch coverage) ─────────────
+#
+# make_ivs_av_open_fake is success-only. These let a single _mux_ivs_segments
+# call traverse multiple skip branches by giving each segment FILE its own
+# behavior (open error, missing PID, unusable packets), keyed on filename.
+
+
+class _FakeDataStream:
+    """A non-video/non-audio stream (the IVS data PID) — never matches a PID."""
+
+    def __init__(self, *, pid: int = 0x102) -> None:
+        self.id = pid
+        self.type = "data"
+        self.codec_context = SimpleNamespace(name="bin_data")
+
+
+class FakeAvInputContainerCustom:
+    """Input container with caller-supplied streams + packet sequence.
+
+    ``demux_error``, when set, is raised from ``demux()`` to drive the
+    segment-level except in _mux_ivs_segments.
+    """
+
+    def __init__(
+        self,
+        *,
+        streams: list[Any],
+        packets: list[Any],
+        demux_error: BaseException | None = None,
+    ) -> None:
+        self.streams = streams
+        self._packets = packets
+        self._demux_error = demux_error
+        self.closed = False
+
+    def demux(self, *_streams: Any) -> Any:
+        if self._demux_error is not None:
+            raise self._demux_error
+        return iter(self._packets)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeAvOutputContainerMuxError(FakeAvOutputContainer):
+    """Output container whose mux() raises OSError — drives the per-packet
+    (OSError, av.error.FFmpegError) skip branch in _mux_ivs_segments."""
+
+    def mux(self, packet: Any) -> None:
+        raise OSError("fake mux rejection")
+
+
+class FakeAvVerifyContainerEmpty:
+    """Verify-pass container reporting NO streams — drives the 'output missing
+    streams' failure arm."""
+
+    def __init__(self) -> None:
+        self.streams: list[Any] = []
+
+    def close(self) -> None:
+        pass
+
+
+@dataclass(slots=True)
+class IvsMuxSegmentSpec:
+    """How a faked segment behaves when av.open'd during mux.
+
+    streams: the input container's streams. packets: what demux yields.
+    open_error: when set, av.open(this segment) raises it.
+    """
+
+    streams: list[Any]
+    packets: list[Any]
+    open_error: BaseException | None = None
+    demux_error: BaseException | None = None
+
+
+def normal_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101, n_packets: int = 3
+) -> IvsMuxSegmentSpec:
+    """A well-formed segment: matched video+audio streams + clean packets."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    packets: list[Any] = []
+    for i in range(n_packets):
+        packets.append(FakeAvPacket(stream=video, pts=i, dts=i, duration=1))
+        packets.append(FakeAvPacket(stream=audio, pts=i, dts=i, duration=1))
+    return IvsMuxSegmentSpec(streams=[video, audio], packets=packets)
+
+
+def data_only_av_segment(*, pid: int = 0x102) -> IvsMuxSegmentSpec:
+    """A segment with only a data stream — no video/audio PID to discover."""
+    return IvsMuxSegmentSpec(streams=[_FakeDataStream(pid=pid)], packets=[])
+
+
+def missing_pid_av_segment(*, present_pid: int = 0x100) -> IvsMuxSegmentSpec:
+    """A segment whose only matchable stream is video (audio PID absent) →
+    the 'segment missing video/audio — skipping' branch."""
+    return IvsMuxSegmentSpec(streams=[FakeVideoStream(pid=present_pid)], packets=[])
+
+
+def bad_packet_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101
+) -> IvsMuxSegmentSpec:
+    """Matched streams whose packets are all unusable: pts None, dts None, and
+    corrupt — drives the per-packet skip cluster (and its sub-counters)."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    packets = [
+        FakeAvPacket(stream=video, pts=None, dts=0, duration=1),  # pts None
+        FakeAvPacket(stream=audio, pts=0, dts=None, duration=1),  # dts None
+        FakeAvPacket(stream=video, pts=0, dts=0, duration=1, is_corrupt=True),
+    ]
+    return IvsMuxSegmentSpec(streams=[video, audio], packets=packets)
+
+
+def open_error_av_segment(exc: BaseException | None = None) -> IvsMuxSegmentSpec:
+    """A segment whose av.open raises → the segment-open-fail skip branch."""
+    return IvsMuxSegmentSpec(
+        streams=[], packets=[], open_error=exc or OSError("fake segment open failure")
+    )
+
+
+def make_ivs_av_open_fake_seq(
+    *,
+    output_path: Path,
+    segment_specs: dict[str, IvsMuxSegmentSpec],
+    output_container_cls: type = FakeAvOutputContainer,
+    verify_container_cls: type = FakeAvVerifyContainer,
+) -> Any:
+    """av.open replacement keyed on segment FILENAME → per-segment behavior.
+
+    One _mux_ivs_segments call can hit several skip branches by mapping each
+    segment file to a different IvsMuxSegmentSpec. The output/verify container
+    classes are pluggable to drive the mux-exception and missing-streams arms.
+    """
+    output_path_str = str(output_path)
+
+    def _fake_open(path: Any, mode: str = "r", **_kwargs: Any) -> Any:
+        path_str = str(path)
+        if path_str == output_path_str and "w" in mode:
+            return output_container_cls(Path(path))
+        if path_str == output_path_str:
+            return verify_container_cls()
+        spec = segment_specs[Path(path).name]
+        if spec.open_error is not None:
+            raise spec.open_error
+        return FakeAvInputContainerCustom(
+            streams=spec.streams, packets=spec.packets, demux_error=spec.demux_error
+        )
+
+    return _fake_open
+
+
+# ── Output/verify variants for the mux finalize/verify branch arms ──────────
+
+
+class FakeAvOutputContainerCloseError(FakeAvOutputContainer):
+    """Writes the stub then raises on close() — drives the output.close()
+    exception arm (the file is still non-empty so the size check passes)."""
+
+    def close(self) -> None:
+        super().close()
+        raise OSError("fake output.close() failure")
+
+
+class FakeAvOutputContainerNoWrite(FakeAvOutputContainer):
+    """close() writes nothing → output stays missing/empty, driving the
+    'output file missing or empty' arm."""
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeAvVerifyContainerRaises:
+    """av.open(output) for the verify pass raises — drives the verify
+    try/except fallback (has_video = has_audio = False)."""
+
+    def __init__(self) -> None:
+        raise OSError("fake verify-open failure")
+
+
+def codec_none_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101
+) -> IvsMuxSegmentSpec:
+    """Matched video+audio plus a third stream whose codec_context is None —
+    drives the 'skip streams without codec_context' guard."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    no_codec = SimpleNamespace(id=0x102, type="data", codec_context=None)
+    packets = [
+        FakeAvPacket(stream=video, pts=0, dts=0, duration=1),
+        FakeAvPacket(stream=audio, pts=0, dts=0, duration=1),
+    ]
+    return IvsMuxSegmentSpec(streams=[video, audio, no_codec], packets=packets)
+
+
+def zero_duration_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101
+) -> IvsMuxSegmentSpec:
+    """Matched streams whose packets carry duration=0 — drives the
+    ``if packet.duration:`` falsy arm for both video and audio."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    packets = [
+        FakeAvPacket(stream=video, pts=0, dts=0, duration=0),
+        FakeAvPacket(stream=audio, pts=0, dts=0, duration=0),
+    ]
+    return IvsMuxSegmentSpec(streams=[video, audio], packets=packets)
+
+
+class FakeAvOutputContainerOpenError:
+    """av.open(output, "w") raises on construction — drives the mux-level
+    except + the 'output is None' finally arm."""
+
+    def __init__(self, _output_path: Path) -> None:
+        raise OSError("fake output-open failure")
+
+
+def extra_stream_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101, extra_pid: int = 0x200
+) -> IvsMuxSegmentSpec:
+    """video + audio + a third codec'd stream whose PID matches neither —
+    drives the elif-False arms in PID matching (834->826) and packet routing
+    (906->877)."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    extra = SimpleNamespace(
+        id=extra_pid, type="data", codec_context=SimpleNamespace(name="klv")
+    )
+    packets = [
+        FakeAvPacket(stream=video, pts=0, dts=0, duration=1),
+        FakeAvPacket(stream=audio, pts=0, dts=0, duration=1),
+        FakeAvPacket(stream=extra, pts=0, dts=0, duration=1),  # routed to neither
+    ]
+    return IvsMuxSegmentSpec(streams=[video, audio, extra], packets=packets)
+
+
+def many_bad_packets_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101, n: int = 12
+) -> IvsMuxSegmentSpec:
+    """Matched streams plus >10 unusable (pts=None) packets — overruns the
+    skip-examples cap so the cap-reached arm (887->892) is taken."""
+    video = FakeVideoStream(pid=video_pid)
+    audio = FakeAudioStream(pid=audio_pid)
+    packets = [
+        FakeAvPacket(stream=video, pts=None, dts=0, duration=1) for _ in range(n)
+    ]
+    return IvsMuxSegmentSpec(streams=[video, audio], packets=packets)
+
+
+def demux_error_av_segment(
+    *, video_pid: int = 0x100, audio_pid: int = 0x101
+) -> IvsMuxSegmentSpec:
+    """Matched streams but demux() raises — drives the segment-level except arm."""
+    return IvsMuxSegmentSpec(
+        streams=[FakeVideoStream(pid=video_pid), FakeAudioStream(pid=audio_pid)],
+        packets=[],
+        demux_error=RuntimeError("fake demux failure"),
+    )

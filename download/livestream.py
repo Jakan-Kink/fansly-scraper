@@ -215,7 +215,11 @@ async def _record_stream(
                 monitor_task.cancel()
                 if chat_task is not None:
                     chat_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
+                    # The chat task's own crash is already surfaced by its
+                    # done-callback (_surface_chat_task_failure); draining it
+                    # here must not re-raise and abort an otherwise-complete
+                    # recording over a chat-WS hiccup.
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
                         await chat_task
 
             if not segments:

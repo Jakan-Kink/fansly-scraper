@@ -187,7 +187,8 @@ async def _chat_ws_loop(
 
             connect_attempted = True
             await ws.connect()
-            assert ws.websocket is not None  # noqa: S101  # nosec B101  type narrowing post-connect
+            if ws.websocket is None:  # -O-safe narrowing; connect() must set it
+                raise RuntimeError("chat WS: websocket is None after connect()")
             construction_failures = 0
             await ws.join_chat_room(chat_room_id)
             logger.info(
