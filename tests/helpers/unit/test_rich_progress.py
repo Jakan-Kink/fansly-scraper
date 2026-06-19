@@ -214,6 +214,72 @@ class TestPhasedBar:
         # Phase still renders, but no background segments added.
         assert any(isinstance(s, Segment) and s.text for s in segments)
 
+    def test_phase_clamped_to_zero_halves_is_skipped(self):
+        """Line 199: a later phase with no remaining half-space → ``continue``.
+
+        width=2 → 4 available halves. ``a`` (count 2/2) claims all 4; ``b`` then
+        computes ``min(max(1, 4), 4 - 4) == 0`` so ``phase_halves <= 0`` and the
+        phase is skipped without yielding.
+        """
+        bar = PhasedBar(
+            total=2,
+            phases={"a": 2, "b": 2},
+            phase_styles={"a": "green", "b": "red"},
+            width=2,
+        )
+        segments = self._render(bar)
+        # Only "a" renders; the bar fills exactly, no background, no "b" segment.
+        text = "".join(s.text for s in segments if isinstance(s, Segment) and s.text)
+        assert "━" in text
+
+    def test_background_skips_boundary_half_when_last_phase_had_half(self):
+        """Branch 218->221: ``last_had_half`` True → no smoothing half_left.
+
+        width=10 → 20 halves; ``a`` (count 1/3) → round(6.66)=7 halves (odd, so
+        ``has_half`` True). The boundary-smoothing ``if not last_had_half`` is
+        False, so control jumps straight to the background fill at line 221.
+        """
+        bar = PhasedBar(
+            total=3,
+            phases={"a": 1},
+            phase_styles={"a": "green"},
+            width=10,
+        )
+        segments = self._render(bar, color_system="truecolor")
+        assert any(isinstance(s, Segment) and s.text for s in segments)
+
+    def test_background_with_only_a_half_remaining(self):
+        """Branch 223->225: ``bg_full == 0`` → skip full-bar yield, emit half only.
+
+        width=20 → 40 halves; ``a`` (count 19/20) → 38 halves (even). After the
+        boundary half_left decrements remaining to 1, ``bg_full`` is 0 so the
+        ``if bg_full > 0`` arc is False and only the trailing half_left renders.
+        """
+        bar = PhasedBar(
+            total=20,
+            phases={"a": 19},
+            phase_styles={"a": "green"},
+            width=20,
+        )
+        segments = self._render(bar, color_system="truecolor")
+        assert any(isinstance(s, Segment) and s.text for s in segments)
+
+    def test_background_with_even_remaining_emits_no_trailing_half(self):
+        """Branch 225->exit: ``bg_half == 0`` → generator ends after full bars.
+
+        width=10 → 20 halves; ``a``+``b`` (each 1/3) → 7+7 = 14 halves used,
+        ``last_had_half`` True so no boundary decrement; remaining 6 is even →
+        ``bg_full`` 3, ``bg_half`` 0, so the final ``if bg_half`` is False.
+        """
+        bar = PhasedBar(
+            total=3,
+            phases={"a": 1, "b": 1},
+            phase_styles={"a": "green", "b": "red"},
+            width=10,
+        )
+        segments = self._render(bar, color_system="truecolor")
+        assert any(isinstance(s, Segment) and s.text for s in segments)
+
     def test_measure_with_explicit_width(self):
         """Lines 233-234: width set → Measurement(width, width)."""
         bar = PhasedBar(total=10, phases={}, phase_styles={}, width=15)
@@ -407,6 +473,35 @@ class TestProgressManagerExtras:
         with pm.session():
             assert pm.get_task_fields("missing") == {}
 
+    def test_reset_task_unknown_name_is_noop(self):
+        """Line 563: name not in active_tasks → early return without touching Rich."""
+        pm = ProgressManager()
+        with pm.session():
+            # Must not raise even though the task was never added.
+            pm.reset_task("never_added", total=5, description="x")
+
+    def test_reset_task_defaults_skip_optional_kwargs(self):
+        """Branches 565->567 and 567->569: total/description None → not added to reset_kwargs.
+
+        With both optional args omitted, only ``completed=0`` flows into
+        ``Progress.reset()`` — the two ``if ... is not None`` guards are False.
+        """
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task("resettable", "Reset me", total=10)
+            pm.update_task("resettable", completed=10)
+            # Defaults (total=None, description=None) take both False arcs.
+            pm.reset_task("resettable")
+            assert "resettable" in pm.active_tasks
+
+    def test_reset_task_applies_total_and_description(self):
+        """Branches 565->566 and 567->568: both optionals set → reset_kwargs carries them."""
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task("retask", "Original", total=10)
+            pm.reset_task("retask", total=42, description="Refreshed")
+            assert "retask" in pm.active_tasks
+
 
 class TestProgressManager:
     """Lines 101-250: session lifecycle, task CRUD, nested sessions."""
@@ -515,6 +610,26 @@ class TestGlobalInstances:
 class TestCreateRichHandler:
     """Lines 283-333: RichHandler with custom level styles."""
 
+    def test_handler_when_console_lacks_push_theme(self, monkeypatch):
+        """Branch 732->741: console without ``push_theme`` → skip theme, return handler.
+
+        The ``hasattr(_console, "push_theme")`` guard exists for older rich
+        versions (pre-3.11). Modern rich always has it, so the False arc is only
+        reachable by forcing the predicate for the ``push_theme`` lookup.
+        """
+        real_hasattr = hasattr
+
+        def fake_hasattr(obj, name):
+            if name == "push_theme":
+                return False
+            return real_hasattr(obj, name)
+
+        monkeypatch.setattr(
+            "helpers.rich_progress.hasattr", fake_hasattr, raising=False
+        )
+        # Reaches the early ``return handler`` without pushing a theme.
+        assert create_rich_handler() is not None
+
     def test_default_and_custom_styles(self):
         """Default styles, custom styles, and None all produce a handler."""
         assert create_rich_handler() is not None
@@ -585,6 +700,37 @@ class TestDoWatchProgress:
 
         assert not thread.is_alive(), "stop_event did not break the read loop"
 
+    def test_stop_event_set_before_file_created(self, tmp_path):
+        """Line 767: stop_event already set while still waiting for the file → return.
+
+        Exercises the cancellation check inside the ``while not file.exists()``
+        wait loop (distinct from the read-loop check at 775).
+        """
+        nonexistent = tmp_path / "never_created.txt"
+        stop_event = threading.Event()
+        stop_event.set()
+        events = []
+
+        _do_watch_progress(nonexistent, lambda k, v: events.append((k, v)), stop_event)
+
+        assert events == []
+
+    def test_handler_exception_is_swallowed(self, tmp_path):
+        """Lines 796-800: an exception in the read loop is caught, not propagated.
+
+        A raising handler would otherwise kill the daemon thread; the broad
+        ``except Exception`` logs at DEBUG and returns. The function returning
+        normally (no raise) proves the except arc ran.
+        """
+        progress_file = tmp_path / "ffmpeg_progress.txt"
+        progress_file.write_text("frame=1\nprogress=end\n")
+
+        def boom(_key, _value):
+            raise RuntimeError("handler blew up")
+
+        # Must return without raising — the except block swallowed RuntimeError.
+        _do_watch_progress(progress_file, boom)
+
 
 class TestWatchProgress:
     """Lines 384-418: context manager creating temp file + monitor thread."""
@@ -617,6 +763,26 @@ class TestFfmpegProgress:
             time.sleep(0.2)
 
         assert "test_mux" not in pm.active_tasks
+
+    def test_unknown_duration_updates_description_and_skips_completion(self):
+        """Indeterminate path: ``total_duration <= 0`` → ``total`` is None.
+
+        Drives the progress_handler through the real watch thread:
+          - ``out_time_ms`` → ``known_duration`` False → the else branch updates
+            the description with elapsed time (line 899),
+          - ``progress=end`` → the ``total is not None`` clause is False, so the
+            100% completion update is skipped (branch 904->exit).
+        """
+        with ffmpeg_progress(
+            total_duration=0.0, task_name="test_indeterminate"
+        ) as progress_file:
+            pm = get_progress_manager()
+            assert "test_indeterminate" in pm.active_tasks
+
+            progress_file.write_text("out_time_ms=5000000\nprogress=end\n")
+            time.sleep(0.2)
+
+        assert "test_indeterminate" not in pm.active_tasks
 
 
 class TestAtexitShutdown:

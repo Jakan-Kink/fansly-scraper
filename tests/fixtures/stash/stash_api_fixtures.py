@@ -570,6 +570,8 @@ async def stash_cleanup_tracker():
             "studios": [],
             "tags": [],
             "galleries": [],
+            "markers": [],
+            "groups": [],
         }
         capture_mode = "with auto-capture" if auto_capture else "manual tracking"
         print(f"\n{'=' * 60}")
@@ -578,8 +580,62 @@ async def stash_cleanup_tracker():
         if auto_capture:
             original_execute = client._session.execute
 
+            # Create-mutation FIELD NAME -> cleanup bucket. Used for both
+            # unaliased single mutations (response keyed "sceneCreate") AND
+            # batched mutations (execute_batch aliases each op "op0"/"op1" and
+            # keys the response by the alias, so the field name is recovered
+            # from the request document — see aliased_create_fields).
+            create_field_to_bucket = {
+                "sceneCreate": "scenes",
+                "performerCreate": "performers",
+                "studioCreate": "studios",
+                "tagCreate": "tags",
+                "galleryCreate": "galleries",
+                "sceneMarkerCreate": "markers",
+                "groupCreate": "groups",
+            }
+
+            def capture(field_name, obj_data):
+                """Record a created object's id under its cleanup bucket."""
+                bucket = create_field_to_bucket.get(field_name)
+                if bucket is None or not obj_data:
+                    return
+                obj_id = obj_data.get("id")
+                if obj_id and obj_id not in created_objects[bucket]:
+                    created_objects[bucket].append(obj_id)
+
+            def aliased_create_fields(document):
+                """Map alias -> mutation field name for aliased selections.
+
+                execute_batch builds ``op0: sceneCreate(...) op1: tagCreate(...)``
+                and keys the response by alias, so the only way to know what each
+                ``opN`` payload created is to read the field name off the request
+                document. Returns only aliased fields (unaliased single mutations
+                are handled by the direct-key path).
+                """
+                mapping = {}
+                # gql 4 hands _session.execute a GraphQLRequest wrapper whose
+                # AST lives at .document; older/raw paths pass the DocumentNode
+                # directly (no .document attr → fall back to the object itself).
+                node = getattr(document, "document", document)
+                for defn in getattr(node, "definitions", ()) or ():
+                    selection_set = getattr(defn, "selection_set", None)
+                    if selection_set is None:
+                        continue
+                    for sel in selection_set.selections:
+                        alias = getattr(sel, "alias", None)
+                        name = getattr(sel, "name", None)
+                        if alias is not None and name is not None:
+                            mapping[alias.value] = name.value
+                return mapping
+
             async def execute_with_capture(document, *args, **kwargs):
-                """Execute GraphQL and auto-capture created object IDs."""
+                """Execute GraphQL and auto-capture created object IDs.
+
+                Handles two response shapes: unaliased single mutations (keys are
+                the mutation field names) and execute_batch's aliased ops (keys
+                are op0/op1/...; field names come from the request document).
+                """
                 result = await original_execute(document, *args, **kwargs)
 
                 # Quick check - only process if result is a dict and has data
@@ -587,48 +643,26 @@ async def stash_cleanup_tracker():
                 if not (result and isinstance(result, dict)):
                     return result
 
-                # Fast string check: only inspect if result contains "Create" mutations
-                # Check first key for pattern - create mutations start with lowercase + "Create"
                 result_keys = result.keys()
-                has_create = any("Create" in key for key in result_keys)
-                if not has_create:
+                has_direct_create = any("Create" in key for key in result_keys)
+                has_batch = any(
+                    key[:2] == "op" and key[2:].isdigit() for key in result_keys
+                )
+                if not (has_direct_create or has_batch):
                     return result
 
-                # Now check specific create mutations
-                if "sceneCreate" in result:
-                    if (
-                        (obj_data := result["sceneCreate"])
-                        and (scene_id := obj_data.get("id"))
-                        and scene_id not in created_objects["scenes"]
-                    ):
-                        created_objects["scenes"].append(scene_id)
-                elif "performerCreate" in result:
-                    if (
-                        (obj_data := result["performerCreate"])
-                        and (performer_id := obj_data.get("id"))
-                        and performer_id not in created_objects["performers"]
-                    ):
-                        created_objects["performers"].append(performer_id)
-                elif "studioCreate" in result:
-                    if (
-                        (obj_data := result["studioCreate"])
-                        and (studio_id := obj_data.get("id"))
-                        and studio_id not in created_objects["studios"]
-                    ):
-                        created_objects["studios"].append(studio_id)
-                elif "tagCreate" in result:
-                    if (
-                        (obj_data := result["tagCreate"])
-                        and (tag_id := obj_data.get("id"))
-                        and tag_id not in created_objects["tags"]
-                    ):
-                        created_objects["tags"].append(tag_id)
-                elif "galleryCreate" in result and (
-                    (obj_data := result["galleryCreate"])
-                    and (gallery_id := obj_data.get("id"))
-                    and gallery_id not in created_objects["galleries"]
-                ):
-                    created_objects["galleries"].append(gallery_id)
+                # Unaliased single mutations: the response key IS the field name.
+                if has_direct_create:
+                    for field_name in create_field_to_bucket:
+                        if field_name in result:
+                            capture(field_name, result[field_name])
+
+                # Batched mutations: recover each alias's field name from the
+                # request document, then capture the aliased payloads.
+                if has_batch:
+                    for alias, field_name in aliased_create_fields(document).items():
+                        if alias in result:
+                            capture(field_name, result[alias])
 
                 return result
 
@@ -665,13 +699,29 @@ async def stash_cleanup_tracker():
                     )
 
             # Clean up created objects in correct dependency order
-            # Galleries reference scenes/performers/studios/tags - delete first
-            # Scenes reference performers/studios/tags - delete second
+            # Markers reference scenes - delete first
+            # Galleries reference scenes/performers/studios/tags - delete second
+            # Scenes reference performers/studios/tags - delete third
+            # Groups reference studios/tags - delete after scenes
             # Performers/Studios/Tags have no cross-dependencies - delete last
             errors = []
 
             try:
-                # Delete galleries first (they can reference scenes)
+                # Delete markers first (they reference scenes)
+                for marker_id in created_objects["markers"]:
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteMarker($id: ID!) {
+                                sceneMarkerDestroy(id: $id)
+                            }
+                            """,
+                            {"id": marker_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Marker {marker_id}: {e}")
+
+                # Delete galleries second (they can reference scenes)
                 if created_objects["galleries"]:
                     for gallery_id in created_objects["galleries"]:
                         try:
@@ -686,7 +736,7 @@ async def stash_cleanup_tracker():
                         except Exception as e:
                             errors.append(f"Gallery {gallery_id}: {e}")
 
-                # Delete scenes second (they reference performers/studios/tags)
+                # Delete scenes third (they reference performers/studios/tags)
                 for scene_id in created_objects["scenes"]:
                     try:
                         await client.execute(
@@ -699,6 +749,20 @@ async def stash_cleanup_tracker():
                         )
                     except Exception as e:
                         errors.append(f"Scene {scene_id}: {e}")
+
+                # Delete groups (they reference studios/tags)
+                for group_id in created_objects["groups"]:
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteGroup($id: ID!) {
+                                groupDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": group_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Group {group_id}: {e}")
 
                 # Delete performers
                 for performer_id in created_objects["performers"]:

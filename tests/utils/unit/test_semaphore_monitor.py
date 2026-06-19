@@ -151,9 +151,17 @@ class TestGetProcessSemaphores:
         assert "/sem.worker2" in _seen_semaphores
 
     def test_skips_malformed_lines(self):
-        """Lines with PSXSEM but too few parts or unparseable FD are skipped."""
+        """Every PSXSEM-but-unusable line is skipped, exercising all three arcs.
+
+        Covers each distinct skip path in the parse loop:
+          1. ``len(parts) < 4``  -> the ``if len(parts) >= 4`` guard is False
+             and control falls back to the for-loop header (branch 67->63),
+          2. FD column unparseable -> ``int(parts[3])`` raises ValueError,
+          3. PID column unparseable -> ``int(parts[1])`` raises ValueError.
+        """
         bad_output = """\
 COMMAND   PID   USER   FD      TYPE DEVICE SIZE/OFF NODE NAME
+PSXSEM
 python  12345  shawn  bad   PSXSEM
 python  abc    shawn    5u   PSXSEM              0      /sem.ok
 """
@@ -166,9 +174,9 @@ python  abc    shawn    5u   PSXSEM              0      /sem.ok
         ):
             sems = get_process_semaphores()
 
-        # "bad" line has <4 parts after the PSXSEM match triggers, but the
-        # second line has "abc" as PID which raises ValueError on int()
-        # Both should be skipped via except (ValueError, IndexError)
+        # Bare "PSXSEM" -> 1 part (<4) takes the guard-False arc; the "bad" FD
+        # and "abc" PID lines have >=4 parts but raise ValueError in the try.
+        # All three are skipped, so nothing is collected.
         assert len(sems) == 0
 
 

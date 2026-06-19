@@ -83,6 +83,10 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
 
         shared: Scene | None = None
         our_file = None
+        # Whether we DESTROYED a scene to build the precondition (Approach B's
+        # merge). Drives whether the split's new scene must survive cleanup so
+        # the Docker Stash scene count stays balanced across runs.
+        merged_source_scene = False
         # Approach A: a scene with a secondary that is primary of nothing.
         for s in scenes:
             if not s.files or len(s.files) < 2:
@@ -106,6 +110,7 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
             await client.scene_merge({"source": [src.id], "destination": dest.id})
             shared = await store.populate(dest, ["files"], force_refetch=True)
             primary_ids.discard(our_file.id)  # src destroyed → no longer primary
+            merged_source_scene = True  # one scene gone; the split must replace it
 
         # --- ASSERT THE PRECONDITION (self-verifying; forward, Scene-driven). ---
         shared = await store.populate(shared, ["files"], force_refetch=True)
@@ -154,9 +159,17 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
             dump_graphql_calls(calls, "split_scene_reassigns_off_shared")
         assert new_scene.is_new()
         await store.save_all()
-        # Track the created scene for cleanup (belt-and-suspenders alongside
-        # the tracker's auto-capture of sceneCreate).
-        cleanup["scenes"].append(new_scene.id)
+        # The tracker's job is to leave the Docker Stash scene count UNCHANGED
+        # across runs. auto_capture already grabbed this sceneCreate, so by
+        # default the new scene would be deleted on exit.
+        #   - Approach A destroyed nothing → the split is a net +1; let cleanup
+        #     delete the new scene to rebalance (leave it tracked).
+        #   - Approach B's merge already DESTROYED a scene → the split's +1 just
+        #     replaces it (net zero). Deleting it too would drain the seed by
+        #     one per run until count<2 and the test skips forever, so drop it
+        #     from the cleanup list and let it survive.
+        if merged_source_scene:
+            cleanup["scenes"].remove(new_scene.id)
 
         # --- Force-refetch before the post-split assertions (cache is stale). ---
         # Drive all facts off SCENE refetches (VideoFile has no findVideoFile on
