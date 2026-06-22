@@ -285,8 +285,8 @@ class FakeAvPacket:
     """Fake ``av.Packet`` — assignable pts/dts + stream pointer."""
 
     stream: Any
-    pts: int
-    dts: int
+    pts: int | None
+    dts: int | None
     duration: int = 1
     is_corrupt: bool = False
 

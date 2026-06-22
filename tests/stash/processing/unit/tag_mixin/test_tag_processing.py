@@ -33,6 +33,31 @@ async def test_process_hashtags_to_tags_empty(respx_stash_processor):
 
 
 @pytest.mark.asyncio
+async def test_process_hashtags_sequential_fallback_skips_failing_tag(
+    respx_stash_processor, monkeypatch
+):
+    """tag.py:141-142: a per-tag failure in the sequential fallback is caught.
+
+    Per-task GraphQL errors are swallowed by ``gather(return_exceptions=True)``,
+    so the defensive batch→sequential fallback (except at 133) is only reachable
+    via a *structural* batch failure. Replacing ``_get_or_create_tag`` with a
+    non-coroutine makes ``asyncio.gather`` raise (batch fails), and the
+    sequential ``await _get_or_create_tag(...)`` then raises ``TypeError`` too
+    (awaiting a non-awaitable) — exercising the inner per-tag except (141-142).
+    No HTTP is issued, so no respx route/dump is needed.
+    """
+    hashtag = HashtagFactory.build(value="boomTag")
+    monkeypatch.setattr(
+        respx_stash_processor, "_get_or_create_tag", lambda _name: "not-awaitable"
+    )
+
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
+
+    # Batch failed structurally; the lone sequential tag failed too → none valid.
+    assert tags == []
+
+
+@pytest.mark.asyncio
 async def test_process_hashtags_to_tags_single(respx_stash_processor):
     """Test processing a single hashtag to tag."""
     # Create hashtag using factory

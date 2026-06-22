@@ -108,14 +108,14 @@ def cleanup_loguru_handlers():
 @pytest.fixture(autouse=True)
 def cleanup_http_sessions():
     """Clean up HTTP sessions and connection pools between tests."""
-    # Track created sessions during test
     created_sessions = []
+    # A dedicated MonkeyPatch (NOT the shared `monkeypatch` fixture): sharing it
+    # would fold these autouse patches into the test's undo stack and reorder
+    # teardown, breaking tests that delattr their own raising=False patches.
+    mp = pytest.MonkeyPatch()
 
-    # Patch httpx.AsyncClient and httpx.Client to track instances
-    original_async_client_init = None
-    original_client_init = None
-
-    try:
+    # Track every httpx client created during the test so we can close it after.
+    with contextlib.suppress(ImportError):
         original_async_client_init = httpx.AsyncClient.__init__
         original_client_init = httpx.Client.__init__
 
@@ -127,10 +127,8 @@ def cleanup_http_sessions():
             created_sessions.append(self)
             return original_client_init(self, *args, **kwargs)
 
-        httpx.AsyncClient.__init__ = tracking_async_init
-        httpx.Client.__init__ = tracking_init
-    except ImportError:
-        pass
+        mp.setattr(httpx.AsyncClient, "__init__", tracking_async_init)
+        mp.setattr(httpx.Client, "__init__", tracking_init)
 
     yield  # Run the test
 
@@ -156,13 +154,7 @@ def cleanup_http_sessions():
                 # Regular Client - sync close
                 session.close()
 
-    # Restore original __init__ methods
-    if original_async_client_init:
-        with contextlib.suppress(ImportError):
-            httpx.AsyncClient.__init__ = original_async_client_init
-    if original_client_init:
-        with contextlib.suppress(ImportError):
-            httpx.Client.__init__ = original_client_init
+    mp.undo()  # restore httpx __init__
 
 
 @pytest.fixture(autouse=True)
@@ -240,7 +232,7 @@ def cleanup_rate_limiter_displays():
     ``cleanup_http_sessions`` for ``httpx.Client``.
     """
     tracked: list = []
-    original_init = None
+    mp = pytest.MonkeyPatch()  # dedicated instance — see cleanup_http_sessions
 
     with contextlib.suppress(Exception):
         # Lazy import — RateLimiterDisplay is in api/, which depends on
@@ -254,7 +246,7 @@ def cleanup_rate_limiter_displays():
             tracked.append(self)
             return original_init(self, *args, **kwargs)
 
-        RateLimiterDisplay.__init__ = tracking_init
+        mp.setattr(RateLimiterDisplay, "__init__", tracking_init)
 
     yield  # Run the test
 
@@ -262,11 +254,7 @@ def cleanup_rate_limiter_displays():
         with contextlib.suppress(Exception):
             instance.stop()  # sets _stop_event + joins with timeout=1.0
 
-    if original_init is not None:
-        with contextlib.suppress(Exception):
-            from api.rate_limiter_display import RateLimiterDisplay
-
-            RateLimiterDisplay.__init__ = original_init
+    mp.undo()  # restore RateLimiterDisplay.__init__
 
 
 @pytest.fixture(autouse=True)
@@ -283,7 +271,7 @@ def cleanup_fansly_websockets():
     Same instance-tracking pattern as ``cleanup_rate_limiter_displays``.
     """
     tracked: list = []
-    original_init = None
+    mp = pytest.MonkeyPatch()  # dedicated instance — see cleanup_http_sessions
 
     with contextlib.suppress(Exception):
         # Lazy import — same circular-cycle rationale as above.
@@ -295,7 +283,7 @@ def cleanup_fansly_websockets():
             tracked.append(self)
             return original_init(self, *args, **kwargs)
 
-        FanslyWebSocket.__init__ = tracking_init
+        mp.setattr(FanslyWebSocket, "__init__", tracking_init)
 
     yield  # Run the test
 
@@ -319,11 +307,7 @@ def cleanup_fansly_websockets():
             if ws_thread is not None and ws_thread.is_alive():
                 ws_thread.join(timeout=2.0)
 
-    if original_init is not None:
-        with contextlib.suppress(Exception):
-            from api.websocket import FanslyWebSocket
-
-            FanslyWebSocket.__init__ = original_init
+    mp.undo()  # restore FanslyWebSocket.__init__
 
 
 @pytest.fixture(autouse=True)

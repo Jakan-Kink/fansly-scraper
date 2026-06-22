@@ -177,7 +177,7 @@ def create_performer_dict(
     gender: str | None = None,
     tags: list[dict] | None = None,
     stash_ids: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Performer dict matching the Performer type schema.
 
@@ -297,7 +297,7 @@ def create_scene_dict(
     studio: dict | None = None,
     performers: list[dict] | None = None,
     tags: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Scene dict matching the Scene type schema.
 
@@ -370,7 +370,7 @@ def create_image_dict(
     studio: dict | None = None,
     performers: list[dict] | None = None,
     tags: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create an Image dict matching the Image type schema.
 
@@ -500,7 +500,7 @@ def create_gallery_dict(
     tags: list[dict] | None = None,
     scenes: list[dict] | None = None,
     images: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Gallery dict matching the Gallery type schema.
 
@@ -576,7 +576,9 @@ def create_gallery_update_result(gallery: dict[str, Any]) -> dict[str, Any]:
     return gallery
 
 
-def create_find_gallery_result(gallery: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_find_gallery_result(
+    gallery: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Create a findGallery query result (single gallery lookup).
 
     Args:

@@ -106,6 +106,33 @@ class TestGetCallerInfo:
             result = get_caller_info()
         assert result == "<unknown caller>"
 
+    def test_skips_vendored_frame_that_is_not_a_skip_func(self, tmp_path, monkeypatch):
+        """Line 82: a vendored (.venv) frame whose function is NOT in _SKIP_FUNCS
+        is excluded by the path-parts check.
+
+        The other vendored-frame tests name asyncpg methods (fetch/execute) that
+        _SKIP_FUNCS already filters at line 75, so the .venv path-exclusion arc
+        (81->82) was never reached. A non-skip function name forces it.
+        """
+        monkeypatch.chdir(tmp_path)
+        real_caller = tmp_path / "daemon" / "state.py"
+        fake_stack = [
+            SimpleNamespace(filename="<current>", function="get_caller_info", lineno=1),
+            SimpleNamespace(
+                filename=str(
+                    tmp_path / ".venv" / "lib" / "site-packages" / "vendored.py"
+                ),
+                function="do_work",  # not a _SKIP_FUNC → reaches the .venv check
+                lineno=5,
+            ),
+            SimpleNamespace(
+                filename=str(real_caller), function="real_app_fn", lineno=42
+            ),
+        ]
+        with patch("metadata.logging_config.inspect.stack", return_value=fake_stack):
+            result = get_caller_info()
+        assert result == "daemon/state.py:42 in real_app_fn"
+
 
 class TestDatabaseLoggerUnit:
     """Unit tests for DatabaseLogger — no DB needed."""
@@ -119,6 +146,14 @@ class TestDatabaseLoggerUnit:
             "slow_queries": 0,
             "total_time": 0.0,
         }
+
+    def test_setup_connection_logging_registers_query_logger(self):
+        """Line 120: setup_connection_logging hooks query_logger_callback on the conn."""
+        logger = DatabaseLogger()
+        registered = []
+        conn = SimpleNamespace(add_query_logger=registered.append)
+        logger.setup_connection_logging(conn)
+        assert registered == [logger.query_logger_callback]
 
     def test_get_stats_returns_copy(self):
         logger = DatabaseLogger()

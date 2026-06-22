@@ -8,16 +8,21 @@ definition.
 
 import json
 import re
+from typing import Any
 
 import httpx
+import respx
 
 from pathio import get_stash_path
+from stash.processing import StashProcessing
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 
 
-def stash_creator_root(processor) -> str:
+def stash_creator_root(processor: StashProcessing) -> str:
     """The Stash-visible creator root the sweep/helpers anchor to."""
-    return get_stash_path(processor.state.base_path, processor.config).rstrip("/")
+    base_path = processor.state.base_path
+    assert base_path is not None
+    return get_stash_path(base_path, processor.config).rstrip("/")
 
 
 def seed_processor_caches(processor, mock_account):
@@ -35,7 +40,7 @@ def seed_processor_caches(processor, mock_account):
     return StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
 
 
-def graphql_op_fired(calls, op: str) -> bool:
+def graphql_op_fired(calls: respx.models.CallList, op: str) -> bool:
     """Whether any captured GraphQL call invoked the given operation name.
 
     Matches the op as a field invocation (``op(``) rather than a bare substring,
@@ -53,7 +58,7 @@ def graphql_op_fired(calls, op: str) -> bool:
     return False
 
 
-def find_files_response(*file_dicts) -> httpx.Response:
+def find_files_response(*file_dicts: dict[str, Any]) -> httpx.Response:
     """A ``findFiles`` page carrying the given BaseFile dicts."""
     return httpx.Response(
         200,

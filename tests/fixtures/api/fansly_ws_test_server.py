@@ -57,6 +57,7 @@ from typing import Any
 import pytest_asyncio
 from loguru import logger
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.http11 import Request, Response
 
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -1046,7 +1047,9 @@ async def ws_server() -> AsyncIterator[FakeFanslyWSServer]:
     """Start a ``FakeFanslyWSServer`` on ``127.0.0.1:<ephemeral>`` per-test."""
     state = FakeFanslyWSServer()
 
-    def process_response(connection, request, response):  # type: ignore[no-untyped-def]
+    def process_response(
+        connection: ServerConnection, request: Request, response: Response
+    ) -> Response:
         # Capture the upgrade request headers for later assertion.
         state.last_request_headers = dict(request.headers.raw_items())
         # Inject Set-Cookie lines the test asked for. Repeated assignment

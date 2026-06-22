@@ -401,7 +401,6 @@ python_version = "3.12"
 plugins = ["sqlalchemy.ext.mypy.plugin"]
 # Exclude directories from type checking
 exclude = [
-    "tests/",
     "venv_test/",
     "alembic/versions/",
     "scripts/",

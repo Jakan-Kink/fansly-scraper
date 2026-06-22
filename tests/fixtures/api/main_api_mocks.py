@@ -38,6 +38,7 @@ import pytest_asyncio
 import respx
 
 from api.fansly import FanslyApi
+from config.fanslyconfig import FanslyConfig
 from fansly_downloader_ng import main
 from tests.fixtures.api.fake_websocket import FakeSocket, fake_websocket_session
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -52,7 +53,7 @@ def fansly_json(payload: Any) -> dict[str, Any]:
     return {"success": "true", "response": payload}
 
 
-async def run_main_and_cleanup(config) -> int:
+async def run_main_and_cleanup(config: FanslyConfig) -> int:
     """Run ``main(config)`` and explicitly clean up the DB pool afterward.
 
     ``_async_main`` normally owns cleanup; when a test calls ``main()`` directly
@@ -64,9 +65,10 @@ async def run_main_and_cleanup(config) -> int:
     try:
         return await main(config)
     finally:
-        if getattr(config, "_database", None) is not None:
+        db = getattr(config, "_database", None)
+        if db is not None:
             with suppress(Exception):
-                await config._database.cleanup()
+                await db.cleanup()
 
 
 @dataclass

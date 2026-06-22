@@ -102,6 +102,16 @@ class TestTerminalOps:
             clear_terminal()
         mock_call.assert_not_called()
 
+    def test_clear_terminal_windows_no_cmd_binary(self):
+        """Branch 153->exit: Windows but which('cmd') is None → no subprocess call."""
+        with (
+            patch("textio.textio.platform.system", return_value="Windows"),
+            patch("textio.textio.shutil.which", return_value=None),
+            patch("textio.textio.subprocess.call") as mock_call,
+        ):
+            clear_terminal()
+        mock_call.assert_not_called()
+
     def test_set_window_title_macos(self):
         """Lines 157, 164-167: Darwin path → calls printf with escape sequence."""
         with (
@@ -126,6 +136,16 @@ class TestTerminalOps:
         mock_call.assert_called_once_with(
             ["C:\\Windows\\cmd.exe", "/c", "title", "Test Title"],
         )
+
+    def test_set_window_title_windows_no_cmd_binary(self):
+        """Branch 168->exit: Windows but which('cmd') is None → no subprocess call."""
+        with (
+            patch("textio.textio.platform.system", return_value="Windows"),
+            patch("textio.textio.shutil.which", return_value=None),
+            patch("textio.textio.subprocess.call") as mock_call,
+        ):
+            set_window_title("Test Title")
+        mock_call.assert_not_called()
 
     def test_set_window_title_no_printf(self):
         """Lines 165-166: which('printf') returns None → no subprocess call."""

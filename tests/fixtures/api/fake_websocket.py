@@ -43,7 +43,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
@@ -152,7 +152,7 @@ def fake_websocket_session(
     session_id: str = "test-session-id-1",
     ws_session_id: str = "test-ws-session-id-1",
     account_id: str = "100000001",
-):
+) -> Iterator[FakeSocket]:
     """Replace ``FanslyWebSocket`` with an in-process stub that auto-authenticates.
 
     Production ``FanslyWebSocket.start_in_thread`` spawns a subprocess via

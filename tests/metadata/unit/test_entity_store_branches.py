@@ -37,7 +37,12 @@ class _AutolinkStub:
             "by_type", False, inverse_type=Account, fk_column="acc_id"
         ),
         "by_int": RelationshipMetadata(
-            "by_int", False, inverse_type=12345, fk_column="acc_id"
+            # inverse_type=None is in-contract yet still neither ``type`` nor
+            # ``str``, so it drives the autolink else-branch (target_type None).
+            "by_int",
+            False,
+            inverse_type=None,
+            fk_column="acc_id",
         ),
         "by_unreg": RelationshipMetadata(
             "by_unreg", False, inverse_type="NoSuchType", fk_column="acc_id"

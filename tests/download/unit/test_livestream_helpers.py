@@ -33,8 +33,9 @@ from download.livestream import (
     _resolve_variant_url,
     _salvage_orphan_segments,
 )
+from fileio.livestream import _unique_output_path
 from metadata.models import StreamChannel
-from pathio.livestream import _get_segments_base
+from pathio.livestream import _get_livestreams_dir, _get_segments_base
 from tests.fixtures.api import (
     FakeAudioStream,
     FakeAvOutputContainerCloseError,
@@ -998,3 +999,53 @@ class TestRecordStream:
             asyncio.Event(),
             global_stop,
         )
+
+
+class TestPathioLivestreamHelpers:
+    """pathio/livestream.py path-building branches."""
+
+    def test_get_livestreams_dir_requires_download_directory(self, config_wired):
+        """pathio:15 — download_directory unset raises RuntimeError."""
+        config_wired.download_directory = None
+        with pytest.raises(RuntimeError, match="download_directory is not set"):
+            _get_livestreams_dir(config_wired, "creator")
+
+    def test_get_segments_base_falls_back_to_download_temp(
+        self, config_wired, tmp_path
+    ):
+        """pathio:34 — temp_folder unset → ``<download_directory>/temp``."""
+        config_wired.temp_folder = None
+        config_wired.download_directory = tmp_path / "dl"
+        assert _get_segments_base(config_wired) == tmp_path / "dl" / "temp"
+
+    def test_get_segments_base_requires_download_directory_without_temp(
+        self, config_wired
+    ):
+        """pathio:32-33 — neither temp_folder nor download_directory set raises."""
+        config_wired.temp_folder = None
+        config_wired.download_directory = None
+        with pytest.raises(RuntimeError, match="download_directory is not set"):
+            _get_segments_base(config_wired)
+
+
+class TestFileioLivestreamHelpers:
+    """fileio/livestream.py output-slot selection."""
+
+    def test_unique_output_path_skips_taken_slots(self, tmp_path):
+        """fileio:25, 31-36 — a taken base and taken ``_part2`` → first free ``_part3``.
+
+        A slot is taken when the MP4 exists with data (the ``exists() and
+        st_size > 0`` arc, line 25); the loop advances past each taken variant
+        (the ``n += 1`` at line 36) until it finds a free one.
+        """
+        segments_base = tmp_path / "temp"
+        segments_base.mkdir()
+        base = tmp_path / "rec.mp4"
+        base.write_bytes(b"data")  # exists + size>0 → _taken True (line 25)
+        (tmp_path / "rec_part2.mp4").write_bytes(
+            b"data"
+        )  # taken → loop again (line 36)
+
+        result = _unique_output_path(base, segments_base)
+
+        assert result == tmp_path / "rec_part3.mp4"

@@ -9,6 +9,7 @@ import sys
 import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
 from unittest.mock import patch
 
 # Removed: from unittest.mock import AsyncMock, MagicMock
@@ -17,10 +18,12 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
+from pydantic import JsonValue
 from stash_graphql_client import StashClient, StashContext
 from stash_graphql_client.types import Scene, SceneCreateInput
 
 from errors import StashCleanupWarning
+from helpers.common import JsonDict
 
 
 def _mock_capability_response() -> httpx.Response:
@@ -87,7 +90,7 @@ def _mock_capability_response() -> httpx.Response:
     )
 
 
-def _extract_query(call) -> str:
+def _extract_query(call: respx.models.Call | dict[str, Any]) -> str:
     """Pull the GraphQL query string out of either call shape (respx or dict)."""
     if isinstance(call, dict):
         return call.get("query", "") or ""
@@ -95,7 +98,7 @@ def _extract_query(call) -> str:
     return body.get("query", "") or ""
 
 
-def _extract_variables(call) -> dict:
+def _extract_variables(call: respx.models.Call | dict[str, Any]) -> JsonDict:
     """Pull the GraphQL variables out of either call shape (respx or dict)."""
     if isinstance(call, dict):
         return call.get("variables") or {}
@@ -106,9 +109,9 @@ def _extract_variables(call) -> dict:
 _MISSING = object()
 
 
-def _get_nested(data: dict, path: list[str]):
+def _get_nested(data: JsonDict, path: list[str]) -> JsonValue | object:
     """Walk nested dict by key list. Returns sentinel _MISSING on miss."""
-    cur = data
+    cur: JsonValue = data
     for key in path:
         if not isinstance(cur, dict) or key not in cur:
             return _MISSING
@@ -116,7 +119,7 @@ def _get_nested(data: dict, path: list[str]):
     return cur
 
 
-def assert_op(call, op_name: str) -> None:
+def assert_op(call: respx.models.Call | dict[str, Any], op_name: str) -> None:
     """Assert that a GraphQL call invokes a named operation.
 
     Works with both respx route.calls[i] (unit tests) and capture_graphql_calls
@@ -140,10 +143,10 @@ def assert_op(call, op_name: str) -> None:
 
 
 def assert_op_with_vars(
-    call,
+    call: respx.models.Call | dict[str, Any],
     op_name: str,
     paths: dict[tuple[str, ...], object] | None = None,
-    **expected_vars,
+    **expected_vars: Any,
 ) -> None:
     """Assert op_name AND that every expected variable matches.
 
@@ -216,7 +219,10 @@ def assert_op_with_vars(
         )
 
 
-def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
+def dump_graphql_calls(
+    calls: respx.models.CallList | list[dict[str, Any]],
+    label: str = "GraphQL calls",
+) -> None:
     """Print request/response details for each GraphQL call.
 
     Works with both respx route.calls (unit tests) and capture_graphql_calls
@@ -564,7 +570,7 @@ async def stash_cleanup_tracker():
                          If False, require manual tracking via cleanup[type].append(id).
                          Default True for convenience, set False for performance.
         """
-        created_objects = {
+        created_objects: dict[str, list[str]] = {
             "scenes": [],
             "performers": [],
             "studios": [],
@@ -578,6 +584,7 @@ async def stash_cleanup_tracker():
         print(f"CLEANUP TRACKER: Context entered ({capture_mode})")
         print(f"{'=' * 60}")
         if auto_capture:
+            assert client._session is not None
             original_execute = client._session.execute
 
             # Create-mutation FIELD NAME -> cleanup bucket. Used for both
@@ -595,16 +602,16 @@ async def stash_cleanup_tracker():
                 "groupCreate": "groups",
             }
 
-            def capture(field_name, obj_data):
+            def capture(field_name: str, obj_data: JsonValue) -> None:
                 """Record a created object's id under its cleanup bucket."""
                 bucket = create_field_to_bucket.get(field_name)
-                if bucket is None or not obj_data:
+                if bucket is None or not isinstance(obj_data, dict):
                     return
                 obj_id = obj_data.get("id")
-                if obj_id and obj_id not in created_objects[bucket]:
+                if isinstance(obj_id, str) and obj_id not in created_objects[bucket]:
                     created_objects[bucket].append(obj_id)
 
-            def aliased_create_fields(document):
+            def aliased_create_fields(document: object) -> dict[str, str]:
                 """Map alias -> mutation field name for aliased selections.
 
                 execute_batch builds ``op0: sceneCreate(...) op1: tagCreate(...)``
@@ -613,7 +620,7 @@ async def stash_cleanup_tracker():
                 document. Returns only aliased fields (unaliased single mutations
                 are handled by the direct-key path).
                 """
-                mapping = {}
+                mapping: dict[str, str] = {}
                 # gql 4 hands _session.execute a GraphQLRequest wrapper whose
                 # AST lives at .document; older/raw paths pass the DocumentNode
                 # directly (no .document attr → fall back to the object itself).
@@ -629,7 +636,9 @@ async def stash_cleanup_tracker():
                             mapping[alias.value] = name.value
                 return mapping
 
-            async def execute_with_capture(document, *args, **kwargs):
+            async def execute_with_capture(
+                document: object, *args: Any, **kwargs: Any
+            ) -> JsonValue:
                 """Execute GraphQL and auto-capture created object IDs.
 
                 Handles two response shapes: unaliased single mutations (keys are

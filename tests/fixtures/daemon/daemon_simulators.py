@@ -54,8 +54,8 @@ class RecordingSimulator:
     """
 
     def __init__(self) -> None:
-        self.during_hidden_calls: list[tuple] = []
+        self.during_hidden_calls: list[tuple[int, int]] = []
 
-    def on_ws_event_during_hidden(self, service_id, event_type) -> bool:
+    def on_ws_event_during_hidden(self, service_id: int, event_type: int) -> bool:
         self.during_hidden_calls.append((service_id, event_type))
         return False
