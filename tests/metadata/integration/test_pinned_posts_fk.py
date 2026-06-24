@@ -7,6 +7,7 @@ on the pinned_posts junction table.
 
 import pytest
 
+from helpers.common import JsonDict
 from metadata import (
     Account,
     Post,
@@ -20,7 +21,7 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 def _make_account_data_with_pinned_posts(
     account_id: int,
     pinned_post_ids: list[int],
-) -> dict:
+) -> JsonDict:
     """Build minimal account API data with pinnedPosts.
 
     Mirrors the real Fansly API response shape for account data.
@@ -108,7 +109,7 @@ async def test_pinned_posts_junction_rows_created(entity_store, mock_config):
 async def test_account_without_pinned_posts_works(entity_store, mock_config):
     """Accounts without pinnedPosts should save normally (no regression)."""
     account_id = snowflake_id()
-    data = {"id": account_id, "username": "no_pins"}
+    data: JsonDict = {"id": account_id, "username": "no_pins"}
 
     await process_account_data(mock_config, data)
 

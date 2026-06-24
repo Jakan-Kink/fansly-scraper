@@ -150,9 +150,9 @@ class TestDatabaseLoggerUnit:
     def test_setup_connection_logging_registers_query_logger(self):
         """Line 120: setup_connection_logging hooks query_logger_callback on the conn."""
         logger = DatabaseLogger()
-        registered = []
+        registered: list[object] = []
         conn = SimpleNamespace(add_query_logger=registered.append)
-        logger.setup_connection_logging(conn)
+        logger.setup_connection_logging(conn)  # type: ignore[arg-type]  # duck-typed fake connection
         assert registered == [logger.query_logger_callback]
 
     def test_get_stats_returns_copy(self):

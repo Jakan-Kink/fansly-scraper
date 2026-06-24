@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from download.core import DownloadState
+from helpers.common import JsonDict, expect_dict, expect_list
 from metadata import Account, Attachment, ContentType, Post
 from metadata.account import process_account_data
 from metadata.models import PostMention
@@ -159,7 +160,7 @@ async def test_post_model_basic(entity_store):
         id=post_id,
         accountId=account_id,
         content="Test post content",
-        fypFlag=0,
+        fypFlags=0,
     )
     await store.save(post)
 
@@ -251,7 +252,7 @@ async def test_process_pinned_posts(entity_store, config):
     post = Post(id=post_id, accountId=account_id, content="Test pinned post")
     await store.save(post)
 
-    pinned_data = [
+    pinned_data: list[JsonDict] = [
         {
             "postId": post_id,
             "pos": 0,
@@ -287,7 +288,7 @@ async def test_process_pinned_posts_nonexistent(entity_store, config):
     await store.save(account)
 
     with patch("metadata.post.json_output") as mock_json_output:
-        pinned_data = [
+        pinned_data: list[JsonDict] = [
             {
                 "postId": nonexistent_post_id,  # Nonexistent post
                 "pos": 0,
@@ -322,7 +323,7 @@ async def test_process_pinned_posts_update(entity_store, config):
     await store.save(post)
 
     # Initial pinned post
-    initial_data = [
+    initial_data: list[JsonDict] = [
         {
             "postId": post_id,
             "pos": 0,
@@ -332,7 +333,7 @@ async def test_process_pinned_posts_update(entity_store, config):
     await process_pinned_posts(config, account, initial_data)
 
     # Update with new position
-    updated_data = [
+    updated_data: list[JsonDict] = [
         {
             "postId": post_id,
             "pos": 1,
@@ -424,7 +425,7 @@ class TestFullPostPipeline:
         acct_id = acct_data["id"]
         await process_account_data(mock_config, data=copy.deepcopy(acct_data))
 
-        timeline = {
+        timeline: JsonDict = {
             "accounts": [acct_data],
             "posts": [_post_dict(acct_id)],
             "aggregatedPosts": [_post_dict(acct_id)],
@@ -440,8 +441,11 @@ class TestFullPostPipeline:
         assert await entity_store.get(Account, acct_id) is not None
 
         # Posts persisted, TIP attachments filtered
-        for pd in timeline["posts"] + timeline["aggregatedPosts"]:
-            post = await entity_store.get(Post, pd["id"])
+        all_posts = expect_list(timeline["posts"], "posts") + expect_list(
+            timeline["aggregatedPosts"], "aggregatedPosts"
+        )
+        for pd in all_posts:
+            post = await entity_store.get(Post, expect_dict(pd, "post")["id"])
             assert post is not None
             for att in post.attachments:
                 assert att.contentType.value != 7
@@ -452,7 +456,7 @@ class TestFullPostPipeline:
         acct_id = snowflake_id()
         # Pre-create the account so FK constraints are satisfied when posts are saved
         await entity_store.save(Account(id=acct_id, username=f"no_creator_{acct_id}"))
-        timeline = {
+        timeline: JsonDict = {
             "accounts": [],
             "posts": [_post_dict(acct_id)],
             "aggregatedPosts": [],
@@ -468,7 +472,7 @@ class TestFullPostPipeline:
         """process_timeline_posts where creator_id is set but account missing from DB.
         Falls back to processing the 'account' key in data (line 76)."""
         acct_id = snowflake_id()
-        timeline = {
+        timeline: JsonDict = {
             "accounts": [],
             "posts": [],
             "aggregatedPosts": [],

@@ -1,6 +1,6 @@
 """Web Utilities"""
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse, urlunparse
 
@@ -96,7 +96,14 @@ def get_flat_qs_dict(url: str) -> dict[str, str]:
     return new_dict
 
 
-def split_url(url: str) -> NamedTuple:
+class SplitURL(NamedTuple):
+    """Result of :func:`split_url` — base and file-name URLs."""
+
+    base_url: str
+    file_url: str
+
+
+def split_url(url: str) -> SplitURL:
     """Splits an URL into absolue base and file name URLs
     without query strings et al.
 
@@ -117,8 +124,6 @@ def split_url(url: str) -> NamedTuple:
 
     # Base URL
     base_url = file_url.rsplit("/", 1)[0]
-
-    SplitURL = namedtuple("SplitURL", ["base_url", "file_url"])
 
     return SplitURL(base_url, file_url)
 

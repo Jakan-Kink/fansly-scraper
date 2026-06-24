@@ -3,8 +3,10 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.core import DownloadState
+from helpers.common import JsonDict
 from metadata import ContentType, Group, Message, process_messages_metadata
 from metadata.messages import _process_single_group, _process_single_message
 from metadata.models import Account, Attachment
@@ -171,7 +173,7 @@ async def test_process_messages_metadata(entity_store, config):
     await store.save(account1)
     await store.save(account2)
 
-    messages_data = [
+    messages_data: list[JsonValue] = [
         {
             "id": msg_id,
             "senderId": sender_id,
@@ -188,7 +190,8 @@ async def test_process_messages_metadata(entity_store, config):
         }
     ]
 
-    await process_messages_metadata(config, None, {"messages": messages_data})
+    payload: JsonDict = {"messages": messages_data}
+    await process_messages_metadata(config, DownloadState(), payload)
 
     saved = await store.get(Message, msg_id)
     assert saved is not None
@@ -243,7 +246,7 @@ class TestFullMessagePipeline:
         await entity_store.save(Account(id=acct_id, username=f"msg_{acct_id}"))
 
         msg_id = snowflake_id()
-        messages = [
+        messages: list[JsonDict] = [
             {
                 "id": msg_id,
                 "senderId": acct_id,

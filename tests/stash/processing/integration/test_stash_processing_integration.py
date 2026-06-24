@@ -1,10 +1,20 @@
 """True integration tests for StashProcessing - hits real Docker Stash."""
 
-import pytest
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 
+import pytest
+from stash_graphql_client import present
+
+from metadata import Account
+from metadata.entity_store import PostgresEntityStore
 from stash.processing import StashProcessing
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
+
+
+# stash_cleanup_tracker yields a factory: tracker(client) -> async ctx of id-buckets.
+CleanupTracker = Callable[..., AbstractAsyncContextManager[dict[str, list[str]]]]
 
 
 class TestIntegrationErrorHandling:
@@ -14,9 +24,9 @@ class TestIntegrationErrorHandling:
     async def test_missing_account_handling(
         self,
         real_stash_processor: StashProcessing,
-        entity_store,
-        stash_cleanup_tracker,
-    ):
+        entity_store: PostgresEntityStore,
+        stash_cleanup_tracker: CleanupTracker,
+    ) -> None:
         """Test graceful handling when account is not found.
 
         This test verifies that the processor handles missing accounts
@@ -38,10 +48,10 @@ class TestIntegrationErrorHandling:
     async def test_duplicate_performer_creation(
         self,
         real_stash_processor: StashProcessing,
-        entity_store,
-        test_account,
-        stash_cleanup_tracker,
-    ):
+        entity_store: PostgresEntityStore,
+        test_account: Account,
+        stash_cleanup_tracker: CleanupTracker,
+    ) -> None:
         """Test that calling process_creator twice doesn't create duplicates.
 
         This test:
@@ -83,7 +93,7 @@ class TestIntegrationErrorHandling:
             # Verify only one performer with this name exists.
             matching_performers = [
                 p
-                for p in performers_result.performers
+                for p in present(performers_result.performers)
                 if p.name == test_account.displayName
             ]
             assert len(matching_performers) == 1, (

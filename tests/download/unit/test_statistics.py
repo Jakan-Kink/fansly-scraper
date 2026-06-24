@@ -1,5 +1,7 @@
 """Tests for download/statistics.py — content stats, file stats, and formatted output."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from download.core import DownloadState, GlobalState
@@ -67,7 +69,7 @@ class TestUpdateGlobalStatistics:
         """Lines 65-70: accumulates file stats from download_state."""
         gs = GlobalState()
         gs.download_stats = {
-            "start_time": None,
+            "start_time": datetime.now(UTC),
             "total_count": 10,
             "skipped_count": 2,
             "failed_count": 1,
@@ -77,6 +79,7 @@ class TestUpdateGlobalStatistics:
 
         ds = DownloadState()
         ds.download_stats = {
+            "start_time": datetime.now(UTC),
             "total_count": 5,
             "skipped_count": 3,
             "failed_count": 0,

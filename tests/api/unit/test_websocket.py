@@ -12,6 +12,7 @@ from contextlib import suppress
 from unittest.mock import patch
 
 import pytest
+from pydantic import JsonValue
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.frames import Close
 
@@ -158,13 +159,14 @@ class TestHandleMessage:
     async def test_type_10000_service_event(self):
         """MSG_SERVICE_EVENT (10000) → dispatches to registered handler."""
         ws = _make_ws()
-        received = []
+        received: list[JsonValue] = []
         ws.register_handler(10000, received.append)
 
         event = {"serviceId": 1, "action": "create", "data": {"id": "99"}}
         await ws._handle_message(_msg(10000, json.dumps(event)))
 
         assert len(received) == 1
+        assert isinstance(received[0], dict)
         assert received[0]["serviceId"] == 1
 
     @pytest.mark.asyncio
@@ -184,7 +186,7 @@ class TestHandleMessage:
     async def test_type_10001_batch(self):
         """MSG_BATCH (10001) → recursively unpacks array of messages."""
         ws = _make_ws()
-        received = []
+        received: list[JsonValue] = []
         ws.register_handler(10000, received.append)
 
         batch = [
@@ -195,6 +197,8 @@ class TestHandleMessage:
         await ws._handle_message(_msg(10001, batch))
 
         assert len(received) == 2
+        assert isinstance(received[0], dict)
+        assert isinstance(received[1], dict)
         assert received[0]["event"] == "a"
         assert received[1]["event"] == "b"
 
@@ -202,12 +206,12 @@ class TestHandleMessage:
     async def test_custom_handler_sync_and_async(self):
         """Custom registered handlers — sync and async."""
         ws = _make_ws()
-        sync_received = []
-        async_received = []
+        sync_received: list[JsonValue] = []
+        async_received: list[JsonValue] = []
 
         ws.register_handler(99, sync_received.append)
 
-        async def async_handler(data):
+        async def async_handler(data: JsonValue) -> None:
             async_received.append(data)
 
         ws.register_handler(100, async_handler)
@@ -741,7 +745,13 @@ class _CookieJar:
     def __init__(self) -> None:
         self.set_calls: list[dict] = []
 
-    def set(self, name, value, domain=None, path=None) -> None:
+    def set(
+        self,
+        name: str,
+        value: str,
+        domain: str | None = None,
+        path: str | None = None,
+    ) -> None:
         self.set_calls.append(
             {"name": name, "value": value, "domain": domain, "path": path}
         )

@@ -7,8 +7,9 @@ EntityStore migration patterns.
 import pytest
 
 from metadata import ContentType
+from metadata.entity_store import PostgresEntityStore
 from stash.processing import StashProcessing
-from tests.fixtures import (
+from tests.fixtures.metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
@@ -28,9 +29,9 @@ class TestCollectMediaFromAttachments:
     async def test_empty_attachments(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments with empty attachments."""
-        attachments = []
+        attachments: list = []
         result = await respx_stash_processor._collect_media_from_attachments(
             attachments
         )
@@ -40,7 +41,7 @@ class TestCollectMediaFromAttachments:
     async def test_attachments_no_media(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments with attachments that have no media."""
         content_id_1 = snowflake_id()
         content_id_2 = snowflake_id()
@@ -67,9 +68,9 @@ class TestCollectMediaFromAttachments:
     @pytest.mark.asyncio
     async def test_attachments_with_media(
         self,
-        entity_store,
+        entity_store: PostgresEntityStore,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments with attachments that have media."""
         acct_id = snowflake_id()
         media_id_1 = snowflake_id()
@@ -138,9 +139,9 @@ class TestCollectMediaFromAttachments:
     @pytest.mark.asyncio
     async def test_attachments_with_previews(
         self,
-        entity_store,
+        entity_store: PostgresEntityStore,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments collects preview media (lines 241, 250, 253).
 
         AccountMedia and bundles can have a previewId pointing to a separate

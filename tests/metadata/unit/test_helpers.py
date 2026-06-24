@@ -8,6 +8,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
@@ -234,10 +235,10 @@ def test_multiple_handlers(log_setup):
 class TestModelBehaviors:
     def test_snowflake_validation(self):
         with pytest.raises(Exception):
-            Media(id="bad", accountId=snowflake_id())
+            Media(id="bad", accountId=snowflake_id())  # type: ignore[arg-type]  # non-numeric id tests validation
         with pytest.raises(Exception):
             Media(id=999, accountId=snowflake_id())
-        m = Media(id=str(snowflake_id()), accountId=snowflake_id())
+        m = Media(id=str(snowflake_id()), accountId=snowflake_id())  # type: ignore[arg-type]  # str id tests int coercion
         assert isinstance(m.id, int)
 
     def test_get_store_uninitialized(self):
@@ -297,7 +298,7 @@ class TestModelBehaviors:
             id=snowflake_id(),
             postId=snowflake_id(),
             contentId=snowflake_id(),
-            contentType="ACCOUNT_MEDIA",
+            contentType="ACCOUNT_MEDIA",  # type: ignore[arg-type]  # enum-name str tests ContentType coercion
             pos=0,
         )
         assert att.contentType == ContentType.ACCOUNT_MEDIA
@@ -310,7 +311,7 @@ class TestModelBehaviors:
             postId=snowflake_id(),
             accountId=snowflake_id(),
             pos=0,
-            createdAt=1700000000000,
+            createdAt=1700000000000,  # type: ignore[arg-type]  # int ms tests datetime coercion
         )
         assert isinstance(pp.createdAt, datetime)
 
@@ -616,7 +617,7 @@ class TestProcessNestedCacheLookups:
     @pytest.mark.asyncio
     async def test_scalar_alias_removal_all_paths(self, entity_store):
         class _AliasedParent(FanslyObject):
-            __table_name__: str = ""
+            __table_name__: ClassVar[str] = ""
             __tracked_fields__ = set()
             __relationships__ = {
                 "related": RelationshipMetadata(
@@ -721,8 +722,8 @@ class TestSerializationAndHelpers:
         assert a.flags == 42
 
     def test_normalize_cdn_url_exception(self):
-        result = FanslyObject.normalize_cdn_url(12345)  # type: ignore[arg-type]
-        assert result == 12345
+        result = FanslyObject.normalize_cdn_url(12345)  # type: ignore[arg-type]  # non-str input tests passthrough
+        assert result == 12345  # type: ignore[comparison-overlap]  # non-str passthrough returns the int
 
     def test_get_from_cache_by_type_name_unknown(self, entity_store):
         result = get_from_cache_by_type_name(entity_store, "NonExistentType", 123)
@@ -785,6 +786,7 @@ class TestMediaPropertiesAndConversation:
             createdAt=datetime(2024, 6, 15, 12, 0, tzinfo=UTC),
         )
         assert m_set.created_at_timestamp > 0
+        assert m_set.createdAt is not None
         assert m_set.created_at_timestamp == m_set.createdAt.timestamp()
 
     def test_get_file_name_no_extension_no_url(self):

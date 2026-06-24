@@ -27,6 +27,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
+from types import FrameType
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +76,12 @@ from download.core import DownloadState  # noqa: E402
 # This pulls in the cleanup_* autouse fixtures from
 # tests/fixtures/utils/cleanup_fixtures.py — they fire on every test.
 from tests.fixtures import *  # noqa: F403,E402
-from tests.fixtures import DownloadStateFactory, FanslyConfigFactory  # noqa: E402
+from tests.fixtures.core.config_factories import (  # noqa: E402
+    FanslyConfigFactory,
+)
+from tests.fixtures.download.download_factories import (  # noqa: E402
+    DownloadStateFactory,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id  # noqa: E402
 
 
@@ -146,13 +152,15 @@ def pytest_unconfigure(config):
         # call site (e.g. ``socket.py:accept``) is below the vendored frame.
         # The vendored marker (e.g. pytest_rerunfailures.py:466 ``run_server``)
         # sits in the middle of the stack — scan every frame for it.
-        unfamiliar: list[tuple[threading.Thread, object]] = []
+        unfamiliar: list[tuple[threading.Thread, FrameType | None]] = []
         vendored_count = 0
         for thread in live:
-            frame = frames.get(thread.ident)
+            # ident is Optional[int]; an ident-less thread keeps the original
+            # fall-through (frame=None → counted as unfamiliar), not a skip.
+            frame = frames.get(thread.ident) if thread.ident is not None else None
             is_vendored = False
             if frame is not None:
-                walker = frame
+                walker: FrameType | None = frame
                 while walker is not None:
                     if any(
                         token in walker.f_code.co_filename

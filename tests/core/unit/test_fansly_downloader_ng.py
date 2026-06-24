@@ -50,6 +50,7 @@ from fansly_downloader_ng import (
 from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
+from textio import print_error, print_info
 
 
 @pytest.fixture(
@@ -594,7 +595,7 @@ async def test_safe_cleanup_database_outer_exception_is_caught(
             _awaitable.close()
         raise RuntimeError("inner-close boom")
 
-    real_print_error = fdng.print_error
+    real_print_error = print_error
     call_count = {"n": 0}
 
     def _print_error_raises_from_inner(msg, *args, **kwargs):
@@ -1536,7 +1537,7 @@ async def test_cleanup_with_global_timeout_websocket_outer_exception_from_print_
 
     config._api = _FakeApi()
 
-    real_print_info = fdng.print_info
+    real_print_info = print_info
 
     def _print_info_raising(msg, *args, **kwargs):
         # Line 695: "Stopping WebSocket connection..." is OUTSIDE the

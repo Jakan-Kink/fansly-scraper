@@ -46,6 +46,7 @@ def test_round_trip_load_from_yaml(
     schema.options.separate_previews = True
     schema.postgres.pg_host = "pg.test.example.com"
     schema.postgres.pg_port = 5433
+    assert schema.cache is not None
     schema.cache.device_id = "abc-device-id"
     schema.cache.device_id_timestamp = 999_000_000
     schema.logging.db.level = "DEBUG"
@@ -333,6 +334,7 @@ def test_full_pass_runtime_only_schema_never_mutated(
     # Schema must NOT be mutated — the runtime baseline lives only on
     # ``config.monitoring_session_baseline`` for the duration of the session.
     assert fresh_config._schema is not None
+    assert fresh_config._schema.monitoring is not None
     assert fresh_config._schema.monitoring.session_baseline is None, (
         "CLI --full-pass must not write the baseline into the YAML schema; "
         "doing so makes the next invocation silently re-trigger a full pass"
@@ -341,6 +343,7 @@ def test_full_pass_runtime_only_schema_never_mutated(
     # Saving must preserve the YAML's None — re-load the file and verify.
     assert fresh_config._save_config() is True
     reloaded = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is None
 
 
@@ -367,6 +370,7 @@ def test_yaml_session_baseline_consumed_and_reset(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.session_baseline = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
     schema.dump_yaml(yaml_path)
 
@@ -381,6 +385,7 @@ def test_yaml_session_baseline_consumed_and_reset(
     # (2) On-disk YAML has been reset to None — re-read the file to verify
     # this is real persistence, not just an in-memory schema mutation.
     reloaded_schema = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded_schema.monitoring is not None
     assert reloaded_schema.monitoring.session_baseline is None, (
         "YAML session_baseline must be cleared after consume; otherwise "
         "every subsequent invocation re-applies the same baseline"
@@ -408,6 +413,7 @@ def test_cli_baseline_takes_precedence_over_yaml(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     # YAML has an older baseline
     yaml_baseline = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
     schema.monitoring.session_baseline = yaml_baseline
@@ -418,6 +424,7 @@ def test_cli_baseline_takes_precedence_over_yaml(
     # After load: YAML value flowed into runtime, schema cleared (one-shot).
     assert fresh_config.monitoring_session_baseline == yaml_baseline
     assert fresh_config._schema is not None
+    assert fresh_config._schema.monitoring is not None
     assert fresh_config._schema.monitoring.session_baseline is None
 
     # CLI overrides via the production handler, not direct mutation —
@@ -430,11 +437,14 @@ def test_cli_baseline_takes_precedence_over_yaml(
 
     # Runtime reflects CLI; schema still clean (CLI must not write to schema).
     assert fresh_config.monitoring_session_baseline == cli_baseline
+    assert fresh_config._schema is not None
+    assert fresh_config._schema.monitoring is not None
     assert fresh_config._schema.monitoring.session_baseline is None
 
     # Persistence guard: saving must keep YAML's session_baseline as null.
     assert fresh_config._save_config() is True
     reloaded = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is None
 
 
@@ -450,6 +460,7 @@ def test_yaml_daemon_mode_survives_into_config(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = True
     schema.dump_yaml(yaml_path)
 
@@ -485,6 +496,7 @@ def test_cli_daemon_flag_overrides_yaml_false(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = False
     schema.dump_yaml(yaml_path)
 
@@ -506,6 +518,7 @@ def test_yaml_daemon_mode_forces_interactive_false(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = True
     schema.options.interactive = True
     schema.dump_yaml(yaml_path)
@@ -523,6 +536,7 @@ def test_cli_daemon_flag_forces_interactive_false(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = False
     schema.options.interactive = True
     schema.dump_yaml(yaml_path)
@@ -550,6 +564,7 @@ def test_unrecoverable_error_timeout_populated_from_schema(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.unrecoverable_error_timeout_seconds = 1800
     schema.dump_yaml(yaml_path)
 
@@ -582,6 +597,7 @@ def test_heartbeat_interval_populated_from_schema(
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.heartbeat_interval_minutes = 5
     schema.dump_yaml(yaml_path)
 
@@ -653,7 +669,9 @@ def test_stash_only_cli_does_not_leak_to_yaml(
 
     # (1) Runtime must reflect the CLI overlay — the daemon/downloader
     # logic depends on this for the current session.
-    assert fresh_config.download_mode == DownloadMode.STASH_ONLY
+    # mypy narrows download_mode to Literal[NORMAL] from the earlier equality
+    # assert and cannot see _handle_download_mode mutate it to STASH_ONLY.
+    assert fresh_config.download_mode == DownloadMode.STASH_ONLY  # type: ignore[comparison-overlap]
 
     # Trigger a post-args save (mirrors what setup_api / login / device-id
     # rotation / get_stash_context all do during normal startup).
@@ -674,14 +692,14 @@ def test_stash_only_cli_does_not_leak_to_yaml(
 # ---------------------------------------------------------------------------
 
 
-def _full_args_namespace(**overrides) -> argparse.Namespace:
+def _full_args_namespace(**overrides: object) -> argparse.Namespace:
     """Build the complete argparse.Namespace shape ``map_args_to_config``
     family expects, with all flags defaulted to their non-firing value.
 
     Mirrors the Namespace shape in ``tests/config/unit/test_args.py``.
     Pass keyword overrides for the flags under test.
     """
-    defaults = {
+    defaults: dict[str, object] = {
         "verbose": 0,
         "users": None,
         "download_mode_normal": False,
@@ -919,6 +937,7 @@ def test_user_names_cli_does_not_overwrite_yaml_list(
 
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded.targeted_creator.usernames is not None
     assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby", "carol"], (
         "CLI -u must target a subset for this run only; YAML's full list stays "
         "as the persisted authoritative set"
@@ -958,6 +977,7 @@ def test_uf_protects_user_names_from_refresh_following_overwrite(
     # Save and verify YAML still has the original curated list, not the fetch.
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded.targeted_creator.usernames is not None
     assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby"], (
         "When -uf is active, the daemon's auto-fetched following list must NOT "
         "propagate to YAML; the user's curated usernames: list stays sacred"
@@ -985,4 +1005,5 @@ def test_ufp_protects_user_names_from_refresh_following_overwrite(
 
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
+    assert reloaded.targeted_creator.usernames is not None
     assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby"]

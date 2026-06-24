@@ -51,7 +51,7 @@ def setup_loggers():
 def test_loggers_have_correct_bindings():
     """Test that loggers have correct extra bindings."""
     # Textio binding tests
-    record = {"extra": {"logger": "textio"}}
+    record: dict[str, dict[str, object]] = {"extra": {"logger": "textio"}}
     assert record["extra"].get("logger", None) == "textio"
     record = {"extra": {"logger": "json"}}
     assert record["extra"].get("logger", None) != "textio"
@@ -458,7 +458,7 @@ class TestUpdateLoggingConfig:
     def test_update_requires_fanslyconfig(self):
         """Non-FanslyConfig raises TypeError (line 601)."""
         with pytest.raises(TypeError, match="must be an instance of FanslyConfig"):
-            update_logging_config("not_a_config", True)
+            update_logging_config("not_a_config", True)  # type: ignore[arg-type]  # intentionally passes non-FanslyConfig to prove it raises TypeError
 
 
 # -- setup_handlers and _configure_sqlalchemy_logging --

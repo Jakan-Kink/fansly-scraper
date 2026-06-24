@@ -161,7 +161,7 @@ class TestPollHomeTimeline:
             id=post_id,
             accountId=creator_id,
             content="already known",
-            fypFlag=0,
+            fypFlags=0,
             createdAt=datetime.now(UTC),
         )
         await entity_store.save(post)
@@ -214,7 +214,7 @@ class TestPollHomeTimeline:
             id=known_post_id,
             accountId=creator_id,
             content="already known",
-            fypFlag=0,
+            fypFlags=0,
             createdAt=datetime.now(UTC),
         )
         await entity_store.save(known_post)
@@ -783,7 +783,7 @@ class TestPollStoryStatesEdges:
         creator_id = snowflake_id()
 
         # Patch get_store to return a wrapper whose save raises for MonitorState.
-        from daemon.polling import get_store as real_get_store
+        from metadata.models import get_store as real_get_store
 
         real_store = real_get_store()
 

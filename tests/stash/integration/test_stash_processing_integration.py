@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.fixtures import AccountFactory
+from tests.fixtures.metadata import AccountFactory
 from tests.fixtures.stash.stash_type_factories import PerformerFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -28,7 +28,7 @@ async def test_safe_background_processing_integration(real_stash_processor):
     )
 
     # Test cases for different scenarios
-    test_cases = [
+    test_cases: list[dict[str, object]] = [
         # Successful processing
         {"side_effect": None, "exception": None},
         # Cancelled error
@@ -74,9 +74,11 @@ async def test_safe_background_processing_integration(real_stash_processor):
         else:
             # For non-CancelledError cases, just check the normal flow
             with patch("stash.logging.debug_print") as mock_debug_print:
-                if case["exception"]:
+                expected_exc = case["exception"]
+                if expected_exc:
+                    assert isinstance(expected_exc, type)
                     # Exception case other than CancelledError
-                    with pytest.raises(case["exception"]):
+                    with pytest.raises(expected_exc):
                         await real_stash_processor._safe_background_processing(
                             account, performer
                         )

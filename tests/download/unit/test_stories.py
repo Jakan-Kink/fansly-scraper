@@ -47,6 +47,7 @@ from download.downloadstate import DownloadState
 from download.stories import _mark_stories_viewed, download_stories
 from download.types import DownloadType
 from metadata import Account, MediaStoryState
+from metadata.entity_store import PostgresEntityStore
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.download import FakeStory
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -243,7 +244,9 @@ def _account_media_entry(media_id: int, creator_id: int) -> dict:
     }
 
 
-async def _seed_creator_account(entity_store, creator_id: int, username: str):
+async def _seed_creator_account(
+    entity_store: PostgresEntityStore, creator_id: int, username: str
+) -> None:
     """Pre-seed an Account row to satisfy FKs in MediaStory + MediaStoryState.
 
     ``process_media_stories`` saves MediaStory rows (which FK to

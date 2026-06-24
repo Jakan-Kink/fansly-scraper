@@ -21,7 +21,7 @@ class TestDatabaseInit:
     skip_migrations=True, no actual database connection is made.
     """
 
-    def test_build_connection_url_basic(self, mock_config: FanslyConfig):
+    def test_build_connection_url_basic(self, mock_config: FanslyConfig) -> None:
         """Test basic PostgreSQL URL construction."""
         db = Database(mock_config, skip_migrations=True)
         url = db._build_connection_url()
@@ -31,7 +31,9 @@ class TestDatabaseInit:
         assert f"@{mock_config.pg_host}:{mock_config.pg_port}" in url
         assert f"/{mock_config.pg_database}" in url
 
-    def test_build_connection_url_with_password(self, mock_config: FanslyConfig):
+    def test_build_connection_url_with_password(
+        self, mock_config: FanslyConfig
+    ) -> None:
         """Test URL construction with password encoding."""
         mock_config.pg_password = "p@ssw0rd!special"
         db = Database(mock_config, skip_migrations=True)
@@ -40,7 +42,9 @@ class TestDatabaseInit:
         # Password should be URL-encoded
         assert "p%40ssw0rd%21special" in url or "p@ssw0rd!special" in url
 
-    def test_build_connection_url_empty_password(self, mock_config: FanslyConfig):
+    def test_build_connection_url_empty_password(
+        self, mock_config: FanslyConfig
+    ) -> None:
         """Test URL construction with empty password (trust authentication)."""
         mock_config.pg_password = ""
         db = Database(mock_config, skip_migrations=True)
@@ -50,14 +54,14 @@ class TestDatabaseInit:
         assert "postgresql://" in url
         assert f"{mock_config.pg_user}:@{mock_config.pg_host}" in url
 
-    def test_init_sets_config(self, mock_config: FanslyConfig):
+    def test_init_sets_config(self, mock_config: FanslyConfig) -> None:
         """Test that init properly stores configuration."""
         db = Database(mock_config, skip_migrations=True)
 
         assert db.config == mock_config
         assert "postgresql://" in db.db_url
 
-    def test_skip_migrations_flag(self, mock_config: FanslyConfig):
+    def test_skip_migrations_flag(self, mock_config: FanslyConfig) -> None:
         """Test that skip_migrations flag prevents running migrations."""
         with patch.object(Database, "_run_migrations") as mock_migrations:
             # With skip_migrations=True, migrations should not run

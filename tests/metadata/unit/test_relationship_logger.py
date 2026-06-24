@@ -16,7 +16,9 @@ from metadata.relationship_logger import (
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-def _parse_json_output_records(caplog, prefix: str) -> list[tuple[str, dict]]:
+def _parse_json_output_records(
+    caplog: pytest.LogCaptureFixture, prefix: str
+) -> list[tuple[str, dict]]:
     """Extract (log_type, payload) pairs from caplog for the given prefix.
 
     json_output formats messages as ``[log_type]\\n{json_payload}`` and routes
@@ -151,7 +153,7 @@ async def test_log_missing_relationship_with_none_id(entity_store):
     exists = await log_missing_relationship(
         table_name="test_table",
         field_name="test_field",
-        missing_id=None,
+        missing_id=None,  # type: ignore[arg-type]  # None tests defensive path
         referenced_table="accounts",
     )
 

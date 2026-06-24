@@ -258,8 +258,10 @@ class TestValidateCheckkeyFormat:
         assert _validate_checkkey_format("") is False
 
     def test_not_string(self):
-        assert _validate_checkkey_format(12345) is False
-        assert _validate_checkkey_format(None) is False
+        # Deliberate invalid-input: exercises the `isinstance(checkkey, str)`
+        # guard in production; no in-contract (str) value can be non-str.
+        assert _validate_checkkey_format(12345) is False  # type: ignore[arg-type]
+        assert _validate_checkkey_format(None) is False  # type: ignore[arg-type]
 
     def test_no_hyphens(self):
         assert _validate_checkkey_format("abcdefghijk") is False

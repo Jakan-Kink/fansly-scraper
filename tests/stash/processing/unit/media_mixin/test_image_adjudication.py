@@ -18,6 +18,7 @@ import httpx
 import pytest
 import respx
 from loguru import logger as loguru_logger
+from stash_graphql_client import present
 from stash_graphql_client.types import (
     BasicFile,
     GalleryFile,
@@ -26,13 +27,14 @@ from stash_graphql_client.types import (
 )
 from stash_graphql_client.types.unset import is_set
 
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.stash import (
     create_graphql_response,
     create_image_dict,
     create_image_file_dict,
+    seed_processor_caches,
+    stash_creator_root,
 )
-from tests.fixtures.metadata.metadata_factories import MediaFactory
-from tests.fixtures.stash import seed_processor_caches, stash_creator_root
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 
 
@@ -175,7 +177,7 @@ class TestProcessFileFirstImage:
 
         media = MediaFactory.build(is_downloaded=True, local_filename="x_id_42.jpg")
         studio = seed_processor_caches(respx_stash_processor, mock_account)
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         try:
             result = await respx_stash_processor._process_file_first(
@@ -233,7 +235,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -267,7 +269,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(gfile.path).name: (media, [mock_item])}
+        index = {PurePath(present(gfile.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -293,7 +295,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(bfile.path).name: (media, [mock_item])}
+        index = {PurePath(present(bfile.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -356,7 +358,7 @@ class TestProcessFileFirstImage:
 
         media = MediaFactory.build(is_downloaded=True, local_filename="x_id_42.jpg")
         studio = seed_processor_caches(respx_stash_processor, mock_account)
-        index = {PurePath(stale_file.path).name: (media, [mock_item])}
+        index = {PurePath(present(stale_file.path)).name: (media, [mock_item])}
 
         try:
             result = await respx_stash_processor._process_file_first(
@@ -401,7 +403,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")

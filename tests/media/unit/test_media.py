@@ -113,6 +113,7 @@ class TestGetBestLocationUrl:
 
     def test_falls_back_to_location_when_no_raw_url(self):
         m = Media(id=snowflake_id(), accountId=snowflake_id())
+        assert m.id is not None
         loc = MediaLocation(mediaId=m.id, locationId=1, location="https://cdn/img.jpg")
         object.__setattr__(loc, "raw_url", None)
         m.locations = [loc]
@@ -198,12 +199,14 @@ class TestBuildM3u8AuthUrl:
             url="https://cdn.fansly.com/v.m3u8?Key-Pair-Id=KP123&Policy=p&Signature=s",
         )
         result = _build_m3u8_auth_url(m)
+        assert result is not None
         assert "Key-Pair-Id=KP123" in result
 
     def test_no_locations_returns_url(self):
         """Has a location for URL extraction but then we clear locations — shouldn't happen
         in practice, but exercises the guard at line 57."""
         m = Media(id=snowflake_id(), accountId=snowflake_id())
+        assert m.id is not None
         loc = MediaLocation(mediaId=m.id, locationId=1, location="https://cdn/v.m3u8")
         m.locations = [loc]
         # Remove metadata attr to trigger the hasattr guard
@@ -217,6 +220,7 @@ class TestBuildM3u8AuthUrl:
         m = _media_with_locations(acct, url="https://cdn.fansly.com/v.m3u8?ngsw=1")
         m.locations[0].metadata = "not_a_dict"
         result = _build_m3u8_auth_url(m)
+        assert result is not None
         assert "Key-Pair-Id" not in result
 
     def test_metadata_missing_key_returns_url(self):
@@ -236,6 +240,7 @@ class TestBuildM3u8AuthUrl:
             "Signature": "sig789",
         }
         result = _build_m3u8_auth_url(m)
+        assert result is not None
         assert "ngsw-bypass=true" in result
         assert "Policy=pol123" in result
         assert "Key-Pair-Id=KP456" in result
@@ -417,6 +422,7 @@ class TestParseMediaInfo:
         state = DownloadState()
 
         result = await parse_media_info(state, info)
+        assert result.download_url is not None
         assert "default_4k" in result.download_url
         assert result.download_id is None  # use_variant=False → no download_id
 
@@ -436,6 +442,7 @@ class TestParseMediaInfo:
         state = DownloadState()
 
         result = await parse_media_info(state, info)
+        assert result.download_url is not None
         assert "photo.jpeg" in result.download_url
 
     @pytest.mark.asyncio

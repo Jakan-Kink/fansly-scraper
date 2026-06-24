@@ -6,11 +6,13 @@ No external boundaries — all pure logic. Uses real Rich objects.
 import threading
 import time
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import pytest
-from rich.console import Console
-from rich.progress import ProgressBar, Task
+from rich.console import Console, ConsoleRenderable, RichCast
+from rich.progress import Task, TaskID
+from rich.progress_bar import ProgressBar
 from rich.segment import Segment
 from rich.text import Text
 
@@ -36,7 +38,7 @@ class TestContextualTimeColumn:
     def _make_task(self, description="", fields=None):
         """Build a minimal Rich Task for rendering."""
         task = Task(
-            id=0,
+            id=TaskID(0),
             description=description,
             total=100,
             completed=0,
@@ -90,7 +92,13 @@ class TestPhasedBar:
     Tests render to a Console and verify the produced segments / styles.
     """
 
-    def _render(self, bar: PhasedBar, *, color_system="truecolor"):
+    def _render(
+        self,
+        bar: PhasedBar,
+        *,
+        color_system: Literal["auto", "standard", "256", "truecolor", "windows"]
+        | None = "truecolor",
+    ) -> list[ConsoleRenderable | RichCast | str | Segment]:
         """Render a PhasedBar against a deterministic Console and return segments."""
         # Use a fixed-width, color-enabled console so phase styles render to Segments.
         console = Console(
@@ -304,7 +312,7 @@ class TestPhasedBarColumn:
         # Rich's Task.started is a read-only property derived from
         # start_time != None. Set start_time directly to control it.
         task = Task(
-            id=0,
+            id=TaskID(0),
             description="Test task",
             total=total,
             completed=completed,

@@ -26,8 +26,12 @@ async def test_full_content_processing(entity_store, mock_config, timeline_data)
     """Test processing a complete set of content."""
     # Convert string IDs to int (mimics what API layer does)
     response = FanslyApi.convert_ids_to_int(timeline_data["response"])
+    assert isinstance(response, dict)
 
-    account_data = response["accounts"][0]
+    accounts = response["accounts"]
+    assert isinstance(accounts, list)
+    account_data = accounts[0]
+    assert isinstance(account_data, dict)
 
     # Process account data via production code
     await process_account_data(mock_config, account_data)
@@ -42,21 +46,31 @@ async def test_full_content_processing(entity_store, mock_config, timeline_data)
     if "timelineStats" in account_data:
         stats = await entity_store.get(TimelineStats, account_id)
         assert stats is not None
-        assert stats.imageCount == account_data["timelineStats"]["imageCount"]
-        assert stats.videoCount == account_data["timelineStats"]["videoCount"]
+        timeline_stats = account_data["timelineStats"]
+        assert isinstance(timeline_stats, dict)
+        assert stats.imageCount == timeline_stats["imageCount"]
+        assert stats.videoCount == timeline_stats["videoCount"]
 
     # Process media
     if "accountMedia" in response:
-        for media_data in response["accountMedia"]:
+        account_media = response["accountMedia"]
+        assert isinstance(account_media, list)
+        for media_data in account_media:
+            assert isinstance(media_data, dict)
             await process_media_info(mock_config, media_data)
 
     # Verify media was created — check at least one exists
-    if response.get("accountMedia"):
-        first_am = response["accountMedia"][0]
+    account_media = response.get("accountMedia")
+    if account_media:
+        assert isinstance(account_media, list)
+        first_am = account_media[0]
+        assert isinstance(first_am, dict)
         if "media" in first_am:
-            media_id = first_am["media"]["id"]
-            media = await entity_store.get(Media, media_id)
-            assert media is not None
+            media = first_am["media"]
+            assert isinstance(media, dict)
+            media_id = media["id"]
+            media_obj = await entity_store.get(Media, media_id)
+            assert media_obj is not None
 
         # Verify AccountMedia was created
         am = await entity_store.get(AccountMedia, first_am["id"])
@@ -131,16 +145,18 @@ async def test_database_constraints(entity_store):
     """Test that Pydantic models enforce required fields."""
     # Media requires accountId
     with pytest.raises(ValidationError, match="accountId"):
-        Media(id=snowflake_id())
+        Media(id=snowflake_id())  # type: ignore[call-arg]  # omitting accountId is the test
 
     # Wall requires accountId
     with pytest.raises(ValidationError, match="accountId"):
-        Wall(id=snowflake_id(), name="Test")
+        Wall(id=snowflake_id(), name="Test")  # type: ignore[call-arg]  # omitting accountId is the test
 
     # Message requires senderId
 
     with pytest.raises(ValidationError, match="senderId"):
-        Message(id=snowflake_id(), content="Test", createdAt=datetime.now(UTC))
+        Message(  # type: ignore[call-arg]  # omitting senderId is the test
+            id=snowflake_id(), content="Test", createdAt=datetime.now(UTC)
+        )
 
 
 @pytest.mark.integration

@@ -109,7 +109,7 @@ class TestStashProcessingAccount:
         await entity_store.save(test_account)
 
         # Create test performer using factory
-        test_performer = PerformerFactory(
+        test_performer = PerformerFactory.build(
             id="123",  # Use numeric string since code converts to int
             name="test_user",
         )

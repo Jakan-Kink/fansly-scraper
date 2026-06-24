@@ -5,6 +5,8 @@ All timing uses a mutable-list clock (closure pattern) so individual tests
 control elapsed time without sleeping.
 """
 
+from collections.abc import Callable
+
 from daemon.simulator import ActivitySimulator
 
 
@@ -18,9 +20,14 @@ def make_clock(start: float = 0.0) -> list[float]:
     return [start]
 
 
-def fixed_jitter(value: float):
+def fixed_jitter(value: float) -> Callable[[float, float], float]:
     """Return a jitter callable that always returns `value` regardless of a/b."""
     return lambda _a, _b: value
+
+
+def _clock_reader(clock: list[float]) -> Callable[[], float]:
+    """Return a zero-arg `now` callable bound to `clock` (loop-safe closure)."""
+    return lambda: clock[0]
 
 
 # ---------------------------------------------------------------------------
@@ -583,11 +590,15 @@ class TestOnWsEventDuringHidden:
 
         for svc, evt in interrupt_events:
             clock = make_clock(0.0)
+            # Capture the per-iteration clock via a helper so the zero-arg `now`
+            # lambda binds this iteration's list (avoids B023) while still
+            # type-checking against Callable[[], float].
+            now = _clock_reader(clock)
             sim = ActivitySimulator(
                 active_min=1,
                 idle_min=1,
                 hidden_min=1,
-                now=lambda c=clock: c[0],
+                now=now,
                 jitter=fixed_jitter(0.0),
             )
             self._drive_to_hidden(sim, clock)

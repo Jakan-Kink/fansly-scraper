@@ -12,11 +12,15 @@ verifies applies to the incremental flow too (mentions hydrated by
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set
 
 from metadata import PostMention
 from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
-from tests.fixtures.stash.stash_graphql_fixtures import create_graphql_response
+from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_find_performers_result,
+    create_graphql_response,
+)
 from tests.fixtures.stash.stash_type_factories import GalleryFactory, PerformerFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -45,10 +49,11 @@ class TestGalleryMentionPerformers:
         respx_stash_processor.store.add(
             PerformerFactory(id="456", name="alice", galleries=[])
         )
-        gallery = GalleryFactory()
+        gallery = GalleryFactory.build()
 
         await respx_stash_processor._setup_gallery_performers(gallery, post, main)
 
+        assert is_set(gallery.performers)
         assert {p.name for p in gallery.performers} == {"creator", "alice"}
 
     @pytest.mark.asyncio
@@ -64,12 +69,17 @@ class TestGalleryMentionPerformers:
         post = PostFactory.build(id=snowflake_id(), accountId=snowflake_id())
         post.mentions = [PostMention(id=1, postId=post.id, handle="ghost")]
         main = PerformerFactory(id="123", name="creator", galleries=[])
-        gallery = GalleryFactory()
+        gallery = GalleryFactory.build()
 
         # Cache miss -> _find_existing_performer issues findPerformers; route empty.
         route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(200, json=create_graphql_response("findPerformers", []))
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", create_find_performers_result()
+                    ),
+                )
             ]
         )
         try:
@@ -77,4 +87,5 @@ class TestGalleryMentionPerformers:
         finally:
             dump_graphql_calls(route.calls, "unresolvable_mention_skipped")
 
+        assert is_set(gallery.performers)
         assert {p.name for p in gallery.performers} == {"creator"}

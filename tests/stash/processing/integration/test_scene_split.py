@@ -17,6 +17,7 @@ test).
 import time
 
 import pytest
+from stash_graphql_client import is_set, present
 from stash_graphql_client.types import Scene
 
 from tests.fixtures.metadata.metadata_factories import (
@@ -79,7 +80,7 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
             f"incomplete scene fetch: {len(scenes)} of {scenes_result.count}"
         )
         # Every file that is some scene's PRIMARY (files[0]).
-        primary_ids = {s.files[0].id for s in scenes if s.files}
+        primary_ids = {present(s.files)[0].id for s in scenes if s.files}
 
         shared: Scene | None = None
         our_file = None
@@ -89,7 +90,7 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
         merged_source_scene = False
         # Approach A: a scene with a secondary that is primary of nothing.
         for s in scenes:
-            if not s.files or len(s.files) < 2:
+            if not is_set(s.files) or len(s.files) < 2:
                 continue
             for candidate in s.files[1:]:
                 if candidate.id not in primary_ids:
@@ -105,8 +106,10 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
             if len(single) < 2:
                 pytest.skip("Docker Stash needs >=2 scenes with files for the split.")
             dest, src = single[0], single[1]
-            assert dest.files[0].id != src.files[0].id, "need two distinct files"
-            our_file = src.files[0]
+            assert present(dest.files)[0].id != present(src.files)[0].id, (
+                "need two distinct files"
+            )
+            our_file = present(src.files)[0]
             await client.scene_merge({"source": [src.id], "destination": dest.id})
             shared = await store.populate(dest, ["files"], force_refetch=True)
             primary_ids.discard(our_file.id)  # src destroyed → no longer primary
@@ -114,13 +117,15 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
 
         # --- ASSERT THE PRECONDITION (self-verifying; forward, Scene-driven). ---
         shared = await store.populate(shared, ["files"], force_refetch=True)
-        shared_file_ids = [f.id for f in (shared.files or [])]
+        assert our_file is not None
+        shared_files = present(shared.files)
+        shared_file_ids = [f.id for f in shared_files]
 
         assert our_file.id in shared_file_ids, (
             f"PRECONDITION FAILED: our_file {our_file.id} not attached to shared "
             f"scene {shared.id}; shared.files={shared_file_ids}"
         )
-        assert shared.files[0].id != our_file.id, (
+        assert shared_files[0].id != our_file.id, (
             f"PRECONDITION FAILED: our_file {our_file.id} is PRIMARY of shared "
             f"scene {shared.id}; shared.files={shared_file_ids}"
         )
@@ -179,7 +184,7 @@ async def test_split_scene_for_file_reassigns_off_shared_scene(
 
         our_file_id = our_file.id
         new_scene_file_ids = [f.id for f in (new_scene.files or [])]
-        new_shared_file_ids = [f.id for f in (shared.files or [])]
+        new_shared_file_ids = [f.id for f in present(shared.files)]
 
         # (a) our_file is now PRIMARY of the NEW scene.
         assert new_scene.files, f"new scene {new_scene.id} has no files after split"

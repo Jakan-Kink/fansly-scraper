@@ -6,9 +6,10 @@ Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set
 
-from tests.fixtures import (
-    HashtagFactory,
+from tests.fixtures.metadata import HashtagFactory
+from tests.fixtures.stash import (
     ImageFactory,
     TagFactory,
     create_find_images_result,
@@ -262,6 +263,7 @@ class TestTagMethods:
             dump_graphql_calls(graphql_route.calls, "add_preview_tag_existing")
 
         # Verify no additional tag was added
+        assert is_set(mock_image.tags)
         assert len(mock_image.tags) == 1
 
     @pytest.mark.asyncio

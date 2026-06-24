@@ -147,7 +147,7 @@ async def test_validate_creator_names_interactive_adjustment(
     validation_config.interactive = True
     validation_config.user_names = {"bad user"}  # space → invalid
 
-    async def _fake_aprompt_text(_prompt: str, **_kwargs) -> str:
+    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
         return "correctuser"
 
     monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
@@ -190,7 +190,7 @@ async def test_validate_adjust_creator_name_interactive_retries_until_valid(
 ):
     """Interactive mode loops on invalid input until a valid one is entered."""
 
-    async def _fake_aprompt_text(_prompt: str, **_kwargs) -> str:
+    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
         return "validuser"
 
     monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
@@ -410,7 +410,7 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
     validation_config.interactive = True
     validation_config.token = "short"
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -468,7 +468,7 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
     validation_config.interactive = True
     validation_config.token = "short"
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return False
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -648,7 +648,7 @@ async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
     # Note: invalid-input retry behavior now lives in textio.prompts.aconfirm
     # itself (the helper loops on unparseable answers); production code only
     # sees the final True/False. Test simplifies to "user eventually accepts."
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -790,7 +790,7 @@ async def test_validate_adjust_check_key_guess_fails_interactive_confirm_keeps_k
     validation_config.interactive = True
     original_key = validation_config.check_key
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -810,10 +810,10 @@ async def test_validate_adjust_check_key_guess_fails_interactive_user_enters_new
     # First aconfirm: reject current. Second aconfirm: accept new key.
     confirm_answers = iter([False, True])
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return next(confirm_answers)
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return "new_key_value"
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -839,10 +839,10 @@ async def test_validate_adjust_check_key_user_rejects_new_key_then_accepts(
     confirm_answers = iter([False, False, True])
     text_answers = iter(["first_try", "second_try"])
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return next(confirm_answers)
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return next(text_answers)
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -1017,7 +1017,7 @@ async def test_validate_adjust_download_mode_interactive_user_declines(
     """Interactive mode: user answers no → mode unchanged."""
     validation_config.interactive = True
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return False
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -1033,10 +1033,10 @@ async def test_validate_adjust_download_mode_interactive_user_changes_mode(
     """Interactive mode: user answers yes then 'SINGLE' → mode updated."""
     validation_config.interactive = True
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return "SINGLE"
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -1059,10 +1059,10 @@ async def test_validate_adjust_download_mode_interactive_invalid_mode_preserves_
 
     confirm_answers = iter([True, False])
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return next(confirm_answers)
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return "INVALIDMODE"
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)

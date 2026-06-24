@@ -16,7 +16,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy as sa
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 
 from alembic import command, script
 from tests.fixtures.database.database_fixtures import TestDatabase
@@ -50,10 +50,23 @@ def _make_alembic_config_no_url() -> Config:
     return cfg
 
 
-def _get_down_revision(cfg: Config, revision: str) -> str | tuple[str, ...] | None:
+def _get_down_revision(
+    cfg: Config, revision: str
+) -> str | tuple[str, ...] | list[str] | None:
     scripts = script.ScriptDirectory.from_config(cfg)
     rev = scripts.get_revision(revision)
     return rev.down_revision
+
+
+def _require_down_revision(cfg: Config, revision: str) -> str:
+    """Return the single-parent down_revision of ``revision``.
+
+    The migrations these tests target sit on the linear mainline, so each has
+    exactly one ``str`` parent; assert that to narrow for ``command.upgrade``.
+    """
+    down = _get_down_revision(cfg, revision)
+    assert isinstance(down, str)
+    return down
 
 
 def _linear_revisions(cfg: Config) -> list[str]:
@@ -72,7 +85,7 @@ def _linear_revisions(cfg: Config) -> list[str]:
         down = current.down_revision
         if down is None:
             break
-        if isinstance(down, tuple):
+        if isinstance(down, (tuple, list)):
             # Pick the first parent for linearization; tests only need a deterministic mainline.
             down = down[0]
         current = scripts.get_revision(down)
@@ -80,7 +93,7 @@ def _linear_revisions(cfg: Config) -> list[str]:
     return list(reversed(ordered))
 
 
-def _seed_case_insensitive_hashtags(engine) -> None:
+def _seed_case_insensitive_hashtags(engine: Engine) -> None:
     # Insert case-variant duplicates plus a post reference to exercise merge logic.
     with engine.begin() as conn:
         # SQLite migrations assumed lax FK checks; relax them briefly so seeds match.
@@ -102,7 +115,7 @@ def _seed_case_insensitive_hashtags(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_case_insensitive_no_conflict(engine) -> None:
+def _seed_case_insensitive_no_conflict(engine: Engine) -> None:
     """Seed hashtags with case variants but NO post conflicts (covers branch 96->111)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -125,7 +138,7 @@ def _seed_case_insensitive_no_conflict(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_hashtags(engine) -> None:
+def _seed_malformed_hashtags(engine: Engine) -> None:
     # Insert malformed values, empties, and overlapping post references to drive
     # hashtag cleanup and merge branches.
     with engine.begin() as conn:
@@ -158,7 +171,7 @@ def _seed_malformed_hashtags(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_empty_extract(engine) -> None:
+def _seed_malformed_empty_extract(engine: Engine) -> None:
     """Seed hashtags that extract to empty list (covers line 28 and branch 97->113)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -186,7 +199,7 @@ def _seed_malformed_empty_extract(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_no_posts_to_copy(engine) -> None:
+def _seed_malformed_no_posts_to_copy(engine: Engine) -> None:
     """Seed to hit the 'no posts_to_copy' branch (line 142)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -208,7 +221,7 @@ def _seed_malformed_no_posts_to_copy(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_e4a1_preexisting_objects(engine) -> None:
+def _seed_e4a1_preexisting_objects(engine: Engine) -> None:
     """Pre-create the id column, constraints, and indexes that e4a1 would create.
 
     This exercises the idempotency guards (skip branches) in e4a1:
@@ -270,7 +283,7 @@ def _seed_e4a1_preexisting_objects(engine) -> None:
         )
 
 
-def _seed_e4a1_no_pkey(engine) -> None:
+def _seed_e4a1_no_pkey(engine: Engine) -> None:
     """Remove the PK from post_mentions without adding the id column.
 
     Forces e4a1 into the block where id doesn't exist AND the old pkey
@@ -284,7 +297,7 @@ def _seed_e4a1_no_pkey(engine) -> None:
         )
 
 
-def _seed_e4a1_missing_objects(engine) -> None:
+def _seed_e4a1_missing_objects(engine: Engine) -> None:
     """Remove the constraints and indexes that earlier migrations created.
 
     This forces e4a1 to create them (exercising lines 60 and 75-78),
@@ -306,7 +319,7 @@ def _seed_e4a1_missing_objects(engine) -> None:
         conn.execute(text('DROP INDEX IF EXISTS "ix_post_mentions_handle"'))
 
 
-def _seed_f1a2_naive_timestamps(engine) -> None:
+def _seed_f1a2_naive_timestamps(engine: Engine) -> None:
     """Revert a timestamp column to naive (without time zone).
 
     This exercises the ALTER COLUMN loop body (line 45) in f1a2,
@@ -409,9 +422,12 @@ def _resolve_start_rev(cfg: Config, spec: dict[str, str | int | Callable]) -> st
         return base_rev
 
     if "index" in spec:
-        offset = int(spec["index"])
+        index = spec["index"]
+        assert isinstance(index, int)
+        offset = index
         revisions = _linear_revisions(cfg)
         target_rev = spec["target_rev"]
+        assert isinstance(target_rev, str)
         if target_rev == "head":
             target_rev = revisions[-1]
         idx = (
@@ -456,7 +472,7 @@ def test_alembic_upgrade_and_downgrade(uuid_test_db_factory, spec):
             command.upgrade(alembic_cfg, start_rev)
 
         if seed_fn:
-            down_rev = _get_down_revision(alembic_cfg, target_rev)
+            down_rev = _require_down_revision(alembic_cfg, target_rev)
             seed_base = down_rev or start_rev
             print(f"[migrations] seed_base={seed_base}")
 
@@ -510,7 +526,7 @@ def test_6dcb_skip_drop_fks(uuid_test_db_factory):
     target_rev = "6dcb1d898d8b"
 
     # 2. Get to pre-state
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # 3. Drop FKs manually to simulate missing state
@@ -599,7 +615,7 @@ def test_7f05_skip_drop_constraints(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Manual Drop
@@ -675,7 +691,7 @@ def test_4416_skip_create_index(uuid_test_db_factory):
     target_rev = "4416b99f028e"
 
     start_rev = "base"  # As per original spec
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     # The migration spec used index -2, so it started further along than base.
     # Let's trust the logic in _seed to create the index safely
 
@@ -891,7 +907,7 @@ def test_2dc7_fk_already_dropped(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-drop the FK constraints to trigger the "already missing" branches
@@ -954,7 +970,7 @@ def test_2dc7_indexes_already_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the indexes
@@ -1033,7 +1049,7 @@ def test_2dc7_downgrade_indexes_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
 
     # First upgrade to target
     command.upgrade(alembic_cfg, target_rev)
@@ -1106,7 +1122,7 @@ def test_2dc7_downgrade_fks_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
@@ -1183,7 +1199,7 @@ def test_2dc7_downgrade_stub_tracker_indexes_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop stub_tracker indexes manually
@@ -1259,7 +1275,7 @@ def test_6dcb_account_media_fk_variants_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the variant FK names to hit lines 43, 45
@@ -1316,7 +1332,7 @@ def test_6dcb_groups_fk_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-drop the groups FK
@@ -1354,7 +1370,7 @@ def test_6dcb_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the index
@@ -1429,7 +1445,7 @@ def test_6dcb_messages_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the messages index
@@ -1487,7 +1503,7 @@ def test_4416_upgrade_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the index
@@ -1525,7 +1541,7 @@ def test_4416_downgrade_pk_constraint_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop pk_post_hashtags constraint if it exists
@@ -1563,7 +1579,7 @@ def test_4416_downgrade_index_already_dropped(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop index before downgrade
@@ -1597,7 +1613,7 @@ def test_4416_pk_constraint_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
@@ -1667,7 +1683,7 @@ def test_4416_downgrade_constraint_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the constraint before downgrade
@@ -1736,7 +1752,7 @@ def test_4416_downgrade_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop index before downgrade
@@ -1806,7 +1822,7 @@ def test_7f05_upgrade_pk_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Manually set up PK to match target state
@@ -1852,7 +1868,7 @@ def test_7f05_downgrade_unique_constraints_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop unique constraints before downgrade
@@ -1895,7 +1911,7 @@ def test_7f05_downgrade_constraints_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the new constraints before downgrade
@@ -1979,7 +1995,7 @@ def test_0c4cb_duplicate_merge_skip_no_overlap(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Seed case variants with NO post conflicts
@@ -1993,6 +2009,7 @@ def test_0c4cb_duplicate_merge_skip_no_overlap(uuid_test_db_factory):
             result = conn.execute(text("SELECT COUNT(*) FROM hashtags"))
             # Should have merged case variants
             count = result.scalar()
+            assert count is not None
             assert count < 3  # Started with 3, should be merged
     finally:
         db.close()
@@ -2024,7 +2041,7 @@ def test_2dc7_upgrade_all_constraints_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Check if stub_tracker exists at this point
@@ -2086,7 +2103,7 @@ def test_187642_fk_missing_on_upgrade(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the FK before upgrade
@@ -2143,7 +2160,7 @@ def test_187642_fk_missing_on_downgrade(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the FK before downgrade
@@ -2216,7 +2233,7 @@ def test_b8dc_downgrade_no_matching_constraint(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop media_variants unique constraint before downgrade
@@ -2291,7 +2308,7 @@ def test_b8dc_downgrade_stories_fk_not_found(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop stories FK before downgrade
@@ -2365,7 +2382,7 @@ def test_b8dc_downgrade_fk_exists_skip_drop(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop ALL FKs on messages.groupId first
@@ -2454,7 +2471,7 @@ def test_00c9_walls_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the walls index
@@ -2492,7 +2509,7 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the walls index before downgrade
@@ -2528,6 +2545,8 @@ def test_extract_hashtags_empty_content():
         Path(__file__).parent.parent.parent
         / "alembic/versions/1941514875f1_clean_malformed_hashtags.py",
     )
+    assert spec is not None
+    assert spec.loader is not None
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
@@ -2548,6 +2567,8 @@ def test_extract_hashtags_special_chars():
         Path(__file__).parent.parent.parent
         / "alembic/versions/1941514875f1_clean_malformed_hashtags.py",
     )
+    assert spec is not None
+    assert spec.loader is not None
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
@@ -2627,7 +2648,7 @@ def test_6dcb_account_media_variant_fks_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2669,7 +2690,7 @@ def test_6dcb_groups_lastmessage_fk_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2711,7 +2732,7 @@ def test_4416_upgrade_with_existing_index(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2748,7 +2769,7 @@ def test_4416_downgrade_pk_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2774,7 +2795,7 @@ def test_4416_downgrade_pk_missing(uuid_test_db_factory):
                     loop.close()
 
 
-def test_4416_downgrade_index_missing(uuid_test_db_factory):
+def test_4416_downgrade_value_index_missing(uuid_test_db_factory):
     """Test 4416b99f028e downgrade when ix_hashtags_value missing (line 68)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
@@ -2785,7 +2806,7 @@ def test_4416_downgrade_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2823,7 +2844,7 @@ def test_7f05_upgrade_pk_already_dropped(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2866,7 +2887,7 @@ def test_7f05_downgrade_unique_handle_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     with db._sync_engine.begin() as conn:
@@ -2913,7 +2934,7 @@ def test_0c4cb_duplicate_case_variants_no_post_overlap(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     _seed_case_insensitive_no_conflict(db._sync_engine)
@@ -2924,6 +2945,7 @@ def test_0c4cb_duplicate_case_variants_no_post_overlap(uuid_test_db_factory):
         with db._sync_engine.begin() as conn:
             result = conn.execute(text("SELECT COUNT(*) FROM hashtags"))
             count = result.scalar()
+            assert count is not None
             assert count < 3
     finally:
         db.close()
@@ -2955,7 +2977,7 @@ def test_2dc7_upgrade_stub_tracker_indexes_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Check if stub_tracker exists
@@ -3015,7 +3037,7 @@ def test_b8dc_downgrade_messages_fk_exists_skip(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop ALL FKs on messages.groupId first

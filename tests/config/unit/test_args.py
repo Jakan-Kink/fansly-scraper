@@ -21,6 +21,7 @@ from config.args import (
     map_args_to_config,
     parse_args,
 )
+from config.fanslyconfig import FanslyConfig
 from config.modes import DownloadMode
 from errors import ConfigError
 
@@ -382,7 +383,7 @@ def test_parse_args_monitor_since_invalid_iso() -> None:
 
 
 def test_handle_monitoring_settings_monitor_since(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """--monitor-since sets config.monitoring_session_baseline to the given datetime."""
     baseline = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -393,7 +394,7 @@ def test_handle_monitoring_settings_monitor_since(
 
 
 def test_handle_monitoring_settings_full_pass(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """--full-pass sets config.monitoring_session_baseline to 2000-01-01 UTC."""
     default_cli_args.full_pass = True
@@ -405,7 +406,7 @@ def test_handle_monitoring_settings_full_pass(
 
 
 def test_handle_monitoring_settings_neither_flag(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """No monitoring flags → returns False, baseline unchanged."""
     config_with_path.monitoring_session_baseline = None
@@ -447,7 +448,7 @@ def test_parse_args_daemon_default_false() -> None:
     assert ns.daemon_mode is False
 
 
-def test_parse_args_daemon_coexists_with_dir_flag(tmp_path) -> None:
+def test_parse_args_daemon_coexists_with_dir_flag(tmp_path: Path) -> None:
     """-d and -dir both parse without conflict."""
     dl_dir = str(tmp_path / "downloads")
     with patch.object(sys, "argv", ["prog", "-d", "-dir", dl_dir]):
@@ -465,7 +466,7 @@ def test_parse_args_daemon_coexists_with_normal_mode() -> None:
 
 
 def test_handle_monitoring_settings_daemon_mode(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """daemon_mode=True on the args namespace sets config.daemon_mode, returns True."""
     default_cli_args.daemon_mode = True
@@ -475,7 +476,7 @@ def test_handle_monitoring_settings_daemon_mode(
 
 
 def test_handle_monitoring_settings_daemon_mode_false(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """daemon_mode=False on the args namespace leaves config.daemon_mode False, returns False
     when no other monitoring flags are set."""
@@ -487,7 +488,7 @@ def test_handle_monitoring_settings_daemon_mode_false(
 
 
 def test_handle_monitoring_settings_daemon_and_full_pass(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """daemon_mode and full_pass together both take effect; overridden=True."""
     default_cli_args.daemon_mode = True
@@ -505,7 +506,9 @@ def test_handle_monitoring_settings_daemon_and_full_pass(
 # ---------------------------------------------------------------------------
 
 
-def test_stash_only_alone_leaves_daemon_off(config_with_path, default_cli_args) -> None:
+def test_stash_only_alone_leaves_daemon_off(
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
+) -> None:
     """--stash-only with no daemon flags: stash-only set, daemon stays off."""
     config_with_path.daemon_mode = False
     default_cli_args.stash_only = True
@@ -519,7 +522,7 @@ def test_stash_only_alone_leaves_daemon_off(config_with_path, default_cli_args) 
 
 
 def test_stash_only_with_yaml_daemon_silently_disables(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """--stash-only + YAML daemon_mode=true: daemon force-off for this run.
 
@@ -540,7 +543,7 @@ def test_stash_only_with_yaml_daemon_silently_disables(
 
 
 def test_stash_only_with_cli_daemon_raises_conflict(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """--stash-only + --daemon together: ConfigError, no silent drop.
 
@@ -556,7 +559,7 @@ def test_stash_only_with_cli_daemon_raises_conflict(
 
 
 def test_daemon_without_stash_only_unaffected(
-    config_with_path, default_cli_args
+    config_with_path: FanslyConfig, default_cli_args: argparse.Namespace
 ) -> None:
     """--daemon alone (no --stash-only): daemon_mode stays on, no override flag.
 

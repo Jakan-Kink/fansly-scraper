@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from helpers.common import JsonDict
 from metadata import (
     Account,
     FollowEvent,
@@ -128,7 +129,7 @@ async def test_process_subscriptions_response_persists_three_shapes_and_register
     await store.save(Account(id=creator_a, username="creator_a"))
     await store.save(Account(id=creator_b, username="creator_b"))
 
-    response = {
+    response: JsonDict = {
         "subscriptionPlans": [
             _plan_payload(plan_a, creator_a, tier_a, promos=[_promo_payload(promo_a)]),
             _plan_payload(plan_b, creator_b, tier_b),
@@ -564,7 +565,7 @@ async def test_account_validator_singular_and_plural_with_different_ids_kept(
             "subscriptions": [_sub_payload(sub_b_id, creator_id)],
         }
     )
-    ids = sorted(s.id for s in account.subscriptions)
+    ids = sorted(s.id for s in account.subscriptions if s.id is not None)
     assert ids == sorted([sub_a_id, sub_b_id])
 
 
@@ -651,7 +652,7 @@ async def test_process_single_plan_edge_paths(entity_store):
     plan_bad_promo = snowflake_id()
     await store.save(Account(id=creator, username="plan_edges"))
 
-    response = {
+    response: JsonDict = {
         "subscriptionPlans": [
             # No "promos" key → pop returns None → promo loop skipped entirely.
             {

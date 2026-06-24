@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from helpers.common import JsonDict
 from metadata import Account, Group, Message, process_groups_response
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -95,7 +96,7 @@ async def test_process_groups_response_basic(entity_store, config, download_stat
     await store.save(account1)
     await store.save(account2)
 
-    response = {
+    response: JsonDict = {
         "data": [
             {
                 "groupId": group_id,
@@ -131,7 +132,7 @@ async def test_process_groups_response_with_users(entity_store, config, download
     await store.save(account1)
     await store.save(account2)
 
-    response = {
+    response: JsonDict = {
         "data": [],
         "aggregationData": {
             "groups": [
@@ -177,7 +178,7 @@ async def test_process_groups_response_multiple_commits(
     account = Account(id=account_id, username="test_user")
     await store.save(account)
 
-    response = {
+    response: JsonDict = {
         "data": [
             {"groupId": group_id1, "account_id": account_id, "lastMessageId": msg_id1}
         ],

@@ -62,7 +62,7 @@ class TestFanslyApi:
     def test_set_text_accept(self, fansly_api_factory):
         """Test set_text_accept adds accept header correctly"""
         api = fansly_api_factory()
-        headers = {}
+        headers: dict[str, str] = {}
         api.set_text_accept(headers)
         assert headers["Accept"] == api.get_text_accept()
 
@@ -87,7 +87,7 @@ class TestFanslyApi:
     def test_get_common_headers_missing_token(self):
         """Test get_common_headers raises error with missing token"""
         api = FanslyApi(
-            token=None,
+            token=None,  # type: ignore[arg-type]  # intentionally invalid: tests missing-token error path
             user_agent="test_user_agent",
             check_key="test_check_key",
             device_id="test_device_id",

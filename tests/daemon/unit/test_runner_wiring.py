@@ -58,6 +58,7 @@ from daemon.runner import (
 )
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
+from helpers.common import JsonDict
 from tests.fixtures.api import (
     FakeWS,
     dump_fansly_calls,
@@ -376,7 +377,7 @@ class TestHandleWorkItemScopeHoist:
         # of these get called for the out-of-scope creator.
         calls: list[str] = []
 
-        async def _record(name: str, _config, _item):
+        async def _record(name: str, _config: Any, _item: Any) -> None:
             calls.append(name)
 
         recorders = {
@@ -1030,7 +1031,7 @@ class TestWsEventEnqueuesWork:
                 "attachments": [{"contentType": 1, "contentId": snowflake_id()}],
             },
         }
-        envelope = {"serviceId": 5, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 5, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1054,7 +1055,7 @@ class TestWsEventEnqueuesWork:
             "type": 5,
             "subscription": {"accountId": creator_id, "status": 3},
         }
-        envelope = {"serviceId": 15, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 15, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1090,7 +1091,7 @@ class TestInterruptEventsWakeHiddenState:
                 "attachments": [{"contentType": 1, "contentId": snowflake_id()}],
             },
         }
-        envelope = {"serviceId": 5, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 5, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1113,7 +1114,7 @@ class TestInterruptEventsWakeHiddenState:
             "type": 7,
             "order": {"correlationAccountId": snowflake_id()},
         }
-        envelope = {"serviceId": 2, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 2, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1133,7 +1134,7 @@ class TestInterruptEventsWakeHiddenState:
         handler = _make_ws_handler(simulator, queue)
 
         inner = {"type": 2, "wallet": {"balance": 1000}}
-        envelope = {"serviceId": 6, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 6, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1910,7 +1911,7 @@ class TestMarkViewedFalse:
 # ===========================================================================
 
 
-def _logged(caplog, level: str) -> list[str]:
+def _logged(caplog: pytest.LogCaptureFixture, level: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.levelname == level]
 
 
@@ -1941,7 +1942,7 @@ class TestRunDaemonBootstrapReuse:
 
         factory_calls = 0
 
-        def _factory(_config) -> Any:
+        def _factory(_config: Any) -> Any:
             nonlocal factory_calls
             factory_calls += 1
             return fake_ws

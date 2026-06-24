@@ -16,12 +16,12 @@ import pytest
 import respx
 
 from fileio.preview_repair import _rescan_and_invalidate
-from tests.fixtures import create_graphql_response
 from tests.fixtures.stash.stash_api_fixtures import (
     _mock_capability_response,
     assert_op_with_vars,
     dump_graphql_calls,
 )
+from tests.fixtures.stash.stash_graphql_fixtures import create_graphql_response
 from tests.fixtures.stash.stash_type_factories import SceneFactory
 
 

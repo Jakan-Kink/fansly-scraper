@@ -13,7 +13,7 @@ import respx
 from stash_graphql_client.types import Performer
 
 from metadata import Account, ContentType
-from tests.fixtures import (
+from tests.fixtures.metadata import (
     AccountMediaFactory,
     MediaFactory,
     PostFactory,

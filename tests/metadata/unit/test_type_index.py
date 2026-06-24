@@ -34,6 +34,7 @@ class TestTypeIndexMaintenance:
     async def test_invalidate_type_clears_only_one_type(self, entity_store):
         a1 = Account(id=snowflake_id(), username="ti_a1")
         a2 = Account(id=snowflake_id(), username="ti_a2")
+        assert isinstance(a1.id, int)
         m = Media(id=snowflake_id(), accountId=a1.id)
         entity_store.cache_instance(a1)
         entity_store.cache_instance(a2)
@@ -46,6 +47,7 @@ class TestTypeIndexMaintenance:
 
     async def test_invalidate_all_clears_index(self, entity_store):
         a = Account(id=snowflake_id(), username="ti_all")
+        assert isinstance(a.id, int)
         m = Media(id=snowflake_id(), accountId=a.id)
         entity_store.cache_instance(a)
         entity_store.cache_instance(m)
@@ -93,6 +95,7 @@ class TestCacheStatsUsesIndex:
     async def test_cache_stats_counts_by_type(self, entity_store):
         a1 = Account(id=snowflake_id(), username="cs_1")
         a2 = Account(id=snowflake_id(), username="cs_2")
+        assert isinstance(a1.id, int)
         m = Media(id=snowflake_id(), accountId=a1.id)
         entity_store.cache_instance(a1)
         entity_store.cache_instance(a2)
@@ -120,6 +123,7 @@ class TestPostFilterSurvives:
     async def test_post_filter_returns_only_posts(self, entity_store):
         a = Account(id=snowflake_id(), username="ti_post_test")
         entity_store.cache_instance(a)
+        assert isinstance(a.id, int)
         p = Post(id=snowflake_id(), accountId=a.id, content="hello")
         entity_store.cache_instance(p)
         result = entity_store.filter(Post)

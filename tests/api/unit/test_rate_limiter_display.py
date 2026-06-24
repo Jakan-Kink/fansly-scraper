@@ -6,10 +6,12 @@ No external boundaries — uses a stub RateLimiter with controllable get_stats()
 import asyncio
 import time
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from api.rate_limiter_display import RateLimiterDisplay
+from helpers.rich_progress import ProgressManager
 
 
 def _make_limiter(stats_sequence):
@@ -28,16 +30,26 @@ def _make_limiter(stats_sequence):
     return SimpleNamespace(get_stats=get_stats)
 
 
+def _make_raising_limiter(exc):
+    """Build a stub RateLimiter whose get_stats raises, to test the loop's
+    exception-break branch."""
+
+    def get_stats():
+        raise exc
+
+    return SimpleNamespace(get_stats=get_stats)
+
+
 def _stats(
     *,
-    enabled=True,
-    is_in_backoff=False,
-    current_backoff_seconds=0,
-    backoff_remaining=0,
-    utilization_percent=0,
-    burst_size=100,
-    available_tokens=100,
-):
+    enabled: bool = True,
+    is_in_backoff: bool = False,
+    current_backoff_seconds: float = 0,
+    backoff_remaining: float = 0,
+    utilization_percent: float = 0,
+    burst_size: float = 100,
+    available_tokens: float = 100,
+) -> dict[str, bool | float]:
     return {
         "enabled": enabled,
         "is_in_backoff": is_in_backoff,
@@ -152,11 +164,7 @@ class TestRateLimiterDisplayUpdate:
 
     def test_display_loop_exception_breaks(self):
         """Lines 94-95: exception during _update → break out of loop."""
-
-        def exploding_stats():
-            raise RuntimeError("stats error")
-
-        limiter = SimpleNamespace(get_stats=exploding_stats)
+        limiter = _make_raising_limiter(RuntimeError("stats error"))
         display = RateLimiterDisplay(limiter, update_interval=0.05)
 
         with display:
@@ -164,7 +172,7 @@ class TestRateLimiterDisplayUpdate:
         # Should have stopped cleanly despite exception
 
 
-class _StubProgress:
+class _StubProgress(ProgressManager):
     """Records every progress-manager call without doing any rendering.
 
     Used to test RateLimiterDisplay's update methods directly (no background
@@ -173,15 +181,27 @@ class _StubProgress:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[tuple] = []
 
-    def add_task(self, **kwargs) -> None:
-        self.calls.append(("add", kwargs))
+    def add_task(  # type: ignore[override]  # records args instead of rendering
+        self, name: str, description: str = "", **kwargs: Any
+    ) -> str:
+        self.calls.append(("add", {"name": name, "description": description, **kwargs}))
+        return name
 
-    def update_task(self, name, **kwargs) -> None:
-        self.calls.append(("update", name, kwargs))
+    def update_task(
+        self,
+        name: str,
+        advance: int = 1,
+        description: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.calls.append(
+            ("update", name, {"advance": advance, "description": description, **kwargs})
+        )
 
-    def remove_task(self, name) -> None:
+    def remove_task(self, name: str) -> None:
         self.calls.append(("remove", name))
 
 

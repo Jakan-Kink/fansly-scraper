@@ -2,11 +2,12 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
-from metadata.story import MediaStory, process_media_stories
+from metadata.models import MediaStory
+from metadata.story import process_media_stories
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -24,8 +25,9 @@ class TestMediaStory:
             accountId=account_id,
             contentType=1,
             contentId=content_id,
-            createdAt=1776270684000,  # milliseconds
-            updatedAt=1776270684000,
+            # ms-timestamp coercion is the test; model accepts int, coerces to datetime
+            createdAt=1776270684000,  # type: ignore[arg-type]  # milliseconds
+            updatedAt=1776270684000,  # type: ignore[arg-type]
         )
 
         assert story.id == story_id
@@ -43,7 +45,7 @@ class TestMediaStory:
         story = MediaStory(
             id=story_id,
             accountId=account_id,
-            createdAt=1776270684,
+            createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
         )
 
         assert story.id == story_id
@@ -91,14 +93,18 @@ class TestProcessMediaStories:
         # any FK: Media → AccountMedia(mediaId=Media.id) → MediaStory(contentId=AccountMedia.id).
         await entity_store.save(Account(id=good_account, username=f"u_{good_account}"))
         await entity_store.save(
-            Media(id=good_media_id, accountId=good_account, createdAt=1776270684)
+            Media(
+                id=good_media_id,
+                accountId=good_account,
+                createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
+            )
         )
         await entity_store.save(
             AccountMedia(
                 id=good_content_id,
                 accountId=good_account,
                 mediaId=good_media_id,
-                createdAt=1776270684,
+                createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
             )
         )
 

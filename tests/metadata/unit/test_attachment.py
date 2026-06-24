@@ -200,7 +200,7 @@ async def test_invalid_content_type_raises(entity_store):
     with pytest.raises(ValidationError, match="contentType"):
         Attachment(
             contentId=snowflake_id(),
-            contentType=99999,
+            contentType=99999,  # type: ignore[arg-type]  # invalid contentType is the test
             pos=0,
         )
 
@@ -227,10 +227,11 @@ class TestAttachmentResolution:
         )
         await entity_store.save(bundle)
 
-        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlags=0)
         await entity_store.save(post)
 
         # ACCOUNT_MEDIA type → .media resolves
+        assert isinstance(am.id, int)
         att1 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),
@@ -243,6 +244,7 @@ class TestAttachmentResolution:
         assert att1.bundle is None
 
         # BUNDLE type → .bundle resolves
+        assert isinstance(bundle.id, int)
         att2 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),
@@ -254,6 +256,7 @@ class TestAttachmentResolution:
         assert att2.bundle.id == bundle.id
 
         # AGGREGATED_POSTS → .aggregated_post resolves
+        assert isinstance(post.id, int)
         att3 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),

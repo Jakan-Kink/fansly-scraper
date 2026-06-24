@@ -5,8 +5,10 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.core import DownloadState
+from helpers.common import JsonDict, expect_dict
 from metadata import (
     Account,
     AccountMedia,
@@ -177,7 +179,7 @@ async def test_update_optimization(entity_store, config):
     await store.save(account)
 
     # Process with same values — displayName should stay unchanged
-    data = {
+    data: JsonDict = {
         "id": account_id,
         "username": "test_user",
         "displayName": "Test User",
@@ -215,7 +217,7 @@ async def test_timeline_stats_optimization(entity_store, config):
     await store.save(stats)
 
     # Process with same stats — should not change
-    data = {
+    data: JsonDict = {
         "id": account_id,
         "username": "test_user",
         "timelineStats": {
@@ -230,7 +232,7 @@ async def test_timeline_stats_optimization(entity_store, config):
     assert saved.imageCount == 10
 
     # Process with different imageCount
-    data["timelineStats"]["imageCount"] = 15
+    expect_dict(data["timelineStats"], "timelineStats")["imageCount"] = 15
     await process_account_data(config, data)
 
     saved = await store.find_one(TimelineStats, accountId=account_id)
@@ -274,7 +276,7 @@ async def test_process_media_bundles(entity_store, config):
     # Process bundles — use accountMediaIds (the Pydantic alias) directly.
     # NOTE: bundleContent → accountMediaIds conversion is a Phase 5.5
     # TODO in _process_single_bundle; for now the model expects IDs.
-    bundles_data = [
+    bundles_data: list[JsonValue] = [
         {
             "id": bundle_id,
             "accountId": account_id,
@@ -297,7 +299,7 @@ class TestProcessMediaBundlesDataEdgeCases:
     @pytest.mark.asyncio
     async def test_no_matching_id_field(self, entity_store, mock_config):
         """Lines 39→43, 40→39: id_fields loop finds no match → account_id stays None."""
-        data = {
+        data: JsonDict = {
             "messages": [{"id": snowflake_id(), "content": "no sender"}],
             "accountMediaBundles": [
                 {
@@ -320,7 +322,7 @@ class TestProcessMediaBundlesDataEdgeCases:
         preview = Media(id=preview_id, accountId=test_account.id, mimetype="image/jpeg")
         await store.save(preview)
 
-        data = {
+        data: JsonDict = {
             "messages": [{"id": snowflake_id(), "senderId": test_account.id}],
             "accountMediaBundles": [
                 {
@@ -447,7 +449,7 @@ class TestFullAccountPipeline:
         state.creator_id = test_account.id
 
         # Post data references a non-existent post
-        posts_data = {
+        posts_data: JsonDict = {
             "posts": [
                 {
                     "id": snowflake_id(),
@@ -468,7 +470,7 @@ class TestFullAccountPipeline:
     ):
         """process_media_bundles_data should extract accountId from messages."""
         bundle_id = snowflake_id()
-        data = {
+        data: JsonDict = {
             "messages": [
                 {
                     "id": snowflake_id(),
@@ -489,7 +491,7 @@ class TestFullAccountPipeline:
 
     @pytest.mark.asyncio
     async def test_bundles_no_messages_no_crash(self, entity_store, mock_config):
-        data = {
+        data: JsonDict = {
             "accountMediaBundles": [
                 {
                     "id": snowflake_id(),
@@ -509,7 +511,7 @@ class TestFullAccountPipeline:
     async def test_bundles_no_matching_id_field(self, entity_store, mock_config):
         """account.py 39→43, 40→39: id_fields loop where no field matches.
         All first_item.get(field) return None → account_id stays None → skip."""
-        data = {
+        data: JsonDict = {
             "messages": [
                 {"id": snowflake_id(), "content": "no sender or recipient fields"}
             ],
@@ -534,7 +536,7 @@ class TestFullAccountPipeline:
         preview = Media(id=preview_id, accountId=test_account.id, mimetype="image/jpeg")
         await entity_store.save(preview)
 
-        data = {
+        data: JsonDict = {
             "messages": [{"id": snowflake_id(), "senderId": test_account.id}],
             "accountMediaBundles": [
                 {

@@ -52,6 +52,7 @@ import pytest
 from websockets.exceptions import ConnectionClosedOK
 from websockets.frames import Close
 
+from api.websocket import FanslyWebSocket
 from api.websocket_protocol import MSG_SERVICE_EVENT as _PROTO_MSG_SERVICE_EVENT
 
 
@@ -230,12 +231,19 @@ def _make_in_process_ws_stub(
     return _InProcessFanslyWebSocketStub
 
 
-class FakeWS:
+class FakeWS(FanslyWebSocket):
     """Client-level WebSocket stub — stands in for an entire FanslyWebSocket.
 
     No real network connection. Suitable for tests that inject a fake into
     components expecting a ``FanslyWebSocket``-shaped object (e.g.,
     ``daemon/runner.py`` via its ``ws_factory`` injection seam).
+
+    Subclasses ``FanslyWebSocket`` (and deliberately does NOT call
+    ``super().__init__``, so no subprocess/network is created) purely so it is
+    a nominal subtype — daemon seams typed ``FanslyWebSocket`` accept it with no
+    ``# type: ignore``. It overrides exactly the lifecycle surface the daemon
+    loops touch; any other real method is inherited but never reached by these
+    no-network tests.
 
     Mirrors the post-thread-refactor surface:
       * ``register_handler(msg_type, handler)`` — record a handler

@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 from helpers.common import (
     batch_list,
@@ -181,16 +182,9 @@ def test_get_post_id_from_request(input_value, expected):
 # ---------------------------------------------------------------------------
 
 
-_OpenLocationParam = tuple[
-    str,  # path_kind: "file", "dir", or "missing"
-    bool,  # open_folder_when_finished
-    bool,  # interactive
-    bool,  # expected_return
-    bool,  # expected_mock_called
-]
-
-
-_OPEN_LOCATION_CASES: list[_OpenLocationParam] = [
+# Each case packs: path_kind ("file"/"dir"/"missing"),
+# open_folder_when_finished, interactive, expected_return, expected_mock_called.
+_OPEN_LOCATION_CASES: list[ParameterSet] = [
     pytest.param("file", False, True, False, False, id="disabled_by_flag"),
     pytest.param("file", True, False, False, False, id="disabled_by_interactive"),
     pytest.param("missing", True, True, False, False, id="path_does_not_exist"),

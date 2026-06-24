@@ -332,11 +332,13 @@ def test_missing_section_gets_defaults(tmp_path: Path) -> None:
     assert schema.targeted_creator.usernames == ["alice"]
 
     # All omitted sections fall back to defaults
+    assert schema.monitoring is not None
     assert schema.monitoring.daemon_mode is False
     assert schema.monitoring.active_duration_minutes == 60
     assert schema.postgres.pg_host == "localhost"
     assert schema.postgres.pg_port == 5432
     assert schema.options.download_mode == DownloadMode.NORMAL
+    assert schema.logic is not None
     assert schema.logic.check_key_pattern != ""
 
 
@@ -437,7 +439,7 @@ def test_unknown_non_retired_field_still_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validation_error_formatter_extra_forbidden(tmp_path) -> None:
+def test_validation_error_formatter_extra_forbidden(tmp_path: Path) -> None:
     """Unknown key error mentions the value and suggests removing the line."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -451,7 +453,7 @@ def test_validation_error_formatter_extra_forbidden(tmp_path) -> None:
     assert "remove the line" in msg
 
 
-def test_validation_error_formatter_bool_parsing(tmp_path) -> None:
+def test_validation_error_formatter_bool_parsing(tmp_path: Path) -> None:
     """bool_parsing error tells the user true/false is expected."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -464,7 +466,7 @@ def test_validation_error_formatter_bool_parsing(tmp_path) -> None:
     assert "maybe" in msg
 
 
-def test_validation_error_formatter_int_parsing(tmp_path) -> None:
+def test_validation_error_formatter_int_parsing(tmp_path: Path) -> None:
     """int_parsing error asks for a whole number."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -476,7 +478,7 @@ def test_validation_error_formatter_int_parsing(tmp_path) -> None:
     assert "expected a whole number" in msg
 
 
-def test_validation_error_formatter_multiple_errors(tmp_path) -> None:
+def test_validation_error_formatter_multiple_errors(tmp_path: Path) -> None:
     """Multiple problems all surface — no early-return on the first."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -495,7 +497,7 @@ def test_validation_error_formatter_multiple_errors(tmp_path) -> None:
     assert "options.unicorn_mode" in msg
 
 
-def test_validation_error_formatter_value_error_strips_prefix(tmp_path) -> None:
+def test_validation_error_formatter_value_error_strips_prefix(tmp_path: Path) -> None:
     """Field validators raising ValueError shouldn't show 'Value error, ' prefix."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -524,6 +526,7 @@ def test_load_yaml_empty_file_returns_defaults(tmp_path: Path) -> None:
     # Should equal a default-constructed instance. Note: ``usernames``
     # default is now None — fresh scaffold has no creators yet; CLI
     # ``-u alice`` or hand-edited YAML populates it at runtime.
+    assert schema.monitoring is not None
     assert schema.monitoring.daemon_mode is False
     assert schema.postgres.pg_host == "localhost"
     assert schema.targeted_creator.usernames is None
@@ -544,6 +547,7 @@ def test_dump_yaml_string(tmp_path: Path) -> None:
     """
     schema = ConfigSchema()
     schema.options.timeline_retries = 7
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = True
 
     yaml_str = schema.dump_yaml_string()
@@ -567,6 +571,7 @@ def test_monitoring_session_baseline_default_is_none() -> None:
 def test_monitoring_session_baseline_default_via_schema() -> None:
     """ConfigSchema().monitoring.session_baseline is None by default."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     assert schema.monitoring.session_baseline is None
 
 
@@ -575,11 +580,13 @@ def test_monitoring_session_baseline_round_trip(tmp_path: Path) -> None:
     baseline = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.session_baseline = baseline
     out_path = tmp_path / "monitoring_baseline.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is not None
     # Recover aware datetime — ruamel may write as offset-aware or UTC
     reloaded_dt = reloaded.monitoring.session_baseline
@@ -602,11 +609,13 @@ def test_monitoring_session_baseline_naive_coerced_to_utc() -> None:
 def test_monitoring_section_none_session_baseline_round_trip(tmp_path: Path) -> None:
     """session_baseline=None round-trips: absent in YAML → still None after reload."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     assert schema.monitoring.session_baseline is None
     out_path = tmp_path / "no_baseline.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is None
 
 
@@ -624,17 +633,20 @@ def test_monitoring_unrecoverable_error_timeout_default() -> None:
 def test_monitoring_unrecoverable_error_timeout_default_via_schema() -> None:
     """ConfigSchema().monitoring.unrecoverable_error_timeout_seconds is 3600 by default."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     assert schema.monitoring.unrecoverable_error_timeout_seconds == 3600
 
 
 def test_monitoring_unrecoverable_error_timeout_round_trip(tmp_path: Path) -> None:
     """Custom unrecoverable_error_timeout_seconds survives a YAML dump/load round-trip."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.unrecoverable_error_timeout_seconds = 7200
     out_path = tmp_path / "urt.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.unrecoverable_error_timeout_seconds == 7200
 
 
@@ -908,7 +920,7 @@ def test_repair_previews_coercion(raw, expected):
 
 def test_repair_previews_rejects_garbage():
     with pytest.raises(ValidationError, match=r"dry-run"):
-        OptionsSection(repair_previews="sometimes")
+        OptionsSection(repair_previews="sometimes")  # type: ignore[arg-type]  # intentionally passes an out-of-contract literal to prove it raises ValidationError
 
 
 class TestEnableSceneSplitValidator:

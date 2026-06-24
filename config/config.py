@@ -68,14 +68,14 @@ def sanitize_creator_names(names: list[str]) -> set[str]:
     return {name.strip().removeprefix("@").lower() for name in names if name.strip()}
 
 
-def username_has_valid_length(name: str) -> bool:
+def username_has_valid_length(name: str | None) -> bool:
     if name is None:
         return False
 
     return len(name) >= 4 and len(name) <= 30
 
 
-def username_has_valid_chars(name: str) -> bool:
+def username_has_valid_chars(name: str | None) -> bool:
     if name is None:
         return False
 

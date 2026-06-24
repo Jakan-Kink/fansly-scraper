@@ -28,6 +28,7 @@ from datetime import UTC
 
 import pytest
 
+from daemon.dashboard import NullDashboard
 from daemon.handlers import (
     DownloadStoriesOnly,
     DownloadTimelineOnly,
@@ -47,11 +48,11 @@ from tests.fixtures.daemon import StubSimulator
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-def _logged(caplog, level: str) -> list[str]:
+def _logged(caplog: pytest.LogCaptureFixture, level: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.levelname == level]
 
 
-class _FastDashboard:
+class _FastDashboard(NullDashboard):
     """Test dashboard with no real waits.
 
     wait_with_countdown returns immediately so loop iterations don't pay
@@ -695,7 +696,14 @@ class TestSimulatorTickLoopUnhideErrors:
         dashboard = _FastDashboard()
 
         await _simulator_tick_loop(
-            sim, stop_event, ws, refresh_event, _make_budget(), dashboard
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            ws,
+            refresh_event,
+            _make_budget(),
+            dashboard,
         )
 
         # The ws.stop_thread error was caught — refresh_event still set,
@@ -724,7 +732,14 @@ class TestSimulatorTickLoopUnhideErrors:
         dashboard = _FastDashboard()
 
         await _simulator_tick_loop(
-            sim, stop_event, ws, refresh_event, _make_budget(), dashboard
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            ws,
+            refresh_event,
+            _make_budget(),
+            dashboard,
         )
 
         assert ws.stop_calls == 1
@@ -762,7 +777,14 @@ class TestSimulatorTickLoopBudgetReset:
         refresh_event = asyncio.Event()
 
         await _simulator_tick_loop(
-            sim, stop_event, FakeWS(), refresh_event, budget, _FastDashboard()
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            FakeWS(),
+            refresh_event,
+            budget,
+            _FastDashboard(),
         )
 
         delta = (datetime.now(UTC) - budget.last_success_at).total_seconds()
@@ -792,7 +814,14 @@ class TestSimulatorTickLoopBudgetReset:
         refresh_event = asyncio.Event()
 
         await _simulator_tick_loop(
-            sim, stop_event, FakeWS(), refresh_event, budget, _FastDashboard()
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            FakeWS(),
+            refresh_event,
+            budget,
+            _FastDashboard(),
         )
 
         # Clock was reset by on_success() — soft error must not raise.
@@ -834,7 +863,14 @@ class TestSimulatorTickLoopHeartbeat:
         refresh_event = asyncio.Event()
 
         await _simulator_tick_loop(
-            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            FakeWS(),
+            refresh_event,
+            _make_budget(),
+            _FastDashboard(),
         )
 
         assert any(
@@ -860,7 +896,14 @@ class TestSimulatorTickLoopHeartbeat:
         refresh_event = asyncio.Event()
 
         await _simulator_tick_loop(
-            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            FakeWS(),
+            refresh_event,
+            _make_budget(),
+            _FastDashboard(),
         )
 
         assert not any(
@@ -872,8 +915,11 @@ class TestSimulatorTickLoopHeartbeat:
     @pytest.mark.parametrize("state", ["active", "idle", "hidden"])
     @pytest.mark.asyncio
     async def test_heartbeat_shows_state_for_all_states(
-        self, state: str, monkeypatch, caplog
-    ):
+        self,
+        state: str,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         """Heartbeat includes the current simulator state — works in all three states."""
         caplog.set_level(logging.DEBUG)
         monkeypatch.setattr("daemon.runner.time", _FakeTime(1000.0))
@@ -889,7 +935,14 @@ class TestSimulatorTickLoopHeartbeat:
         refresh_event = asyncio.Event()
 
         await _simulator_tick_loop(
-            sim, stop_event, FakeWS(), refresh_event, _make_budget(), _FastDashboard()
+            # FakeWS is an intentional no-network double for the FanslyWebSocket
+            # param; no real FanslyWebSocket is constructible without a connection.
+            sim,
+            stop_event,
+            FakeWS(),
+            refresh_event,
+            _make_budget(),
+            _FastDashboard(),
         )
 
         assert any(

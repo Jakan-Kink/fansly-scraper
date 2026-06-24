@@ -28,6 +28,7 @@ from metadata.models import (
     AccountMedia,
     AccountMediaBundle,
     Attachment,
+    ContentType,
     FanslyObject,
     Hashtag,
     Media,
@@ -57,6 +58,7 @@ class TestResolveFieldValue:
         assert _resolve_field_value(acct, "username") == "resolve_test"
 
         # Nested path through relationship
+        assert isinstance(acct.id, int)
         media = Media(id=snowflake_id(), accountId=acct.id)
         media.account = acct
         assert _resolve_field_value(media, "account__username") == "resolve_test"
@@ -67,14 +69,22 @@ class TestResolveFieldValue:
         assert _resolve_field_value(media2, "account__username") is None
 
         # List traversal
-        post = Post(id=snowflake_id(), accountId=snowflake_id(), fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=snowflake_id(), fypFlags=0)
         cid1, cid2 = snowflake_id(), snowflake_id()
         post.attachments = [
             Attachment(
-                id=snowflake_id(), postId=post.id, contentId=cid1, contentType=1, pos=0
+                id=snowflake_id(),
+                postId=post.id,
+                contentId=cid1,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                pos=0,
             ),
             Attachment(
-                id=snowflake_id(), postId=post.id, contentId=cid2, contentType=2, pos=1
+                id=snowflake_id(),
+                postId=post.id,
+                contentId=cid2,
+                contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
+                pos=1,
             ),
         ]
         result = _resolve_field_value(post, "attachments__contentId")
@@ -100,6 +110,8 @@ class TestCRUDAndQueryPaths:
         for a in [acct1, acct2, acct3]:
             await entity_store.save(a)
 
+        assert isinstance(acct1.id, int)
+        assert isinstance(acct2.id, int)
         m1 = Media(id=snowflake_id(), accountId=acct1.id, duration=50.0)
         m2 = Media(
             id=snowflake_id(), accountId=acct1.id, duration=150.0, content_hash="abc"
@@ -409,6 +421,7 @@ class TestJunctionSync:
         acct = Account(id=snowflake_id(), username="avatar_lifecycle")
         await entity_store.save(acct)
 
+        assert isinstance(acct.id, int)
         avatar1 = Media(id=snowflake_id(), accountId=acct.id, mimetype="image/jpeg")
         avatar2 = Media(id=snowflake_id(), accountId=acct.id, mimetype="image/png")
         await entity_store.save(avatar1)
@@ -484,6 +497,7 @@ class TestCacheManagement:
 
             # invalidate_type
             store.invalidate_type(Account)
+            assert isinstance(a1.id, int)
             assert store.get_from_cache(Account, a1.id) is None
             assert Account not in store._fully_loaded
 
@@ -614,7 +628,7 @@ class TestThreadLocalPool:
                 "password": config.pg_password or "",
             }
 
-            result_holder = {}
+            result_holder: dict[str, object] = {}
             error_holder = {}
 
             def worker():
@@ -627,6 +641,7 @@ class TestThreadLocalPool:
 
                     async def do_work():
                         await store.save(acct)
+                        assert isinstance(acct.id, int)
                         found = await store.get(Account, acct.id)
                         result_holder["found"] = found is not None
                         result_holder["username"] = found.username if found else None
@@ -772,14 +787,22 @@ class TestEntityStoreEdgeCases:
     def test_matches_filters_list_field_value(self):
         """_matches_filters with list field value uses ANY-semantics."""
 
-        post = Post(id=snowflake_id(), accountId=snowflake_id(), fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=snowflake_id(), fypFlags=0)
         cid1, cid2 = snowflake_id(), snowflake_id()
         post.attachments = [
             Attachment(
-                id=snowflake_id(), postId=post.id, contentId=cid1, contentType=1, pos=0
+                id=snowflake_id(),
+                postId=post.id,
+                contentId=cid1,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                pos=0,
             ),
             Attachment(
-                id=snowflake_id(), postId=post.id, contentId=cid2, contentType=2, pos=1
+                id=snowflake_id(),
+                postId=post.id,
+                contentId=cid2,
+                contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
+                pos=1,
             ),
         ]
         # ANY match on nested list path → True (line 214-215 both branches)
@@ -895,6 +918,7 @@ class TestEntityStoreEdgeCases:
 
         # Create pinned post referencing a Post that doesn't exist yet
         missing_post_id = snowflake_id()
+        assert isinstance(acct.id, int)
         pp = PinnedPost(
             postId=missing_post_id,
             accountId=acct.id,
@@ -936,6 +960,7 @@ class TestEntityStoreEdgeCases:
         # Evict from cache if somehow cached
         entity_store.invalidate(Post, existing_post_id)
 
+        assert isinstance(acct.id, int)
         pp = PinnedPost(
             postId=existing_post_id,
             accountId=acct.id,
@@ -1058,6 +1083,7 @@ class TestEntityStoreEdgeCases:
         await entity_store.save(acct)
 
         # Set avatar to a Media with id=None (unsaved) — triggers avatar dirty
+        assert isinstance(acct.id, int)
         unsaved_media = Media(id=snowflake_id(), accountId=acct.id)
         acct.avatar = unsaved_media
         await entity_store.save(acct)
@@ -1073,7 +1099,7 @@ class TestEntityStoreEdgeCases:
 
         Set a list relationship field to a non-list value via object.__setattr__.
         """
-        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlags=0)
         await entity_store.save(post)
 
         # Set hashtags to a non-list → line 841 `not isinstance(related, list): continue`

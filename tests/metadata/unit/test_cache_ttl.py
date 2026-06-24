@@ -92,6 +92,7 @@ class TestPerTypeIsolation:
         entity_store.set_ttl(Account, 5)
         # Media has no TTL set → should not expire
         a = Account(id=snowflake_id(), username="ttl_a")
+        assert isinstance(a.id, int)
         m = Media(id=snowflake_id(), accountId=a.id)
         entity_store.cache_instance(a)
         entity_store.cache_instance(m)
@@ -126,6 +127,7 @@ class TestSanityWithDifferentType:
     async def test_post_default_ttl(self, entity_store, fake_monotonic_clock):
         entity_store._default_ttl = timedelta(seconds=10)
         a = Account(id=snowflake_id(), username="ttl_post_owner")
+        assert isinstance(a.id, int)
         p = Post(id=snowflake_id(), accountId=a.id, content="x")
         entity_store.cache_instance(a)
         entity_store.cache_instance(p)

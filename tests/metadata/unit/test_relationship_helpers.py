@@ -5,6 +5,8 @@ has_one_through), string utilities (_singularize, _camel_to_snake),
 and the __init_subclass__ deferred field resolution machinery.
 """
 
+from typing import ClassVar
+
 import pytest
 
 from metadata.models import (
@@ -50,7 +52,7 @@ class TestSingularize:
             ("stories", "story"),  # irregular
         ],
     )
-    def test_singularize_fdng_fields(self, plural: str, expected: str):
+    def test_singularize_fdng_fields(self, plural: str, expected: str) -> None:
         assert _singularize(plural) == expected
 
     def test_singularize_preserves_double_s(self):
@@ -75,7 +77,7 @@ class TestCamelToSnake:
             ("simple", "simple"),
         ],
     )
-    def test_camel_to_snake(self, camel: str, expected: str):
+    def test_camel_to_snake(self, camel: str, expected: str) -> None:
         assert _camel_to_snake(camel) == expected
 
 
@@ -546,10 +548,12 @@ class TestRelationshipMetadataDerivation:
         """
 
         class _TestSubclass(FanslyObject):
-            __table_name__: str = ""
-            __tracked_fields__ = set()
-            __relationships__ = {
-                "not_a_rm": "just a string",  # line 474: not isinstance → continue
+            __table_name__: ClassVar[str] = ""
+            __tracked_fields__: ClassVar[set[str]] = set()
+            # Deliberate invalid entry: a non-RM value exercises the
+            # __init_subclass__ skip branch (line 474, not isinstance → continue).
+            __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+                "not_a_rm": "just a string",  # type: ignore[dict-item]  # invalid entry is the test
                 "preresolved": RelationshipMetadata(
                     target_field="some_id",
                     is_list=False,
@@ -559,7 +563,8 @@ class TestRelationshipMetadataDerivation:
             id: int | None = None
 
         # Verify the non-RM entry was skipped
-        assert _TestSubclass.__relationships__["not_a_rm"] == "just a string"
+        not_a_rm: object = _TestSubclass.__relationships__["not_a_rm"]
+        assert not_a_rm == "just a string"
         # Verify the pre-resolved query_field was NOT overwritten
         assert (
             _TestSubclass.__relationships__["preresolved"].query_field == "already_set"

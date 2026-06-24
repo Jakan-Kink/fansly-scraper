@@ -35,11 +35,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from api.websocket import _ChildWebSocket
+from config.fanslyconfig import FanslyConfig
 from download.livestream_chat import (
     _MAX_CONSTRUCTION_FAILURES,
     ChatRecorder,
@@ -48,14 +50,14 @@ from download.livestream_chat import (
     route_ws_chat_message,
     unregister_chat_recorder,
 )
-from tests.fixtures.api import dump_ws_server_state
+from tests.fixtures.api import FakeFanslyWSServer, dump_ws_server_state
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _make_chat_ws_factory(server_url: str):
+def _make_chat_ws_factory(server_url: str) -> Callable[[], _ChildWebSocket]:
     """Build a zero-arg factory producing a _ChildWebSocket aimed at
     *server_url*. Mirrors the pattern of ``make_ws_factory_for`` but
     returns a no-arg callable (the shape ``_chat_ws_loop`` expects)
@@ -105,9 +107,9 @@ class TestChatWsLoopE2E:
     @pytest.mark.timeout(30)
     async def test_records_pushed_messages_to_jsonl(
         self,
-        ws_server,
-        config_wired,
-        tmp_path,
+        ws_server: FakeFanslyWSServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Happy path: 3 pushed chat messages → 3 deduped JSONL lines."""
         chat_room_id = snowflake_id()
@@ -160,9 +162,9 @@ class TestChatWsLoopE2E:
     @pytest.mark.timeout(30)
     async def test_non_dict_event_payload_is_skipped_not_fatal(
         self,
-        ws_server,
-        config_wired,
-        tmp_path,
+        ws_server: FakeFanslyWSServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """A svc=46 event whose decoded payload is a JSON array (not an
         object) must be skipped without killing the loop — regression for the
@@ -216,9 +218,9 @@ class TestChatWsLoopE2E:
     @pytest.mark.timeout(30)
     async def test_dedups_duplicate_messages(
         self,
-        ws_server,
-        config_wired,
-        tmp_path,
+        ws_server: FakeFanslyWSServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Same message id pushed 3 times → only 1 line in chat.jsonl."""
         chat_room_id = snowflake_id()
@@ -269,9 +271,9 @@ class TestChatWsLoopE2E:
     @pytest.mark.timeout(30)
     async def test_drops_messages_without_id(
         self,
-        ws_server,
-        config_wired,
-        tmp_path,
+        ws_server: FakeFanslyWSServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Chat messages missing the ``id`` field are silently dropped
         (livestream_chat.py:53-55 — ChatRecorder.ingest's no-id guard)."""
@@ -336,9 +338,9 @@ class TestChatWsConstructionFailureHardStop:
     @pytest.mark.timeout(15)
     async def test_breaks_after_max_construction_failures(
         self,
-        config_wired,
-        tmp_path,
-        monkeypatch,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A factory that always raises drives the loop to its hard-stop."""
         # Compress the reconnect delay so the test finishes in <1s instead of
@@ -386,10 +388,10 @@ class TestChatWsConstructionFailureHardStop:
     @pytest.mark.timeout(30)
     async def test_successful_connect_resets_construction_failures(
         self,
-        ws_server,
-        config_wired,
-        tmp_path,
-        monkeypatch,
+        ws_server: FakeFanslyWSServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A transient construction failure followed by a successful connect
         resets the counter — so a later burst of construction failures
@@ -467,7 +469,7 @@ class TestChatRecorderRegistry:
     @pytest.mark.timeout(10)
     async def test_route_ws_chat_message_dispatches_to_registered_recorder(
         self,
-        tmp_path,
+        tmp_path: Path,
     ) -> None:
         """Register a recorder → route delivers; unregister → route drops."""
         chat_room_id = snowflake_id()
@@ -499,7 +501,7 @@ class TestChatRecorderRegistry:
     @pytest.mark.timeout(10)
     async def test_route_ws_chat_message_no_recorder_is_silent(
         self,
-        tmp_path,
+        tmp_path: Path,
     ) -> None:
         """No recorder registered for the room → ``route_ws_chat_message``
         returns silently without raising (livestream_chat.py:84-87 — the

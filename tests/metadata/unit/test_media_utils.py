@@ -36,4 +36,6 @@ class TestProcessPreviewEdgeCases:
         """Line 120→exit: non-empty string preview passes earlier checks but
         isinstance(preview_data, dict) is False → no processing."""
         parent = Media(id=snowflake_id(), accountId=test_account.id)
-        await process_preview(mock_config, parent, "12345")
+        # Media.id is int | None but HasPreview Protocol declares id: int;
+        # a real Media is the intended argument.
+        await process_preview(mock_config, parent, "12345")  # type: ignore[arg-type]

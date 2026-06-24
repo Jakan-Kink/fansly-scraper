@@ -19,6 +19,7 @@ import httpx
 import pytest
 import respx
 from loguru import logger as loguru_logger
+from stash_graphql_client import is_set
 from stash_graphql_client.types import Scene
 
 from tests.fixtures.metadata.metadata_factories import MediaFactory
@@ -147,6 +148,7 @@ class TestProcessMediaFastPath:
         assert isinstance(new_scene, Scene)
         assert new_scene.is_new() is True
         assert new_scene.code == str(media.id)
+        assert is_set(new_scene.files)
         assert [f.id for f in new_scene.files] == ["500"]
         assert new_scene.id != "700"  # distinct from the demoted shared scene
 

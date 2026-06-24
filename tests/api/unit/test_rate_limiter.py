@@ -14,19 +14,19 @@ from api.rate_limiter import RateLimiter
 from config import FanslyConfig
 
 
-def _make_config(**overrides) -> FanslyConfig:
+def _make_config(**overrides: bool | int | float) -> FanslyConfig:
     """Build a real FanslyConfig with rate limiter defaults."""
-    defaults = {
-        "rate_limiting_enabled": True,
-        "rate_limiting_adaptive": True,
-        "rate_limiting_requests_per_minute": 60,
-        "rate_limiting_burst_size": 10,
-        "rate_limiting_retry_after_seconds": 30,
-        "rate_limiting_backoff_factor": 1.5,
-        "rate_limiting_max_backoff_seconds": 300,
-    }
-    defaults.update(overrides)
-    return FanslyConfig(program_version="0.13.0-test", **defaults)
+    config = FanslyConfig(program_version="0.13.0-test")
+    config.rate_limiting_enabled = True
+    config.rate_limiting_adaptive = True
+    config.rate_limiting_requests_per_minute = 60
+    config.rate_limiting_burst_size = 10
+    config.rate_limiting_retry_after_seconds = 30
+    config.rate_limiting_backoff_factor = 1.5
+    config.rate_limiting_max_backoff_seconds = 300
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    return config
 
 
 class TestRateLimiterInit:

@@ -331,7 +331,10 @@ class FanslyApi:
 
         (_, file_url) = split_url(url)
 
-        arguments = {
+        # Heterogeneous httpx-kwargs bag spread via **arguments into the
+        # overloaded get()/build_request(); dict[str, Any] is the honest type
+        # for a kwargs bag (each value targets a different httpx parameter).
+        arguments: dict[str, Any] = {
             "url": file_url,
             "params": request_params,
             "headers": headers,
@@ -426,7 +429,10 @@ class FanslyApi:
 
         (_, file_url) = split_url(url)
 
-        arguments = {
+        # Heterogeneous httpx-kwargs bag spread via **arguments into the
+        # overloaded get()/build_request(); dict[str, Any] is the honest type
+        # for a kwargs bag (each value targets a different httpx parameter).
+        arguments: dict[str, Any] = {
             "url": file_url,
             "params": request_params,
             "headers": headers,

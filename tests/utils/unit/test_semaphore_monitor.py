@@ -15,12 +15,12 @@ from utils.semaphore_monitor import (
 )
 
 
-def _warning_messages(caplog) -> list[str]:
+def _warning_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
     """Return WARNING-level messages from caplog (loguru → pytest-loguru bridge)."""
     return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
 
 
-def _trace_messages(caplog) -> list[str]:
+def _trace_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
     """Return TRACE-level messages from caplog.
 
     loguru's TRACE level is 5; pytest-loguru forwards records through the

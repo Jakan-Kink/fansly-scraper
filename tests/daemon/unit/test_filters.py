@@ -557,7 +557,7 @@ class TestShouldProcessCreatorMonitorStateLoadError:
         caplog.set_level(_logging.WARNING)
         creator_id = snowflake_id()
 
-        from daemon.filters import get_store as real_get_store
+        from metadata.models import get_store as real_get_store
 
         real_store = real_get_store()
 

@@ -13,13 +13,14 @@ from download.common import (
 )
 from download.types import DownloadType
 from errors import ApiError, DuplicateCountError, DuplicatePageError
+from helpers.common import JsonDict
 from metadata.models import Account, Post
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 def test_get_unique_media_ids_with_duplicates():
     """Test extracting unique media IDs from object with duplicates."""
-    info_object = {
+    info_object: JsonDict = {
         "accountMedia": [{"id": 100001}, {"id": 100002}],
         "accountMediaBundles": [
             {"accountMediaIds": [100002, 100003]},
@@ -33,14 +34,14 @@ def test_get_unique_media_ids_with_duplicates():
 
 def test_get_unique_media_ids_empty():
     """Test extracting media IDs from empty object."""
-    empty_info_object = {"accountMedia": [], "accountMediaBundles": []}
+    empty_info_object: JsonDict = {"accountMedia": [], "accountMediaBundles": []}
     unique_ids = get_unique_media_ids(empty_info_object)
     assert len(unique_ids) == 0
 
 
 def test_get_unique_media_ids_none_media():
     """Test handling None media items."""
-    info_object = {"accountMedia": [None], "accountMediaBundles": []}
+    info_object: JsonDict = {"accountMedia": [None], "accountMediaBundles": []}
     with pytest.raises(ApiError):
         get_unique_media_ids(info_object)
 
@@ -49,7 +50,7 @@ def test_get_unique_media_ids_none_media():
 async def test_check_page_duplicates_disabled(mock_config, download_state):
     """Test that duplicate checking is skipped when disabled."""
     mock_config.use_pagination_duplication = False
-    page_data = {"posts": [{"id": 1}]}
+    page_data: JsonDict = {"posts": [{"id": 1}]}
 
     # Should not raise any exceptions (early return)
     await check_page_duplicates(mock_config, page_data, "timeline")
@@ -58,7 +59,7 @@ async def test_check_page_duplicates_disabled(mock_config, download_state):
 @pytest.mark.asyncio
 async def test_check_page_duplicates_empty_posts(mock_config, download_state):
     """Test handling of empty posts list."""
-    page_data = {"posts": []}
+    page_data: JsonDict = {"posts": []}
 
     # Should not raise any exceptions
     await check_page_duplicates(mock_config, page_data, "timeline")
@@ -68,7 +69,7 @@ async def test_check_page_duplicates_empty_posts(mock_config, download_state):
 async def test_check_page_duplicates_missing_posts_key(mock_config, download_state):
     """Test handling of page_data without posts key."""
     mock_config.use_pagination_duplication = True
-    page_data = {"other_data": "value"}  # No "posts" key
+    page_data: JsonDict = {"other_data": "value"}  # No "posts" key
 
     # Should not raise any exceptions (early return)
     await check_page_duplicates(mock_config, page_data, "timeline")
@@ -79,7 +80,7 @@ async def test_check_page_duplicates_wall(mock_config, entity_store):
     """Test duplicate checking for wall pages with new (uncached) post."""
     mock_config.use_pagination_duplication = True
     post_id = snowflake_id()
-    page_data = {"posts": [{"id": post_id}]}
+    page_data: JsonDict = {"posts": [{"id": post_id}]}
 
     # Post not in store cache → no duplicate → should not raise
     await check_page_duplicates(
@@ -103,7 +104,7 @@ async def test_check_page_duplicates_all_existing(mock_config, entity_store):
     await entity_store.save(Account(id=account_id, username="dupetest"))
     await entity_store.save(Post(id=post_id, accountId=account_id))
 
-    page_data = {"posts": [{"id": post_id}]}
+    page_data: JsonDict = {"posts": [{"id": post_id}]}
 
     with (
         pytest.raises(DuplicatePageError) as exc_info,

@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 
-from tests.fixtures import (
+from tests.fixtures.stash import (
     create_find_studios_result,
     create_graphql_response,
     create_studio_dict,

@@ -91,6 +91,7 @@ def test_migration_writes_yaml_and_renames_ini(tmp_path: Path) -> None:
 
     # Returned schema is a ConfigSchema
     assert isinstance(schema, ConfigSchema)
+    assert isinstance(schema.targeted_creator.usernames, list)
     assert "alice" in schema.targeted_creator.usernames
     assert schema.my_account.authorization_token.get_secret_value() == "tok_xyz"
     assert schema.my_account.user_agent == "TestAgent/1.0"
@@ -348,6 +349,7 @@ def test_migration_preserves_secret_str_fields(tmp_path: Path) -> None:
         schema2.my_account.authorization_token.get_secret_value()
         == "my_secret_token_abc"
     )
+    assert schema2.my_account.password is not None
     assert schema2.my_account.password.get_secret_value() == "MyP@ssw0rd!"
 
 
@@ -501,10 +503,12 @@ def test_migration_from_legacy_ini_fixture(tmp_path: Path) -> None:
     assert schema.postgres.pg_password.get_secret_value() == "supersecret"
 
     # [Cache] is now migrated into schema.cache
+    assert schema.cache is not None
     assert schema.cache.device_id == "dev_abc123"
     assert schema.cache.device_id_timestamp == 1710000000
 
     # Logic patterns round-trip without corruption
+    assert schema.logic is not None
     assert "checkKey_" in schema.logic.check_key_pattern
     assert "main" in schema.logic.main_js_pattern
 

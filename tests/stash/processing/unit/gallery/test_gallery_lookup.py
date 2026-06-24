@@ -10,10 +10,11 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set
 
 from stash.processing import StashProcessing
-from tests.fixtures import (
-    PostFactory,
+from tests.fixtures.metadata import PostFactory
+from tests.fixtures.stash import (
     StudioFactory,
     create_find_galleries_result,
     create_gallery_dict,
@@ -33,7 +34,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id when gallery is found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -78,7 +79,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_no_stash_id(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id when post has no stash_id."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -107,7 +108,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_not_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_stash_id when gallery not found in Stash."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -139,7 +140,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_title when matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -233,7 +234,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_not_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_title when no matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -273,7 +274,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_wrong_date(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_title rejects gallery with wrong date."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -352,7 +353,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_wrong_studio(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_title rejects gallery with wrong studio."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -431,7 +432,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_no_studio(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_title with no studio parameter matches any studio."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -510,7 +511,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_code when matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -565,7 +566,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_not_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_code when no matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -595,7 +596,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_wrong_code(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_code rejects gallery with wrong code."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -636,7 +637,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_url when matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -712,6 +713,7 @@ class TestGalleryLookup:
         # Verify gallery was found
         assert gallery is not None
         assert gallery.id == "400"
+        assert is_set(gallery.urls)
         assert test_url in gallery.urls
         assert post_obj.stash_id == 400  # Should update item's stash_id
 
@@ -732,7 +734,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_not_found(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_url when no matching gallery found."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
@@ -766,7 +768,7 @@ class TestGalleryLookup:
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_wrong_url(
         self, respx_stash_processor: StashProcessing
-    ):
+    ) -> None:
         """Test _get_gallery_by_url rejects gallery with wrong URL."""
         post_id = snowflake_id()
         acct_id = snowflake_id()

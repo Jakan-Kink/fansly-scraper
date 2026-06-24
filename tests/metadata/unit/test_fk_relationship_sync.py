@@ -4,6 +4,9 @@ Verifies that setting FK scalars auto-resolves relationship objects from
 cache, and setting relationship objects auto-updates FK scalars.
 """
 
+from datetime import UTC, datetime
+from typing import ClassVar
+
 import pytest
 from stash_graphql_client.types.unset import UNSET, is_set
 
@@ -52,7 +55,7 @@ class TestFkToRelationshipSync:
         story = MediaStory(
             id=snowflake_id(),
             accountId=account.id,
-            createdAt="2024-01-01T00:00:00Z",
+            createdAt=datetime(2024, 1, 1, tzinfo=UTC),
         )
         assert story.account is account
 
@@ -62,7 +65,7 @@ class TestFkToRelationshipSync:
             id=snowflake_id(),
             senderId=account.id,
             content="hello",
-            createdAt="2024-01-01T00:00:00Z",
+            createdAt=datetime(2024, 1, 1, tzinfo=UTC),
         )
         assert msg.sender is account
 
@@ -73,10 +76,12 @@ class TestFkToRelationshipSync:
 
     def test_fk_set_to_none_clears_relationship(self, store_with_account):
         _, account = store_with_account
-        media = Media(id=snowflake_id(), accountId=account.id)
+        assert isinstance(account.id, int)
+        acct_id = account.id
+        media = Media(id=snowflake_id(), accountId=acct_id)
         assert media.account is account
         # Now clear the FK
-        media.accountId = account.id  # re-set same value — should still resolve
+        media.accountId = acct_id  # re-set same value — should still resolve
         assert media.account is account
 
     def test_fk_with_uncached_entity_leaves_relationship_unset(
@@ -106,7 +111,7 @@ class TestFkToRelationshipSync:
             accountId=account.id,
             mediaId=media_id,
             previewId=preview_id,
-            createdAt="2024-01-01T00:00:00Z",
+            createdAt=datetime(2024, 1, 1, tzinfo=UTC),
         )
         assert am.account is account
         assert am.media is media_obj
@@ -151,7 +156,7 @@ class TestRelationshipToFkSync:
             id=snowflake_id(),
             senderId=account.id,
             content="test",
-            createdAt="2024-01-01T00:00:00Z",
+            createdAt=datetime(2024, 1, 1, tzinfo=UTC),
         )
         store.cache_instance(msg)
 
@@ -208,6 +213,8 @@ class TestFKRelationshipSyncDeep:
         acct2 = Account(id=snowflake_id(), username="sync2")
         await entity_store.save(acct1)
         await entity_store.save(acct2)
+        assert isinstance(acct1.id, int)
+        assert isinstance(acct2.id, int)
 
         media = Media(id=snowflake_id(), accountId=acct1.id)
         await entity_store.save(media)
@@ -221,7 +228,7 @@ class TestFKRelationshipSyncDeep:
         assert media.accountId == acct1.id
 
         # _add_to_relationship / _remove_from_relationship
-        post = Post(id=snowflake_id(), accountId=acct1.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct1.id, fypFlags=0)
         h = Hashtag(id=1, value="add_remove")
         await post._add_to_relationship("hashtags", h)
         assert h in post.hashtags
@@ -255,10 +262,11 @@ class TestFKRelationshipSyncDeep:
         """
         acct = Account(id=snowflake_id(), username="edge_br")
         await entity_store.save(acct)
+        assert isinstance(acct.id, int)
 
         # 823→exit: _sync_inverse_relationship with scalar None value
         # Uses "hashtags" which has inverse_query_field, but value=None → elif skipped
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         post._sync_inverse_relationship("hashtags", None)
 
         # 840→exit: _add_to_inverse where inverse field NOT in _snapshot
@@ -297,8 +305,9 @@ class TestFKRelationshipSyncDeep:
         """821→820: Ensure the loop-back branch in _sync_inverse_relationship
         is exercised by passing 3+ items (coverage.py sometimes misses 2-item loops)."""
         acct = Account(id=snowflake_id(), username="loop")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
 
         h1 = Hashtag(id=1, value="l1")
         h2 = Hashtag(id=2, value="l2")
@@ -322,10 +331,11 @@ class TestSetAttrAndInverseSync:
         Path 2 in __setattr__: name in __fk_to_rel__, value is None.
         Uses Post.inReplyTo (nullable FK) → Post.replyTo (belongs_to relationship)."""
         acct = Account(id=snowflake_id(), username="fk_none")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
-        parent = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        parent = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         reply = Post(
-            id=snowflake_id(), accountId=acct.id, inReplyTo=parent.id, fypFlag=0
+            id=snowflake_id(), accountId=acct.id, inReplyTo=parent.id, fypFlags=0
         )
         await entity_store.save(parent)
         await entity_store.save(reply)
@@ -343,11 +353,12 @@ class TestSetAttrAndInverseSync:
         which iterates list items, calls _add_to_inverse, checks 'self not in current',
         appends, and updates the inverse object's snapshot."""
         acct = Account(id=snowflake_id(), username="inv_sync")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
 
         h1 = Hashtag(id=1, value="inv1")
         h2 = Hashtag(id=2, value="inv2")
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         await entity_store.save(post)
 
         # Setting hashtags list triggers _sync_inverse for each item
@@ -369,15 +380,17 @@ class TestSetAttrAndInverseSync:
         _sync_inverse_relationship iterates list items (820 loop, 821 isinstance),
         calls _add_to_inverse per item (822). Snapshot updated (840→exit)."""
         acct = Account(id=snowflake_id(), username="snap_inv")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
 
         h1 = Hashtag(id=1, value="snap1")
         h2 = Hashtag(id=2, value="snap2")
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         await entity_store.save(post)
 
         # Ensure h1.posts has a snapshot entry (so 840→exit is reachable)
         h1.mark_clean()
+        assert h1._snapshot is not None
         assert "posts" in h1._snapshot
 
         # Call _sync_inverse_relationship directly to guarantee coverage.
@@ -394,7 +407,7 @@ class TestSetAttrAndInverseSync:
         so we use test-only subclasses."""
 
         class _Owner(FanslyObject):
-            __table_name__: str = ""
+            __table_name__: ClassVar[str] = ""
             __tracked_fields__ = {"items"}
             __relationships__ = {
                 "items": RelationshipMetadata(
@@ -411,7 +424,7 @@ class TestSetAttrAndInverseSync:
             items: list = []
 
         class _Item(FanslyObject):
-            __table_name__: str = ""
+            __table_name__: ClassVar[str] = ""
             __tracked_fields__ = {"owner"}
             __relationships__ = {
                 "owner": RelationshipMetadata(
@@ -441,6 +454,7 @@ class TestSetAttrAndInverseSync:
         """Line 843: _add_to_inverse where current value is non-list, non-None.
         Sets the inverse field to self via object.__setattr__."""
         acct = Account(id=snowflake_id(), username="scalar_inv")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
 
         # Set up: target object has a non-list field with a non-None value
@@ -451,17 +465,19 @@ class TestSetAttrAndInverseSync:
         media2 = Media(id=snowflake_id(), accountId=acct.id)
         media2._add_to_inverse(story, "account")
         # Line 843: object.__setattr__(related_obj, inverse_field, self)
-        assert story.account is media2
+        # _add_to_inverse cross-wires account to a Media; the type mismatch is the point.
+        assert story.account is media2  # type: ignore[comparison-overlap]
 
     @pytest.mark.asyncio
     async def test_add_to_inverse_initializes_none_list(self, entity_store):
         """Lines 830-833: _add_to_inverse when current is None but inverse_meta.is_list=True
         → lazily initializes an empty list, then appends self."""
         acct = Account(id=snowflake_id(), username="lazy_init")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
 
         h = Hashtag(id=1, value="lazy")
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
 
         # Force hashtag.posts to None
         object.__setattr__(h, "posts", None)
@@ -476,13 +492,14 @@ class TestSetAttrAndInverseSync:
         """Line 835: _add_to_inverse where inverse field has no __relationships__ entry
         and current is None → returns early without doing anything."""
         acct = Account(id=snowflake_id(), username="no_meta")
+        assert isinstance(acct.id, int)
         media = Media(id=snowflake_id(), accountId=acct.id)
 
         # Call _add_to_inverse with a field that doesn't exist in relationships
         # When current is None and inverse_meta is None → return (line 835 path)
         object.__setattr__(acct, "nonexistent_field", None)
         media._add_to_inverse(acct, "nonexistent_field")
-        assert acct.nonexistent_field is None
+        assert acct.nonexistent_field is None  # type: ignore[attr-defined]  # field injected via object.__setattr__
 
 
 class TestRelationshipMutationDeepPaths:
@@ -495,8 +512,9 @@ class TestRelationshipMutationDeepPaths:
         """Lines 857-859: _add_to_relationship when current is None and meta.is_list
         → initializes to [], setattr, re-reads Pydantic's copy, then appends."""
         acct = Account(id=snowflake_id(), username="add_init")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         h = Hashtag(id=1, value="add_init")
 
         # Force to None to trigger the None→[] init path
@@ -509,8 +527,9 @@ class TestRelationshipMutationDeepPaths:
     async def test_add_duplicate_noop(self, entity_store):
         """Line 861→exit: adding same object twice → second add is no-op."""
         acct = Account(id=snowflake_id(), username="dup_add")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         h = Hashtag(id=1, value="dup_add")
 
         await post._add_to_relationship("hashtags", h)
@@ -523,8 +542,9 @@ class TestRelationshipMutationDeepPaths:
         from inverse list too. Covers 883→exit (inverse_query_field is set),
         884 (isinstance list and self in inverse → remove)."""
         acct = Account(id=snowflake_id(), username="rem_inv")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
-        post = Post(id=snowflake_id(), accountId=acct.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=acct.id, fypFlags=0)
         h = Hashtag(id=1, value="rem_inv")
 
         await post._add_to_relationship("hashtags", h)
@@ -544,7 +564,7 @@ class TestRelationshipMutationDeepPaths:
         parent.children should clear child.parent = None (line 888)."""
 
         class _Parent(FanslyObject):
-            __table_name__: str = ""
+            __table_name__: ClassVar[str] = ""
             __tracked_fields__ = {"children"}
             __relationships__ = {
                 "children": RelationshipMetadata(
@@ -561,7 +581,7 @@ class TestRelationshipMutationDeepPaths:
             children: list = []
 
         class _Child(FanslyObject):
-            __table_name__: str = ""
+            __table_name__: ClassVar[str] = ""
             __tracked_fields__ = {"parent"}
             __relationships__ = {
                 "parent": RelationshipMetadata(
@@ -605,6 +625,7 @@ class TestRelationshipMutationDeepPaths:
     async def test_remove_scalar_relationship(self, entity_store):
         """Line 889→exit: remove scalar relationship where current IS the related_obj."""
         acct = Account(id=snowflake_id(), username="rem_scalar")
+        assert isinstance(acct.id, int)
         await entity_store.save(acct)
         media = Media(id=snowflake_id(), accountId=acct.id)
 

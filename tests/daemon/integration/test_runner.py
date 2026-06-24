@@ -237,7 +237,10 @@ class TestUnrecoverableExitCode:
             "daemon.runner._timeline_poll_loop", side_effect=_raise_unrecoverable
         ):
             daemon_task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=make_fake_ws_factory(fake_ws))
+                run_daemon(
+                    config_wired,
+                    ws_factory=make_fake_ws_factory(fake_ws),
+                )
             )
 
             try:

@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx
 import pytest
 import respx
 
+from api.fansly import FanslyApi
+from config.fanslyconfig import FanslyConfig
 from download.livestream import (
     _download_segment,
     _get_authenticated_playback_url,
@@ -71,7 +74,9 @@ class TestResolveVariantUrl:
     recorder integration tests)."""
 
     @pytest.mark.asyncio
-    async def test_master_fetch_failure_returns_none(self, respx_ivs_cdn) -> None:
+    async def test_master_fetch_failure_returns_none(
+        self, respx_ivs_cdn: httpx.AsyncClient
+    ) -> None:
         """A non-2xx master playlist response → raise_for_status → None (336-341)."""
         route = respx.get(_MASTER_URL).mock(side_effect=[httpx.Response(500)])
         try:
@@ -83,7 +88,9 @@ class TestResolveVariantUrl:
         assert route.called
 
     @pytest.mark.asyncio
-    async def test_master_without_variants_returns_none(self, respx_ivs_cdn) -> None:
+    async def test_master_without_variants_returns_none(
+        self, respx_ivs_cdn: httpx.AsyncClient
+    ) -> None:
         """A master playlist carrying no EXT-X-STREAM-INF → None (353-354)."""
         empty_master = "#EXTM3U\n#EXT-X-VERSION:3\n"
         route = respx.get(_MASTER_URL).mock(
@@ -99,12 +106,12 @@ class TestResolveVariantUrl:
 
     @pytest.mark.asyncio
     async def test_master_parse_failure_returns_none(
-        self, respx_ivs_cdn, monkeypatch
+        self, respx_ivs_cdn: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """m3u8 parsing the master content raising → None (345-350). The m3u8
         leaf is patched to raise (it parses too leniently to fail on its own)."""
 
-        def _raise(*_a, **_k):
+        def _raise(*_a: object, **_k: object) -> None:
             raise ValueError("malformed m3u8")
 
         monkeypatch.setattr("download.livestream.m3u8.M3U8", _raise)
@@ -123,7 +130,9 @@ class TestDownloadSegment:
     """_download_segment network-failure arm (650-657)."""
 
     @pytest.mark.asyncio
-    async def test_network_failure_returns_false(self, respx_ivs_cdn, tmp_path) -> None:
+    async def test_network_failure_returns_false(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
         """A 404 on the segment URL → except → False; nothing written."""
         seg_url = "https://use14.playlist.live-video.net/seg-fail.ts"
         dest = tmp_path / "seg-fail.ts"
@@ -153,7 +162,7 @@ class TestGetAuthenticatedPlaybackUrl:
 
     @pytest.mark.asyncio
     async def test_api_error_falls_back_to_channel_url(
-        self, respx_fansly_api, config_wired
+        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
     ) -> None:
         """Invalid JSON from the streaming-channel endpoint → except arm
         (301-307) → fallback to channel.playbackUrl (310)."""
@@ -173,7 +182,7 @@ class TestGetAuthenticatedPlaybackUrl:
 
     @pytest.mark.asyncio
     async def test_no_auth_url_in_response_falls_back(
-        self, respx_fansly_api, config_wired
+        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
     ) -> None:
         """A well-formed response with no playbackUrl anywhere → the 299->310
         arm → fallback to channel.playbackUrl."""
@@ -196,7 +205,7 @@ class TestGetAuthenticatedPlaybackUrl:
 
     @pytest.mark.asyncio
     async def test_non_dict_response_falls_back(
-        self, respx_fansly_api, config_wired
+        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
     ) -> None:
         """Response contents that are not a dict (a list) → the isinstance
         guard's False arm → fallback to channel.playbackUrl."""
@@ -226,23 +235,27 @@ class TestMuxIvsSegments:
     """
 
     @staticmethod
-    def _patch_av(monkeypatch, fake_open) -> None:
+    def _patch_av(
+        monkeypatch: pytest.MonkeyPatch, fake_open: Callable[..., object]
+    ) -> None:
         monkeypatch.setattr("download.livestream.av.open", fake_open)
         monkeypatch.setattr("download.livestream.VideoStream", FakeVideoStream)
         monkeypatch.setattr("download.livestream.AudioStream", FakeAudioStream)
 
     @staticmethod
-    def _write_segments(tmp_path, names: list[str]) -> list:
+    def _write_segments(tmp_path: Path, names: list[str]) -> list[Path]:
         segs = [tmp_path / n for n in names]
         for seg in segs:
             seg.write_bytes(b"fake-ts")
         return segs
 
-    def test_empty_segments_returns_false(self, tmp_path) -> None:
+    def test_empty_segments_returns_false(self, tmp_path: Path) -> None:
         """No segments → early False (no PyAV touched)."""
         assert _mux_ivs_segments([], [], tmp_path / "out.mp4", "test") is False
 
-    def test_no_pids_discovered_aborts(self, tmp_path, monkeypatch) -> None:
+    def test_no_pids_discovered_aborts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Segments carrying only a data stream → PID discovery fails → False."""
         segs = self._write_segments(tmp_path, ["s0.ts", "s1.ts"])
         out = tmp_path / "out.mp4"
@@ -252,7 +265,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is False
 
-    def test_mixed_segment_skip_branches(self, tmp_path, monkeypatch) -> None:
+    def test_mixed_segment_skip_branches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """One mux call traverses several skip arms: a normal segment (PIDs
         found + output opened), an open-error segment, a missing-PID segment,
         and a bad-packets segment (pts/dts None + corrupt). Completes without
@@ -271,7 +286,9 @@ class TestMuxIvsSegments:
         )
         assert isinstance(_mux_ivs_segments(segs, [1.0] * len(segs), out, "test"), bool)
 
-    def test_packet_mux_exception_skipped(self, tmp_path, monkeypatch) -> None:
+    def test_packet_mux_exception_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """output.mux() raising OSError per packet is caught + counted, not
         fatal (the (OSError, FFmpegError) skip arm)."""
         names = ["s0.ts", "s1.ts"]
@@ -288,7 +305,9 @@ class TestMuxIvsSegments:
         )
         assert isinstance(_mux_ivs_segments(segs, [1.0] * len(segs), out, "test"), bool)
 
-    def test_output_missing_streams_returns_false(self, tmp_path, monkeypatch) -> None:
+    def test_output_missing_streams_returns_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify pass reports no streams → 'output missing streams' → False."""
         names = ["s0.ts"]
         segs = self._write_segments(tmp_path, names)
@@ -304,7 +323,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is False
 
-    def test_probe_open_failure_then_pids_found(self, tmp_path, monkeypatch) -> None:
+    def test_probe_open_failure_then_pids_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """First probed segment fails to open (probe except → continue); the
         next segment yields the PIDs so the mux still proceeds."""
         segs = self._write_segments(tmp_path, ["s_open_err.ts", "s_ok.ts"])
@@ -318,7 +339,9 @@ class TestMuxIvsSegments:
         )
         assert isinstance(_mux_ivs_segments(segs, [1.0] * len(segs), out, "test"), bool)
 
-    def test_stop_event_interrupts_mux(self, tmp_path, monkeypatch) -> None:
+    def test_stop_event_interrupts_mux(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A set stop_event interrupts the mux loop before the first segment."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
         out = tmp_path / "out.mp4"
@@ -333,7 +356,7 @@ class TestMuxIvsSegments:
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test", stop) is False
 
     def test_codec_none_and_zero_duration_clean_mux(
-        self, tmp_path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A codec_context-None stream is skipped, zero-duration packets take the
         duration-falsy arm, and a no-skip mux emits the clean summary + verifies."""
@@ -348,7 +371,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is True
 
-    def test_output_close_error_handled(self, tmp_path, monkeypatch) -> None:
+    def test_output_close_error_handled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """output.close() raising is logged, not fatal (the file is written first)."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
         out = tmp_path / "out.mp4"
@@ -363,7 +388,7 @@ class TestMuxIvsSegments:
         assert isinstance(_mux_ivs_segments(segs, [1.0] * len(segs), out, "test"), bool)
 
     def test_output_empty_after_close_returns_false(
-        self, tmp_path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """close() writing nothing → output missing/empty → False."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
@@ -378,7 +403,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is False
 
-    def test_verify_open_raises_returns_false(self, tmp_path, monkeypatch) -> None:
+    def test_verify_open_raises_returns_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The verify-pass av.open raising → has_video/has_audio False → False."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
         out = tmp_path / "out.mp4"
@@ -392,7 +419,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is False
 
-    def test_extra_codec_stream_routed_to_neither(self, tmp_path, monkeypatch) -> None:
+    def test_extra_codec_stream_routed_to_neither(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A third codec'd stream whose PID matches neither is ignored in PID
         matching and packet routing (834->826, 906->877)."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
@@ -405,7 +434,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is True
 
-    def test_output_open_failure_returns_false(self, tmp_path, monkeypatch) -> None:
+    def test_output_open_failure_returns_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """av.open(output, 'w') raising → mux-level except + output-None finally."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
         out = tmp_path / "out.mp4"
@@ -419,7 +450,9 @@ class TestMuxIvsSegments:
         )
         assert _mux_ivs_segments(segs, [1.0] * len(segs), out, "test") is False
 
-    def test_under_25pct_skip_does_not_abort(self, tmp_path, monkeypatch) -> None:
+    def test_under_25pct_skip_does_not_abort(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """1 of 5 segments skipped (20% < 25%) → warning but no abort (1023->1036)."""
         names = [f"s{i}.ts" for i in range(5)]
         segs = self._write_segments(tmp_path, names)
@@ -431,7 +464,9 @@ class TestMuxIvsSegments:
         )
         assert isinstance(_mux_ivs_segments(segs, [6.0] * len(segs), out, "test"), bool)
 
-    def test_skip_examples_cap_reached(self, tmp_path, monkeypatch) -> None:
+    def test_skip_examples_cap_reached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """>10 unusable packets overruns the skip-examples cap (887->892)."""
         segs = self._write_segments(tmp_path, ["s0.ts"])
         out = tmp_path / "out.mp4"
@@ -443,7 +478,9 @@ class TestMuxIvsSegments:
         )
         assert isinstance(_mux_ivs_segments(segs, [6.0], out, "test"), bool)
 
-    def test_segment_level_except_after_cap(self, tmp_path, monkeypatch) -> None:
+    def test_segment_level_except_after_cap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A bad-packet segment fills the skip-examples cap, then a demux-raising
         segment hits the segment-level except with the cap already reached
         (979->983); a normal segment first supplies the PIDs."""
@@ -469,7 +506,9 @@ class TestPollSegmentsLoop:
     failing segment → ENDLIST), plus the pre-set-stop early exit."""
 
     @pytest.mark.asyncio
-    async def test_preset_stop_returns_empty(self, respx_ivs_cdn, tmp_path) -> None:
+    async def test_preset_stop_returns_empty(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
         """stop_event already set → loop body never runs → empty result."""
         stop = asyncio.Event()
         stop.set()
@@ -480,7 +519,9 @@ class TestPollSegmentsLoop:
         assert durations == []
 
     @pytest.mark.asyncio
-    async def test_full_poll_traverses_branches(self, respx_ivs_cdn, tmp_path) -> None:
+    async def test_full_poll_traverses_branches(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
         """One drive over a sequenced variant route hits: the manifest-fetch
         failure arm (retry+continue), a window where one segment download fails
         (skipped) while a normal segment + a prefetch hint succeed, and the
@@ -522,7 +563,7 @@ class TestPollSegmentsLoop:
 
     @pytest.mark.asyncio
     async def test_prefetch_whitespace_and_already_seen(
-        self, respx_ivs_cdn, tmp_path
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
     ) -> None:
         """A whitespace EXT-X-PREFETCH line strips to empty and is skipped (458);
         a prefetch whose MSN is already seen is deduped (461)."""
@@ -567,7 +608,7 @@ class TestSalvageOrphanSegments:
     salvage→mux→cleanup path is covered by the recorder integration tests)."""
 
     @staticmethod
-    def _base(config_wired, tmp_path) -> Path:
+    def _base(config_wired: FanslyConfig, tmp_path: Path) -> Path:
         config_wired.download_directory = tmp_path / "downloads"
         config_wired.temp_folder = tmp_path / "temp"
         config_wired.download_directory.mkdir(parents=True, exist_ok=True)
@@ -576,24 +617,28 @@ class TestSalvageOrphanSegments:
 
     @pytest.mark.asyncio
     async def test_segments_base_unavailable_returns(
-        self, config_wired, monkeypatch
+        self, config_wired: FanslyConfig, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """_get_segments_base raising RuntimeError → early return."""
 
-        def _raise(_cfg):
+        def _raise(_cfg: FanslyConfig) -> Path:
             raise RuntimeError("no segments base")
 
         monkeypatch.setattr("download.livestream._get_segments_base", _raise)
         await _salvage_orphan_segments(config_wired)  # must not raise
 
     @pytest.mark.asyncio
-    async def test_no_orphan_dirs_returns(self, config_wired, tmp_path) -> None:
+    async def test_no_orphan_dirs_returns(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """An empty base (no *_segments dirs) → return."""
         self._base(config_wired, tmp_path)
         await _salvage_orphan_segments(config_wired)
 
     @pytest.mark.asyncio
-    async def test_sidecarless_dir_skipped(self, config_wired, tmp_path) -> None:
+    async def test_sidecarless_dir_skipped(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """A *_segments dir with no output_path.txt sidecar is skipped, not removed."""
         base = self._base(config_wired, tmp_path)
         orphan = base / "nosidecar_segments"
@@ -602,9 +647,12 @@ class TestSalvageOrphanSegments:
         assert orphan.exists()
 
     @pytest.mark.asyncio
-    async def test_existing_output_removes_orphan(self, config_wired, tmp_path) -> None:
+    async def test_existing_output_removes_orphan(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """A prior run already produced the output MP4 → orphan dir removed."""
         base = self._base(config_wired, tmp_path)
+        assert config_wired.download_directory is not None
         orphan = base / "done_segments"
         orphan.mkdir(parents=True)
         out = config_wired.download_directory / "done.mp4"
@@ -614,9 +662,12 @@ class TestSalvageOrphanSegments:
         assert not orphan.exists()
 
     @pytest.mark.asyncio
-    async def test_empty_orphan_dir_removed(self, config_wired, tmp_path) -> None:
+    async def test_empty_orphan_dir_removed(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """An orphan dir with a sidecar but no segment_*.ts files is removed."""
         base = self._base(config_wired, tmp_path)
+        assert config_wired.download_directory is not None
         orphan = base / "empty_segments"
         orphan.mkdir(parents=True)
         out = config_wired.download_directory / "empty.mp4"
@@ -625,10 +676,13 @@ class TestSalvageOrphanSegments:
         assert not orphan.exists()
 
     @pytest.mark.asyncio
-    async def test_preset_stop_preserves_orphans(self, config_wired, tmp_path) -> None:
+    async def test_preset_stop_preserves_orphans(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """stop_event set before the loop → interrupted, orphan preserved (also
         exercises the stop→threading.Event bridge task + its cancel)."""
         base = self._base(config_wired, tmp_path)
+        assert config_wired.download_directory is not None
         orphan = base / "interrupt_segments"
         orphan.mkdir(parents=True)
         out = config_wired.download_directory / "interrupt.mp4"
@@ -641,11 +695,15 @@ class TestSalvageOrphanSegments:
 
     @pytest.mark.asyncio
     async def test_mux_failure_preserves_orphan(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A salvage mux that fails (verify reports no streams) preserves the
         orphan dir for a later retry."""
         base = self._base(config_wired, tmp_path)
+        assert config_wired.download_directory is not None
         orphan = base / "fail_segments"
         orphan.mkdir(parents=True)
         out = config_wired.download_directory / "fail.mp4"
@@ -669,13 +727,17 @@ class TestSalvageOrphanSegments:
 
     @pytest.mark.asyncio
     async def test_bridge_sets_mux_stop(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The stop→threading.Event bridge fires when the asyncio stop is set
         during the (inlined) mux: _bridge's wait resumes and runs mux_stop.set()
         (551-552). to_thread is inlined so the asyncio Event is set on the loop
         thread, then a yield lets the bridge task run."""
         base = self._base(config_wired, tmp_path)
+        assert config_wired.download_directory is not None
         orphan = base / "bridge_segments"
         orphan.mkdir(parents=True)
         out = config_wired.download_directory / "bridge.mp4"
@@ -683,12 +745,14 @@ class TestSalvageOrphanSegments:
         (orphan / "segment_000000.ts").write_bytes(b"ts")
         stop = asyncio.Event()
 
-        async def _inline_to_thread(fn, *a, **k):
+        async def _inline_to_thread(
+            fn: Callable[..., object], *a: object, **k: object
+        ) -> object:
             result = fn(*a, **k)
             await asyncio.sleep(0)  # let the bridge task resume now stop is set
             return result
 
-        def _mux_sets_stop(*_a, **_k):
+        def _mux_sets_stop(*_a: object, **_k: object) -> bool:
             stop.set()
             return True
 
@@ -699,28 +763,28 @@ class TestSalvageOrphanSegments:
         assert stop.is_set()
 
 
-async def _anoop(*_a, **_k) -> None:
+async def _anoop(*_a: object, **_k: object) -> None:
     """An async no-op (stand-in for asyncio.sleep / _chat_ws_loop)."""
 
 
-async def _await_forever(*_a, **_k) -> None:
+async def _await_forever(*_a: object, **_k: object) -> None:
     """Block until cancelled — a chat loop the recorder's finally must cancel."""
     await asyncio.Event().wait()
 
 
-def _seq(values: list):
+def _seq(values: list) -> Callable[..., Awaitable[object]]:
     """Build an async callable that pops the next value from *values* per call."""
 
-    async def _call(*_a, **_k):
+    async def _call(*_a: object, **_k: object) -> object:
         return values.pop(0)
 
     return _call
 
 
-def _always(value):
+def _always(value: object) -> Callable[..., Awaitable[object]]:
     """Build an async callable that returns *value* on every call."""
 
-    async def _call(*_a, **_k):
+    async def _call(*_a: object, **_k: object) -> object:
         return value
 
     return _call
@@ -737,7 +801,7 @@ class TestRecordStream:
     """
 
     @staticmethod
-    def _setup(config_wired, tmp_path) -> None:
+    def _setup(config_wired: FanslyConfig, tmp_path: Path) -> None:
         config_wired.download_directory = tmp_path / "downloads"
         config_wired.temp_folder = tmp_path / "temp"
         config_wired.download_directory.mkdir(parents=True, exist_ok=True)
@@ -762,7 +826,9 @@ class TestRecordStream:
         )
 
     @pytest.mark.asyncio
-    async def test_early_break_on_stop(self, config_wired, tmp_path) -> None:
+    async def test_early_break_on_stop(
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """rec_stop set before the loop → break on the first attempt check."""
         self._setup(config_wired, tmp_path)
         cid = snowflake_id()
@@ -774,7 +840,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_retry_chain_auth_variant_nosegments(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """3 attempts: auth-None retry → variant-None retry → no-segments."""
         self._setup(config_wired, tmp_path)
@@ -794,7 +863,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_mux_fail_then_success(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """attempt 1 muxes to False (retry), attempt 2 succeeds → cleanup+break."""
         self._setup(config_wired, tmp_path)
@@ -823,7 +895,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_chat_path_registers_promotes_unregisters(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """chatRoomId set → recorder registered, chat task spawned, chat.jsonl
         promoted next to the MP4 on success, recorder unregistered in finally."""
@@ -832,7 +907,9 @@ class TestRecordStream:
         seg = tmp_path / "segment_000000.ts"
         seg.write_bytes(b"ts")
 
-        async def _poll_writes_chat(_url, temp_dir, *_a, **_k):
+        async def _poll_writes_chat(
+            _url: str, temp_dir: Path, *_a: object, **_k: object
+        ) -> tuple[list[Path], list[float]]:
             (temp_dir / "chat.jsonl").write_text('{"m":1}\n', encoding="utf-8")
             return ([seg], [6.0])
 
@@ -860,13 +937,16 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_segments_base_unavailable_falls_back(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_get_segments_base raising RuntimeError → output_path.parent fallback;
         rec_stop set so the loop then breaks immediately."""
         self._setup(config_wired, tmp_path)
 
-        def _raise(_cfg):
+        def _raise(_cfg: FanslyConfig) -> Path:
             raise RuntimeError("no segments base")
 
         monkeypatch.setattr("download.livestream._get_segments_base", _raise)
@@ -879,7 +959,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_all_attempts_mux_fail(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Every attempt captures segments but muxes to False → retry warnings on
         the first attempts and the all-attempts-failed error on the last."""
@@ -904,7 +987,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_all_attempts_auth_fail(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """auth None on every attempt → the last-attempt no-sleep arm (142->144)."""
         self._setup(config_wired, tmp_path)
@@ -919,7 +1005,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_all_attempts_variant_fail(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """variant None on every attempt → the last-attempt no-sleep arm (156->158)."""
         self._setup(config_wired, tmp_path)
@@ -935,7 +1024,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_nosegments_then_success(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """no-segments on attempt 1 takes the retry-sleep arm (229); attempt 2 wins."""
         self._setup(config_wired, tmp_path)
@@ -959,7 +1051,10 @@ class TestRecordStream:
 
     @pytest.mark.asyncio
     async def test_forwarder_completes_and_chat_task_failure_logged(
-        self, config_wired, tmp_path, monkeypatch
+        self,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """_poll sets global_stop and yields so _forward_stops wakes and sets
         combined_stop (177); the (raising) chat task's done-callback logs the
@@ -970,10 +1065,12 @@ class TestRecordStream:
         seg.write_bytes(b"ts")
         global_stop = asyncio.Event()
 
-        async def _raise_chat(*_a, **_k):
+        async def _raise_chat(*_a: object, **_k: object) -> None:
             raise RuntimeError("chat ws crashed")
 
-        async def _poll(_url, _temp_dir, _combined, *_a, **_k):
+        async def _poll(
+            _url: str, _temp_dir: Path, _combined: object, *_a: object, **_k: object
+        ) -> tuple[list[Path], list[float]]:
             global_stop.set()  # wakes _forward_stops via global_stop.wait()
             # Real yield (asyncio.sleep is NOT patched here) so the forwarder's
             # asyncio.wait resolves and the chat task raises + fires its callback.
@@ -1004,23 +1101,25 @@ class TestRecordStream:
 class TestPathioLivestreamHelpers:
     """pathio/livestream.py path-building branches."""
 
-    def test_get_livestreams_dir_requires_download_directory(self, config_wired):
+    def test_get_livestreams_dir_requires_download_directory(
+        self, config_wired: FanslyConfig
+    ) -> None:
         """pathio:15 — download_directory unset raises RuntimeError."""
         config_wired.download_directory = None
         with pytest.raises(RuntimeError, match="download_directory is not set"):
             _get_livestreams_dir(config_wired, "creator")
 
     def test_get_segments_base_falls_back_to_download_temp(
-        self, config_wired, tmp_path
-    ):
+        self, config_wired: FanslyConfig, tmp_path: Path
+    ) -> None:
         """pathio:34 — temp_folder unset → ``<download_directory>/temp``."""
         config_wired.temp_folder = None
         config_wired.download_directory = tmp_path / "dl"
         assert _get_segments_base(config_wired) == tmp_path / "dl" / "temp"
 
     def test_get_segments_base_requires_download_directory_without_temp(
-        self, config_wired
-    ):
+        self, config_wired: FanslyConfig
+    ) -> None:
         """pathio:32-33 — neither temp_folder nor download_directory set raises."""
         config_wired.temp_folder = None
         config_wired.download_directory = None
@@ -1031,7 +1130,7 @@ class TestPathioLivestreamHelpers:
 class TestFileioLivestreamHelpers:
     """fileio/livestream.py output-slot selection."""
 
-    def test_unique_output_path_skips_taken_slots(self, tmp_path):
+    def test_unique_output_path_skips_taken_slots(self, tmp_path: Path) -> None:
         """fileio:25, 31-36 — a taken base and taken ``_part2`` → first free ``_part3``.
 
         A slot is taken when the MP4 exists with data (the ``exists() and

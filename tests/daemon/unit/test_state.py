@@ -121,7 +121,7 @@ class TestMarkCreatorProcessed:
         # trigger the await store.get(Account) path.
 
         # Patch the module-level get_store to return a wrapper that raises on get.
-        from daemon.state import get_store as real_get_store
+        from metadata.models import get_store as real_get_store
 
         real_store = real_get_store()
 
@@ -176,7 +176,7 @@ class TestMarkCreatorProcessed:
         account = AccountFactory.build()
         await entity_store.save(account)
 
-        from daemon.state import get_store as real_get_store
+        from metadata.models import get_store as real_get_store
 
         real_store = real_get_store()
 

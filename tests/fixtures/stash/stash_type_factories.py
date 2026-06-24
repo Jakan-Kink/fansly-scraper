@@ -100,7 +100,7 @@ from stash_graphql_client.types.files import Fingerprint, ImageFile, VideoFile
 from stash_graphql_client.types.job import Job, JobStatus
 
 
-class PerformerFactory(Factory):
+class PerformerFactory(Factory[Performer]):
     """Factory for Performer Pydantic type from stash-graphql-client.
 
     Creates Performer instances for testing. Pydantic automatically generates a
@@ -141,7 +141,7 @@ class PerformerFactory(Factory):
     # death_date, hair_color, weight
 
 
-class StudioFactory(Factory):
+class StudioFactory(Factory[Studio]):
     """Factory for Studio Pydantic type from stash-graphql-client.
 
     Creates Studio instances for testing. Pydantic auto-generates temp UUID.
@@ -172,7 +172,7 @@ class StudioFactory(Factory):
     # Optional fields (omitted = UNSET): parent_studio, details, image_path
 
 
-class TagFactory(Factory):
+class TagFactory(Factory[Tag]):
     """Factory for Tag Pydantic type from stash-graphql-client.
 
     Creates Tag instances for testing. Pydantic auto-generates temp UUID.
@@ -202,7 +202,7 @@ class TagFactory(Factory):
     # Optional fields (omitted = UNSET): description, image_path
 
 
-class SceneFactory(Factory):
+class SceneFactory(Factory[Scene]):
     """Factory for Scene Pydantic type from stash-graphql-client.
 
     Creates Scene instances for testing. Pydantic auto-generates temp UUID.
@@ -246,7 +246,7 @@ class SceneFactory(Factory):
     # code, details, director, date, rating100, o_counter, organized, studio, paths
 
 
-class GalleryFactory(Factory):
+class GalleryFactory(Factory[Gallery]):
     """Factory for Gallery Pydantic type from stash-graphql-client.
 
     Creates Gallery instances for testing. Pydantic auto-generates temp UUID.
@@ -281,7 +281,7 @@ class GalleryFactory(Factory):
     # rating100, organized, studio, image_count, folder
 
 
-class ImageFactory(Factory):
+class ImageFactory(Factory[Image]):
     """Factory for Image Pydantic type from stash-graphql-client.
 
     Creates Image instances for testing. Pydantic auto-generates temp UUID.
@@ -315,7 +315,7 @@ class ImageFactory(Factory):
     # organized, studio, paths
 
 
-class ImageFileFactory(Factory):
+class ImageFileFactory(Factory[ImageFile]):
     """Factory for ImageFile Pydantic type from stash-graphql-client.
 
     Creates ImageFile instances for testing. Pydantic auto-generates temp UUID.
@@ -353,7 +353,7 @@ class ImageFileFactory(Factory):
     # Optional fields (omitted = UNSET): zip_file_id
 
 
-class VideoFileFactory(Factory):
+class VideoFileFactory(Factory[VideoFile]):
     """Factory for VideoFile Pydantic type from stash-graphql-client.
 
     Creates VideoFile instances for testing. Pydantic auto-generates temp UUID.
@@ -397,7 +397,7 @@ class VideoFileFactory(Factory):
     # Optional fields (omitted = UNSET): zip_file_id
 
 
-class JobFactory(Factory):
+class JobFactory(Factory[Job]):
     """Factory for Job Pydantic type from stash-graphql-client.
 
     Creates Job instances for testing. Pydantic auto-generates temp UUID.

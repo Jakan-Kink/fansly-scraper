@@ -15,6 +15,8 @@ need to set download mode + (optionally) register specific per-mode routes.
 
 import asyncio
 import logging
+from collections.abc import Callable, Coroutine
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -23,12 +25,15 @@ import respx
 
 import fansly_downloader_ng as fdng
 from api import FanslyApi
+from config import FanslyConfig
 from config.logging import init_logging_config
 from config.modes import DownloadMode
+from download.downloadstate import DownloadState
 from errors import EXIT_SUCCESS, SOME_USERS_FAILED, ConfigError
 from fansly_downloader_ng import main
 from stash import StashProcessing as _RealStashProcessing
 from tests.fixtures.api import dump_fansly_calls, fansly_json, run_main_and_cleanup
+from textio import print_info
 
 
 async def test_main_raises_config_error_when_no_creator_names(
@@ -828,13 +833,16 @@ class _SelectiveSpyStashProcessing(_RealStashProcessing):
     so task_fn never leaks between tests.
     """
 
-    _spy_task_fn = None  # set per-subclass via _make_stash_processor_factory
+    # Set per-subclass via _make_stash_processor_factory.
+    _spy_task_fn: Callable[[], Coroutine[Any, Any, Any]] | None = None
 
     @classmethod
-    def from_config(cls, config, state) -> "_SelectiveSpyStashProcessing":
+    def from_config(
+        cls, config: FanslyConfig, state: DownloadState
+    ) -> "_SelectiveSpyStashProcessing":
         # Delegate to real from_config; ``cls`` ensures our subclass is
         # instantiated rather than the real class.
-        return _RealStashProcessing.from_config.__func__(cls, config, state)
+        return super().from_config(config, state)
 
     async def start_creator_processing(self) -> None:
         """Spy: skip real metadata-scan + GraphQL; install controlled task.
@@ -844,12 +852,13 @@ class _SelectiveSpyStashProcessing(_RealStashProcessing):
         metadata scan. For main()'s orchestration tests we only need
         ``_background_task`` to exist with a controlled outcome.
         """
-        if type(self)._spy_task_fn is None:
+        spy_task_fn = type(self)._spy_task_fn
+        if spy_task_fn is None:
             raise RuntimeError(
                 "_SelectiveSpyStashProcessing requires _spy_task_fn — "
                 "use _make_stash_processor_factory(task_fn=...)"
             )
-        self._background_task = asyncio.create_task(type(self)._spy_task_fn())
+        self._background_task = asyncio.create_task(spy_task_fn())
 
 
 def _make_stash_processor_factory(*, task_fn):
@@ -1219,7 +1228,7 @@ async def test_main_outer_background_block_generic_exception(
     async def _seed_task(config, state):
         config._background_tasks.append(asyncio.create_task(_quick_task()))
 
-    real_print_info = fdng.print_info
+    real_print_info = print_info
 
     def _raise_on_categorization_log(msg, *args, **kwargs):
         # Raise right after categorization so we're past the 557/559

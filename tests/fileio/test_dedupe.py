@@ -185,24 +185,28 @@ async def test_categorize_file(tmp_path):
 
     # Test hash2 categorization
     result = await categorize_file(hash2_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "hash2"
     assert result[1][0] == hash2_file
     assert result[1][3] == "abc123"
 
     # Test media_id categorization
     result = await categorize_file(media_id_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "media_id"
     assert result[1][0] == media_id_file
     assert result[1][1] == media_id
 
     # Test needs_hash categorization
     result = await categorize_file(regular_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "needs_hash"
     assert result[1][0] == regular_file
 
     # Test unsupported mimetype
     with patch("mimetypes.guess_type", return_value=("text/plain", None)):
         result = await categorize_file(text_file, hash2_pattern)
+        assert result is not None
         assert result[0] == "needs_hash"
 
 

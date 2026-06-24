@@ -26,7 +26,7 @@ class TestDownloadMode:
         assert DownloadMode("NORMAL") == DownloadMode.NORMAL
 
         # Direct string comparison is case-sensitive
-        assert DownloadMode.NORMAL != "normal"
+        assert DownloadMode.NORMAL != "normal"  # type: ignore[comparison-overlap]  # intentionally compares against a different-case literal to pin case-sensitivity
         assert DownloadMode.NORMAL == "NORMAL"
 
     def test_instantiation_with_string(self):

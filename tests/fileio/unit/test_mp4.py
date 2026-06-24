@@ -2,6 +2,7 @@
 
 import hashlib
 from io import BufferedReader, BytesIO
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -77,7 +78,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and collect results
         boxes = list(get_boxes(reader))
@@ -103,7 +104,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and expect an exception
         with pytest.raises(InvalidMP4Error):
@@ -128,7 +129,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and collect results
         boxes = list(get_boxes(reader))
@@ -156,7 +157,7 @@ class TestHashMP4Box:
         # Create test data stream
         mock_data = BytesIO(test_data)
         mock_data.seek(0)
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Create a real box with size matching test data
         box = MP4Box(
@@ -185,7 +186,7 @@ class TestHashMP4Box:
         # Create test data stream
         mock_data = BytesIO(test_data)
         mock_data.seek(0)
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Create a real box
         box = MP4Box(

@@ -33,7 +33,7 @@ Usage:
         result = await respx_fansly_api.get_media_collections()
 """
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -382,7 +382,7 @@ async def respx_ivs_cdn() -> AsyncGenerator[httpx.AsyncClient, None]:
 
 
 def dump_fansly_calls(
-    calls: respx.models.CallList, label: str = "Fansly API calls"
+    calls: Sequence[respx.models.Call], label: str = "Fansly API calls"
 ) -> None:
     """Log request/response details for each Fansly API call.
 

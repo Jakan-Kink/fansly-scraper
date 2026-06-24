@@ -6,9 +6,10 @@ Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 import httpx
 import pytest
 import respx
+from stash_graphql_client import present
 
-from tests.fixtures import (
-    HashtagFactory,
+from tests.fixtures.metadata import HashtagFactory
+from tests.fixtures.stash import (
     SceneFactory,
     TagFactory,
     create_find_scenes_result,
@@ -247,9 +248,10 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
         dump_graphql_calls(graphql_route.calls, "test_add_preview_tag_found_adds_tag")
 
     # Verify the tag was added to scene
-    assert len(scene.tags) == 1
-    assert scene.tags[0].id == "400"
-    assert scene.tags[0].name == "Trailer"
+    scene_tags = present(scene.tags)
+    assert len(scene_tags) == 1
+    assert scene_tags[0].id == "400"
+    assert scene_tags[0].name == "Trailer"
 
     # Exact count + per-call request + response verification.
     assert len(graphql_route.calls) == 2, (
@@ -305,5 +307,6 @@ async def test_add_preview_tag_already_has_tag(respx_stash_processor):
         dump_graphql_calls(graphql_route.calls, "add_preview_tag_already_has_tag")
 
     # Verify the tag was NOT added again (still only one)
-    assert len(scene.tags) == 1
-    assert scene.tags[0].id == "400"
+    scene_tags = present(scene.tags)
+    assert len(scene_tags) == 1
+    assert scene_tags[0].id == "400"

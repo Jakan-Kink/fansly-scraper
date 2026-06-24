@@ -189,7 +189,7 @@ class TestMonitorStateTimestampCoercion:
 
         state = MonitorState(
             creatorId=100_000_000_000_000_001,
-            lastCheckedAt=ms_timestamp,
+            lastCheckedAt=ms_timestamp,  # type: ignore[arg-type]  # int→datetime coercion is the test
             updatedAt=datetime.now(UTC),
         )
 
@@ -208,7 +208,7 @@ class TestMonitorStateTimestampCoercion:
 
         state = MonitorState(
             creatorId=100_000_000_000_000_002,
-            lastCheckedAt=sec_timestamp,
+            lastCheckedAt=sec_timestamp,  # type: ignore[arg-type]  # int→datetime coercion is the test
             updatedAt=datetime.now(UTC),
         )
 
@@ -242,7 +242,7 @@ class TestMonitorStateTimestampCoercion:
 
         state = MonitorState(
             creatorId=100_000_000_000_000_005,
-            updatedAt=ms_timestamp,
+            updatedAt=ms_timestamp,  # type: ignore[arg-type]  # int→datetime coercion is the test
         )
 
         assert isinstance(state.updatedAt, datetime)

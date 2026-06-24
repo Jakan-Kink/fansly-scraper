@@ -4,8 +4,9 @@ import pytest
 
 from fileio.preview_repair import repair_preview_folder_items
 from metadata import Media
-from tests.fixtures import DownloadStateFactory, snowflake_id
+from tests.fixtures.download.download_factories import DownloadStateFactory
 from tests.fixtures.metadata import AccountFactory, AccountMediaFactory, MediaFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
@@ -33,7 +34,7 @@ async def test_repair_renames_and_folders_preview(entity_store, config, tmp_path
     config.separate_previews = True
     config.repair_previews = True
 
-    state = DownloadStateFactory(
+    state = DownloadStateFactory.build(
         creator_id=acct_id,
         download_path=creator_dir,
     )
@@ -72,7 +73,7 @@ async def test_repair_dry_run_mutates_nothing(entity_store, config, tmp_path):
     config.separate_previews = True
     config.repair_previews = "dry-run"
 
-    state = DownloadStateFactory(
+    state = DownloadStateFactory.build(
         creator_id=acct_id,
         download_path=creator_dir,
     )
@@ -109,7 +110,7 @@ async def test_repair_idempotent_second_run_is_noop(entity_store, config, tmp_pa
     config.separate_previews = True
     config.repair_previews = True
 
-    state = DownloadStateFactory(
+    state = DownloadStateFactory.build(
         creator_id=acct_id,
         download_path=creator_dir,
     )
@@ -128,7 +129,9 @@ async def test_repair_noop_when_flag_disabled(entity_store, config, tmp_path):
     bug = tmp_path / "creator" / f"2026-01-02_at_03-04_UTC_id_{snowflake_id()}.jpg"
     bug.parent.mkdir(parents=True)
     bug.write_text("x")
-    state = DownloadStateFactory(creator_id=snowflake_id(), download_path=bug.parent)
+    state = DownloadStateFactory.build(
+        creator_id=snowflake_id(), download_path=bug.parent
+    )
 
     await repair_preview_folder_items(config, state)
 
@@ -141,7 +144,7 @@ async def test_repair_noop_when_no_creator_id(entity_store, config, tmp_path):
     config.repair_previews = True
     bug = tmp_path / f"2026-01-02_at_03-04_UTC_id_{snowflake_id()}.jpg"
     bug.write_text("x")
-    state = DownloadStateFactory(creator_id=None, download_path=tmp_path)
+    state = DownloadStateFactory.build(creator_id=None, download_path=tmp_path)
 
     await repair_preview_folder_items(config, state)
 
@@ -157,7 +160,7 @@ async def test_repair_noop_when_no_persisted_previews(entity_store, config, tmp_
     await entity_store.save(AccountFactory.build(id=acct_id))
     bug = tmp_path / f"2026-01-02_at_03-04_UTC_id_{snowflake_id()}.jpg"
     bug.write_text("x")
-    state = DownloadStateFactory(creator_id=acct_id, download_path=tmp_path)
+    state = DownloadStateFactory.build(creator_id=acct_id, download_path=tmp_path)
 
     await repair_preview_folder_items(config, state)
 

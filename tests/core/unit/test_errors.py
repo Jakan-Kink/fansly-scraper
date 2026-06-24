@@ -220,7 +220,7 @@ class TestInvalidMP4Error:
             "Invalid MP4 container format",
         ],
     )
-    def test_init(self, message: str):
+    def test_init(self, message: str) -> None:
         """Test initialization with various error messages."""
         error = InvalidMP4Error(message)
 

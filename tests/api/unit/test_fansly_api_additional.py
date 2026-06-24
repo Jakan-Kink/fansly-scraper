@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import respx
+from pydantic import JsonValue
 
 from api.fansly import FanslyApi
 from api.rate_limiter import RateLimiter
@@ -438,22 +439,26 @@ class TestConvertIdsToInt:
 
     def test_non_numeric_id_string_unchanged(self):
         """Non-numeric ID string falls back to original value."""
-        data = {"id": "not_a_number", "name": "test"}
+        data: JsonValue = {"id": "not_a_number", "name": "test"}
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, dict)
         assert result["id"] == "not_a_number"
         assert result["name"] == "test"
 
     def test_nested_list_of_dicts(self):
         """Nested list of dicts has IDs converted recursively."""
-        data = [{"id": "123", "parentId": "456"}]
+        data: JsonValue = [{"id": "123", "parentId": "456"}]
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, list)
+        assert isinstance(result[0], dict)
         assert result[0]["id"] == 123
         assert result[0]["parentId"] == 456
 
     def test_ids_list_field(self):
         """Fields ending with 'Ids' have list items converted."""
-        data = {"accountIds": ["111", "222", 333]}
+        data: JsonValue = {"accountIds": ["111", "222", 333]}
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, dict)
         assert result["accountIds"] == [111, 222, 333]
 
 

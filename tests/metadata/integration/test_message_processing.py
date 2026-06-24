@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 
 from api.fansly import FanslyApi
+from download.downloadstate import DownloadState
+from helpers.common import JsonDict
 from metadata import (
     Account,
     AccountMedia,
@@ -18,7 +20,7 @@ from metadata import (
     process_messages_metadata,
 )
 from metadata.account import process_media_bundles_data
-from tests.fixtures import setup_accounts_and_groups
+from tests.fixtures.metadata.metadata_factories import setup_accounts_and_groups
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -31,7 +33,7 @@ async def test_process_direct_messages(entity_store, mock_config):
     await entity_store.save(Account(id=sender_id, username="msg_sender"))
 
     msg_id = snowflake_id()
-    message_data = {
+    message_data: JsonDict = {
         "id": msg_id,
         "senderId": sender_id,
         "content": "Test message content",
@@ -39,7 +41,9 @@ async def test_process_direct_messages(entity_store, mock_config):
     }
 
     # Process via production code
-    await process_messages_metadata(mock_config, None, {"messages": [message_data]})
+    await process_messages_metadata(
+        mock_config, DownloadState(), {"messages": [message_data]}
+    )
 
     # Verify message was created
     message = await entity_store.get(Message, msg_id)
@@ -53,17 +57,20 @@ async def test_process_direct_messages(entity_store, mock_config):
 async def test_process_group_messages(entity_store, mock_config, group_data):
     """Test processing group messages."""
     response = FanslyApi.convert_ids_to_int(copy.deepcopy(group_data["response"]))
+    assert isinstance(response, dict)
 
     # Process group data via production code
-    await process_groups_response(mock_config, None, response)
+    await process_groups_response(mock_config, DownloadState(), response)
 
     # Verify groups were created
     groups = await entity_store.find(Group)
     assert len(groups) > 0
 
     # Check first group
-    first_data = response.get("data", [None])[0]
-    if first_data and first_data.get("groupId"):
+    data_list = response.get("data", [None])
+    assert isinstance(data_list, list)
+    first_data = data_list[0]
+    if isinstance(first_data, dict) and first_data.get("groupId"):
         group = await entity_store.get(Group, first_data["groupId"])
         assert group is not None
 
@@ -76,9 +83,13 @@ async def test_process_message_attachments(
     response = FanslyApi.convert_ids_to_int(
         copy.deepcopy(conversation_data["response"])
     )
+    assert isinstance(response, dict)
     messages = response.get("messages", [])
+    assert isinstance(messages, list)
 
-    messages_with_attachments = [msg for msg in messages if msg.get("attachments")]
+    messages_with_attachments = [
+        msg for msg in messages if isinstance(msg, dict) and msg.get("attachments")
+    ]
 
     if not messages_with_attachments:
         pytest.skip("No messages with attachments found in test data")
@@ -88,7 +99,7 @@ async def test_process_message_attachments(
 
     # Process messages via production code
     await process_messages_metadata(
-        mock_config, None, {"messages": messages_with_attachments}
+        mock_config, DownloadState(), messages_with_attachments
     )
 
     # Verify messages with attachments were created
@@ -96,8 +107,10 @@ async def test_process_message_attachments(
         msg_id = msg_data["id"]
         message = await entity_store.get(Message, msg_id)
         assert message is not None
-        if msg_data.get("attachments"):
-            assert len(message.attachments) == len(msg_data["attachments"])
+        attachments = msg_data.get("attachments")
+        if attachments:
+            assert isinstance(attachments, list)
+            assert len(message.attachments) == len(attachments)
 
 
 @pytest.mark.asyncio
@@ -108,14 +121,20 @@ async def test_process_message_media_variants(
     response = FanslyApi.convert_ids_to_int(
         copy.deepcopy(conversation_data["response"])
     )
+    assert isinstance(response, dict)
     messages = response.get("messages", [])
+    assert isinstance(messages, list)
     media_items = response.get("accountMedia", [])
+    assert isinstance(media_items, list)
+    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
 
     # Set up accounts
-    await setup_accounts_and_groups(conversation_data, messages)
+    await setup_accounts_and_groups(conversation_data, message_dicts)
 
     # Process messages
-    await process_messages_metadata(mock_config, None, {"messages": messages})
+    await process_messages_metadata(
+        mock_config, DownloadState(), {"messages": messages}
+    )
 
     # Process accountMedia to create Media + variant records
     if media_items:
@@ -123,8 +142,11 @@ async def test_process_message_media_variants(
 
     # Verify media with variants were processed
     for media_data in media_items:
-        if media_data.get("media", {}).get("variants"):
-            media_id = media_data["media"]["id"]
+        assert isinstance(media_data, dict)
+        media_obj = media_data.get("media", {})
+        assert isinstance(media_obj, dict)
+        if media_obj.get("variants"):
+            media_id = media_obj["id"]
             media = await entity_store.get(Media, media_id)
             assert media is not None
             # Variants are stored as nested objects on the Media model
@@ -140,20 +162,26 @@ async def test_process_message_media_bundles(
     response = FanslyApi.convert_ids_to_int(
         copy.deepcopy(conversation_data["response"])
     )
+    assert isinstance(response, dict)
     messages = response.get("messages", [])
+    assert isinstance(messages, list)
     bundles = response.get("accountMediaBundles", [])
+    assert isinstance(bundles, list)
 
     if not bundles:
         pytest.skip("No media bundles found in test data")
 
+    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
+
     # Set up accounts and groups
-    await setup_accounts_and_groups(conversation_data, messages)
+    await setup_accounts_and_groups(conversation_data, message_dicts)
 
     # Process messages first
-    await process_messages_metadata(mock_config, None, response)
+    await process_messages_metadata(mock_config, DownloadState(), response)
 
     # Process accountMedia to create Media + AccountMedia records
     account_media = response.get("accountMedia", [])
+    assert isinstance(account_media, list)
     if account_media:
         await process_media_info(mock_config, {"batch": account_media})
 
@@ -163,6 +191,7 @@ async def test_process_message_media_bundles(
     # Verify bundles were created
 
     for bundle_data in bundles:
+        assert isinstance(bundle_data, dict)
         bundle = await entity_store.get(AccountMediaBundle, bundle_data["id"])
         assert bundle is not None
 
@@ -175,23 +204,29 @@ async def test_process_message_permissions(
     response = FanslyApi.convert_ids_to_int(
         copy.deepcopy(conversation_data["response"])
     )
+    assert isinstance(response, dict)
     messages = response.get("messages", [])
+    assert isinstance(messages, list)
     media_items = response.get("accountMedia", [])
+    assert isinstance(media_items, list)
 
     if not media_items:
         pytest.skip("No media items found in test data")
 
+    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
+
     # Set up accounts and groups
-    await setup_accounts_and_groups(conversation_data, messages)
+    await setup_accounts_and_groups(conversation_data, message_dicts)
 
     # Process messages
-    await process_messages_metadata(mock_config, None, response)
+    await process_messages_metadata(mock_config, DownloadState(), response)
 
     # Process accountMedia
     await process_media_info(mock_config, {"batch": media_items})
 
     # Verify AccountMedia records were created with access flags
     for media_data in media_items:
+        assert isinstance(media_data, dict)
         am = await entity_store.get(AccountMedia, media_data["id"])
         assert am is not None
         if "access" in media_data:

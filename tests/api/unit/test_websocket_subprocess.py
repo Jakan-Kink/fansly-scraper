@@ -5,10 +5,13 @@ import contextlib
 import multiprocessing as mp
 import queue
 from http.cookies import SimpleCookie
+from multiprocessing.queues import Queue as MpQueue
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import JsonValue
 
 from api.websocket import FanslyWebSocket, _run_ws_subprocess, _setup_child_logging
 from api.websocket_protocol import MSG_SERVICE_EVENT
@@ -27,7 +30,7 @@ class TestSetupChildLogging:
     """_setup_child_logging installs a sink that forwards records to evt_q."""
 
     def test_remove_then_add_queue_sink(self):
-        evt_q = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             with patch("api.websocket.logger") as mock_logger:
                 _setup_child_logging(evt_q)
@@ -46,7 +49,7 @@ class TestSetupChildLogging:
     def test_sink_emits_log_kind_event_for_each_record(self):
         """The sink callable installed by _setup_child_logging pushes
         ``{"kind": "log", ...}`` per record. Drive it with a stand-in Message."""
-        evt_q = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             captured_sink: list = []
             with patch("api.websocket.logger") as mock_logger:
@@ -335,7 +338,7 @@ class TestDispatchEvent:
 
     async def test_sync_handler_invoked(self):
         proxy = make_proxy()
-        called = []
+        called: list[JsonValue] = []
         proxy._event_handlers[1] = called.append
         await proxy._dispatch_event(1, "payload")
         assert called == ["payload"]
@@ -447,6 +450,7 @@ class TestStartInThread:
             assert proxy._evt_q is not None
             assert proxy._drain_task is not None
         finally:
+            assert proxy._drain_task is not None
             proxy._drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await proxy._drain_task
@@ -472,6 +476,7 @@ class TestStartInThread:
         try:
             assert proxy._proc is new_proc
         finally:
+            assert proxy._drain_task is not None
             proxy._drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await proxy._drain_task
@@ -493,8 +498,8 @@ class TestStopThread:
         proc = MagicMock()
         proc.is_alive.return_value = False  # exited cleanly after join
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
         proxy.connected = True
@@ -524,8 +529,8 @@ class TestStopThread:
         # initial join) → False after terminate.
         proc.is_alive.side_effect = [True, False]
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
 
@@ -543,8 +548,8 @@ class TestStopThread:
         proc = MagicMock()
         proc.is_alive.return_value = False
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
         proxy._drain_task = None  # explicitly no drain
@@ -578,7 +583,7 @@ class TestDrainEvtQ:
         proxy._proc = MagicMock()
         proxy._evt_q = mp.Queue()
         try:
-            seen = []
+            seen: list[JsonValue] = []
             proxy._event_handlers[5] = seen.append
             await self._run_drain_with(
                 proxy, [{"kind": "event", "type": 5, "data": "hi"}]
@@ -698,8 +703,8 @@ class TestRunWsSubprocessShutdown:
     """Lines 131-277: child entry runs supervisor, processes commands, exits."""
 
     def test_stop_command_terminates_supervisor(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 
@@ -729,8 +734,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_send_command_dispatches_to_ws(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "send", "type": 7, "data": {"x": 1}})
             cmd_q.put({"cmd": "stop"})
@@ -758,8 +763,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_send_command_swallows_send_message_errors(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "send", "type": 1, "data": "x"})
             cmd_q.put({"cmd": "stop"})
@@ -790,8 +795,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_cookies_command_replaces_jar(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "cookies", "data": {"new": "value"}})
             cmd_q.put({"cmd": "stop"})
@@ -820,8 +825,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_register_command_adds_forwarder(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "register", "type": 99})
             cmd_q.put({"cmd": "stop"})
@@ -853,8 +858,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_register_command_skips_already_known_type(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             # forward_types already includes type 8, so register cmd is a noop.
             cmd_q.put({"cmd": "register", "type": 8})
@@ -890,8 +895,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_unknown_command_logs_warning_and_continues(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "bogus"})
             cmd_q.put({"cmd": "stop"})
@@ -924,8 +929,8 @@ class TestRunWsSubprocessShutdown:
 
     def test_status_publisher_emits_on_change(self, tmp_path):
         """Lines 195-226: status_publisher emits when ws state changes."""
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             # No-op cmd first so _command_consumer yields the loop before stop.
             cmd_q.put({"cmd": "register", "type": MSG_SERVICE_EVENT})
@@ -974,8 +979,8 @@ class TestRunWsSubprocessCookieForwarder:
         """Run the supervisor briefly to install the patched cookie forwarder."""
         # Caller registers queues for cleanup so the forwarder closure can
         # keep using evt_q past this method's return.
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         cleanup_qs.extend([cmd_q, evt_q])
         cmd_q.put({"cmd": "stop"})
 
@@ -1104,8 +1109,8 @@ class TestRunWsSubprocessAuthCallbacks:
     """Lines 133-137: _on_unauth and _on_rate_limit push events to evt_q."""
 
     def test_on_unauth_event_emitted(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 
@@ -1148,8 +1153,8 @@ class TestRunWsSubprocessAuthCallbacks:
 
     def test_forwarder_emits_event(self, tmp_path):
         """Lines 185-189: per-message forwarder pushes 'event' kind to evt_q."""
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 

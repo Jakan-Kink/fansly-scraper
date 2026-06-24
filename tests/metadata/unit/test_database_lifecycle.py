@@ -57,6 +57,7 @@ class TestCreateEntityStore:
 
             account = Account(id=snowflake_id(), username="lifecycle_test")
             await store.save(account)
+            assert isinstance(account.id, int)
             found = await store.get(Account, account.id)
             assert found is not None
             assert found.username == "lifecycle_test"
@@ -200,14 +201,14 @@ class TestCleanupErrorPaths:
             async def close(self):
                 raise OSError("pool close boom")
 
-        db._asyncpg_pool = _FailingPool()
+        db._asyncpg_pool = _FailingPool()  # type: ignore[assignment]  # failure-injection double, not a real Pool
 
         await db.cleanup()
 
         assert db._cleanup_done.is_set()
         FanslyObject._store = None
         # Clean up the real pool
-        if real_pool and not real_pool._closed:
+        if real_pool and not real_pool.is_closing():
             await real_pool.close()
 
     @pytest.mark.asyncio
@@ -225,7 +226,7 @@ class TestCleanupErrorPaths:
         assert db._cleanup_done.is_set()
         FanslyObject._store = None
         # Clean up the real pool since dispose was patched
-        if db._asyncpg_pool and not db._asyncpg_pool._closed:
+        if db._asyncpg_pool and not db._asyncpg_pool.is_closing():
             await db._asyncpg_pool.close()
 
     @pytest.mark.asyncio
@@ -253,7 +254,7 @@ class TestCleanupErrorPaths:
         assert call_count == 2  # Both checks were hit
         FanslyObject._store = None
         # Clean up manually since cleanup bailed at 217
-        if db._asyncpg_pool and not db._asyncpg_pool._closed:
+        if db._asyncpg_pool and not db._asyncpg_pool.is_closing():
             await db._asyncpg_pool.close()
         db._sync_engine.dispose()
 

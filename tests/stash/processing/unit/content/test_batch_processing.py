@@ -8,7 +8,7 @@ import pytest
 
 from metadata import ContentType
 from metadata.models import get_store
-from tests.fixtures import (
+from tests.fixtures.metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,

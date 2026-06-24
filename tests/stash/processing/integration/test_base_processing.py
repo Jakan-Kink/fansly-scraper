@@ -9,6 +9,7 @@ import contextlib
 from unittest.mock import patch
 
 import pytest
+from stash_graphql_client import present
 
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
@@ -589,8 +590,12 @@ class TestStashProcessingBaseErrorPaths:
 
                     # Patch the tasks' coroutine __qualname__ to match the processor's module
                     processor_module = real_stash_processor.__class__.__module__
-                    task1.get_coro().__qualname__ = f"{processor_module}.task_1"
-                    task2.get_coro().__qualname__ = f"{processor_module}.task_2"
+                    present(
+                        task1.get_coro()
+                    ).__qualname__ = f"{processor_module}.task_1"
+                    present(
+                        task2.get_coro()
+                    ).__qualname__ = f"{processor_module}.task_2"
 
                     # Add tasks to config background_tasks
                     real_stash_processor.config._background_tasks.extend([task1, task2])

@@ -3,8 +3,10 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.downloadstate import DownloadState
+from helpers.common import JsonDict
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -82,7 +84,7 @@ async def test_process_account_walls(entity_store, config):
     account = Account(id=account_id, username="test_user")
     await store.save(account)
 
-    walls_data = [
+    walls_data: list[JsonValue] = [
         {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
         {"id": wall_id2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
     ]
@@ -120,7 +122,7 @@ async def test_wall_cleanup(entity_store, config):
         await store.save(wall)
 
     # Process with only walls 1 and 3
-    new_walls_data = [
+    new_walls_data: list[JsonValue] = [
         {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
         {"id": wall_id3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
     ]
@@ -164,7 +166,7 @@ async def test_wall_cleanup_with_posts(entity_store, config):
     await store.save(removed_wall)
 
     # Process with only the kept wall — must not raise ForeignKeyViolationError
-    new_walls_data = [
+    new_walls_data: list[JsonValue] = [
         {"id": kept_wall_id, "pos": 1, "name": "Kept", "description": "Description"},
     ]
     await process_account_walls(config, account, new_walls_data)
@@ -204,7 +206,7 @@ async def test_process_wall_posts(entity_store, config):
     state = DownloadState()
     state.creator_id = account_id
 
-    posts_data = {
+    posts_data: JsonDict = {
         "posts": [
             {
                 "id": post_id1,
@@ -246,13 +248,13 @@ async def test_wall_post_already_in_wall(entity_store, mock_config, test_account
     wall = Wall(id=snowflake_id(), accountId=test_account.id, name="dup_test", pos=0)
     await entity_store.save(wall)
 
-    post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+    post = Post(id=snowflake_id(), accountId=test_account.id, fypFlags=0)
     await entity_store.save(post)
 
     state = DownloadState()
     state.creator_id = test_account.id
 
-    posts_data = {
+    posts_data: JsonDict = {
         "posts": [
             {
                 "id": post.id,

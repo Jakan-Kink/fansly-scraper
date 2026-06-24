@@ -39,6 +39,7 @@ from daemon.handlers import (
     FullCreatorDownload,
     MarkMessagesDeleted,
     RedownloadCreatorMedia,
+    WorkItem,
 )
 from daemon.runner import (
     ErrorBudget,
@@ -70,7 +71,7 @@ from tests.fixtures.metadata.metadata_factories import AccountFactory, MessageFa
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-def _logged(caplog, level: str) -> list[str]:
+def _logged(caplog: pytest.LogCaptureFixture, level: str) -> list[str]:
     """Return loguru messages at the given stdlib levelname."""
     return [r.getMessage() for r in caplog.records if r.levelname == level]
 
@@ -875,8 +876,8 @@ class TestDispatchWorkItemUnknown:
     async def test_unknown_work_item_type_logs_and_returns(self, config, caplog):
         caplog.set_level(logging.WARNING)
 
-        class _MysteryItem:
-            """Not registered in _WORK_DISPATCH."""
+        class _MysteryItem(WorkItem):
+            """A real WorkItem subclass that is not registered in _WORK_DISPATCH."""
 
         await _handle_work_item(config, _MysteryItem())  # must not raise
 
@@ -1116,6 +1117,7 @@ class TestOnServiceEventSubscription:
         await handler(envelope)
 
         cached = get_store().get_from_cache(Subscription, sub_id)
+        assert cached is not None
         assert cached.version == 5
         # Steady-state cached + stale event → no access-change written.
         assert creator_id not in _access_changed_accounts
@@ -1159,7 +1161,9 @@ class TestCollectPpvTargetedMediaIds:
                     createdAt=datetime.now(UTC),
                 )
             )
-            am_objs.append(store.get_from_cache(AccountMedia, am_id))
+            am_obj = store.get_from_cache(AccountMedia, am_id)
+            assert am_obj is not None
+            am_objs.append(am_obj)
 
         bundle = AccountMediaBundle(
             id=bundle_id, accountId=creator_id, createdAt=datetime.now(UTC)

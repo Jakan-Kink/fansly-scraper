@@ -9,13 +9,13 @@ from fileio.preview_repair import (
     build_preview_id_set,
 )
 from metadata import Media
-from tests.fixtures import snowflake_id
 from tests.fixtures.metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
     MediaFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio

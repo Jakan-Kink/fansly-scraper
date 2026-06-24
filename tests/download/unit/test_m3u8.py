@@ -51,6 +51,7 @@ import pytest
 import respx
 from m3u8 import M3U8
 
+from api.fansly import FanslyApi
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import (
     _mux_segments_with_ffmpeg,
@@ -109,10 +110,10 @@ class _FakeFFmpegStream:
         path = str(self._output_path) if self._output_path is not None else "output.mp4"
         return ["ffmpeg", "-i", "hls", path]
 
-    def global_args(self, *_a, **_k) -> _FakeFFmpegStream:
+    def global_args(self, *_a: object, **_k: object) -> _FakeFFmpegStream:
         return self
 
-    def run(self, *_a, **_k) -> None:
+    def run(self, *_a: object, **_k: object) -> None:
         if self._raises is not None:
             raise self._raises
         if self._output_path is not None:
@@ -1746,7 +1747,7 @@ class TestSegmentDownload:
     at module level — their own tests (above) cover their real behavior.
     """
 
-    def _make_config_with_segments(self, fansly_api) -> FanslyConfig:
+    def _make_config_with_segments(self, fansly_api: FanslyApi) -> FanslyConfig:
         """Build a real config attached to ``fansly_api``.
 
         Tests mount their own respx routes for the playlist + segment URLs

@@ -23,14 +23,14 @@ import respx
 from stash_graphql_client.errors import StashVersionError
 from stash_graphql_client.types.job import JobStatus
 
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash import (
     create_find_performers_result,
     create_find_studios_result,
     create_graphql_response,
     create_performer_dict,
     create_studio_dict,
 )
-from tests.fixtures.metadata.metadata_factories import AccountFactory
 from tests.fixtures.stash.stash_api_fixtures import (
     assert_op,
     assert_op_with_vars,
@@ -659,7 +659,7 @@ class TestCreatorProcessing:
         created_path.mkdir(parents=True, exist_ok=True)
 
         # Create Job instances using factory
-        finished_job = JobFactory(
+        finished_job = JobFactory.build(
             id="job_456",
             status=JobStatus.FINISHED,
             description="Scanning metadata",

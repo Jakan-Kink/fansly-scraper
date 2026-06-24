@@ -5,6 +5,7 @@ import json
 import pytest
 
 from download.core import DownloadState
+from helpers.common import JsonDict, expect_dict, expect_list
 from metadata import Media
 from metadata.media import (
     _should_skip_media,
@@ -157,7 +158,7 @@ async def test_process_video_metadata(entity_store, config):
     account = Account(id=account_id, username="test_user_123")
     await store.save(account)
 
-    media_item = {
+    media_item: JsonDict = {
         "id": media_id,
         "accountId": account_id,
         "mimetype": "video/mp4",
@@ -207,7 +208,9 @@ async def test_media_location(entity_store):
     assert len(media.locations) == 1
     assert media.locations[0].locationId == 102
     # normalize_cdn_url strips query params; plain path stays unchanged
-    assert "example.com/video.mp4" in media.locations[0].location
+    location = media.locations[0].location
+    assert location is not None
+    assert "example.com/video.mp4" in location
 
 
 @pytest.mark.asyncio
@@ -295,7 +298,7 @@ async def test_invalid_metadata(entity_store, config):
     account = Account(id=account_id, username="test_user_123")
     await store.save(account)
 
-    media_item = {
+    media_item: JsonDict = {
         "id": media_id,
         "accountId": account_id,
         "mimetype": "video/mp4",
@@ -358,10 +361,11 @@ class TestFullMediaPipeline:
     async def test_batch_media_processing(self, entity_store, mock_config):
         acct_id = snowflake_id()
         await entity_store.save(Account(id=acct_id, username=f"batch_{acct_id}"))
-        batch = {"batch": [_account_media_dict(acct_id) for _ in range(3)]}
+        batch: JsonDict = {"batch": [_account_media_dict(acct_id) for _ in range(3)]}
         await process_media_info(mock_config, batch)
-        for item in batch["batch"]:
-            assert await entity_store.get(Media, item["media"]["id"]) is not None
+        for item in expect_list(batch["batch"], "batch"):
+            media_dict = expect_dict(expect_dict(item, "item")["media"], "media")
+            assert await entity_store.get(Media, media_dict["id"]) is not None
 
     @pytest.mark.asyncio
     async def test_missing_account_id_skipped(self, entity_store, mock_config):
@@ -430,7 +434,7 @@ class TestFullMediaPipeline:
         assert validate_media_id("not_numeric", context_id=1) is None
         assert validate_media_id(str(snowflake_id()), context_id=1) is not None
         assert validate_media_id({"id": 1}, context_id=1) is None
-        assert validate_media_id([1], context_id=1) is None
+        assert validate_media_id([1], context_id=1) is None  # type: ignore[arg-type]  # list tests unsupported-type rejection
 
     @pytest.mark.asyncio
     async def test_link_media_to_bundle_all_paths(
@@ -480,7 +484,7 @@ class TestFullMediaPipeline:
         pid = snowflake_id()
         await process_preview(
             mock_config,
-            parent,
+            parent,  # type: ignore[arg-type]  # Media.id is int|None; HasPreview wants int, real Media is intended
             {"id": pid, "accountId": test_account.id, "mimetype": "image/jpeg"},
             account_id=test_account.id,
         )
@@ -491,7 +495,8 @@ class TestFullMediaPipeline:
         self, entity_store, mock_config, test_account
     ):
         parent = Media(id=snowflake_id(), accountId=test_account.id)
-        await process_preview(mock_config, parent, None)
-        await process_preview(mock_config, parent, "")
-        await process_preview(mock_config, parent, "   ")
-        await process_preview(mock_config, parent, 12345)
+        # Media.id is int|None; HasPreview wants int — real Media is the intended arg.
+        await process_preview(mock_config, parent, None)  # type: ignore[arg-type]
+        await process_preview(mock_config, parent, "")  # type: ignore[arg-type]
+        await process_preview(mock_config, parent, "   ")  # type: ignore[arg-type]
+        await process_preview(mock_config, parent, 12345)  # type: ignore[arg-type]  # non-dict preview tests no-op path
