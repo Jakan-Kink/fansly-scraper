@@ -2773,6 +2773,21 @@ docs = ["furo (>=2025.12.19)", "sphinx (>=9.1)", "sphinx-autodoc-typehints (>=3.
 testing = ["covdefaults (>=2.3)", "coverage (>=7.5.4)", "pytest (>=8.3.5)", "pytest-mock (>=3.14)", "setuptools (>=75.1)"]
 
 [[package]]
+name = "pytimeparse2"
+version = "1.7.1"
+description = "Time expression parser."
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "pytimeparse2-1.7.1-py3-none-any.whl", hash = "sha256:a162ea6a7707fd0bb82dd99556efb783935f51885c8bdced0fce3fffe85ab002"},
+    {file = "pytimeparse2-1.7.1.tar.gz", hash = "sha256:98668cdcba4890e1789e432e8ea0059ccf72402f13f5d52be15bdfaeb3a8b253"},
+]
+
+[package.extras]
+dateutil = ["python-dateutil (>=2.8.2,<2.9.0)"]
+
+[[package]]
 name = "pywavelets"
 version = "1.9.0"
 description = "PyWavelets, wavelet transform module"
@@ -3878,4 +3893,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "0d673b2fc1caef2339cbd58f29e19298438a97cbe05c8108cc5a8e9194a39a4f"
+content-hash = "632fbe0ae2227b16193495c925bdc36025c168c890dd4ca19d0d22348a9da16c"
