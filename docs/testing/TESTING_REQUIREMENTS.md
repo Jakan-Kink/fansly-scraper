@@ -1214,6 +1214,8 @@ async def test_find_performer(respx_mock, stash_client):
 
 ## Coverage Verification
 
+**NEVER pass dotted module names to `--cov` (e.g. `--cov=metadata.entity_store`). Use path form (`--cov=metadata`, `--cov=.`) or bare `--cov`.** When a `--cov` source is a dotted module name, coverage.py resolves it at startup via `importlib.util.find_spec()`, which EXECUTES the package chain (`metadata/__init__.py` → `account.py` → `import asyncpg`), then un-imports what it pulled in so the modules can be re-imported under measurement. asyncpg's C-extension protocol does not survive that re-import: the C layer keeps the first generation of exception classes while all Python-level bindings get the second, so `except asyncpg.UniqueViolationError:` (and any other asyncpg exception catch) can never match the raised exception. Observed as task #32: `get_or_create`'s race-recovery branch became unreachable and its designed UniqueViolation escaped — only under `--cov=metadata.entity_store`, never under bare/path `--cov`. Path-form sources are compared as filesystem paths and are never probe-imported.
+
 ```bash
 # Run all tests with coverage
 pytest --cov=. --cov-report=html

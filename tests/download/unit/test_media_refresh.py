@@ -172,7 +172,9 @@ async def test_refresh_pulls_bundle_constituent_ams(
         # individually accessible AMs — but bundle is locked, so they're
         # still in the refresh batch via bundle expansion.
         await _save_am(store, am_id=am_id, account_id=creator_id, access=True)
-        am_objs.append(store.get_from_cache(AccountMedia, am_id))
+        am_obj = store.get_from_cache(AccountMedia, am_id)
+        assert am_obj is not None
+        am_objs.append(am_obj)
 
     bundle_id = snowflake_id()
     bundle = AccountMediaBundle(

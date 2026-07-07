@@ -687,7 +687,7 @@ def download_m3u8(
     config: FanslyConfig,
     m3u8_url: str,
     save_path: Path,
-    created_at: int | None = None,
+    created_at: float | None = None,
 ) -> Path:
     """Download M3U8 content as MP4 using three-tier strategy.
 

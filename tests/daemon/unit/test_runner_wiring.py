@@ -58,6 +58,7 @@ from daemon.runner import (
 )
 from daemon.simulator import ActivitySimulator
 from errors import DaemonUnrecoverableError
+from helpers.common import JsonDict
 from tests.fixtures.api import (
     FakeWS,
     dump_fansly_calls,
@@ -66,6 +67,7 @@ from tests.fixtures.api import (
     mount_empty_creator_pipeline,
     mount_empty_following_route,
 )
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -376,7 +378,7 @@ class TestHandleWorkItemScopeHoist:
         # of these get called for the out-of-scope creator.
         calls: list[str] = []
 
-        async def _record(name: str, _config, _item):
+        async def _record(name: str, _config: Any, _item: Any) -> None:
             calls.append(name)
 
         recorders = {
@@ -726,7 +728,7 @@ class TestHandleTimelineOnlyItem:
 
         # Patch only the leaf timing/IO calls — same pattern as
         # tests/download/unit/test_timeline_download.py.
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -809,7 +811,7 @@ class TestHandleTimelineOnlyItem:
             url__startswith=FanslyApi.MESSAGING_GROUPS_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"response": []})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1030,7 +1032,7 @@ class TestWsEventEnqueuesWork:
                 "attachments": [{"contentType": 1, "contentId": snowflake_id()}],
             },
         }
-        envelope = {"serviceId": 5, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 5, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1054,7 +1056,7 @@ class TestWsEventEnqueuesWork:
             "type": 5,
             "subscription": {"accountId": creator_id, "status": 3},
         }
-        envelope = {"serviceId": 15, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 15, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1090,7 +1092,7 @@ class TestInterruptEventsWakeHiddenState:
                 "attachments": [{"contentType": 1, "contentId": snowflake_id()}],
             },
         }
-        envelope = {"serviceId": 5, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 5, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1113,7 +1115,7 @@ class TestInterruptEventsWakeHiddenState:
             "type": 7,
             "order": {"correlationAccountId": snowflake_id()},
         }
-        envelope = {"serviceId": 2, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 2, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1133,7 +1135,7 @@ class TestInterruptEventsWakeHiddenState:
         handler = _make_ws_handler(simulator, queue)
 
         inner = {"type": 2, "wallet": {"balance": 1000}}
-        envelope = {"serviceId": 6, "event": json.dumps(inner)}
+        envelope: JsonDict = {"serviceId": 6, "event": json.dumps(inner)}
 
         await handler(envelope)
 
@@ -1286,10 +1288,8 @@ class TestFollowingRefresh:
 
         # The handler also calls mark_creator_processed which touches
         # the entity_store — no patch needed; uses the real DB.
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr(
-            "download.account.asyncio.sleep", AsyncMock(return_value=None)
-        )
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.account.asyncio.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1346,7 +1346,7 @@ class TestFollowingRefresh:
         mount_client_account_me_route(client_id)
         following_route = mount_empty_following_route(client_id)
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1412,10 +1412,8 @@ class TestFollowingRefresh:
         mount_client_account_me_route(client_id)
         following_route = mount_empty_following_route(client_id)
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr(
-            "download.account.asyncio.sleep", AsyncMock(return_value=None)
-        )
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.account.asyncio.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1572,7 +1570,7 @@ class TestMarkViewedFalse:
             url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1821,8 +1819,8 @@ class TestMarkViewedFalse:
             url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr("download.wall.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.wall.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1910,7 +1908,7 @@ class TestMarkViewedFalse:
 # ===========================================================================
 
 
-def _logged(caplog, level: str) -> list[str]:
+def _logged(caplog: pytest.LogCaptureFixture, level: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.levelname == level]
 
 
@@ -1941,7 +1939,7 @@ class TestRunDaemonBootstrapReuse:
 
         factory_calls = 0
 
-        def _factory(_config) -> Any:
+        def _factory(_config: Any) -> Any:
             nonlocal factory_calls
             factory_calls += 1
             return fake_ws

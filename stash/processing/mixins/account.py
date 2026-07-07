@@ -5,9 +5,9 @@ from __future__ import annotations
 import traceback
 from typing import TYPE_CHECKING
 
-from stash_graphql_client.types import Image, Performer
+from stash_graphql_client.types import Image, Performer, UnsetType, is_set
 
-from metadata import Account, Media
+from metadata import Account, PostMention
 from metadata.models import get_store
 from textio import print_error, print_warning
 
@@ -38,12 +38,13 @@ class AccountProcessingMixin(StashProcessingProtocol):
                 account = await store.get(Account, self.state.creator_id)
         else:
             # Search by username (case-insensitive) — filter cache first
+            if self.state.creator_name is None:
+                return None
             name_lower = self.state.creator_name.lower()
-            cached = [
-                obj
-                for obj in store._cache.get(Account, {}).values()
-                if getattr(obj, "username", None) and obj.username.lower() == name_lower
-            ]
+            cached = store.filter(
+                Account,
+                lambda a: a.username is not None and a.username.lower() == name_lower,
+            )
             account = cached[0] if cached else None
             if not account:
                 account = await store.find_one(
@@ -133,7 +134,7 @@ class AccountProcessingMixin(StashProcessingProtocol):
                 Performer,
                 lambda p: (
                     hasattr(p, "alias_list")
-                    and p.alias_list
+                    and is_set(p.alias_list)
                     and username in p.alias_list
                 ),
             )
@@ -147,7 +148,9 @@ class AccountProcessingMixin(StashProcessingProtocol):
         if not performer:
             results = self.store.filter(
                 Performer,
-                lambda p: hasattr(p, "urls") and p.urls and fansly_url in p.urls,
+                lambda p: (
+                    hasattr(p, "urls") and is_set(p.urls) and fansly_url in p.urls
+                ),
             )
             if results:
                 logger.debug(f"Cache hit: performer by URL: {fansly_url}")
@@ -229,10 +232,9 @@ class AccountProcessingMixin(StashProcessingProtocol):
             performer: Performer object to update
         """
         # Account.avatar is a Pydantic relationship — directly accessible
-        avatar: Media | None = account.avatar
-        has_avatar = avatar and avatar.local_filename
+        avatar = account.avatar
 
-        if not has_avatar:
+        if avatar is None or isinstance(avatar, UnsetType) or not avatar.local_filename:
             debug_print(
                 {
                     "method": "StashProcessing - _update_performer_avatar",
@@ -243,15 +245,18 @@ class AccountProcessingMixin(StashProcessingProtocol):
             return
 
         # Only update if current image is default
-        if not performer.image_path or "default=true" in performer.image_path:
+        image_path = performer.image_path
+        if not is_set(image_path) or image_path is None or "default=true" in image_path:
             # Cache-first: try sync filter on preloaded images, then GraphQL
             filename = avatar.local_filename
             images = self.store.filter(
                 Image,
                 lambda img: (
                     hasattr(img, "visual_files")
-                    and img.visual_files
-                    and any(filename in f.path for f in img.visual_files)
+                    and is_set(img.visual_files)
+                    and any(
+                        is_set(f.path) and filename in f.path for f in img.visual_files
+                    )
                 ),
             )
             if not images:
@@ -267,7 +272,12 @@ class AccountProcessingMixin(StashProcessingProtocol):
                 return
             # Use first image (sorted by created_at in Stash)
             avatar_img = images[0]
-            avatar_path = avatar_img.visual_files[0].path
+            visual_files = avatar_img.visual_files
+            if isinstance(visual_files, UnsetType) or not visual_files:
+                return
+            avatar_path = visual_files[0].path
+            if isinstance(avatar_path, UnsetType):
+                return
             try:
                 await performer.update_avatar(self.context.client, avatar_path)
                 debug_print(
@@ -289,7 +299,9 @@ class AccountProcessingMixin(StashProcessingProtocol):
                     }
                 )
 
-    async def _find_existing_performer(self, account: Account) -> Performer | None:
+    async def _find_existing_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None:
         """Find existing performer in Stash using identity map.
 
         Args:
@@ -323,7 +335,7 @@ class AccountProcessingMixin(StashProcessingProtocol):
 
         # Fallback to name search (cache-first, then GraphQL)
         # Supports both Account (username) and PostMention (handle) via duck-typing
-        name = account.username if hasattr(account, "username") else account.handle
+        name = account.username if isinstance(account, Account) else account.handle
         if not name:  # pragma: no cover — username and handle are required str fields
             return None
         results = self.store.filter(Performer, lambda p: p.name == name)

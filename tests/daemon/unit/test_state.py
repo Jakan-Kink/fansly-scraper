@@ -1,7 +1,14 @@
 """Unit tests for daemon.state — mark_creator_processed.
 
 Uses a real EntityStore (PostgreSQL) and real Pydantic models.
-No HTTP mocking needed — mark_creator_processed only touches the database.
+No HTTP mocking needed — mark_creator_processed only touches the database
+(via ``get_store()``; it takes no config, so no config fixture is needed).
+
+The class shares ONE class-scoped database via ``class_entity_store``
+(requested through ``reset_class_store``); every test uses its own
+unique-snowflake creator, so rows never collide in the shared DB. The two
+failure-injection tests monkeypatch ``daemon.state.get_store`` with a
+transient wrapper around the shared store — monkeypatch undoes it per test.
 
 Coverage targets:
   1. mark_creator_processed creates new MonitorState when none exists
@@ -12,12 +19,14 @@ Coverage targets:
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
 
 from daemon.state import mark_creator_processed
 from metadata.models import MonitorState
+from metadata.models import get_store as real_get_store
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     MonitorStateFactory,
@@ -26,71 +35,58 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-# `config_wired` comes from the canonical fixture
-# (tests/fixtures/core/config_fixtures.py) via the wildcard import in
-# tests/conftest.py. Per Cat L policy: don't redefine here.
-
-
-# ---------------------------------------------------------------------------
 # mark_creator_processed
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("daemon_state")
 class TestMarkCreatorProcessed:
-    """Tests for mark_creator_processed()."""
+    """Tests for mark_creator_processed() over ONE shared class DB."""
 
-    @pytest.mark.asyncio
-    async def test_creates_new_monitor_state_when_none_exists(
-        self, config_wired, entity_store
-    ):
+    async def test_creates_new_monitor_state_when_none_exists(self, reset_class_store):
         """First call creates a MonitorState row with lastCheckedAt set to now."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
+        account = AccountFactory.build(id=snowflake_id())
+        await reset_class_store.save(account)
 
         before = datetime.now(UTC)
         await mark_creator_processed(account.id)
         after = datetime.now(UTC)
 
-        state = await entity_store.get(MonitorState, account.id)
+        state = await reset_class_store.get(MonitorState, account.id)
         assert state is not None
         assert state.lastCheckedAt is not None
         assert before <= state.lastCheckedAt <= after
         assert isinstance(state.lastRunAt, datetime)
         assert isinstance(state.updatedAt, datetime)
 
-    @pytest.mark.asyncio
     async def test_updates_existing_monitor_state_last_checked_at(
-        self, config_wired, entity_store
+        self, reset_class_store
     ):
         """Subsequent call updates lastCheckedAt to a more recent timestamp."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
+        account = AccountFactory.build(id=snowflake_id())
+        await reset_class_store.save(account)
 
         old_time = datetime(2026, 1, 1, tzinfo=UTC)
         state = MonitorStateFactory.build(
             creatorId=account.id,
             lastCheckedAt=old_time,
         )
-        await entity_store.save(state)
+        await reset_class_store.save(state)
 
         before = datetime.now(UTC)
         await mark_creator_processed(account.id)
         after = datetime.now(UTC)
 
-        entity_store.invalidate(MonitorState, account.id)
-        reloaded = await entity_store.get(MonitorState, account.id)
+        reset_class_store.invalidate(MonitorState, account.id)
+        reloaded = await reset_class_store.get(MonitorState, account.id)
         assert reloaded is not None
         assert reloaded.lastCheckedAt is not None
         assert before <= reloaded.lastCheckedAt <= after
         # Must be strictly newer than the old snapshot
         assert reloaded.lastCheckedAt > old_time
 
-    @pytest.mark.asyncio
-    async def test_noop_when_account_does_not_exist(self, config_wired, entity_store):
+    async def test_noop_when_account_does_not_exist(self, reset_class_store):
         """Unknown creator_id — FK constraint prevents row creation, no raise.
 
         The function must swallow the FK violation so the daemon loop stays
@@ -100,28 +96,22 @@ class TestMarkCreatorProcessed:
         # Should not raise — FK violation is caught internally
         await mark_creator_processed(unknown_id)
         # No MonitorState row should be present
-        state = await entity_store.get(MonitorState, unknown_id)
+        state = await reset_class_store.get(MonitorState, unknown_id)
         assert state is None
 
-    @pytest.mark.asyncio
     async def test_account_load_exception_logs_warning_and_returns(
-        self, config_wired, entity_store, monkeypatch, caplog
+        self, reset_class_store, monkeypatch, caplog
     ):
         """Lines 40-46: store.get(Account) raises → warning log + early return.
 
         Cache miss + DB exception path: the function must NOT propagate the
         exception (daemon loop would die), just log + skip this snapshot.
         """
-        import logging as _logging
-
-        caplog.set_level(_logging.WARNING)
+        caplog.set_level(logging.WARNING)
 
         creator_id = snowflake_id()
         # Don't save the account — forces store.get_from_cache to miss and
         # trigger the await store.get(Account) path.
-
-        # Patch the module-level get_store to return a wrapper that raises on get.
-        from daemon.state import get_store as real_get_store
 
         real_store = real_get_store()
 
@@ -159,24 +149,19 @@ class TestMarkCreatorProcessed:
             for m in warnings
         )
 
-    @pytest.mark.asyncio
     async def test_save_exception_logs_warning_and_returns(
-        self, config_wired, entity_store, monkeypatch, caplog
+        self, reset_class_store, monkeypatch, caplog
     ):
         """Lines 72-77: store.save(MonitorState) raises → warning + return.
 
         Account exists, but the MonitorState save fails. The function must
         catch the exception so the daemon loop stays running.
         """
-        import logging as _logging
-
-        caplog.set_level(_logging.WARNING)
+        caplog.set_level(logging.WARNING)
 
         # Real account so account-load succeeds.
-        account = AccountFactory.build()
-        await entity_store.save(account)
-
-        from daemon.state import get_store as real_get_store
+        account = AccountFactory.build(id=snowflake_id())
+        await reset_class_store.save(account)
 
         real_store = real_get_store()
 

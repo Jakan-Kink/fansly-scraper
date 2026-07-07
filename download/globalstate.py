@@ -1,6 +1,30 @@
 """Global Downloading State Management (Statistics)"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TypedDict
+
+
+class DownloadStats(TypedDict):
+    """Per-state file-download counters accumulated during a run."""
+
+    start_time: datetime
+    total_count: int
+    skipped_count: int
+    failed_count: int
+    total_size: int
+    total_size_str: str
+
+
+def _new_download_stats() -> DownloadStats:
+    return DownloadStats(
+        start_time=datetime.now(UTC),
+        total_count=0,
+        skipped_count=0,
+        failed_count=0,
+        total_size=0,
+        total_size_str="0 B",
+    )
 
 
 @dataclass
@@ -15,6 +39,8 @@ class GlobalState:
     total_message_items: int = 0
     total_timeline_pictures: int = 0
     total_timeline_videos: int = 0
+
+    download_stats: DownloadStats = field(default_factory=_new_download_stats)
 
     # endregion
 

@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from helpers.common import parse_timestamp
+from helpers.common import (
+    JsonDict,
+    expect_dict,
+    expect_int,
+    expect_list,
+    parse_timestamp,
+)
 from textio import json_output
 
 from .account import process_account_data, process_media_bundles_data
@@ -25,7 +31,7 @@ if TYPE_CHECKING:
 async def process_pinned_posts(
     config: FanslyConfig,  # noqa: ARG001
     account: Account,
-    posts: list[dict],
+    posts: list[JsonDict],
 ) -> None:
     """Process pinned posts using sync_junction."""
     store = get_store()
@@ -36,7 +42,7 @@ async def process_pinned_posts(
 
     junction_rows = []
     for post in posts:
-        post_id = post["postId"]
+        post_id = expect_int(post["postId"], "postId")
         existing = await store.get(Post, post_id)
         if existing is None:
             json_output(
@@ -54,7 +60,7 @@ async def process_pinned_posts(
             }
         )
 
-    if junction_rows:
+    if junction_rows and account.id is not None:
         await store.sync_junction(
             "pinned_posts", "accountId", account.id, junction_rows
         )
@@ -63,7 +69,7 @@ async def process_pinned_posts(
 async def process_timeline_posts(
     config: FanslyConfig,
     state: DownloadState,
-    posts_data: dict[str, Any],
+    posts_data: JsonDict,
 ) -> None:
     """Process timeline posts and related data."""
     store = get_store()
@@ -73,20 +79,22 @@ async def process_timeline_posts(
     if state.creator_id:
         account = await store.get(AccountModel, state.creator_id)
         if not account and "account" in posts:
-            await process_account_data(config, data=posts["account"])
+            await process_account_data(
+                config, data=expect_dict(posts["account"], "account")
+            )
 
-    for account_data in posts.get("accounts", []):
-        await process_account_data(config, data=account_data)
+    for raw_account in expect_list(posts.get("accounts") or [], "accounts"):
+        await process_account_data(config, data=expect_dict(raw_account, "account"))
 
     # Process posts
-    for post in posts.get("posts", []):
-        await _process_timeline_post(post)
+    for raw_post in expect_list(posts.get("posts") or [], "posts"):
+        await _process_timeline_post(expect_dict(raw_post, "post"))
 
-    for post in posts.get("aggregatedPosts", []):
-        await _process_timeline_post(post)
+    for raw_post in expect_list(posts.get("aggregatedPosts") or [], "aggregatedPosts"):
+        await _process_timeline_post(expect_dict(raw_post, "post"))
 
     # Process media in batches
-    account_media = posts.get("accountMedia", [])
+    account_media = expect_list(posts.get("accountMedia") or [], "accountMedia")
     batch_size = 15
     for i in range(0, len(account_media), batch_size):
         batch = account_media[i : i + batch_size]
@@ -96,7 +104,7 @@ async def process_timeline_posts(
     await process_media_bundles_data(config, posts, id_fields=["accountId"])
 
 
-async def _process_timeline_post(post: dict) -> None:
+async def _process_timeline_post(post: JsonDict) -> None:
     """Process a single timeline post.
 
     Post._prepare_post_data handles:

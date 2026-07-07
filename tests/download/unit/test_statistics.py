@@ -1,5 +1,8 @@
 """Tests for download/statistics.py — content stats, file stats, and formatted output."""
 
+import logging
+from datetime import UTC, datetime
+
 import pytest
 
 from download.core import DownloadState, GlobalState
@@ -45,16 +48,18 @@ class TestUpdateGlobalStatistics:
         assert gs.total_timeline_pictures == 20
         assert gs.total_timeline_videos == 8
 
-    def test_initializes_missing_download_stats(self):
-        """Lines 46-63: both download_state and global_state lack download_stats attr."""
+    def test_download_stats_zero_initialized_by_default(self):
+        """download_stats is a dataclass field — present and zeroed on fresh states."""
         gs = GlobalState()
         ds = DownloadState()
 
-        # Ensure download_stats doesn't exist
-        if hasattr(ds, "download_stats"):
-            delattr(ds, "download_stats")
-        if hasattr(gs, "download_stats"):
-            delattr(gs, "download_stats")
+        # Field default_factory guarantees presence; no lazy init needed.
+        for state in (gs, ds):
+            assert state.download_stats["total_count"] == 0
+            assert state.download_stats["skipped_count"] == 0
+            assert state.download_stats["failed_count"] == 0
+            assert state.download_stats["total_size"] == 0
+            assert state.download_stats["total_size_str"] == "0 B"
 
         update_global_statistics(gs, ds)
 
@@ -65,7 +70,7 @@ class TestUpdateGlobalStatistics:
         """Lines 65-70: accumulates file stats from download_state."""
         gs = GlobalState()
         gs.download_stats = {
-            "start_time": None,
+            "start_time": datetime.now(UTC),
             "total_count": 10,
             "skipped_count": 2,
             "failed_count": 1,
@@ -75,6 +80,7 @@ class TestUpdateGlobalStatistics:
 
         ds = DownloadState()
         ds.download_stats = {
+            "start_time": datetime.now(UTC),
             "total_count": 5,
             "skipped_count": 3,
             "failed_count": 0,
@@ -111,68 +117,165 @@ class TestPrintStatisticsHelper:
         print_statistics_helper(state, "Header", "\n  Custom footer text")
 
 
+_PER_CREATOR_FOOTERS = (
+    "Follow the creator to be able to scrape media!",
+    "Subscribe to the creator if you would like to get the entire content.",
+    "Try setting download_media_previews to True in the config.ini file.",
+)
+
+
 class TestPrintStatistics:
     """Lines 106-124: per-creator statistics with follow/subscribe/preview warnings."""
 
-    def test_not_following(self, mock_config):
-        """Line 111: not following → footer message."""
+    @pytest.mark.parametrize(
+        (
+            "download_media_previews",
+            "following",
+            "subscribed",
+            "state_fields",
+            "expected_fragment",
+        ),
+        [
+            pytest.param(
+                None,
+                False,
+                False,
+                {},
+                "Follow the creator to be able to scrape media!",
+                id="not-following-footer",
+            ),
+            pytest.param(
+                None,
+                True,
+                False,
+                {},
+                "Subscribe to the creator if you would like to get the entire content.",
+                id="following-not-subscribed-footer",
+            ),
+            pytest.param(
+                False,
+                True,
+                True,
+                {
+                    "total_timeline_pictures": 50,
+                    "total_timeline_videos": 20,
+                    # pic_count + vid_count < total → missing > 0
+                    "pic_count": 10,
+                    "vid_count": 5,
+                },
+                "Try setting download_media_previews to True in the config.ini file.",
+                id="subscribed-missing-items-preview-hint",
+            ),
+            pytest.param(
+                True,
+                True,
+                True,
+                {},
+                None,
+                id="subscribed-no-missing-no-footer",
+            ),
+        ],
+    )
+    def test_footer_variants(
+        self,
+        mock_config,
+        caplog,
+        download_media_previews,
+        following,
+        subscribed,
+        state_fields,
+        expected_fragment,
+    ):
+        """Footer message tracks follow/subscribe/preview state.
+
+        ``download_media_previews=None`` leaves the fixture default untouched
+        (the follow/subscribe rows never set it). The no-footer row asserts
+        that NONE of the per-creator footer fragments appear.
+        """
+        caplog.set_level(logging.INFO)
+        if download_media_previews is not None:
+            mock_config.download_media_previews = download_media_previews
         state = DownloadState()
         state.creator_name = "testcreator"
-        state.following = False
-        state.subscribed = False
+        state.following = following
+        state.subscribed = subscribed
+        for field, value in state_fields.items():
+            setattr(state, field, value)
+
         print_statistics(mock_config, state)
 
-    def test_following_not_subscribed(self, mock_config):
-        """Lines 113-116: following but not subscribed."""
-        state = DownloadState()
-        state.creator_name = "testcreator"
-        state.following = True
-        state.subscribed = False
-        print_statistics(mock_config, state)
-
-    def test_subscribed_with_missing_items(self, mock_config):
-        """Lines 118-122: subscribed, has missing items, previews disabled."""
-        mock_config.download_media_previews = False
-        state = DownloadState()
-        state.creator_name = "testcreator"
-        state.following = True
-        state.subscribed = True
-        state.total_timeline_pictures = 50
-        state.total_timeline_videos = 20
-        # pic_count + vid_count < total → missing > 0
-        state.pic_count = 10
-        state.vid_count = 5
-        print_statistics(mock_config, state)
-
-    def test_subscribed_no_missing(self, mock_config):
-        """All content downloaded, no footer additions."""
-        mock_config.download_media_previews = True
-        state = DownloadState()
-        state.creator_name = "testcreator"
-        state.following = True
-        state.subscribed = True
-        print_statistics(mock_config, state)
+        output = "\n".join(r.getMessage() for r in caplog.records)
+        assert (
+            f"Finished {mock_config.download_mode_str()} type download "
+            "for @testcreator" in output
+        )
+        if expected_fragment is not None:
+            assert expected_fragment in output
+        else:
+            for fragment in _PER_CREATOR_FOOTERS:
+                assert fragment not in output
 
 
 class TestPrintGlobalStatistics:
     """Lines 134-147: global stats for all creators."""
 
-    def test_with_user_names(self, mock_config):
-        mock_config.user_names = ["creator1", "creator2"]
+    @pytest.mark.parametrize(
+        ("user_names", "state_fields", "expected_fragment", "expected_error"),
+        [
+            pytest.param(
+                ["creator1", "creator2"],
+                {},
+                None,
+                None,
+                id="two-creators-no-missing",
+            ),
+            pytest.param(
+                ["creator1"],
+                {"total_timeline_pictures": 100, "pic_count": 50},
+                "Make sure you are following and subscribed to all creators.",
+                None,
+                id="missing-items-footer-warning",
+            ),
+            pytest.param(
+                None,
+                {},
+                None,
+                RuntimeError,
+                id="no-user-names-raises-runtimeerror",
+            ),
+        ],
+    )
+    def test_global_summary_variants(
+        self,
+        mock_config,
+        caplog,
+        user_names,
+        state_fields,
+        expected_fragment,
+        expected_error,
+    ):
+        """Global summary: creator count header, missing-items footer, None guard.
+
+        ``user_names=None`` is a distinct failure mode (line 134-135) — kept
+        as its own row with an ``expected_error`` column.
+        """
+        caplog.set_level(logging.INFO)
+        mock_config.user_names = user_names
         state = GlobalState()
+        for field, value in state_fields.items():
+            setattr(state, field, value)
+
+        if expected_error is not None:
+            with pytest.raises(expected_error, match="user names undefined"):
+                print_global_statistics(mock_config, state)
+            return
+
         print_global_statistics(mock_config, state)
 
-    def test_with_missing_items(self, mock_config):
-        """Line 144-145: missing items → footer warning."""
-        mock_config.user_names = ["creator1"]
-        state = GlobalState()
-        state.total_timeline_pictures = 100
-        state.pic_count = 50
-        print_global_statistics(mock_config, state)
-
-    def test_no_user_names_raises(self, mock_config):
-        """Line 134-135: user_names is None → RuntimeError."""
-        mock_config.user_names = None
-        state = GlobalState()
-        with pytest.raises(RuntimeError, match="user names undefined"):
-            print_global_statistics(mock_config, state)
+        output = "\n".join(r.getMessage() for r in caplog.records)
+        assert f"Finished downloading media for {len(user_names)} creators!" in output
+        missing_footer = "Make sure you are following and subscribed to all creators."
+        if expected_fragment is not None:
+            assert expected_fragment in output
+        else:
+            assert missing_footer not in output

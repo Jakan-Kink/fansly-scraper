@@ -5,10 +5,13 @@ import contextlib
 import multiprocessing as mp
 import queue
 from http.cookies import SimpleCookie
+from multiprocessing.queues import Queue as MpQueue
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import JsonValue
 
 from api.websocket import FanslyWebSocket, _run_ws_subprocess, _setup_child_logging
 from api.websocket_protocol import MSG_SERVICE_EVENT
@@ -27,7 +30,7 @@ class TestSetupChildLogging:
     """_setup_child_logging installs a sink that forwards records to evt_q."""
 
     def test_remove_then_add_queue_sink(self):
-        evt_q = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             with patch("api.websocket.logger") as mock_logger:
                 _setup_child_logging(evt_q)
@@ -46,7 +49,7 @@ class TestSetupChildLogging:
     def test_sink_emits_log_kind_event_for_each_record(self):
         """The sink callable installed by _setup_child_logging pushes
         ``{"kind": "log", ...}`` per record. Drive it with a stand-in Message."""
-        evt_q = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             captured_sink: list = []
             with patch("api.websocket.logger") as mock_logger:
@@ -87,7 +90,7 @@ class TestProxyInit:
     """Lines 316-340: constructor stores all args and seeds runtime fields."""
 
     def test_minimal_construction(self):
-        proxy = FanslyWebSocket(token="tok", user_agent="ua")  # noqa: S106
+        proxy = FanslyWebSocket(token="tok", user_agent="ua")
         assert proxy.token == "tok"
         assert proxy.user_agent == "ua"
         assert proxy.cookies == {}
@@ -98,7 +101,7 @@ class TestProxyInit:
         assert proxy.http_client is None
 
     def test_runtime_state_defaults(self):
-        proxy = FanslyWebSocket(token="t", user_agent="u")  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u")
         assert proxy.connected is False
         assert proxy.session_id is None
         assert proxy.websocket_session_id is None
@@ -112,7 +115,7 @@ class TestProxyInit:
 
     def test_cookies_dict_is_copied(self):
         original = {"k": "v"}
-        proxy = FanslyWebSocket(token="t", user_agent="u", cookies=original)  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u", cookies=original)
         assert proxy.cookies == {"k": "v"}
         assert proxy.cookies is not original
 
@@ -121,7 +124,7 @@ class TestProxyInit:
         cb2 = MagicMock()
         client = MagicMock(name="httpx_client")
         proxy = FanslyWebSocket(
-            token="tk",  # noqa: S106
+            token="tk",
             user_agent="UA",
             cookies={"a": "1"},
             enable_logging=True,
@@ -239,29 +242,37 @@ class TestAbsorbSetCookie:
         proxy._absorb_set_cookie({"name": "session", "value": "xyz"})
         assert proxy.cookies["session"] == "xyz"
 
-    def test_writes_to_http_client_jar_when_present(self):
+    @pytest.mark.parametrize(
+        ("payload", "expected_set_args"),
+        [
+            pytest.param(
+                {
+                    "name": "session",
+                    "value": "xyz",
+                    "domain": "fansly.com",
+                    "path": "/",
+                },
+                ("session", "xyz"),
+                id="explicit-domain-and-path",
+            ),
+            pytest.param(
+                {"name": "n", "value": "v"},
+                ("n", "v"),
+                id="missing-domain-path-uses-defaults",
+            ),
+        ],
+    )
+    def test_writes_to_http_client_jar_when_present(
+        self,
+        payload: dict[str, str],
+        expected_set_args: tuple[str, str],
+    ) -> None:
         proxy = make_proxy()
         client = MagicMock(name="httpx_client")
         proxy.http_client = client
-        proxy._absorb_set_cookie(
-            {
-                "name": "session",
-                "value": "xyz",
-                "domain": "fansly.com",
-                "path": "/",
-            }
-        )
+        proxy._absorb_set_cookie(payload)
         client.cookies.set.assert_called_once_with(
-            "session", "xyz", domain="fansly.com", path="/"
-        )
-
-    def test_uses_default_domain_and_path_when_missing(self):
-        proxy = make_proxy()
-        client = MagicMock(name="httpx_client")
-        proxy.http_client = client
-        proxy._absorb_set_cookie({"name": "n", "value": "v"})
-        client.cookies.set.assert_called_once_with(
-            "n", "v", domain="fansly.com", path="/"
+            *expected_set_args, domain="fansly.com", path="/"
         )
 
 
@@ -271,22 +282,41 @@ class TestAbsorbSetCookie:
 class TestSnapshotCookies:
     """Lines 547-550: dict copy when no client; jar items when client present."""
 
-    def test_returns_copy_of_cookies_when_no_http_client(self):
-        proxy = make_proxy(cookies={"a": "1", "b": "2"})
+    @pytest.mark.parametrize(
+        ("cookies", "jar", "expected"),
+        [
+            pytest.param(
+                {"a": "1", "b": "2"},
+                None,
+                {"a": "1", "b": "2"},
+                id="no-http-client-copies-dict",
+            ),
+            pytest.param(
+                {},
+                [("x", "1"), ("y", "2")],
+                {"x": "1", "y": "2"},
+                id="http-client-extracts-from-jar",
+            ),
+        ],
+    )
+    def test_snapshot_cookies(
+        self,
+        cookies: dict[str, str],
+        jar: list[tuple[str, str]] | None,
+        expected: dict[str, str],
+    ) -> None:
+        proxy = make_proxy(cookies=cookies)
+        if jar is not None:
+            client = MagicMock(name="httpx_client")
+            client.cookies.jar = [
+                SimpleNamespace(name=name, value=value) for name, value in jar
+            ]
+            proxy.http_client = client
         snap = proxy._snapshot_cookies()
-        assert snap == {"a": "1", "b": "2"}
+        assert snap == expected
+        # The snapshot is a fresh dict — mutating it never leaks back.
         snap["c"] = "3"
         assert "c" not in proxy.cookies
-
-    def test_extracts_from_http_client_jar(self):
-        proxy = make_proxy()
-        client = MagicMock(name="httpx_client")
-        client.cookies.jar = [
-            SimpleNamespace(name="x", value="1"),
-            SimpleNamespace(name="y", value="2"),
-        ]
-        proxy.http_client = client
-        assert proxy._snapshot_cookies() == {"x": "1", "y": "2"}
 
 
 # ── _send_cmd ──────────────────────────────────────────────────────────
@@ -329,27 +359,35 @@ class TestSendCmd:
 class TestDispatchEvent:
     """Lines 505-512: handler lookup + sync vs async dispatch."""
 
-    async def test_no_handler_registered_is_noop(self):
+    @pytest.mark.parametrize(
+        ("handler_kind", "event_type", "payload", "expected_seen"),
+        [
+            # No handler registered → noop, must not raise.
+            pytest.param("none", 99, {"any": "data"}, [], id="no-handler-noop"),
+            pytest.param("sync", 1, "payload", ["payload"], id="sync-invoked"),
+            pytest.param("async", 1, {"x": 1}, [{"x": 1}], id="async-awaited"),
+        ],
+    )
+    async def test_dispatch_event(
+        self,
+        handler_kind: str,
+        event_type: int,
+        payload: JsonValue,
+        expected_seen: list[JsonValue],
+    ) -> None:
         proxy = make_proxy()
-        await proxy._dispatch_event(99, {"any": "data"})  # must not raise
+        seen: list[JsonValue] = []
 
-    async def test_sync_handler_invoked(self):
-        proxy = make_proxy()
-        called = []
-        proxy._event_handlers[1] = called.append
-        await proxy._dispatch_event(1, "payload")
-        assert called == ["payload"]
-
-    async def test_async_handler_awaited(self):
-        proxy = make_proxy()
-        seen = []
-
-        async def handler(data):
+        async def async_handler(data: JsonValue) -> None:
             seen.append(data)
 
-        proxy._event_handlers[1] = handler
-        await proxy._dispatch_event(1, {"x": 1})
-        assert seen == [{"x": 1}]
+        if handler_kind == "sync":
+            proxy._event_handlers[1] = seen.append
+        elif handler_kind == "async":
+            proxy._event_handlers[1] = async_handler
+
+        await proxy._dispatch_event(event_type, payload)
+        assert seen == expected_seen
 
 
 # ── _dispatch_callback ─────────────────────────────────────────────────
@@ -358,25 +396,32 @@ class TestDispatchEvent:
 class TestDispatchCallback:
     """Lines 514-520: sync vs async callback dispatch; None is noop."""
 
-    async def test_none_callback_is_noop(self):
+    @pytest.mark.parametrize(
+        ("callback_kind", "expected_seen"),
+        [
+            # None callback → noop, must not raise.
+            pytest.param("none", [], id="none-noop"),
+            pytest.param("sync", ["yes"], id="sync-invoked"),
+            pytest.param("async", ["yes"], id="async-awaited"),
+        ],
+    )
+    async def test_dispatch_callback(
+        self,
+        callback_kind: str,
+        expected_seen: list[str],
+    ) -> None:
         proxy = make_proxy()
-        await proxy._dispatch_callback(None)  # must not raise
+        seen: list[str] = []
 
-    async def test_sync_callback_invoked(self):
-        proxy = make_proxy()
-        called = []
-        await proxy._dispatch_callback(lambda: called.append("yes"))
-        assert called == ["yes"]
-
-    async def test_async_callback_awaited(self):
-        proxy = make_proxy()
-        seen = []
-
-        async def cb():
+        def sync_cb() -> None:
             seen.append("yes")
 
-        await proxy._dispatch_callback(cb)
-        assert seen == ["yes"]
+        async def async_cb() -> None:
+            seen.append("yes")
+
+        callback = {"none": None, "sync": sync_cb, "async": async_cb}[callback_kind]
+        await proxy._dispatch_callback(callback)
+        assert seen == expected_seen
 
 
 # ── send_message ───────────────────────────────────────────────────────
@@ -447,6 +492,7 @@ class TestStartInThread:
             assert proxy._evt_q is not None
             assert proxy._drain_task is not None
         finally:
+            assert proxy._drain_task is not None
             proxy._drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await proxy._drain_task
@@ -472,6 +518,7 @@ class TestStartInThread:
         try:
             assert proxy._proc is new_proc
         finally:
+            assert proxy._drain_task is not None
             proxy._drain_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await proxy._drain_task
@@ -493,8 +540,8 @@ class TestStopThread:
         proc = MagicMock()
         proc.is_alive.return_value = False  # exited cleanly after join
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
         proxy.connected = True
@@ -524,8 +571,8 @@ class TestStopThread:
         # initial join) → False after terminate.
         proc.is_alive.side_effect = [True, False]
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
 
@@ -543,8 +590,8 @@ class TestStopThread:
         proc = MagicMock()
         proc.is_alive.return_value = False
         proxy._proc = proc
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         proxy._cmd_q = cmd_q
         proxy._evt_q = evt_q
         proxy._drain_task = None  # explicitly no drain
@@ -578,7 +625,7 @@ class TestDrainEvtQ:
         proxy._proc = MagicMock()
         proxy._evt_q = mp.Queue()
         try:
-            seen = []
+            seen: list[JsonValue] = []
             proxy._event_handlers[5] = seen.append
             await self._run_drain_with(
                 proxy, [{"kind": "event", "type": 5, "data": "hi"}]
@@ -698,8 +745,8 @@ class TestRunWsSubprocessShutdown:
     """Lines 131-277: child entry runs supervisor, processes commands, exits."""
 
     def test_stop_command_terminates_supervisor(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 
@@ -729,8 +776,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_send_command_dispatches_to_ws(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "send", "type": 7, "data": {"x": 1}})
             cmd_q.put({"cmd": "stop"})
@@ -758,8 +805,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_send_command_swallows_send_message_errors(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "send", "type": 1, "data": "x"})
             cmd_q.put({"cmd": "stop"})
@@ -790,8 +837,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_cookies_command_replaces_jar(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "cookies", "data": {"new": "value"}})
             cmd_q.put({"cmd": "stop"})
@@ -820,8 +867,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_register_command_adds_forwarder(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "register", "type": 99})
             cmd_q.put({"cmd": "stop"})
@@ -853,8 +900,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_register_command_skips_already_known_type(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             # forward_types already includes type 8, so register cmd is a noop.
             cmd_q.put({"cmd": "register", "type": 8})
@@ -890,8 +937,8 @@ class TestRunWsSubprocessShutdown:
             close_qs(cmd_q, evt_q)
 
     def test_unknown_command_logs_warning_and_continues(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "bogus"})
             cmd_q.put({"cmd": "stop"})
@@ -924,8 +971,8 @@ class TestRunWsSubprocessShutdown:
 
     def test_status_publisher_emits_on_change(self, tmp_path):
         """Lines 195-226: status_publisher emits when ws state changes."""
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             # No-op cmd first so _command_consumer yields the loop before stop.
             cmd_q.put({"cmd": "register", "type": MSG_SERVICE_EVENT})
@@ -974,8 +1021,8 @@ class TestRunWsSubprocessCookieForwarder:
         """Run the supervisor briefly to install the patched cookie forwarder."""
         # Caller registers queues for cleanup so the forwarder closure can
         # keep using evt_q past this method's return.
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         cleanup_qs.extend([cmd_q, evt_q])
         cmd_q.put({"cmd": "stop"})
 
@@ -1104,8 +1151,8 @@ class TestRunWsSubprocessAuthCallbacks:
     """Lines 133-137: _on_unauth and _on_rate_limit push events to evt_q."""
 
     def test_on_unauth_event_emitted(self, tmp_path):
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 
@@ -1148,8 +1195,8 @@ class TestRunWsSubprocessAuthCallbacks:
 
     def test_forwarder_emits_event(self, tmp_path):
         """Lines 185-189: per-message forwarder pushes 'event' kind to evt_q."""
-        cmd_q = mp.Queue()
-        evt_q = mp.Queue()
+        cmd_q: MpQueue[Any] = mp.Queue()
+        evt_q: MpQueue[Any] = mp.Queue()
         try:
             cmd_q.put({"cmd": "stop"})
 

@@ -356,25 +356,34 @@ def extract_checkkey_from_js(  # noqa: PLR0911
                 # Trust AST as authoritative source
                 return ast_checkkey
 
-            # AST failed - trust regex if it passes format validation
-            if _validate_checkkey_format(regex_checkkey):
+            # AST failed - trust regex if it passes format validation.
+            # _extract_checkkey_regex only returns None or a value that
+            # already passed _validate_checkkey_format (see lines 279-283),
+            # so a truthy regex_checkkey is always valid here — this branch
+            # is taken unconditionally and the else arm is unreachable.
+            if _validate_checkkey_format(regex_checkkey):  # pragma: no branch
                 textio_logger.warning(
                     f"AST failed but regex passes validation: {regex_checkkey}"
                 )
                 return regex_checkkey
 
-            # Both mismatched and AST failed - use expected as last resort
-            textio_logger.warning(
+            # Both mismatched and AST failed - use expected as last resort.
+            # pragma: no cover — defensive net; truthy regex_checkkey always
+            # passes validation per _extract_checkkey_regex's own guard.
+            textio_logger.warning(  # pragma: no cover
                 f"Regex/AST mismatch and AST failed. Using expected: {expected_checkkey}"
             )
-            return expected_checkkey
+            return expected_checkkey  # pragma: no cover
 
-        # No expected value - just validate format and return regex result
-        if _validate_checkkey_format(regex_checkkey):
+        # No expected value - validate format and return regex result.
+        # Same invariant: a truthy regex_checkkey already passed
+        # _validate_checkkey_format, so this branch is taken
+        # unconditionally and the fall-through-to-AST else arm is dead.
+        if _validate_checkkey_format(regex_checkkey):  # pragma: no branch
             textio_logger.debug(f"Regex extraction successful: {regex_checkkey}")
             return regex_checkkey
 
-        textio_logger.warning(
+        textio_logger.warning(  # pragma: no cover
             f"Regex result failed format validation: {regex_checkkey}"
         )
         # Fall through to AST

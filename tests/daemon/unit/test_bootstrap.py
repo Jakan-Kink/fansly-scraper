@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from config.fanslyconfig import FanslyConfig
 from daemon.bootstrap import (
     DaemonBootstrap,
     _unused_import_keeper,
@@ -35,6 +36,7 @@ from daemon.handlers import (
     DownloadTimelineOnly,
     FullCreatorDownload,
     RedownloadCreatorMedia,
+    WorkItem,
 )
 from daemon.runner import _WORK_DISPATCH
 from daemon.simulator import ActivitySimulator
@@ -148,7 +150,7 @@ class TestDrainBackfillHappyPath:
 
         handled: list = []
 
-        async def _capturing_handler(_config, item) -> None:
+        async def _capturing_handler(_config: FanslyConfig, item: WorkItem) -> None:
             handled.append(item)
 
         with patch(
@@ -186,7 +188,7 @@ class TestDrainBackfillExceptionBookkeeping:
         ]
         bootstrap = _make_bootstrap(items=items)
 
-        async def _flaky_handler(_config, item) -> None:
+        async def _flaky_handler(_config: FanslyConfig, item: WorkItem) -> None:
             if getattr(item, "creator_id", None) == 200:
                 raise RuntimeError("simulated downstream failure")
 
@@ -213,7 +215,7 @@ class TestDrainBackfillExceptionBookkeeping:
         items = [DownloadTimelineOnly(creator_id=cid) for cid in (10, 20, 30)]
         bootstrap = _make_bootstrap(items=items)
 
-        async def _always_raises(_config, _item) -> None:
+        async def _always_raises(_config: FanslyConfig, _item: WorkItem) -> None:
             raise ValueError("boom")
 
         with patch("daemon.bootstrap._handle_work_item", side_effect=_always_raises):

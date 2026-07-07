@@ -9,6 +9,7 @@ import contextlib
 from unittest.mock import patch
 
 import pytest
+from stash_graphql_client import present
 
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
@@ -113,11 +114,17 @@ class TestStashProcessingBaseErrorPaths:
         self,
         real_stash_processor,
         stash_cleanup_tracker,
+        tmp_path,
     ):
         """Test scan_creator_folder when download path creation fails (lines 126-128).
 
         This test verifies that when directory creation fails, the scan returns early
         without attempting to call Stash. No GraphQL calls should be made.
+
+        The failure is induced naturally through the REAL
+        ``set_create_directory_for_download`` helper: ``download_directory`` is
+        pointed under an existing regular file, so the real ``mkdir(parents=True)``
+        raises ``NotADirectoryError`` (an ``OSError`` subclass) — no patching.
         """
         client = real_stash_processor.context.client
         async with (
@@ -126,16 +133,15 @@ class TestStashProcessingBaseErrorPaths:
             # Set base_path to None to trigger the path creation code (line 119)
             real_stash_processor.state.base_path = None
 
-            # Patch set_create_directory_for_download to raise exception
-            with (
-                capture_graphql_calls(client) as calls,
-                patch(
-                    "stash.processing.base.set_create_directory_for_download",
-                    side_effect=Exception("Permission denied"),
-                ),
-            ):
+            # Point download_directory under a real regular file so the real
+            # mkdir() inside set_create_directory_for_download raises OSError.
+            blocking_file = tmp_path / "not_a_dir"
+            blocking_file.write_text("i am a file, not a directory", encoding="utf-8")
+            real_stash_processor.config.download_directory = blocking_file / "subdir"
+
+            with capture_graphql_calls(client) as calls:
                 try:
-                    # Call scan_creator_folder - should hit exception handler lines 126-128
+                    # Call scan_creator_folder - should hit exception handler 126-128
                     await real_stash_processor.scan_creator_folder()
                 finally:
                     dump_graphql_calls(
@@ -589,8 +595,12 @@ class TestStashProcessingBaseErrorPaths:
 
                     # Patch the tasks' coroutine __qualname__ to match the processor's module
                     processor_module = real_stash_processor.__class__.__module__
-                    task1.get_coro().__qualname__ = f"{processor_module}.task_1"
-                    task2.get_coro().__qualname__ = f"{processor_module}.task_2"
+                    present(
+                        task1.get_coro()
+                    ).__qualname__ = f"{processor_module}.task_1"
+                    present(
+                        task2.get_coro()
+                    ).__qualname__ = f"{processor_module}.task_2"
 
                     # Add tasks to config background_tasks
                     real_stash_processor.config._background_tasks.extend([task1, task2])

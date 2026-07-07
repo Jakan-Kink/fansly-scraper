@@ -7,15 +7,18 @@ import math
 import time
 from collections.abc import Callable
 from ctypes import c_int32
+from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
 
 import httpx
 from httpx_retries import Retry, RetryTransport
+from pydantic import JsonValue
 
 from api.websocket import FanslyWebSocket
 from config.logging import textio_logger as logger
+from helpers.common import JsonDict, expect_dict, str_or_none
 from helpers.timer import timing_jitter
 from helpers.web import get_flat_qs_dict, split_url
 
@@ -137,7 +140,7 @@ class FanslyApi:
         self.on_device_updated = on_device_updated
 
         if device_id is not None and device_id_timestamp is not None:
-            self.device_id = device_id
+            self.device_id: str | None = device_id
             self.device_id_timestamp = device_id_timestamp
         else:
             self.device_id = None
@@ -188,7 +191,7 @@ class FanslyApi:
 
         if add_fansly_headers:
             fansly_headers = {
-                "fansly-client-id": self.device_id,
+                "fansly-client-id": self.device_id or "",
                 # Mandatory: A client timestamp
                 "fansly-client-ts": str(self.client_timestamp),
                 # Kind of a security hash/signature
@@ -328,7 +331,10 @@ class FanslyApi:
 
         (_, file_url) = split_url(url)
 
-        arguments = {
+        # Heterogeneous httpx-kwargs bag spread via **arguments into the
+        # overloaded get()/build_request(); dict[str, Any] is the honest type
+        # for a kwargs bag (each value targets a different httpx parameter).
+        arguments: dict[str, Any] = {
             "url": file_url,
             "params": request_params,
             "headers": headers,
@@ -336,13 +342,14 @@ class FanslyApi:
 
         if len(cookies) > 0:
             arguments["cookies"] = cookies
+        response: httpx.Response = field(default=httpx.Response(500))
 
         max_retries = self.config.api_max_retries if self.config else 1
-        has_rate_limiter = self.rate_limiter is not None and not bypass_rate_limit
+        rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):
-            if has_rate_limiter:
-                await self.rate_limiter.async_wait_for_request()
+            if rate_limiter is not None:
+                await rate_limiter.async_wait_for_request()
 
             start_time = time.time()
 
@@ -362,12 +369,12 @@ class FanslyApi:
                 bypass_rate_limit,
             )
 
-            if has_rate_limiter:
-                self.rate_limiter.record_response(response.status_code, response_time)
+            if rate_limiter is not None:
+                rate_limiter.record_response(response.status_code, response_time)
 
             if (
                 response.status_code == 429
-                and has_rate_limiter
+                and rate_limiter is not None
                 and attempt < max_retries - 1
             ):
                 logger.debug(
@@ -422,20 +429,24 @@ class FanslyApi:
 
         (_, file_url) = split_url(url)
 
-        arguments = {
+        # Heterogeneous httpx-kwargs bag spread via **arguments into the
+        # overloaded get()/build_request(); dict[str, Any] is the honest type
+        # for a kwargs bag (each value targets a different httpx parameter).
+        arguments: dict[str, Any] = {
             "url": file_url,
             "params": request_params,
             "headers": headers,
         }
         if len(cookies) > 0:
             arguments["cookies"] = cookies
+        response: httpx.Response = field(default=httpx.Response(500))
 
         max_retries = self.config.api_max_retries if self.config else 1
-        has_rate_limiter = self.rate_limiter is not None and not bypass_rate_limit
+        rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):
-            if has_rate_limiter:
-                self.rate_limiter.wait_for_request()
+            if rate_limiter is not None:
+                rate_limiter.wait_for_request()
 
             start_time = time.time()
 
@@ -455,12 +466,12 @@ class FanslyApi:
                 bypass_rate_limit,
             )
 
-            if has_rate_limiter:
-                self.rate_limiter.record_response(response.status_code, response_time)
+            if rate_limiter is not None:
+                rate_limiter.record_response(response.status_code, response_time)
 
             if (
                 response.status_code == 429
-                and has_rate_limiter
+                and rate_limiter is not None
                 and attempt < max_retries - 1
             ):
                 logger.debug(
@@ -613,7 +624,7 @@ class FanslyApi:
         custom_params = {
             "before": before_cursor,
             "after": "0",
-            "wallId": wall_id,
+            "wallId": str(wall_id),
             "contentSearch": "",
         }
 
@@ -932,7 +943,7 @@ class FanslyApi:
 
         return True
 
-    async def login(self, username: str, password: str) -> dict[str, Any]:
+    async def login(self, username: str, password: str) -> JsonDict:
         """Login to Fansly and obtain session token.
 
         This performs the login flow to obtain an authorization token and session cookie.
@@ -997,7 +1008,7 @@ class FanslyApi:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-site",
             # Fansly-specific headers (observed in browser)
-            "fansly-client-id": self.device_id,
+            "fansly-client-id": self.device_id or "",
             "fansly-client-ts": str(self.client_timestamp),
             "fansly-client-check": self.get_fansly_client_check(login_url),
         }
@@ -1261,7 +1272,7 @@ class FanslyApi:
         )
 
     @staticmethod
-    def convert_ids_to_int(data: Any) -> Any:
+    def convert_ids_to_int(data: JsonValue) -> JsonValue:
         """Recursively convert ID fields from strings to integers.
 
         The Fansly API returns all IDs as strings. Converting at the API
@@ -1269,7 +1280,7 @@ class FanslyApi:
         and dict comparisons throughout the codebase.
         """
         if isinstance(data, dict):
-            result = {}
+            result: dict[str, JsonValue] = {}
             for key, value in data.items():
                 if (key == "id" or key.endswith("Id")) and isinstance(value, str):
                     try:
@@ -1289,11 +1300,19 @@ class FanslyApi:
             return [FanslyApi.convert_ids_to_int(item) for item in data]
         return data
 
-    def get_json_response_contents(self, response: httpx.Response) -> dict:
-        """Validate response, extract payload, convert string IDs to ints."""
+    def get_json_response_contents(
+        self, response: httpx.Response
+    ) -> JsonDict | list[JsonValue]:
+        """Validate response, extract the object/array payload, convert IDs to ints."""
         self.validate_json_response(response)
         json_data = response.json()["response"]
-        return self.convert_ids_to_int(json_data)
+        contents = self.convert_ids_to_int(json_data)
+        if not isinstance(contents, (dict, list)):
+            raise TypeError(
+                "Fansly API: expected an object or array response payload, got "
+                f"{type(contents).__name__}"
+            )
+        return contents
 
     async def get_client_user_name(
         self, alternate_token: str | None = None
@@ -1313,10 +1332,11 @@ class FanslyApi:
             alternate_token=alternate_token
         )
 
-        response_contents = self.get_json_response_contents(account_response)
-
-        account_info = response_contents["account"]
-        username = account_info["username"]
+        response_contents = expect_dict(
+            self.get_json_response_contents(account_response), "account info response"
+        )
+        account_info = expect_dict(response_contents["account"], "account")
+        username = str_or_none(account_info["username"])
 
         if username:
             return username
@@ -1331,7 +1351,10 @@ class FanslyApi:
 
         if self.device_id is None or current_ts > self.device_id_timestamp + offset_ms:
             response = await self.get_device_id_info()
-            self.device_id = str(self.get_json_response_contents(response))
+            # device/id returns a bare string in the envelope's response field,
+            # not an object/array — extract it directly.
+            self.validate_json_response(response)
+            self.device_id = str(response.json()["response"])
             self.device_id_timestamp = current_ts
 
             if self.on_device_updated is not None:

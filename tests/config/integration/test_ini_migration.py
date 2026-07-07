@@ -32,190 +32,229 @@ def _write_ini(path: Path, content: str) -> None:
     path.write_text(textwrap.dedent(content), encoding="utf-8")
 
 
+# Shared ini skeleton fragments for the happy-path migration table below.
+_STD_ACCOUNT = """\
+[TargetedCreator]
+username = {username}
+
+[MyAccount]
+Authorization_Token = {token}
+User_Agent = {user_agent}
+Check_Key = qybZy9-fyszis-bybxyf
+"""
+
+_STD_OPTIONS = """
+[Options]
+download_directory = Local_directory
+download_mode = Normal
+metadata_handling = Advanced
+show_downloads = True
+show_skipped_downloads = True
+download_media_previews = True
+open_folder_when_finished = True
+separate_messages = True
+separate_previews = False
+separate_timeline = True
+use_duplicate_threshold = False
+use_folder_suffix = True
+interactive = True
+prompt_on_exit = True
+timeline_retries = 1
+timeline_delay_seconds = 60
+"""
+
+_BOOL_INT_OPTIONS = """
+[Options]
+download_directory = Local_directory
+download_mode = Normal
+metadata_handling = Advanced
+show_downloads = True
+show_skipped_downloads = False
+download_media_previews = True
+open_folder_when_finished = False
+separate_messages = True
+separate_previews = False
+separate_timeline = True
+use_duplicate_threshold = True
+use_folder_suffix = False
+interactive = False
+prompt_on_exit = False
+timeline_retries = 5
+timeline_delay_seconds = 120
+"""
+
+_LOGIC_SECTION = """
+[Logic]
+check_key_pattern = this\\.checkKey_\\s*=\\s*["']([^"']+)["']
+main_js_pattern = \\ssrc\\s*=\\s*"(main\\..*?\\.js)"
+"""
+
+_POSTGRES_SECTION = """
+[Postgres]
+pg_host = pg.internal.example.com
+pg_port = 5434
+pg_database = pg_dedicated_db
+pg_user = pg_user_dedicated
+pg_pool_size = 7
+"""
+
+
 # ---------------------------------------------------------------------------
-# Test 4: Basic migration — writes YAML, renames .ini to .bak, schema matches
+# Tests 4-6, 8-10: Happy-path migrations (shared [Options] skeleton)
 # ---------------------------------------------------------------------------
 
 
-def test_migration_writes_yaml_and_renames_ini(tmp_path: Path) -> None:
-    """Full migration: config.yaml appears, config.ini is renamed, schema is correct."""
+@pytest.mark.parametrize(
+    ("ini_content", "expected", "roundtrip_paths"),
+    [
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="alice", token="tok_xyz", user_agent="TestAgent/1.0"
+            )
+            + _STD_OPTIONS.replace(
+                "download_directory = Local_directory",
+                "download_directory = /tmp/fansly",
+            )
+            + _LOGIC_SECTION,
+            {
+                "targeted_creator.usernames": ["alice"],
+                "my_account.authorization_token": SecretStr("tok_xyz"),
+                "my_account.user_agent": "TestAgent/1.0",
+                "options.download_directory": "/tmp/fansly",  # noqa: S108
+            },
+            ("targeted_creator.usernames", "my_account.authorization_token"),
+            id="basic_full_migration",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="alice, bobby, charlie",
+                token="ReplaceMe",
+                user_agent="ReplaceMe",
+            )
+            + _STD_OPTIONS,
+            {"targeted_creator.usernames": ["alice", "bobby", "charlie"]},
+            ("targeted_creator.usernames",),
+            id="comma_separated_usernames",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="testcreator", token="ReplaceMe", user_agent="ReplaceMe"
+            )
+            + _BOOL_INT_OPTIONS,
+            {
+                "options.show_downloads": True,
+                "options.show_skipped_downloads": False,
+                "options.open_folder_when_finished": False,
+                "options.use_duplicate_threshold": True,
+                "options.use_folder_suffix": False,
+                "options.interactive": False,
+                "options.prompt_on_exit": False,
+                "options.timeline_retries": 5,
+                "options.timeline_delay_seconds": 120,
+            },
+            (
+                "options.timeline_retries",
+                "options.show_downloads",
+                "options.interactive",
+            ),
+            id="bool_and_int_coercion",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="secrettest",
+                token="my_secret_token_abc",
+                user_agent="AgentX/2",
+            )
+            + "username = mylogin\npassword = MyP@ssw0rd!\n"
+            + _STD_OPTIONS,
+            {
+                "my_account.authorization_token": SecretStr("my_secret_token_abc"),
+                "my_account.password": SecretStr("MyP@ssw0rd!"),
+                "my_account.username": "mylogin",
+            },
+            ("my_account.authorization_token", "my_account.password"),
+            id="secret_str_fields",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="legacytest", token="ReplaceMe", user_agent="ReplaceMe"
+            )
+            + _STD_OPTIONS.replace(
+                "use_duplicate_threshold = False",
+                "utilise_duplicate_threshold = True",
+            ).replace("use_folder_suffix = True", "use_suffix = False"),
+            {
+                "options.use_duplicate_threshold": True,
+                "options.use_folder_suffix": False,
+            },
+            (),
+            id="legacy_option_spellings",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="pgtest", token="ReplaceMe", user_agent="ReplaceMe"
+            )
+            + _STD_OPTIONS
+            + _POSTGRES_SECTION,
+            {
+                "postgres.pg_host": "pg.internal.example.com",
+                "postgres.pg_port": 5434,
+                "postgres.pg_database": "pg_dedicated_db",
+                "postgres.pg_user": "pg_user_dedicated",
+                "postgres.pg_pool_size": 7,
+            },
+            (),
+            id="postgres_dedicated_section",
+        ),
+    ],
+)
+def test_migration_happy_paths(
+    tmp_path: Path,
+    ini_content: str,
+    expected: dict[str, object],
+    roundtrip_paths: tuple[str, ...],
+) -> None:
+    """Happy-path migrations: YAML written, .ini renamed to a backup, and every
+    expected field slice lands on the returned schema (SecretStr-aware, bool-strict).
+    Fields listed in *roundtrip_paths* are re-verified on a fresh YAML reload."""
     ini_path = tmp_path / "config.ini"
     yaml_path = tmp_path / "config.yaml"
+    _write_ini(ini_path, ini_content)
 
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = alice
+    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="happy")
 
-        [MyAccount]
-        Authorization_Token = tok_xyz
-        User_Agent = TestAgent/1.0
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = /tmp/fansly
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-
-        [Logic]
-        check_key_pattern = this\\.checkKey_\\s*=\\s*["']([^"']+)["']
-        main_js_pattern = \\ssrc\\s*=\\s*"(main\\..*?\\.js)"
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="20260101_120000")
-
-    # YAML file must exist
+    # Shared side-effect contract for every successful migration.
+    assert isinstance(schema, ConfigSchema)
     assert yaml_path.exists(), "config.yaml was not created"
-
-    # .ini must be gone (renamed to backup)
     assert not ini_path.exists(), "config.ini was not renamed"
-
-    # Backup must exist
-    backup_path = tmp_path / "config.ini.bak.20260101_120000"
+    backup_path = tmp_path / "config.ini.bak.happy"
     assert backup_path.exists(), f"Backup {backup_path} not found"
 
-    # Returned schema is a ConfigSchema
-    assert isinstance(schema, ConfigSchema)
-    assert "alice" in schema.targeted_creator.usernames
-    assert schema.my_account.authorization_token.get_secret_value() == "tok_xyz"
-    assert schema.my_account.user_agent == "TestAgent/1.0"
-    assert schema.options.download_directory == "/tmp/fansly"  # noqa: S108
+    def resolve(root: ConfigSchema, dotted: str) -> object:
+        value: object = root
+        for part in dotted.split("."):
+            value = getattr(value, part)
+        return value
 
-    # Reload the YAML and confirm it round-trips cleanly
+    def check(root: ConfigSchema, dotted: str, want: object) -> None:
+        got = resolve(root, dotted)
+        if isinstance(want, SecretStr):
+            # SecretStr fields must be SecretStr instances, not plain strings
+            assert isinstance(got, SecretStr), dotted
+            assert got.get_secret_value() == want.get_secret_value(), dotted
+        elif isinstance(want, bool):
+            # Boolean fields must be Python bool, not string / int
+            assert got is want, dotted
+        else:
+            assert got == want, dotted
+
+    for dotted, want in expected.items():
+        check(schema, dotted, want)
+
+    # Confirm the flagged fields round-trip through YAML correctly
     schema2 = ConfigSchema.load_yaml(yaml_path)
-    assert schema2.targeted_creator.usernames == schema.targeted_creator.usernames
-    assert (
-        schema2.my_account.authorization_token.get_secret_value()
-        == schema.my_account.authorization_token.get_secret_value()
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 5: Comma-separated usernames become a list
-# ---------------------------------------------------------------------------
-
-
-def test_migration_preserves_comma_separated_usernames(tmp_path: Path) -> None:
-    """Comma-separated username string from .ini is migrated as a proper list."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = alice, bobby, charlie
-
-        [MyAccount]
-        Authorization_Token = ReplaceMe
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts1")
-
-    assert schema.targeted_creator.usernames == ["alice", "bobby", "charlie"]
-
-    # Confirm the list round-trips through YAML correctly
-    schema2 = ConfigSchema.load_yaml(yaml_path)
-    assert schema2.targeted_creator.usernames == ["alice", "bobby", "charlie"]
-
-
-# ---------------------------------------------------------------------------
-# Test 6: Boolean + int coercion
-# ---------------------------------------------------------------------------
-
-
-def test_migration_preserves_bool_and_int_values(tmp_path: Path) -> None:
-    """show_downloads=True and timeline_retries=5 survive the migration faithfully."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = testcreator
-
-        [MyAccount]
-        Authorization_Token = ReplaceMe
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = False
-        download_media_previews = True
-        open_folder_when_finished = False
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = True
-        use_folder_suffix = False
-        interactive = False
-        prompt_on_exit = False
-        timeline_retries = 5
-        timeline_delay_seconds = 120
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts2")
-
-    # Boolean fields — must be Python bool, not string
-    assert schema.options.show_downloads is True
-    assert schema.options.show_skipped_downloads is False
-    assert schema.options.open_folder_when_finished is False
-    assert schema.options.use_duplicate_threshold is True
-    assert schema.options.use_folder_suffix is False
-    assert schema.options.interactive is False
-    assert schema.options.prompt_on_exit is False
-
-    # Integer fields
-    assert schema.options.timeline_retries == 5
-    assert schema.options.timeline_delay_seconds == 120
-
-    # Confirm round-trip
-    schema2 = ConfigSchema.load_yaml(yaml_path)
-    assert schema2.options.timeline_retries == 5
-    assert schema2.options.show_downloads is True
-    assert schema2.options.interactive is False
+    for dotted in roundtrip_paths:
+        check(schema2, dotted, expected[dotted])
 
 
 # ---------------------------------------------------------------------------
@@ -284,180 +323,6 @@ def test_migration_parity_failure_leaves_ini_intact(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 8: SecretStr fields migrate correctly
-# ---------------------------------------------------------------------------
-
-
-def test_migration_preserves_secret_str_fields(tmp_path: Path) -> None:
-    """Plaintext token + password in .ini become SecretStr with correct values."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = secrettest
-
-        [MyAccount]
-        Authorization_Token = my_secret_token_abc
-        User_Agent = AgentX/2
-        Check_Key = qybZy9-fyszis-bybxyf
-        username = mylogin
-        password = MyP@ssw0rd!
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts4")
-
-    # authorization_token must be a SecretStr
-    assert isinstance(schema.my_account.authorization_token, SecretStr)
-    assert (
-        schema.my_account.authorization_token.get_secret_value()
-        == "my_secret_token_abc"
-    )
-
-    # password must be a SecretStr
-    assert isinstance(schema.my_account.password, SecretStr)
-    assert schema.my_account.password.get_secret_value() == "MyP@ssw0rd!"
-
-    # username must be a plain str (not a secret)
-    assert schema.my_account.username == "mylogin"
-
-    # Confirm the secret survives YAML round-trip
-    schema2 = ConfigSchema.load_yaml(yaml_path)
-    assert (
-        schema2.my_account.authorization_token.get_secret_value()
-        == "my_secret_token_abc"
-    )
-    assert schema2.my_account.password.get_secret_value() == "MyP@ssw0rd!"
-
-
-# ---------------------------------------------------------------------------
-# Test 9: Legacy spellings — utilise_duplicate_threshold / use_suffix
-# ---------------------------------------------------------------------------
-
-
-def test_migration_handles_legacy_option_spellings(tmp_path: Path) -> None:
-    """utilise_duplicate_threshold and use_suffix are migrated under the new names."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = legacytest
-
-        [MyAccount]
-        Authorization_Token = ReplaceMe
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        utilise_duplicate_threshold = True
-        use_suffix = False
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts5")
-
-    # Old key "utilise_duplicate_threshold = True" → new field use_duplicate_threshold
-    assert schema.options.use_duplicate_threshold is True
-    # Old key "use_suffix = False" → new field use_folder_suffix
-    assert schema.options.use_folder_suffix is False
-
-
-# ---------------------------------------------------------------------------
-# Test 10: PostgreSQL keys under [Postgres] section (future layout)
-# ---------------------------------------------------------------------------
-
-
-def test_migration_reads_postgres_from_dedicated_section(tmp_path: Path) -> None:
-    """When [Postgres] section exists, pg_* keys are read from it (not [Options])."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = pgtest
-
-        [MyAccount]
-        Authorization_Token = ReplaceMe
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-
-        [Postgres]
-        pg_host = pg.internal.example.com
-        pg_port = 5434
-        pg_database = pg_dedicated_db
-        pg_user = pg_user_dedicated
-        pg_pool_size = 7
-        """,
-    )
-
-    schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="ts6")
-
-    assert schema.postgres.pg_host == "pg.internal.example.com"
-    assert schema.postgres.pg_port == 5434
-    assert schema.postgres.pg_database == "pg_dedicated_db"
-    assert schema.postgres.pg_user == "pg_user_dedicated"
-    assert schema.postgres.pg_pool_size == 7
-
-
-# ---------------------------------------------------------------------------
 # Test 11: Representative legacy.ini fixture — Cache section is silently skipped
 # ---------------------------------------------------------------------------
 
@@ -501,10 +366,12 @@ def test_migration_from_legacy_ini_fixture(tmp_path: Path) -> None:
     assert schema.postgres.pg_password.get_secret_value() == "supersecret"
 
     # [Cache] is now migrated into schema.cache
+    assert schema.cache is not None
     assert schema.cache.device_id == "dev_abc123"
     assert schema.cache.device_id_timestamp == 1710000000
 
     # Logic patterns round-trip without corruption
+    assert schema.logic is not None
     assert "checkKey_" in schema.logic.check_key_pattern
     assert "main" in schema.logic.main_js_pattern
 
@@ -632,49 +499,49 @@ def test_migration_lock_contention_raises_config_error(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 14 (S4): Permissive migration — unknown top-level section is dropped
+# Tests 14+15 (S4): Permissive migration — unknown section / unknown key dropped
 # ---------------------------------------------------------------------------
 
 
-def test_migration_unknown_section_is_dropped_with_warning(tmp_path: Path) -> None:
-    """A legacy [OldSection] in the ini is silently dropped; migration succeeds."""
+@pytest.mark.parametrize(
+    ("ini_content", "warning_needle", "absent_from_yaml", "expected_token"),
+    [
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="droptest", token="ReplaceMe", user_agent="ReplaceMe"
+            )
+            + _STD_OPTIONS
+            + "\n[OldSection]\nlegacy_flag = 1\nanother_legacy_key = something\n",
+            "OldSection",
+            ("OldSection", "legacy_flag"),
+            None,
+            id="unknown_top_level_section",
+        ),
+        pytest.param(
+            _STD_ACCOUNT.format(
+                username="keytest", token="tok_keytest", user_agent="ReplaceMe"
+            )
+            + "removed_field = old_value\n"
+            + _STD_OPTIONS,
+            "removed_field",
+            ("removed_field",),
+            "tok_keytest",
+            id="unknown_key_in_known_section",
+        ),
+    ],
+)
+def test_migration_unknown_entries_dropped_with_warning(
+    tmp_path: Path,
+    ini_content: str,
+    warning_needle: str,
+    absent_from_yaml: tuple[str, ...],
+    expected_token: str | None,
+) -> None:
+    """Unknown top-level sections and unknown keys in known sections are dropped
+    with a warning; migration succeeds and the dropped names never reach the YAML."""
     ini_path = tmp_path / "config.ini"
     yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = droptest
-
-        [MyAccount]
-        Authorization_Token = ReplaceMe
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-
-        [OldSection]
-        legacy_flag = 1
-        another_legacy_key = something
-        """,
-    )
+    _write_ini(ini_path, ini_content)
 
     warning_calls: list[tuple] = []
 
@@ -682,13 +549,19 @@ def test_migration_unknown_section_is_dropped_with_warning(tmp_path: Path) -> No
         mock_logger.warning.side_effect = lambda msg, *args, **_kw: (
             warning_calls.append((msg, args))
         )
-        schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="drop_section")
+        schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="drop")
 
     # Migration must succeed
     assert isinstance(schema, ConfigSchema)
     assert yaml_path.exists()
 
-    # At least one warning must mention the unknown section (in the args, since loguru
+    # Known fields still migrated correctly (unknown-key row only)
+    if expected_token is not None:
+        assert schema.my_account.authorization_token.get_secret_value() == (
+            expected_token
+        )
+
+    # At least one warning must mention the dropped name (in the args, since loguru
     # uses {}-style lazy formatting: logger.warning("... [{}] ...", section, path))
     def _any_call_mentions(needle: str) -> bool:
         return any(
@@ -696,87 +569,14 @@ def test_migration_unknown_section_is_dropped_with_warning(tmp_path: Path) -> No
             for msg, args in warning_calls
         )
 
-    assert _any_call_mentions("OldSection"), (
-        f"Expected OldSection warning; got: {warning_calls}"
+    assert _any_call_mentions(warning_needle), (
+        f"Expected {warning_needle} warning; got: {warning_calls}"
     )
 
-    # The YAML must not contain the unknown section name
+    # The YAML must not contain the dropped section/key names
     yaml_contents = yaml_path.read_text(encoding="utf-8")
-    assert "OldSection" not in yaml_contents
-    assert "legacy_flag" not in yaml_contents
-
-
-# ---------------------------------------------------------------------------
-# Test 15 (S4): Permissive migration — unknown key in known section is dropped
-# ---------------------------------------------------------------------------
-
-
-def test_migration_unknown_key_in_known_section_is_dropped_with_warning(
-    tmp_path: Path,
-) -> None:
-    """An unknown key inside a known section ([MyAccount]) is dropped with a warning."""
-    ini_path = tmp_path / "config.ini"
-    yaml_path = tmp_path / "config.yaml"
-
-    _write_ini(
-        ini_path,
-        """
-        [TargetedCreator]
-        username = keytest
-
-        [MyAccount]
-        Authorization_Token = tok_keytest
-        User_Agent = ReplaceMe
-        Check_Key = qybZy9-fyszis-bybxyf
-        removed_field = old_value
-
-        [Options]
-        download_directory = Local_directory
-        download_mode = Normal
-        metadata_handling = Advanced
-        show_downloads = True
-        show_skipped_downloads = True
-        download_media_previews = True
-        open_folder_when_finished = True
-        separate_messages = True
-        separate_previews = False
-        separate_timeline = True
-        use_duplicate_threshold = False
-        use_folder_suffix = True
-        interactive = True
-        prompt_on_exit = True
-        timeline_retries = 1
-        timeline_delay_seconds = 60
-        """,
-    )
-
-    warning_calls: list[tuple] = []
-
-    with patch("config.loader.logger") as mock_logger:
-        mock_logger.warning.side_effect = lambda msg, *args, **_kw: (
-            warning_calls.append((msg, args))
-        )
-        schema = migrate_ini_to_yaml(ini_path, yaml_path, backup_suffix="drop_key")
-
-    # Migration must succeed and the known field still migrated correctly
-    assert isinstance(schema, ConfigSchema)
-    assert schema.my_account.authorization_token.get_secret_value() == "tok_keytest"
-    assert yaml_path.exists()
-
-    # At least one warning must mention the removed_field key (loguru {}-style args)
-    def _any_call_mentions(needle: str) -> bool:
-        return any(
-            needle in str(msg) or any(needle in str(a) for a in args)
-            for msg, args in warning_calls
-        )
-
-    assert _any_call_mentions("removed_field"), (
-        f"Expected removed_field warning; got: {warning_calls}"
-    )
-
-    # The YAML must not contain the dropped key
-    yaml_contents = yaml_path.read_text(encoding="utf-8")
-    assert "removed_field" not in yaml_contents
+    for needle in absent_from_yaml:
+        assert needle not in yaml_contents
 
 
 # ---------------------------------------------------------------------------

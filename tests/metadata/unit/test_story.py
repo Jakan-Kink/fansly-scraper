@@ -2,11 +2,12 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
-from metadata.story import MediaStory, process_media_stories
+from metadata.models import Account, AccountMedia, Media, MediaStory
+from metadata.story import process_media_stories
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -24,8 +25,9 @@ class TestMediaStory:
             accountId=account_id,
             contentType=1,
             contentId=content_id,
-            createdAt=1776270684000,  # milliseconds
-            updatedAt=1776270684000,
+            # ms-timestamp coercion is the test; model accepts int, coerces to datetime
+            createdAt=1776270684000,  # type: ignore[arg-type]  # milliseconds
+            updatedAt=1776270684000,  # type: ignore[arg-type]
         )
 
         assert story.id == story_id
@@ -43,7 +45,7 @@ class TestMediaStory:
         story = MediaStory(
             id=story_id,
             accountId=account_id,
-            createdAt=1776270684,
+            createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
         )
 
         assert story.id == story_id
@@ -57,27 +59,21 @@ class TestProcessMediaStories:
     """Lines 24-76: process_media_stories happy + early-return + missing-accountId."""
 
     @pytest.mark.asyncio
-    async def test_empty_media_stories_returns_empty_list(self, config, entity_store):
-        """Line 50: mediaStories empty → return [] without doing anything."""
-        result = await process_media_stories(config, {"mediaStories": []})
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_no_media_stories_key_returns_empty_list(self, config, entity_store):
-        """Line 48-50: missing mediaStories key → .get default to [] → return []."""
-        result = await process_media_stories(config, {})
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_story_without_account_id_emits_json_output_and_skips(
+    async def test_early_returns_and_missing_account_id_walk(
         self, config, entity_store, caplog
     ):
-        """Lines 64-70: story_dict without accountId → json_output + continue.
+        """One walk through the guard arcs, then the missing-accountId skip.
 
-        Asserts via caplog (json_output routes through loguru's json_logger,
-        bridged to stdlib via pytest-loguru).
+        - Lines 48-50: missing mediaStories key → ``.get`` default to [] → return [].
+        - Line 50: mediaStories explicitly empty → return [] without doing anything.
+        - Lines 64-70: story_dict without accountId → json_output + continue
+          (asserted via caplog — json_output routes through loguru's json_logger,
+          bridged to stdlib via pytest-loguru).
         """
-        from metadata.models import Account, AccountMedia, Media
+        # Early return 1: missing mediaStories key.
+        assert await process_media_stories(config, {}) == []
+        # Early return 2: mediaStories present but empty.
+        assert await process_media_stories(config, {"mediaStories": []}) == []
 
         caplog.set_level(logging.INFO)
         bad_id = snowflake_id()
@@ -91,14 +87,18 @@ class TestProcessMediaStories:
         # any FK: Media → AccountMedia(mediaId=Media.id) → MediaStory(contentId=AccountMedia.id).
         await entity_store.save(Account(id=good_account, username=f"u_{good_account}"))
         await entity_store.save(
-            Media(id=good_media_id, accountId=good_account, createdAt=1776270684)
+            Media(
+                id=good_media_id,
+                accountId=good_account,
+                createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
+            )
         )
         await entity_store.save(
             AccountMedia(
                 id=good_content_id,
                 accountId=good_account,
                 mediaId=good_media_id,
-                createdAt=1776270684,
+                createdAt=datetime.fromtimestamp(1776270684, tz=UTC),
             )
         )
 

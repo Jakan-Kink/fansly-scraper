@@ -39,7 +39,10 @@ from tests.fixtures.metadata.metadata_factories import (
     AccountMediaFactory,
     MediaFactory,
 )
-from tests.fixtures.stash.stash_api_fixtures import _mock_capability_response
+from tests.fixtures.stash.stash_api_fixtures import (
+    _mock_capability_response,
+    skip_if_stash_unavailable,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -213,7 +216,9 @@ async def real_stash_processor(config, test_database_sync, stash_context, test_s
     config._database = test_database_sync
     config._stash = stash_context
 
-    # Initialize the client (will make REAL HTTP calls)
+    # Initialize the client (will make REAL HTTP calls); skip when the
+    # Docker Stash server is down instead of erroring at setup.
+    skip_if_stash_unavailable()
     client = await stash_context.get_client()
 
     # Query the Stash server's library path for a real base_path
@@ -385,7 +390,7 @@ def mock_find_studios(fansly_network_studio):
             },
         )
 
-    def create_creator_studio(creator_username: str, studio_id: str = "999"):
+    def create_creator_studio(creator_username: str, studio_id: str = "999") -> Studio:
         """Create a creator studio with Fansly network as parent."""
         return Studio(
             id=studio_id,
@@ -792,11 +797,23 @@ async def message_media_generator(factory_session, real_stash_processor):
 
             return result
 
-        # STEP 2: Generate and validate media counts
-        valid_obj_counts = False
-        while not valid_obj_counts:
-            media_obj_counts = build_obj_counts(spread_over_objs)
-            valid_obj_counts = validate_media_obj_counts(media_obj_counts)
+        # STEP 2: Generate and validate media counts.
+        media_obj_counts = None
+        for _attempt in range(1000):
+            candidate = build_obj_counts(spread_over_objs)
+            if validate_media_obj_counts(candidate):
+                media_obj_counts = candidate
+                break
+        if media_obj_counts is None:
+            pytest.skip(
+                "message_media_generator: no valid media distribution over "
+                f"{spread_over_objs} objects after 1000 tries — "
+                f"images_available={total_images_available} "
+                f"(max_for_distribution={max_images_for_distribution}), "
+                f"scenes_available={total_scenes_available} "
+                f"(max_for_distribution={max_scenes_for_distribution}); "
+                "likely a transiently-low Docker Stash count."
+            )
 
         # STEP 3: Allocate unique page indices for each object
         obj_data_list = allocate_page_indices(media_obj_counts)
@@ -994,30 +1011,16 @@ async def message_media_generator(factory_session, real_stash_processor):
             # Single object - return MessageMediaMetadata directly (backward compatible)
             return await build_media_metadata(obj_data_list[0])
 
-        # Multiple objects - build MultiObjectMediaMetadata
-        return_value = MultiObjectMediaMetadata(
-            total_images=0,
-            total_videos=0,
-            total_media=0,
-            distributions=[None] * spread_over_objs,  # type: ignore
+        # Multiple objects - build each then assemble MultiObjectMediaMetadata.
+        distributions: list[MessageMediaMetadata] = [
+            await build_media_metadata(obj_data) for obj_data in obj_data_list
+        ]
+        return MultiObjectMediaMetadata(
+            total_images=sum(d.num_images for d in distributions),
+            total_videos=sum(d.num_videos for d in distributions),
+            total_media=sum(d.total_media for d in distributions),
+            distributions=distributions,
         )
-
-        # Build metadata for each object
-        for i, obj_data in enumerate(obj_data_list):
-            return_value[i] = await build_media_metadata(obj_data)
-
-        # Calculate totals across all distributions
-        return_value.total_images = sum(
-            d.num_images for d in return_value.distributions
-        )
-        return_value.total_videos = sum(
-            d.num_videos for d in return_value.distributions
-        )
-        return_value.total_media = sum(
-            d.total_media for d in return_value.distributions
-        )
-
-        return return_value
 
     # Return the factory function
     return _generate_media

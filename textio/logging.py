@@ -24,6 +24,7 @@ import time
 from datetime import UTC, datetime
 from logging.handlers import BaseRotatingHandler
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 
@@ -31,7 +32,7 @@ from typing import Any
 # modules expose the same ``.open(filename, mode='wb')`` interface so one
 # atomic-write path covers every format. To add a format, append the
 # ``(ext, module)`` pair and update the schema's ``Compression`` literal.
-_COMPRESSORS: dict[str, tuple[str, Any]] = {
+_COMPRESSORS: dict[str, tuple[str, ModuleType]] = {
     "gz": (".gz", gzip),
     "bz2": (".bz2", bz2),
     "xz": (".xz", lzma),

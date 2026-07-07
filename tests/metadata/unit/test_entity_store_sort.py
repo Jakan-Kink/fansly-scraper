@@ -102,7 +102,8 @@ class TestSortResults:
         assert result[0] is m1  # Jan
 
     def test_sort_empty_list(self):
-        result = PostgresEntityStore._sort_results([], [("id", SortDirection.ASC)])
+        empty: list[Media] = []
+        result = PostgresEntityStore._sort_results(empty, [("id", SortDirection.ASC)])
         assert result == []
 
     def test_sort_no_spec(self, media_items):

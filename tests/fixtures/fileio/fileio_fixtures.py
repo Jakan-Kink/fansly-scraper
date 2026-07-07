@@ -1,7 +1,16 @@
 """File-content fixtures: minimal real MP4 and image files for fileio tests."""
 
+import io
+
 import pytest
 from PIL import Image
+
+
+def tiny_jpeg_bytes() -> bytes:
+    """Return a minimal valid JPEG as bytes for image-hash / CDN-serve tests."""
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), color="red").save(buf, format="JPEG")
+    return buf.getvalue()
 
 
 @pytest.fixture
@@ -68,6 +77,7 @@ def invalid_image_file(tmp_path):
 __all__ = [
     "invalid_image_file",
     "invalid_mp4_file",
+    "tiny_jpeg_bytes",
     "too_small_mp4_file",
     "valid_image_file",
     "valid_mp4_file",

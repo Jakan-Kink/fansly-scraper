@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
+from helpers.common import JsonDict
 from textio import json_output
 
 from .media import process_media_item_dict
@@ -94,7 +95,7 @@ def validate_media_id(
 async def process_preview(
     config: FanslyConfig,
     parent: HasPreview,
-    preview_data: dict | str | None,
+    preview_data: JsonDict | str | None,
     context_type: str = "bundle",
     account_id: int | None = None,
 ) -> None:

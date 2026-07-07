@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.machinery
 import importlib.util
 import logging
 import os
@@ -15,7 +16,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy as sa
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import Engine, text
 
 from alembic import command, script
 from tests.fixtures.database.database_fixtures import TestDatabase
@@ -49,10 +50,23 @@ def _make_alembic_config_no_url() -> Config:
     return cfg
 
 
-def _get_down_revision(cfg: Config, revision: str) -> str | tuple[str, ...] | None:
+def _get_down_revision(
+    cfg: Config, revision: str
+) -> str | tuple[str, ...] | list[str] | None:
     scripts = script.ScriptDirectory.from_config(cfg)
     rev = scripts.get_revision(revision)
     return rev.down_revision
+
+
+def _require_down_revision(cfg: Config, revision: str) -> str:
+    """Return the single-parent down_revision of ``revision``.
+
+    The migrations these tests target sit on the linear mainline, so each has
+    exactly one ``str`` parent; assert that to narrow for ``command.upgrade``.
+    """
+    down = _get_down_revision(cfg, revision)
+    assert isinstance(down, str)
+    return down
 
 
 def _linear_revisions(cfg: Config) -> list[str]:
@@ -71,7 +85,7 @@ def _linear_revisions(cfg: Config) -> list[str]:
         down = current.down_revision
         if down is None:
             break
-        if isinstance(down, tuple):
+        if isinstance(down, (tuple, list)):
             # Pick the first parent for linearization; tests only need a deterministic mainline.
             down = down[0]
         current = scripts.get_revision(down)
@@ -79,7 +93,7 @@ def _linear_revisions(cfg: Config) -> list[str]:
     return list(reversed(ordered))
 
 
-def _seed_case_insensitive_hashtags(engine) -> None:
+def _seed_case_insensitive_hashtags(engine: Engine) -> None:
     # Insert case-variant duplicates plus a post reference to exercise merge logic.
     with engine.begin() as conn:
         # SQLite migrations assumed lax FK checks; relax them briefly so seeds match.
@@ -101,7 +115,7 @@ def _seed_case_insensitive_hashtags(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_case_insensitive_no_conflict(engine) -> None:
+def _seed_case_insensitive_no_conflict(engine: Engine) -> None:
     """Seed hashtags with case variants but NO post conflicts (covers branch 96->111)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -124,7 +138,7 @@ def _seed_case_insensitive_no_conflict(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_hashtags(engine) -> None:
+def _seed_malformed_hashtags(engine: Engine) -> None:
     # Insert malformed values, empties, and overlapping post references to drive
     # hashtag cleanup and merge branches.
     with engine.begin() as conn:
@@ -157,7 +171,7 @@ def _seed_malformed_hashtags(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_empty_extract(engine) -> None:
+def _seed_malformed_empty_extract(engine: Engine) -> None:
     """Seed hashtags that extract to empty list (covers line 28 and branch 97->113)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -185,7 +199,7 @@ def _seed_malformed_empty_extract(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_malformed_no_posts_to_copy(engine) -> None:
+def _seed_malformed_no_posts_to_copy(engine: Engine) -> None:
     """Seed to hit the 'no posts_to_copy' branch (line 142)."""
     with engine.begin() as conn:
         conn.execute(text("SET session_replication_role = replica"))
@@ -207,7 +221,7 @@ def _seed_malformed_no_posts_to_copy(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
-def _seed_e4a1_preexisting_objects(engine) -> None:
+def _seed_e4a1_preexisting_objects(engine: Engine) -> None:
     """Pre-create the id column, constraints, and indexes that e4a1 would create.
 
     This exercises the idempotency guards (skip branches) in e4a1:
@@ -269,7 +283,7 @@ def _seed_e4a1_preexisting_objects(engine) -> None:
         )
 
 
-def _seed_e4a1_no_pkey(engine) -> None:
+def _seed_e4a1_no_pkey(engine: Engine) -> None:
     """Remove the PK from post_mentions without adding the id column.
 
     Forces e4a1 into the block where id doesn't exist AND the old pkey
@@ -283,7 +297,7 @@ def _seed_e4a1_no_pkey(engine) -> None:
         )
 
 
-def _seed_e4a1_missing_objects(engine) -> None:
+def _seed_e4a1_missing_objects(engine: Engine) -> None:
     """Remove the constraints and indexes that earlier migrations created.
 
     This forces e4a1 to create them (exercising lines 60 and 75-78),
@@ -305,7 +319,7 @@ def _seed_e4a1_missing_objects(engine) -> None:
         conn.execute(text('DROP INDEX IF EXISTS "ix_post_mentions_handle"'))
 
 
-def _seed_f1a2_naive_timestamps(engine) -> None:
+def _seed_f1a2_naive_timestamps(engine: Engine) -> None:
     """Revert a timestamp column to naive (without time zone).
 
     This exercises the ALTER COLUMN loop body (line 45) in f1a2,
@@ -408,9 +422,12 @@ def _resolve_start_rev(cfg: Config, spec: dict[str, str | int | Callable]) -> st
         return base_rev
 
     if "index" in spec:
-        offset = int(spec["index"])
+        index = spec["index"]
+        assert isinstance(index, int)
+        offset = index
         revisions = _linear_revisions(cfg)
         target_rev = spec["target_rev"]
+        assert isinstance(target_rev, str)
         if target_rev == "head":
             target_rev = revisions[-1]
         idx = (
@@ -455,7 +472,7 @@ def test_alembic_upgrade_and_downgrade(uuid_test_db_factory, spec):
             command.upgrade(alembic_cfg, start_rev)
 
         if seed_fn:
-            down_rev = _get_down_revision(alembic_cfg, target_rev)
+            down_rev = _require_down_revision(alembic_cfg, target_rev)
             seed_base = down_rev or start_rev
             print(f"[migrations] seed_base={seed_base}")
 
@@ -509,7 +526,7 @@ def test_6dcb_skip_drop_fks(uuid_test_db_factory):
     target_rev = "6dcb1d898d8b"
 
     # 2. Get to pre-state
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # 3. Drop FKs manually to simulate missing state
@@ -598,7 +615,7 @@ def test_7f05_skip_drop_constraints(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Manual Drop
@@ -674,7 +691,7 @@ def test_4416_skip_create_index(uuid_test_db_factory):
     target_rev = "4416b99f028e"
 
     start_rev = "base"  # As per original spec
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     # The migration spec used index -2, so it started further along than base.
     # Let's trust the logic in _seed to create the index safely
 
@@ -890,7 +907,7 @@ def test_2dc7_fk_already_dropped(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-drop the FK constraints to trigger the "already missing" branches
@@ -953,7 +970,7 @@ def test_2dc7_indexes_already_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the indexes
@@ -1032,7 +1049,7 @@ def test_2dc7_downgrade_indexes_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
 
     # First upgrade to target
     command.upgrade(alembic_cfg, target_rev)
@@ -1105,7 +1122,7 @@ def test_2dc7_downgrade_fks_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
@@ -1182,7 +1199,7 @@ def test_2dc7_downgrade_stub_tracker_indexes_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop stub_tracker indexes manually
@@ -1258,7 +1275,7 @@ def test_6dcb_account_media_fk_variants_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the variant FK names to hit lines 43, 45
@@ -1315,7 +1332,7 @@ def test_6dcb_groups_fk_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-drop the groups FK
@@ -1353,7 +1370,7 @@ def test_6dcb_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the index
@@ -1428,7 +1445,7 @@ def test_6dcb_messages_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the messages index
@@ -1486,7 +1503,7 @@ def test_4416_upgrade_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the index
@@ -1524,7 +1541,7 @@ def test_4416_downgrade_pk_constraint_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop pk_post_hashtags constraint if it exists
@@ -1562,7 +1579,7 @@ def test_4416_downgrade_index_already_dropped(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop index before downgrade
@@ -1596,7 +1613,7 @@ def test_4416_pk_constraint_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     scripts = script.ScriptDirectory.from_config(alembic_cfg)
@@ -1666,7 +1683,7 @@ def test_4416_downgrade_constraint_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the constraint before downgrade
@@ -1735,7 +1752,7 @@ def test_4416_downgrade_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop index before downgrade
@@ -1805,7 +1822,7 @@ def test_7f05_upgrade_pk_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Manually set up PK to match target state
@@ -1851,7 +1868,7 @@ def test_7f05_downgrade_unique_constraints_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop unique constraints before downgrade
@@ -1894,7 +1911,7 @@ def test_7f05_downgrade_constraints_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the new constraints before downgrade
@@ -1978,7 +1995,7 @@ def test_0c4cb_duplicate_merge_skip_no_overlap(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Seed case variants with NO post conflicts
@@ -1992,6 +2009,7 @@ def test_0c4cb_duplicate_merge_skip_no_overlap(uuid_test_db_factory):
             result = conn.execute(text("SELECT COUNT(*) FROM hashtags"))
             # Should have merged case variants
             count = result.scalar()
+            assert count is not None
             assert count < 3  # Started with 3, should be merged
     finally:
         db.close()
@@ -2023,7 +2041,7 @@ def test_2dc7_upgrade_all_constraints_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Check if stub_tracker exists at this point
@@ -2085,7 +2103,7 @@ def test_187642_fk_missing_on_upgrade(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Drop the FK before upgrade
@@ -2142,7 +2160,7 @@ def test_187642_fk_missing_on_downgrade(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the FK before downgrade
@@ -2215,7 +2233,7 @@ def test_b8dc_downgrade_no_matching_constraint(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop media_variants unique constraint before downgrade
@@ -2290,7 +2308,7 @@ def test_b8dc_downgrade_stories_fk_not_found(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop stories FK before downgrade
@@ -2364,7 +2382,7 @@ def test_b8dc_downgrade_fk_exists_skip_drop(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop ALL FKs on messages.groupId first
@@ -2453,7 +2471,7 @@ def test_00c9_walls_index_already_exists(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Pre-create the walls index
@@ -2491,7 +2509,7 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, target_rev)
 
     # Drop the walls index before downgrade
@@ -2519,426 +2537,93 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
 # =============================================================================
 
 
-def test_extract_hashtags_empty_content():
-    """Test extract_hashtags with empty/None content (line 28)."""
+@pytest.mark.parametrize(
+    ("empty_inputs", "membership_cases"),
+    [
+        pytest.param(
+            [None, "", "   "],  # None, empty string, whitespace only
+            [],
+            id="empty_content",
+        ),
+        pytest.param(
+            ["###", "#!@#$%"],  # all hash chars, special chars only
+            # Mixed valid and invalid: invalid123 has numbers so might be
+            # included depending on isalnum
+            [("#valid#!@#invalid123", ["valid", "invalid123"])],
+            id="special_chars",
+        ),
+    ],
+)
+def test_extract_hashtags_pure_fn(
+    empty_inputs: list[str | None],
+    membership_cases: list[tuple[str, list[str]]],
+) -> None:
+    """extract_hashtags with empty/None content (line 28) and special chars."""
     # Load the migration module dynamically since it starts with a number
     spec = importlib.util.spec_from_file_location(
         "clean_malformed_hashtags",
         Path(__file__).parent.parent.parent
         / "alembic/versions/1941514875f1_clean_malformed_hashtags.py",
     )
+    assert spec is not None
+    assert spec.loader is not None
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
-    # Test None
-    assert migration.extract_hashtags(None) == []
+    for content in empty_inputs:
+        assert migration.extract_hashtags(content) == []
 
-    # Test empty string
-    assert migration.extract_hashtags("") == []
+    for content, expected_members in membership_cases:
+        result = migration.extract_hashtags(content)
+        for member in expected_members:
+            assert member in result
 
-    # Test whitespace only
-    assert migration.extract_hashtags("   ") == []
+
+# =============================================================================
+# env.py - metadata/tables.py spec-load guard
+# =============================================================================
 
 
-def test_extract_hashtags_special_chars():
-    """Test extract_hashtags with special characters."""
-    spec = importlib.util.spec_from_file_location(
-        "clean_malformed_hashtags",
-        Path(__file__).parent.parent.parent
-        / "alembic/versions/1941514875f1_clean_malformed_hashtags.py",
+@pytest.mark.parametrize(
+    "make_spec",
+    [
+        lambda _name: None,
+        lambda name: importlib.machinery.ModuleSpec(name, None),
+    ],
+    ids=["spec_is_none", "loader_is_none"],
+)
+def test_env_tables_spec_unloadable_raises(uuid_test_db_factory, make_spec):
+    """env.py raises RuntimeError when metadata/tables.py can't load (lines 35-36).
+
+    Runs a real ``command.upgrade`` so env.py executes end-to-end against an
+    empty database; only the external leaf ``spec_from_file_location`` is
+    patched, and only for the ``metadata_tables`` spec -- alembic uses the same
+    call to load env.py itself, so every other name passes through. Covers both
+    arms of ``_spec is None or _spec.loader is None`` (None spec, real spec with
+    no loader).
+    """
+    fansly_config = uuid_test_db_factory
+    password_encoded = (
+        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
     )
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+    db_url = (
+        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
+        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    )
+    alembic_cfg = _make_alembic_config(db_url)
 
-    # All hash chars
-    assert migration.extract_hashtags("###") == []
+    real_spec_from_file_location = importlib.util.spec_from_file_location
 
-    # Special chars only
-    assert migration.extract_hashtags("#!@#$%") == []
-
-    # Mixed valid and invalid
-    result = migration.extract_hashtags("#valid#!@#invalid123")
-    assert "valid" in result
-    # invalid123 has numbers so might be included depending on isalnum
-    assert "invalid123" in result
-
-
-# =============================================================================
-# env.py comprehensive coverage tests
-# =============================================================================
-
-
-def test_env_password_encoding_with_special_chars():
-    """Test env.py password URL encoding with special characters (lines 13-24)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
-
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
-
-    with patch("alembic.context") as mock_context, patch("os.getenv") as mock_getenv:
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = None
-        mock_context.config.set_main_option = MagicMock()
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {"connection": MagicMock()}
-
-        mock_getenv.side_effect = lambda key, default="": {
-            "FANSLY_PG_HOST": "db.example.com",
-            "FANSLY_PG_PORT": "5432",
-            "FANSLY_PG_USER": "user",
-            "FANSLY_PG_PASSWORD": "p@ss:w/rd",
-            "FANSLY_PG_DATABASE": "testdb",
-        }.get(key, default)
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-        mock_context.config.set_main_option.assert_called_once()
-        args = mock_context.config.set_main_option.call_args[0]
-        assert args[0] == "sqlalchemy.url"
-        assert "p%40ss%3Aw%2Frd" in args[1]
-
-
-def test_env_online_mode_no_url_raises_error():
-    """Test env.py online mode raises ValueError when no URL (line 76)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
-
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
+    def selective_spec(name, *args, **kwargs):
+        if name == "metadata_tables":
+            return make_spec(name)
+        return real_spec_from_file_location(name, *args, **kwargs)
 
     with (
-        patch("alembic.context") as mock_context,
-        patch("os.getenv") as mock_getenv,
-        patch("sqlalchemy.create_engine") as mock_create_engine,
+        patch("importlib.util.spec_from_file_location", side_effect=selective_spec),
+        pytest.raises(RuntimeError, match="Could not load metadata"),
     ):
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = None
-        mock_context.config.set_main_option = MagicMock()
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {}
-
-        mock_getenv.return_value = ""
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            with pytest.raises(ValueError, match="No database URL configured"):
-                exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-
-def test_env_connection_commit_when_in_transaction():
-    """Test env.py commits when connection.in_transaction() is True (lines 105, 109)."""
-    env_path = Path(__file__).parent.parent.parent / "alembic" / "env.py"
-    env_code = env_path.read_text()
-
-    namespace = {"__name__": "alembic.env", "__file__": str(env_path)}
-
-    with patch("alembic.context") as mock_context:
-        mock_connection = MagicMock()
-        mock_connection.in_transaction.return_value = True
-
-        mock_context.config = MagicMock()
-        mock_context.config.get_main_option.return_value = "postgresql://test"
-        mock_context.is_offline_mode.return_value = False
-        mock_context.config.attributes = {"connection": mock_connection}
-
-        sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-        try:
-            exec(env_code, namespace)  # noqa: S102 - Controlled test execution with isolated namespace
-        finally:
-            sys.path.pop(0)
-
-        mock_connection.commit.assert_called_once()
-
-
-# =============================================================================
-# Migration 6dcb1d898d8b - Missing FK/index variants
-# =============================================================================
-
-
-def test_6dcb_account_media_variant_fks_missing(uuid_test_db_factory):
-    """Test 6dcb1d898d8b when variant FK names missing (lines 43, 45)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "6dcb1d898d8b"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE account_media DROP CONSTRAINT IF EXISTS "fk_account_media_accountId_accounts"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE account_media DROP CONSTRAINT IF EXISTS "fk_account_media_mediaId_media"'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_6dcb_groups_lastmessage_fk_missing(uuid_test_db_factory):
-    """Test 6dcb1d898d8b when group_lastMessageId_fkey missing (line 56)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "6dcb1d898d8b"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE groups DROP CONSTRAINT IF EXISTS "group_lastMessageId_fkey"'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration 4416b99f028e - Additional downgrade coverage
-# =============================================================================
-
-
-def test_4416_upgrade_with_existing_index(uuid_test_db_factory):
-    """Test 4416b99f028e upgrade when ix_hashtags_value exists (line 50)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'CREATE UNIQUE INDEX IF NOT EXISTS "ix_hashtags_value" ON hashtags (value)'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_4416_downgrade_pk_missing(uuid_test_db_factory):
-    """Test 4416b99f028e downgrade when pk_post_hashtags missing (line 67)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_hashtags DROP CONSTRAINT IF EXISTS "pk_post_hashtags"'
-            )
-        )
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_4416_downgrade_index_missing(uuid_test_db_factory):
-    """Test 4416b99f028e downgrade when ix_hashtags_value missing (line 68)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(text('DROP INDEX IF EXISTS "ix_hashtags_value"'))
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration 7f057c9b00e0 - Additional constraint coverage
-# =============================================================================
-
-
-def test_7f05_upgrade_pk_already_dropped(uuid_test_db_factory):
-    """Test 7f057c9b00e0 upgrade when old PK already exists (line 56)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "7f057c9b00e0"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "post_mentions_pkey"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions ADD CONSTRAINT "post_mentions_pkey" '
-                'PRIMARY KEY ("postId", handle)'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_7f05_downgrade_unique_handle_missing(uuid_test_db_factory):
-    """Test 7f057c9b00e0 downgrade when uix_post_mentions_handle missing (lines 88, 91->95)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "7f057c9b00e0"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_account"'
-            )
-        )
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
+        command.upgrade(alembic_cfg, "head")
 
 
 # =============================================================================
@@ -2957,7 +2642,7 @@ def test_0c4cb_duplicate_case_variants_no_post_overlap(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     _seed_case_insensitive_no_conflict(db._sync_engine)
@@ -2968,6 +2653,7 @@ def test_0c4cb_duplicate_case_variants_no_post_overlap(uuid_test_db_factory):
         with db._sync_engine.begin() as conn:
             result = conn.execute(text("SELECT COUNT(*) FROM hashtags"))
             count = result.scalar()
+            assert count is not None
             assert count < 3
     finally:
         db.close()
@@ -2999,7 +2685,7 @@ def test_2dc7_upgrade_stub_tracker_indexes_exist(uuid_test_db_factory):
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
+    down_rev = _require_down_revision(alembic_cfg, target_rev)
     command.upgrade(alembic_cfg, down_rev)
 
     # Check if stub_tracker exists
@@ -3029,94 +2715,6 @@ def test_2dc7_upgrade_stub_tracker_indexes_exist(uuid_test_db_factory):
 
     try:
         command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration b8dcecc1e979 - Falsy branch 617->612
-# =============================================================================
-
-
-def test_b8dc_downgrade_messages_fk_exists_skip(uuid_test_db_factory):
-    """Test b8dcecc1e979 downgrade when old FK exists, skip drop (branch 617->612)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "b8dcecc1e979"
-
-    down_rev = _get_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    # Drop ALL FKs on messages.groupId first
-    with db._sync_engine.begin() as conn:
-        result = conn.execute(
-            text(
-                """
-            SELECT conname FROM pg_constraint
-            WHERE conrelid = 'messages'::regclass
-            AND contype = 'f'
-            AND conkey = (SELECT array_agg(attnum) FROM pg_attribute
-                         WHERE attrelid = 'messages'::regclass AND attname = 'groupId')
-            """
-            )
-        )
-        for row in result:
-            conn.execute(
-                text(f'ALTER TABLE messages DROP CONSTRAINT IF EXISTS "{row[0]}"')
-            )
-
-    # Now create the old FK
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE messages ADD CONSTRAINT "messages_groupId_fkey" '
-                'FOREIGN KEY ("groupId") REFERENCES groups(id)'
-            )
-        )
-
-    scripts = script.ScriptDirectory.from_config(alembic_cfg)
-    rev = scripts.get_revision(target_rev)
-
-    real_sa_inspect = sa.inspect
-
-    def side_effect(bind):
-        inspector = real_sa_inspect(bind)
-        mock = MagicMock(wraps=inspector)
-
-        orig_get_fks = inspector.get_foreign_keys
-
-        def fake_get_fks(table_name, *args, **kwargs):
-            res = list(orig_get_fks(table_name, *args, **kwargs))
-            if table_name == "messages":
-                return [
-                    {
-                        "name": "messages_groupId_fkey",
-                        "constrained_columns": ["groupId"],
-                    }
-                ]
-            return res
-
-        mock.get_foreign_keys.side_effect = fake_get_fks
-        return mock
-
-    try:
-        with patch.object(rev.module.sa, "inspect", side_effect=side_effect):
-            command.downgrade(alembic_cfg, down_rev)
     finally:
         db.close()
         loop = None

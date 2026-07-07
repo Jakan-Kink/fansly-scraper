@@ -19,6 +19,7 @@ from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     MonitorStateFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestMonitorStateFactory:
@@ -52,12 +53,20 @@ class TestMonitorStateFactory:
         assert state.lastHasActiveStories is True
 
 
-class TestMonitorStateEntityStore:
-    """Test 2: EntityStore save round-trips MonitorState to PostgreSQL."""
+@pytest.mark.xdist_group("monitor_state")
+class TestMonitorStatePersistence:
+    """Deep round-trip on ONE shared store + state object.
+
+    Chains the facets the five shallow tests covered individually:
+    round-trip, nullable-field NULL handling, identity-map dedup, dirty
+    tracking on mutation, and persistence of the mutation after reload.
+    Sharing a single ``entity_store`` (one UUID Postgres DB) replaces the
+    five separate per-test databases the originals each spun up.
+    """
 
     @pytest.mark.asyncio
-    async def test_save_and_retrieve(self, entity_store):
-        """Saving MonitorState with a valid Account FK persists and retrieves correctly."""
+    async def test_persistence_chain(self, entity_store):
+        """Save Account + MonitorState once, then assert each facet in sequence."""
         account = AccountFactory.build()
         await entity_store.save(account)
 
@@ -65,26 +74,50 @@ class TestMonitorStateEntityStore:
         state.lastHasActiveStories = False
         await entity_store.save(state)
 
+        # Facet 1: round-trip — saved fields retrieve unchanged.
         loaded = await entity_store.get(MonitorState, account.id)
         assert loaded is not None
         assert loaded.creatorId == account.id
         assert loaded.lastHasActiveStories is False
         assert isinstance(loaded.updatedAt, datetime)
 
-    @pytest.mark.asyncio
-    async def test_save_and_retrieve_nullable_fields(self, entity_store):
-        """NULL fields persist and retrieve as None."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
+        # Facet 2: nullable fields — a state with no overrides round-trips
+        # its optional columns as None. Distinct creator so the NULLs are
+        # not shadowed by the primary state above.
+        nullable_account = AccountFactory.build()
+        await entity_store.save(nullable_account)
+        nullable_state = MonitorStateFactory.build(creatorId=nullable_account.id)
+        await entity_store.save(nullable_state)
 
-        state = MonitorStateFactory.build(creatorId=account.id)
-        await entity_store.save(state)
+        nullable_loaded = await entity_store.get(MonitorState, nullable_account.id)
+        assert nullable_loaded is not None
+        assert nullable_loaded.lastHasActiveStories is None
+        assert nullable_loaded.lastCheckedAt is None
+        assert nullable_loaded.lastRunAt is None
 
-        loaded = await entity_store.get(MonitorState, account.id)
-        assert loaded is not None
-        assert loaded.lastHasActiveStories is None
-        assert loaded.lastCheckedAt is None
-        assert loaded.lastRunAt is None
+        # Facet 3: identity-map dedup — repeated get() by PK returns the
+        # same Python object, not a fresh instance.
+        first = await entity_store.get(MonitorState, account.id)
+        second = await entity_store.get(MonitorState, account.id)
+        assert first is second
+        assert first.creatorId == account.id
+
+        # Facet 4: dirty tracking — object is clean after save; mutating a
+        # tracked field marks it dirty and surfaces the change.
+        assert not first.is_dirty()
+        first.lastHasActiveStories = True
+        assert first.is_dirty()
+        changed = first.get_changed_fields()
+        assert "lastHasActiveStories" in changed
+        assert changed["lastHasActiveStories"] is True
+
+        # Facet 5: update persists — save the mutation, evict the cache,
+        # reload from DB, and confirm the new value survived.
+        await entity_store.save(first)
+        entity_store.invalidate(MonitorState, account.id)
+        reloaded = await entity_store.get(MonitorState, account.id)
+        assert reloaded is not None
+        assert reloaded.lastHasActiveStories is True
 
 
 class TestMonitorStateForeignKey:
@@ -93,13 +126,23 @@ class TestMonitorStateForeignKey:
     @pytest.mark.asyncio
     async def test_save_without_account_raises_fk_error(self, entity_store):
         """Inserting MonitorState without a matching Account violates FK constraint."""
-        # Use a creator_id that definitely has no Account row
-        orphan_creator_id = 100_000_000_000_000_042
+        # Unique per-run orphan id (never an Account row, never collides with a
+        # MonitorState another test cached). A hardcoded id let a prior test's
+        # same-id cached instance win the identity-map lookup below, returning it
+        # with _is_new=False — then save() takes neither the INSERT nor the UPDATE
+        # branch and silently no-ops, so no FK error fires. That was an
+        # order-dependent isolation failure, not flakiness.
+        orphan_creator_id = snowflake_id()
 
         state = MonitorState(
             creatorId=orphan_creator_id,
             updatedAt=datetime.now(UTC),
         )
+
+        # Precondition: the orphan must take the INSERT path, or the FK check
+        # never runs. Assert it explicitly so any residual cache pollution fails
+        # loudly here instead of silently satisfying pytest.raises with a no-op.
+        assert state._is_new is True
 
         # Expect specifically asyncpg's ForeignKeyViolationError, not a
         # loose Exception fallback — a broader catch would let unrelated
@@ -108,107 +151,38 @@ class TestMonitorStateForeignKey:
             await entity_store.save(state)
 
 
-class TestMonitorStateIdentityMap:
-    """Test 4: Identity map dedup — loading by PK returns the same object."""
-
-    @pytest.mark.asyncio
-    async def test_identity_map_dedup(self, entity_store):
-        """get() with same PK returns the cached instance, not a new one."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
-
-        state = MonitorStateFactory.build(creatorId=account.id)
-        await entity_store.save(state)
-
-        first = await entity_store.get(MonitorState, account.id)
-        second = await entity_store.get(MonitorState, account.id)
-
-        # Both should be the same Python object (identity map)
-        assert first is second
-        assert first.creatorId == account.id
-
-
-class TestMonitorStateDirtyTracking:
-    """Test 5: Dirty tracking — mutating lastHasActiveStories marks field dirty."""
-
-    @pytest.mark.asyncio
-    async def test_mutation_marks_dirty_and_updates(self, entity_store):
-        """Changing lastHasActiveStories marks object dirty; next save does UPDATE."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
-
-        state = MonitorStateFactory.build(
-            creatorId=account.id, lastHasActiveStories=False
-        )
-        await entity_store.save(state)
-
-        # Object should be clean after save
-        assert not state.is_dirty()
-
-        # Mutate a tracked field
-        state.lastHasActiveStories = True
-        assert state.is_dirty()
-
-        changed = state.get_changed_fields()
-        assert "lastHasActiveStories" in changed
-        assert changed["lastHasActiveStories"] is True
-
-    @pytest.mark.asyncio
-    async def test_update_persists(self, entity_store):
-        """After marking dirty and saving, the updated value persists to DB."""
-        account = AccountFactory.build()
-        await entity_store.save(account)
-
-        state = MonitorStateFactory.build(
-            creatorId=account.id, lastHasActiveStories=False
-        )
-        await entity_store.save(state)
-
-        state.lastHasActiveStories = True
-        await entity_store.save(state)
-
-        # Evict from cache and reload from DB
-        entity_store.invalidate(MonitorState, account.id)
-        reloaded = await entity_store.get(MonitorState, account.id)
-        assert reloaded is not None
-        assert reloaded.lastHasActiveStories is True
-
-
 class TestMonitorStateTimestampCoercion:
     """Test 6: lastCheckedAt auto-coerces from int timestamp."""
 
-    def test_int_milliseconds_coerced_to_datetime(self):
-        """lastCheckedAt coerces ms int → datetime via BeforeValidator.
+    @pytest.mark.parametrize(
+        ("timestamp", "creator_id"),
+        [
+            pytest.param(
+                1_776_270_684_000,  # milliseconds since epoch → 2026-04-16 UTC
+                100_000_000_000_000_001,
+                id="int_milliseconds",
+            ),
+            pytest.param(
+                1_776_270_684,  # seconds since epoch → 2026-04-16 UTC
+                100_000_000_000_000_002,
+                id="int_seconds",
+            ),
+        ],
+    )
+    def test_int_timestamp_coerced_to_datetime(
+        self, timestamp: int, creator_id: int
+    ) -> None:
+        """lastCheckedAt coerces ms and seconds ints → datetime via BeforeValidator.
 
-        Anchor is the exact year+month so the test distinguishes the ms
-        branch (divide by 1000) from the seconds branch. A weak
-        ``year > 2020`` assertion would pass for either interpretation
+        Both rows encode the SAME instant (2026-04-16 UTC) in different units,
+        and the anchor is the exact year+month, so each row distinguishes its
+        branch of the heuristic (``v < 1e10`` → seconds, else divide by 1000).
+        A weak ``year > 2020`` assertion would pass for either interpretation
         as long as both branches land after 2020.
         """
-        ms_timestamp = 1_776_270_684_000  # milliseconds since epoch → 2026-04-16 UTC
-
         state = MonitorState(
-            creatorId=100_000_000_000_000_001,
-            lastCheckedAt=ms_timestamp,
-            updatedAt=datetime.now(UTC),
-        )
-
-        assert isinstance(state.lastCheckedAt, datetime)
-        assert state.lastCheckedAt.year == 2026
-        assert state.lastCheckedAt.month == 4
-
-    def test_int_seconds_coerced_to_datetime(self):
-        """lastCheckedAt coerces seconds int → datetime correctly.
-
-        Tight year+month assertion — proves the seconds heuristic
-        (``v < 1e10`` → treat as seconds) picks this path correctly
-        rather than accidentally dividing by 1000.
-        """
-        sec_timestamp = 1_776_270_684  # seconds since epoch → 2026-04-16 UTC
-
-        state = MonitorState(
-            creatorId=100_000_000_000_000_002,
-            lastCheckedAt=sec_timestamp,
+            creatorId=creator_id,
+            lastCheckedAt=timestamp,  # type: ignore[arg-type]  # int→datetime coercion is the test
             updatedAt=datetime.now(UTC),
         )
 
@@ -242,7 +216,7 @@ class TestMonitorStateTimestampCoercion:
 
         state = MonitorState(
             creatorId=100_000_000_000_000_005,
-            updatedAt=ms_timestamp,
+            updatedAt=ms_timestamp,  # type: ignore[arg-type]  # int→datetime coercion is the test
         )
 
         assert isinstance(state.updatedAt, datetime)

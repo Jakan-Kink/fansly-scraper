@@ -53,6 +53,13 @@ from config.validation import (
 )
 from errors import ConfigError
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.utils import scaled_async_sleep
+
+
+# Website-host URLs scraped by guess_check_key for main.js — not apiv3
+# endpoints, so no FanslyApi.*_ENDPOINT constant maps to them.
+_FANSLY_HOMEPAGE = "https://fansly.com/"  # CCH:api  # website root for main.js scrape, not an apiv3 endpoint
+_FANSLY_MAIN_JS = "https://fansly.com/main.abc123.js"  # CCH:api  # scraped website main.js asset, not an apiv3 endpoint
 
 
 # validation_config fixture lives in tests/fixtures/config/ and flows through
@@ -147,7 +154,7 @@ async def test_validate_creator_names_interactive_adjustment(
     validation_config.interactive = True
     validation_config.user_names = {"bad user"}  # space → invalid
 
-    async def _fake_aprompt_text(_prompt: str, **_kwargs) -> str:
+    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
         return "correctuser"
 
     monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
@@ -190,7 +197,7 @@ async def test_validate_adjust_creator_name_interactive_retries_until_valid(
 ):
     """Interactive mode loops on invalid input until a valid one is entered."""
 
-    async def _fake_aprompt_text(_prompt: str, **_kwargs) -> str:
+    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
         return "validuser"
 
     monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
@@ -410,7 +417,7 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
     validation_config.interactive = True
     validation_config.token = "short"
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -468,7 +475,7 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
     validation_config.interactive = True
     validation_config.token = "short"
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return False
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -648,7 +655,7 @@ async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
     # Note: invalid-input retry behavior now lives in textio.prompts.aconfirm
     # itself (the helper loops on unparseable answers); production code only
     # sees the final True/False. Test simplifies to "user eventually accepts."
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -773,85 +780,101 @@ def test_validate_adjust_user_agent_freezes_macos_token(
 # -- validate_adjust_check_key ----------------------------------------------
 
 
-async def test_validate_adjust_check_key_guess_succeeds_sets_key(validation_config):
-    """guess_check_key returns a value → config.check_key is updated + saved."""
-    # config.user_agent is set via fixture — guess_check_key gets called.
-    with patch("helpers.checkkey.guess_check_key", return_value="guessed_key_xyz"):
-        await validate_adjust_check_key(validation_config)
-
-    assert validation_config.check_key == "guessed_key_xyz"
-    assert validation_config.config_path.exists()
-
-
-async def test_validate_adjust_check_key_guess_fails_interactive_confirm_keeps_key(
-    validation_config, monkeypatch
+async def test_validate_adjust_check_key_guess_succeeds_sets_key(
+    respx_fansly_api, validation_config
 ):
-    """guess_check_key returns None → interactive yes confirms existing key."""
+    """Real ``guess_check_key`` returns a key → config.check_key updated + saved.
+
+    Drives the real HTTP pipeline: respx serves the Fansly homepage (carrying
+    the main.js ``src``) and the main.js asset; the real ``guess_check_key``
+    scrapes the URL, downloads the bundle, and runs the real extraction chain.
+    The JS-execution leaf (``extract_checkkey_from_js``) is patched to a known
+    key — that is the external-bridge boundary already covered in
+    ``test_checkkey.py``; everything between ``validate_adjust_check_key`` and
+    the JS leaf (HTTP fetch, URL parsing, fall-through) runs for real.
+
+    ``_shutdown_js_bridge`` is patched to skip ~7s of node-bridge thread joins
+    (real teardown is exercised in ``test_checkkey.py::TestJsBridgeShutdown``).
+    """
+    html = '<script src="main.abc123.js"></script>'
+    homepage_route = respx.get(_FANSLY_HOMEPAGE).mock(
+        side_effect=[httpx.Response(200, text=html)]
+    )
+    mainjs_route = respx.get(_FANSLY_MAIN_JS).mock(
+        side_effect=[httpx.Response(200, text='this.checkKey_ = "x";')]
+    )
+
+    try:
+        with (
+            patch("helpers.checkkey._shutdown_js_bridge"),
+            patch(
+                "helpers.checkkey.extract_checkkey_from_js",
+                return_value="guessed-key-xyz",
+            ),
+        ):
+            await validate_adjust_check_key(validation_config)
+    finally:
+        dump_fansly_calls(respx.calls, label="check_key_guess_succeeds")
+
+    assert validation_config.check_key == "guessed-key-xyz"
+    assert validation_config.config_path.exists()
+    assert homepage_route.called
+    assert mainjs_route.called
+
+
+# The real ``guess_check_key`` never returns None — every failure path returns
+# the hardcoded default key (helpers/checkkey.py). So the interactive arms of
+# ``validate_adjust_check_key`` (``guessed_key is None``) are only reachable
+# when ``config.user_agent`` is falsy, which skips the guess entirely. These
+# tests drive the real ``aconfirm``/``aprompt_text`` while-loop over a real
+# FanslyConfig with no ``guess_check_key`` patch — only the stdin-edge prompts
+# are faked.
+@pytest.mark.parametrize(
+    ("confirm_answers", "text_answers", "expected_key_attr"),
+    [
+        pytest.param([True], [], "original", id="confirm-keeps-existing-key"),
+        pytest.param(
+            [False, True], ["new_key_value"], "new_key_value", id="enters-new-key"
+        ),
+        pytest.param(
+            [False, False, True],
+            ["first_try", "second_try"],
+            "second_try",
+            id="rejects-new-key-then-accepts",
+        ),
+    ],
+)
+async def test_validate_adjust_check_key_no_guess_interactive_arms(
+    validation_config, monkeypatch, confirm_answers, text_answers, expected_key_attr
+):
+    """No user_agent → guess skipped → real interactive key-confirm loop runs.
+
+    Each param drives a distinct stdin arm of the real while-loop:
+    confirm-keep, enter-new, and reject-then-accept (the partial branch where
+    the new-key confirmation is rejected and the prompt repeats). Only the
+    prompt leaves (``aconfirm``/``aprompt_text``, prompt_toolkit stdin edge)
+    are faked; ``save_config_or_raise`` and the loop logic run for real.
+    """
+    validation_config.user_agent = None
     validation_config.interactive = True
     original_key = validation_config.check_key
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
-        return True
+    confirm_iter = iter(confirm_answers)
+    text_iter = iter(text_answers)
 
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
+        return next(confirm_iter)
 
-    with patch("helpers.checkkey.guess_check_key", return_value=None):
-        await validate_adjust_check_key(validation_config)
-
-    assert validation_config.check_key == original_key
-
-
-async def test_validate_adjust_check_key_guess_fails_interactive_user_enters_new_key(
-    validation_config, monkeypatch
-):
-    """guess fails → user rejects current → enters new key → confirms it."""
-    validation_config.interactive = True
-
-    # First aconfirm: reject current. Second aconfirm: accept new key.
-    confirm_answers = iter([False, True])
-
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
-        return next(confirm_answers)
-
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
-        return "new_key_value"
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
+        return next(text_iter)
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
     monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
 
-    with patch("helpers.checkkey.guess_check_key", return_value=None):
-        await validate_adjust_check_key(validation_config)
+    await validate_adjust_check_key(validation_config)
 
-    assert validation_config.check_key == "new_key_value"
-
-
-async def test_validate_adjust_check_key_user_rejects_new_key_then_accepts(
-    validation_config, monkeypatch
-):
-    """Interactive: user rejects a new-key confirmation, re-enters, accepts next.
-
-    Covers partial branch where the while-loop continues when the
-    confirmation of the typed key is False, prompting again.
-    """
-    validation_config.interactive = True
-
-    # aconfirm sequence: reject current, reject first try, accept second try.
-    confirm_answers = iter([False, False, True])
-    text_answers = iter(["first_try", "second_try"])
-
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
-        return next(confirm_answers)
-
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
-        return next(text_answers)
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
-
-    with patch("helpers.checkkey.guess_check_key", return_value=None):
-        await validate_adjust_check_key(validation_config)
-
-    assert validation_config.check_key == "second_try"
+    expected = original_key if expected_key_attr == "original" else expected_key_attr
+    assert validation_config.check_key == expected
 
 
 async def test_validate_adjust_check_key_no_user_agent_non_interactive(
@@ -912,10 +935,7 @@ async def test_validate_adjust_download_directory_invalid_prompts_for_replacemen
     replacement = tmp_path / "picked"
     replacement.mkdir()
 
-    async def _fake_sleep(_seconds):
-        return None
-
-    monkeypatch.setattr("config.validation.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("config.validation.asyncio.sleep", scaled_async_sleep)
 
     with patch(
         "config.validation.ask_correct_dir",
@@ -1017,7 +1037,7 @@ async def test_validate_adjust_download_mode_interactive_user_declines(
     """Interactive mode: user answers no → mode unchanged."""
     validation_config.interactive = True
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return False
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -1033,10 +1053,10 @@ async def test_validate_adjust_download_mode_interactive_user_changes_mode(
     """Interactive mode: user answers yes then 'SINGLE' → mode updated."""
     validation_config.interactive = True
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return True
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return "SINGLE"
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
@@ -1059,10 +1079,10 @@ async def test_validate_adjust_download_mode_interactive_invalid_mode_preserves_
 
     confirm_answers = iter([True, False])
 
-    async def _fake_aconfirm(_q: str, **_k) -> bool:
+    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
         return next(confirm_answers)
 
-    async def _fake_aprompt_text(_q: str, **_k) -> str:
+    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
         return "INVALIDMODE"
 
     monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)

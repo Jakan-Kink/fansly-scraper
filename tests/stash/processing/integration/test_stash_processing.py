@@ -21,6 +21,7 @@ from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_call
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
+@pytest.mark.xdist_group("find_account")
 class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
@@ -40,7 +41,7 @@ class TestStashProcessingIntegration:
         assert hasattr(real_stash_processor, "process_creator")
 
     @pytest.mark.asyncio
-    async def test_find_account_by_id(
+    async def test_find_account_by_id_name_and_missing(
         self,
         factory_session,
         real_stash_processor,
@@ -48,75 +49,50 @@ class TestStashProcessingIntegration:
         entity_store,
         stash_cleanup_tracker,
     ):
-        """Test _find_account method using creator_id with real database."""
-        # Create a real account in the database via entity_store
-        acct_id = snowflake_id()
-        account_obj = Account(
-            id=acct_id,
+        """Test _find_account by id, by name, and the not-found path on one DB.
+
+        Saves account A (looked up by id) and account B (looked up by name)
+        once into a shared entity_store, then exercises all three _find_account
+        facets in sequence, resetting state.creator_id/creator_name between
+        each sub-assert exactly as the original per-facet tests did.
+        """
+        # Save account A (resolved by id) and account B (resolved by name) once.
+        a_id = snowflake_id()
+        account_a = Account(
+            id=a_id,
             username="test_user",
             createdAt=datetime.now(UTC),
         )
-        await entity_store.save(account_obj)
+        await entity_store.save(account_a)
 
-        # Setup state to search by ID
-        real_stash_processor.state.creator_id = acct_id
-        real_stash_processor.state.creator_name = None
-
-        # _find_account no longer accepts session - uses get_store() internally
-        result = await real_stash_processor._find_account()
-
-        # Verify result
-        assert result is not None
-        assert result.id == acct_id
-        assert result.username == "test_user"
-
-    @pytest.mark.asyncio
-    async def test_find_account_by_name(
-        self,
-        factory_session,
-        real_stash_processor,
-        test_database_sync,
-        entity_store,
-        stash_cleanup_tracker,
-    ):
-        """Test _find_account method using creator_name with real database."""
-        # Create a real account in the database via entity_store
-        acct_id = snowflake_id()
-        account_obj = Account(
-            id=acct_id,
+        b_id = snowflake_id()
+        account_b = Account(
+            id=b_id,
             username="test_creator",
             createdAt=datetime.now(UTC),
         )
-        await entity_store.save(account_obj)
+        await entity_store.save(account_b)
 
-        # Setup state to search by name
-        real_stash_processor.state.creator_id = None
-        real_stash_processor.state.creator_name = "test_creator"
-
+        # Facet 1: lookup by id returns account A.
+        real_stash_processor.state.creator_id = a_id
+        real_stash_processor.state.creator_name = None
         # _find_account no longer accepts session - uses get_store() internally
         result = await real_stash_processor._find_account()
+        assert result is not None
+        assert result.id == a_id
+        assert result.username == "test_user"
 
-        # Verify result
+        # Facet 2: lookup by name returns account B.
+        real_stash_processor.state.creator_id = None
+        real_stash_processor.state.creator_name = "test_creator"
+        result = await real_stash_processor._find_account()
         assert result is not None
         assert result.username == "test_creator"
 
-    @pytest.mark.asyncio
-    async def test_find_account_not_found(
-        self,
-        factory_session,
-        real_stash_processor,
-        entity_store,
-        stash_cleanup_tracker,
-    ):
-        """Test _find_account method when account not found."""
-        # Setup state for non-existent account
+        # Facet 3: lookup of a nonexistent id returns None.
         real_stash_processor.state.creator_id = snowflake_id()
         real_stash_processor.state.creator_name = None
-
-        # _find_account no longer accepts session - uses get_store() internally
         result = await real_stash_processor._find_account()
-
-        # Verify result is None
         assert result is None
 
     @pytest.mark.asyncio

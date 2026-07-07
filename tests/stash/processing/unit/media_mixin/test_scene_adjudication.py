@@ -2,12 +2,13 @@
 
 import json
 from pathlib import PurePath
+from typing import Any
 
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set, present
 from stash_graphql_client.types import Scene, SceneCreateInput, VideoFile
-from stash_graphql_client.types.base import is_set
 
 from tests.fixtures.metadata.metadata_factories import MediaFactory
 from tests.fixtures.stash import graphql_op_fired
@@ -59,10 +60,10 @@ class TestStampMetadata:
 
         # Pre-seed caches so no incidental performer/studio GraphQL fires.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         # With a cached performer + passed studio and no mentions/hashtags, the
         # method fires no GraphQL; the only call is the sceneUpdate from save().
@@ -135,9 +136,9 @@ class TestStampMetadata:
         media = MediaFactory.build(is_downloaded=True)
 
         respx_stash_processor._account = mock_account
-        performer = PerformerFactory(id="123", name=mock_account.username)
+        performer = PerformerFactory.build(id="123", name=mock_account.username)
         respx_stash_processor._performer = performer
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         scene_update_result = {"id": mock_scene.id, "code": str(media.id)}
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -161,7 +162,11 @@ class TestStampMetadata:
 
         calls = graphql_route.calls
         assert graphql_op_fired(calls, "sceneUpdate")
-        update_call = next(c for c in calls if graphql_op_fired([c], "sceneUpdate"))
+        update_call = next(
+            c
+            for c in calls
+            if graphql_op_fired(respx.models.CallList([c]), "sceneUpdate")
+        )
         variables = json.loads(update_call.request.content)["variables"]
         input_vars = variables.get("input", variables)
         # The relationship survived the dirty-flush onto the wire: the cached
@@ -185,10 +190,10 @@ class TestStampMetadata:
         media = MediaFactory.build(is_downloaded=True)
 
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        respx_stash_processor._studio = StudioFactory(
+        respx_stash_processor._studio = StudioFactory.build(
             id="200", name=f"{mock_account.username} (Fansly)"
         )
 
@@ -218,24 +223,38 @@ class TestStampMetadata:
         assert not graphql_op_fired(calls, "findStudios")
         assert not graphql_op_fired(calls, "studioCreate")
         # And the cached studio still landed on the wire.
-        update_call = next(c for c in calls if graphql_op_fired([c], "sceneUpdate"))
+        update_call = next(
+            c
+            for c in calls
+            if graphql_op_fired(respx.models.CallList([c]), "sceneUpdate")
+        )
         variables = json.loads(update_call.request.content)["variables"]
         input_vars = variables.get("input", variables)
         assert input_vars["studio_id"] == respx_stash_processor._studio.id
 
     @pytest.mark.asyncio
-    async def test_stamp_metadata_skips_organized(
-        self, respx_stash_processor, mock_item, mock_account, mock_scene
+    @pytest.mark.parametrize(
+        ("attr", "value"),
+        [
+            # Organized scene short-circuits the method.
+            pytest.param("organized", True, id="organized-short-circuits"),
+            # mock_item.createdAt is 2024-04-01; stored date is earlier, so the
+            # item is later → skip to preserve the earliest date.
+            pytest.param("date", "2024-03-01", id="stored-date-earlier-item-later"),
+        ],
+    )
+    async def test_stamp_metadata_early_returns(
+        self, respx_stash_processor, mock_item, mock_account, mock_scene, attr, value
     ):
-        """Organized scene short-circuits the method; metadata left untouched.
+        """Early-return guards short-circuit the stamp; metadata left untouched.
 
-        The early-return path makes zero GraphQL calls (no respx route needed),
+        Both early-return paths make zero GraphQL calls (no respx route needed),
         mirroring the proven test_update_stash_metadata_already_organized idiom.
         We assert in-memory non-mutation rather than save()-then-no-update, since
-        the test's own ``organized=True`` setup would itself dirty the object.
+        the test's own scene setup would itself dirty the object.
         """
         media = MediaFactory.build(is_downloaded=True)
-        mock_scene.organized = True
+        setattr(mock_scene, attr, value)
         original_title = mock_scene.title
         original_code = getattr(mock_scene, "code", None)
         original_details = getattr(mock_scene, "details", None)
@@ -244,31 +263,7 @@ class TestStampMetadata:
             mock_scene, media, mock_item, mock_account
         )
 
-        assert mock_scene.title == original_title
-        assert getattr(mock_scene, "code", None) == original_code
-        assert getattr(mock_scene, "details", None) == original_details
-
-    @pytest.mark.asyncio
-    async def test_stamp_metadata_skips_later_date(
-        self, respx_stash_processor, mock_item, mock_account, mock_scene
-    ):
-        """Stored date earlier than item → item is later → skip to preserve earliest.
-
-        Early-return path: no GraphQL fires, so no respx route is needed. Assert
-        in-memory non-mutation (the test's own ``date`` setup would dirty save()).
-        """
-        media = MediaFactory.build(is_downloaded=True)
-        # mock_item.createdAt is 2024-04-01; stored date is earlier, so item is later.
-        mock_scene.date = "2024-03-01"
-        original_title = mock_scene.title
-        original_code = getattr(mock_scene, "code", None)
-        original_details = getattr(mock_scene, "details", None)
-
-        await respx_stash_processor._stamp_metadata(
-            mock_scene, media, mock_item, mock_account
-        )
-
-        assert mock_scene.date == "2024-03-01"
+        assert getattr(mock_scene, attr) == value
         assert mock_scene.title == original_title
         assert getattr(mock_scene, "code", None) == original_code
         assert getattr(mock_scene, "details", None) == original_details
@@ -284,10 +279,10 @@ class TestStampMetadata:
 
         # Cache performer + pass studio so only sceneUpdate (from save) mutates.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -326,10 +321,10 @@ class TestStampMetadata:
 
         # Cache performer + pass studio to avoid incidental lookups.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         # One call: add_performer populates the performer's scenes inverse
         # (findScenes) since this performer's scenes are not pre-seeded.
@@ -365,10 +360,10 @@ class TestStampMetadata:
 
         respx_stash_processor.store.add(TagFactory(id="999", name="Trailer"))
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         # Zero calls: is_preview=False adds no Trailer tag, and the cached
         # performer/studio leave the stamp with no inverse to populate here.
@@ -406,7 +401,7 @@ class TestProcessFileFirst:
         is left dirty (no save inside the method).
         """
         file = VideoFile(id="500", path="/dl/test_user/x_id_42.mp4")
-        scene = SceneFactory(id="700", title="Test Scene")
+        scene = SceneFactory.build(id="700", title="Test Scene")
         scene.files = [file]
         file.scenes = [scene]  # _owned_scene resolves without a populate
 
@@ -416,13 +411,13 @@ class TestProcessFileFirst:
 
         # Pre-seed caches + pass studio so _stamp_metadata fires no GraphQL.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
-        index = {PurePath(file.path).name: (media, [mock_item])}
-        assert PurePath(file.path).name == "x_id_42.mp4"
+        index = {PurePath(present(file.path)).name: (media, [mock_item])}
+        assert PurePath(present(file.path)).name == "x_id_42.mp4"
 
         result = await respx_stash_processor._process_file_first(
             file, index, mock_account, studio
@@ -472,7 +467,7 @@ class TestProcessFileFirst:
         """
         foreign = VideoFile(id="98", path="/other/foreign.mp4")
         our = VideoFile(id="500", path="/dl/test_user/x_id_42.mp4")
-        scene = SceneFactory(id="700", title="Test Scene")
+        scene = SceneFactory.build(id="700", title="Test Scene")
         scene.files = [foreign, our]  # foreign is primary → we are NOT owned
         our.scenes = [scene]  # _owned_scene resolves without a populate
 
@@ -481,7 +476,7 @@ class TestProcessFileFirst:
         )
         original_code = getattr(scene, "code", None)
 
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         result = await respx_stash_processor._process_file_first(
             our, index, mock_account
@@ -508,7 +503,7 @@ class TestProcessFileFirst:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="image/gif", local_filename="anim_id_42.gif"
         )
-        index = {PurePath(file.path).name: (media, [mock_item])}
+        index = {PurePath(present(file.path)).name: (media, [mock_item])}
         respx_stash_processor.config.stash_enable_scene_split = True
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(side_effect=[])
@@ -553,10 +548,10 @@ class TestSplitSceneForFile:
 
         # Pre-seed caches + pass studio so _stamp_metadata fires no GraphQL.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
         scene = await respx_stash_processor._split_scene_for_file(
             file, media, mock_item, mock_account, studio
@@ -613,7 +608,7 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
         respx_stash_processor.config.stash_enable_scene_split = "dry-run"
 
         # Zero calls expected (log-only returns before the fail-safe re-check):
@@ -653,7 +648,7 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
         respx_stash_processor.config.stash_enable_scene_split = False
 
         # Zero calls expected (warn-and-skip returns before the fail-safe).
@@ -695,15 +690,15 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         # Seed account/performer caches so the stamp on the split scene fires no
         # incidental GraphQL; pass the studio explicitly.
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
         respx_stash_processor.config.stash_enable_scene_split = True
 
         # The force-refetch re-check resolves scenes by path → findScenes returns
@@ -713,7 +708,7 @@ class TestProcessFileFirstNotOwned:
             title="Shared",
             files=[
                 create_video_file_dict("99", "/other.mp4"),
-                create_video_file_dict("100", our.path),
+                create_video_file_dict("100", present(our.path)),
             ],
         )
 
@@ -773,14 +768,14 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}  # key is ""
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}  # key is ""
         respx_stash_processor.config.stash_enable_scene_split = True
 
         # Two calls: the path-less file's reverse-path refetch fires once in
         # _owned_scene's populate and once in the fail-safe force-refetch; each
         # get(BaseFile, ["path"]) finds nothing → fallback returns False → scenes
         # stays UNSET (no findScenes filter is built).
-        empty = {"data": {}}
+        empty: dict[str, Any] = {"data": {}}
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(200, json=empty),
@@ -821,7 +816,7 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
         respx_stash_processor.config.stash_enable_scene_split = True
 
         # findScenes returns a DIFFERENT scene (id 777) with NO files key → SGC
@@ -880,13 +875,13 @@ class TestProcessFileFirstNotOwned:
         media = MediaFactory.build(
             is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
         )
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         respx_stash_processor._account = mock_account
-        respx_stash_processor._performer = PerformerFactory(
+        respx_stash_processor._performer = PerformerFactory.build(
             id="123", name=mock_account.username, scenes=[], images=[]
         )
-        studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
         respx_stash_processor.config.stash_enable_scene_split = True
 
         # The force-refetch resolves the TRUE state: our file (id 100) is files[0].
@@ -894,7 +889,7 @@ class TestProcessFileFirstNotOwned:
             id="500",
             title="Shared",
             files=[
-                create_video_file_dict("100", our.path),  # we are primary now
+                create_video_file_dict("100", present(our.path)),  # we are primary now
                 create_video_file_dict("99", "/other.mp4"),
             ],
         )
@@ -963,33 +958,27 @@ class TestSceneCreationGuard:
     worker state under ``-n8``.
     """
 
-    def test_guard_enables_creation_when_true(self, respx_stash_processor):
-        """Flag is True → guard sets __create_input_type__ to SceneCreateInput."""
-        respx_stash_processor.config.stash_enable_scene_split = True
+    @pytest.mark.parametrize(
+        ("set_flag", "config_value", "expected_create_input"),
+        [
+            # Flag is True → guard sets __create_input_type__ to SceneCreateInput.
+            pytest.param(True, True, SceneCreateInput, id="true-enables-creation"),
+            # Flag is False → guard leaves creation blocked (attr stays None).
+            pytest.param(True, False, None, id="false-leaves-blocked"),
+            # Flag is "dry-run" → guard leaves creation blocked (attr stays None).
+            pytest.param(True, "dry-run", None, id="dry-run-leaves-blocked"),
+            # Default (unset) flag → guard is a no-op (default-False path).
+            pytest.param(False, None, None, id="default-config-noop"),
+        ],
+    )
+    def test_guard_configures_create_input(
+        self, respx_stash_processor, set_flag, config_value, expected_create_input
+    ):
+        """3-way stash_enable_scene_split dispatch (+ default) on the guard."""
+        if set_flag:
+            respx_stash_processor.config.stash_enable_scene_split = config_value
         assert getattr(Scene, "__create_input_type__", None) is None
 
         respx_stash_processor._configure_scene_creation_guard()
 
-        assert Scene.__create_input_type__ is SceneCreateInput
-
-    def test_guard_leaves_unset_when_false(self, respx_stash_processor):
-        """Flag is False → guard leaves creation blocked (attr stays None)."""
-        respx_stash_processor.config.stash_enable_scene_split = False
-
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
-
-    def test_guard_leaves_unset_when_dry_run(self, respx_stash_processor):
-        """Flag is "dry-run" → guard leaves creation blocked (attr stays None)."""
-        respx_stash_processor.config.stash_enable_scene_split = "dry-run"
-
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
-
-    def test_guard_default_config_is_noop(self, respx_stash_processor):
-        """Default (unset) flag → guard is a no-op (default-False path)."""
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
+        assert getattr(Scene, "__create_input_type__", None) is expected_create_input

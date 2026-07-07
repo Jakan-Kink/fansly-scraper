@@ -1,6 +1,7 @@
 """Download Fansly Collections"""
 
 from config import FanslyConfig
+from helpers.common import expect_dict, expect_list
 from metadata.account import process_account_data
 from metadata.media import process_media_info
 from textio import input_enter_continue, json_output, print_error, print_info
@@ -22,22 +23,30 @@ async def download_collections(config: FanslyConfig, state: DownloadState) -> No
 
     if collections_response.status_code == 200:
         json_output(1, "Download Collections", collections_response.json())
-        collections = config.get_api().get_json_response_contents(collections_response)
+        collections = expect_dict(
+            config.get_api().get_json_response_contents(collections_response),
+            "collections response",
+        )
 
         # Process accounts present in the collections response
-        for account_data in collections.get("accounts", []):
-            await process_account_data(config, data=account_data)
+        for account in expect_list(collections.get("accounts", []), "accounts"):
+            await process_account_data(config, data=expect_dict(account, "account"))
 
         # Process accountMedia metadata (variants, locations) before download
-        account_media = collections.get("accountMedia", [])
+        account_media = expect_list(collections.get("accountMedia", []), "accountMedia")
         if account_media:
             batch_size = 15
             for i in range(0, len(account_media), batch_size):
                 batch = account_media[i : i + batch_size]
                 await process_media_info(config, {"batch": batch})
 
-        account_media_orders = collections.get("accountMediaOrders", [])
-        media_ids = [order["accountMediaId"] for order in account_media_orders]
+        account_media_orders = expect_list(
+            collections.get("accountMediaOrders", []), "accountMediaOrders"
+        )
+        media_ids = [
+            int(str(expect_dict(order, "media order")["accountMediaId"]))
+            for order in account_media_orders
+        ]
 
         # fetch_and_process_media handles batching, persistence, and variant selection
         accessible = await fetch_and_process_media(config, state, media_ids)

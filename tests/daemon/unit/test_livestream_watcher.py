@@ -19,6 +19,7 @@ livestream segments.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import httpx
 import pytest
@@ -28,6 +29,7 @@ import daemon.livestream_watcher as watcher_module
 from api.fansly import FanslyApi
 from daemon.livestream_watcher import _poll_and_diff
 from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 def _streaming_account(account_id: int, username: str) -> dict:
@@ -256,3 +258,275 @@ class TestPollAndDiffScopeFilter:
         assert recorded_ids == set(), (
             f"no recordings should spawn when disabled; got {recorded_ids}"
         )
+
+
+def _online_response(accounts: list[dict]) -> dict:
+    """Wrap *accounts* in the followingstreams/online response envelope."""
+    return {
+        "success": True,
+        "response": {
+            "streams": [],
+            "aggregationData": {"accounts": accounts},
+        },
+    }
+
+
+class TestStartLivestreamWatcher:
+    """daemon.livestream_watcher.start_livestream_watcher (lines 62-70)."""
+
+    @pytest.mark.asyncio
+    async def test_creates_named_task_and_returns_it(self, config_wired, monkeypatch):
+        """create_task wraps _watcher_loop, logs the interval, returns the task."""
+
+        async def _noop_loop(_cfg, _ev):
+            return None
+
+        monkeypatch.setattr(watcher_module, "_watcher_loop", _noop_loop)
+        stop_event = asyncio.Event()
+
+        task = watcher_module.start_livestream_watcher(config_wired, stop_event)
+        try:
+            assert task.get_name() == "livestream-watcher"
+        finally:
+            await task
+        assert task.done()
+
+
+class TestStopAllRecordings:
+    """daemon.livestream_watcher.stop_all_recordings (lines 80-106)."""
+
+    @pytest.mark.asyncio
+    async def test_noop_when_no_active_recordings(self, isolate_active_recordings):
+        """Lines 83-84: empty recording set returns immediately."""
+        await watcher_module.stop_all_recordings()  # must not raise
+        assert watcher_module._active_recordings == {}
+
+    @pytest.mark.asyncio
+    async def test_signals_stop_and_awaits_completion(self, isolate_active_recordings):
+        """Lines 80-96: each rec_stop is set and the tasks are awaited."""
+        rec_stop = asyncio.Event()
+
+        async def _body():
+            await rec_stop.wait()
+
+        task = asyncio.create_task(_body())
+        with watcher_module._recordings_lock:
+            watcher_module._active_recordings[1] = (task, rec_stop)
+
+        await watcher_module.stop_all_recordings()
+
+        assert rec_stop.is_set()
+        assert task.done()
+
+    @pytest.mark.asyncio
+    async def test_cancels_recordings_that_exceed_timeout(
+        self, isolate_active_recordings, monkeypatch
+    ):
+        """Lines 97-105: a recorder that outlives the shutdown timeout is torn down.
+
+        ``asyncio.gather`` awaits its children's cancellation before propagating
+        the timeout, so the straggler ``task.cancel()`` at line 106 is a
+        defensive guard that isn't deterministically reachable from here; this
+        test covers the timeout → pending-sweep path that precedes it.
+        """
+        monkeypatch.setattr(watcher_module, "_SHUTDOWN_TIMEOUT", 0.05)
+        rec_stop = asyncio.Event()
+
+        async def _stuck():
+            await asyncio.sleep(30)  # never observes rec_stop
+
+        task = asyncio.create_task(_stuck())
+        with watcher_module._recordings_lock:
+            watcher_module._active_recordings[1] = (task, rec_stop)
+
+        await watcher_module.stop_all_recordings()  # times out → cancels stragglers
+
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        assert task.cancelled()
+
+
+class TestWatcherLoop:
+    """daemon.livestream_watcher._watcher_loop (lines 117-142)."""
+
+    @pytest.mark.asyncio
+    async def test_runs_a_cycle_then_stops_on_event(self, config_wired, monkeypatch):
+        """Salvage → one poll cycle → stop_event ends the loop and finalizes."""
+
+        async def _noop_salvage(_cfg, _ev):
+            return None
+
+        monkeypatch.setattr(watcher_module, "_salvage_orphan_segments", _noop_salvage)
+        config_wired.monitoring_livestream_poll_interval_seconds = 0.01
+        calls = []
+
+        async def _fake_poll(_cfg, ev):
+            calls.append(1)
+            ev.set()  # end the loop after one cycle
+
+        monkeypatch.setattr(watcher_module, "_poll_and_diff", _fake_poll)
+
+        await watcher_module._watcher_loop(config_wired, asyncio.Event())
+        assert calls == [1]
+
+    @pytest.mark.asyncio
+    async def test_poll_error_is_logged_and_loop_continues(
+        self, config_wired, monkeypatch
+    ):
+        """Lines 127-132: a poll exception is caught; the loop retries then stops."""
+
+        async def _noop_salvage(_cfg, _ev):
+            return None
+
+        monkeypatch.setattr(watcher_module, "_salvage_orphan_segments", _noop_salvage)
+        config_wired.monitoring_livestream_poll_interval_seconds = 0.01
+        state = {"n": 0}
+
+        async def _flaky_poll(_cfg, ev):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise RuntimeError("poll boom")  # caught at 127-132
+            ev.set()  # second cycle ends the loop
+
+        monkeypatch.setattr(watcher_module, "_poll_and_diff", _flaky_poll)
+
+        await watcher_module._watcher_loop(config_wired, asyncio.Event())
+        assert state["n"] == 2
+
+
+class TestPollAndDiffBranches:
+    """Remaining _poll_and_diff arcs: API failure, non-dict, per-account skips,
+    ended-stream signalling, and finished-task reaping."""
+
+    @pytest.mark.asyncio
+    async def test_api_error_is_logged_and_returns(
+        self, respx_fansly_api, config_wired, isolate_active_recordings
+    ):
+        """Lines 157-162: an API failure is caught and the cycle returns cleanly."""
+        config_wired.monitoring_livestream_recording_enabled = True
+        # A connection error is re-raised on every (retried) attempt, so the
+        # call ultimately propagates into the except regardless of retry count.
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(side_effect=httpx.ConnectError("network down"))
+
+        try:
+            await _poll_and_diff(config_wired, asyncio.Event())  # must not raise
+        finally:
+            dump_fansly_calls(route.calls, "poll_and_diff_api_error")
+
+        assert watcher_module._active_recordings == {}
+
+    @pytest.mark.asyncio
+    async def test_non_dict_response_returns_without_spawning(
+        self, respx_fansly_api, config_wired, isolate_active_recordings
+    ):
+        """Branch 164->165: a non-dict response body short-circuits."""
+        config_wired.monitoring_livestream_recording_enabled = True
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": []})]
+        )
+
+        try:
+            await _poll_and_diff(config_wired, asyncio.Event())
+        finally:
+            dump_fansly_calls(route.calls, "poll_and_diff_nondict")
+
+        assert watcher_module._active_recordings == {}
+
+    @pytest.mark.asyncio
+    async def test_skips_accounts_without_valid_live_channel(
+        self, respx_fansly_api, config_wired, isolate_active_recordings
+    ):
+        """Lines 187, 190-195, 197: missing-streaming / malformed / not-live skipped."""
+        config_wired.use_following = True  # in scope for anyone live
+        config_wired.monitoring_livestream_recording_enabled = True
+
+        no_streaming = {"id": 1, "username": "a"}  # no 'streaming' → 186-187
+        malformed = {
+            "id": 2,
+            "username": "b",
+            "streaming": 99999,
+        }  # validate fails 190-195
+        offline = _streaming_account(snowflake_id(), "c")
+        offline["streaming"]["channel"]["status"] = 1  # valid but not live → 197
+
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=_online_response([no_streaming, malformed, offline]),
+                )
+            ]
+        )
+
+        try:
+            await _poll_and_diff(config_wired, asyncio.Event())
+        finally:
+            dump_fansly_calls(route.calls, "poll_and_diff_skips")
+
+        # None of the three is a valid live in-scope creator → no recordings.
+        assert watcher_module._active_recordings == {}
+
+    @pytest.mark.asyncio
+    async def test_ended_stream_signals_its_recorder_to_stop(
+        self, respx_fansly_api, config_wired, isolate_active_recordings
+    ):
+        """Lines 232-242: a creator no longer live → its rec_stop is set."""
+        config_wired.use_following = True
+        config_wired.monitoring_livestream_recording_enabled = True
+        gone_id = snowflake_id()
+        rec_stop = asyncio.Event()
+
+        async def _body():
+            await rec_stop.wait()
+
+        task = asyncio.create_task(_body())
+        with watcher_module._recordings_lock:
+            watcher_module._active_recordings[gone_id] = (task, rec_stop)
+
+        # Empty live list → gone_id is active but not live → signal stop.
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(side_effect=[httpx.Response(200, json=_online_response([]))])
+
+        try:
+            await _poll_and_diff(config_wired, asyncio.Event())
+        finally:
+            dump_fansly_calls(route.calls, "poll_and_diff_ended")
+
+        assert rec_stop.is_set()
+        await task  # _body returns now that rec_stop is set
+
+    @pytest.mark.asyncio
+    async def test_finished_recording_task_is_reaped(
+        self, respx_fansly_api, config_wired, isolate_active_recordings
+    ):
+        """Lines 245-248: a creator whose recording task is done() is removed."""
+        config_wired.use_following = True
+        config_wired.monitoring_livestream_recording_enabled = True
+        done_id = snowflake_id()
+
+        async def _instant():
+            return None
+
+        task = asyncio.create_task(_instant())
+        await task  # already finished
+        with watcher_module._recordings_lock:
+            watcher_module._active_recordings[done_id] = (task, asyncio.Event())
+
+        route = respx.get(
+            url__startswith=FanslyApi.STREAMING_FOLLOWING_ONLINE_ENDPOINT
+        ).mock(side_effect=[httpx.Response(200, json=_online_response([]))])
+
+        try:
+            await _poll_and_diff(config_wired, asyncio.Event())
+        finally:
+            dump_fansly_calls(route.calls, "poll_and_diff_reap")
+
+        with watcher_module._recordings_lock:
+            assert done_id not in watcher_module._active_recordings

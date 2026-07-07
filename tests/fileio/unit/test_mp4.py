@@ -2,7 +2,7 @@
 
 import hashlib
 from io import BufferedReader, BytesIO
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 
@@ -77,7 +77,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and collect results
         boxes = list(get_boxes(reader))
@@ -103,7 +103,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and expect an exception
         with pytest.raises(InvalidMP4Error):
@@ -128,7 +128,7 @@ class TestGetBoxes:
         mock_data.seek(0)
 
         # Convert BytesIO to BufferedReader
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Call get_boxes and collect results
         boxes = list(get_boxes(reader))
@@ -156,7 +156,7 @@ class TestHashMP4Box:
         # Create test data stream
         mock_data = BytesIO(test_data)
         mock_data.seek(0)
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Create a real box with size matching test data
         box = MP4Box(
@@ -185,7 +185,7 @@ class TestHashMP4Box:
         # Create test data stream
         mock_data = BytesIO(test_data)
         mock_data.seek(0)
-        reader = BufferedReader(mock_data)
+        reader: BufferedReader[Any] = BufferedReader(mock_data)
 
         # Create a real box
         box = MP4Box(
@@ -209,107 +209,48 @@ class TestHashMP4Box:
 class TestHashMP4File:
     """Test the hash_mp4file function."""
 
-    @patch("fileio.mp4.get_boxes")
-    @patch("fileio.mp4.hash_mp4box")
-    def test_hash_mp4file(self, mock_hash_mp4box, mock_get_boxes, tmp_path):
-        """Test hashing an MP4 file."""
-        # Create real box objects (not mocks)
-        ftyp_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"ftyp",
-            position=0,
-        )
-        moov_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"moov",
-            position=16,
-        )
-        mdat_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"mdat",
-            position=32,
-        )
-        free_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"free",
-            position=48,
-        )
-
-        # Set up mock_get_boxes to return our real box objects
-        mock_get_boxes.return_value = [ftyp_box, moov_box, mdat_box, free_box]
-
-        # Create a real test file with sufficient size
-        test_file = tmp_path / "test_file.mp4"
-        test_file.write_bytes(b"\x00" * 1000)  # 1000 bytes
-
-        # Use real hash algorithm
-        algorithm = hashlib.md5(usedforsecurity=False)
-
-        # Call hash_mp4file without broken algorithm flag
-        result = hash_mp4file(algorithm, test_file)
-
-        # Verify result is a valid MD5 hash (32 hex characters)
-        assert len(result) == 32
-        assert all(c in "0123456789abcdef" for c in result)
-
-        # Verify hash_mp4box was called for ftyp and mdat but not moov or free
-        assert mock_hash_mp4box.call_count == 2
-        # Get the actual calls to verify box types
-        call_boxes = [call[0][2] for call in mock_hash_mp4box.call_args_list]
-        assert ftyp_box in call_boxes
-        assert mdat_box in call_boxes
-
-    @patch("fileio.mp4.get_boxes")
-    @patch("fileio.mp4.hash_mp4box")
-    def test_hash_mp4file_with_broken_algo(
-        self, mock_hash_mp4box, mock_get_boxes, tmp_path
+    @pytest.mark.parametrize(
+        ("use_broken_algo", "hashed_boxes"),
+        [
+            # Normal algo hashes every box except {free, moov}: ftyp + mdat.
+            (False, ("ftyp", "mdat")),
+            # Broken algo hashes every box except {moov, mdat}: ftyp + free.
+            (True, ("ftyp", "free")),
+        ],
+    )
+    def test_hash_mp4file_box_selection(
+        self, valid_mp4_file, use_broken_algo, hashed_boxes
     ):
-        """Test hashing an MP4 file with broken algorithm flag."""
-        # Create real box objects (not mocks)
-        ftyp_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"ftyp",
-            position=0,
-        )
-        moov_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"moov",
-            position=16,
-        )
-        mdat_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"mdat",
-            position=32,
-        )
-        free_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"free",
-            position=48,
-        )
+        """Test hash_mp4file end-to-end over a real MP4, asserting box selection.
 
-        # Set up mock_get_boxes to return our real box objects
-        mock_get_boxes.return_value = [ftyp_box, moov_box, mdat_box, free_box]
+        Previously this was two shallow tests that stubbed the internal
+        ``get_boxes`` + ``hash_mp4box`` collaborators and asserted on spy
+        call-counts, so the real box-parse + box-hash pipeline never ran. Here a
+        real MP4 (ftyp + free + mdat boxes) is parsed by the real ``get_boxes``
+        and hashed by the real ``hash_mp4box``; we independently recompute the
+        MD5 over exactly the boxes the algorithm should select and assert the
+        digests match -- proving which box bytes fed the digest.
+        """
+        raw = valid_mp4_file.read_bytes()
+        # Box layout for valid_mp4_file: ftyp (24 bytes), free (16), mdat (16).
+        boxes = {
+            "ftyp": raw[0:24],
+            "free": raw[24:40],
+            "mdat": raw[40:56],
+        }
 
-        # Create a real test file with sufficient size
-        test_file = tmp_path / "test_file.mp4"
-        test_file.write_bytes(b"\x00" * 1000)  # 1000 bytes
+        expected = hashlib.md5(usedforsecurity=False)
+        for fourcc in hashed_boxes:
+            expected.update(boxes[fourcc])
 
-        # Use real hash algorithm
         algorithm = hashlib.md5(usedforsecurity=False)
+        result = hash_mp4file(
+            algorithm, valid_mp4_file, use_broken_algo=use_broken_algo
+        )
 
-        # Call hash_mp4file with broken algorithm flag
-        result = hash_mp4file(algorithm, test_file, use_broken_algo=True)
-
-        # Verify result is a valid MD5 hash (32 hex characters)
         assert len(result) == 32
         assert all(c in "0123456789abcdef" for c in result)
-
-        # Verify hash_mp4box was called for ftyp and free but not moov or mdat
-        assert mock_hash_mp4box.call_count == 2
-        # Get the actual calls to verify box types
-        call_boxes = [call[0][2] for call in mock_hash_mp4box.call_args_list]
-        assert ftyp_box in call_boxes
-        assert free_box in call_boxes
+        assert result == expected.hexdigest()
 
     def test_hash_mp4file_missing_file(self, tmp_path):
         """Test hashing a non-existent file."""
@@ -334,52 +275,42 @@ class TestHashMP4File:
         with pytest.raises(InvalidMP4Error):
             hash_mp4file(algorithm, small_file)
 
-    @patch("fileio.mp4.get_boxes")
-    def test_hash_mp4file_with_print(self, mock_get_boxes, tmp_path):
-        """Test hashing an MP4 file with print function."""
-        # Create a real box object
-        ftyp_box = MP4Box(
-            size_bytes=(16).to_bytes(4, byteorder="big"),
-            fourcc_bytes=b"ftyp",
-            position=0,
-        )
-        mock_get_boxes.return_value = [ftyp_box]
+    def test_hash_mp4file_with_print(self, valid_mp4_file):
+        """Test hashing a real MP4 file with a print function.
 
-        # Create a real test file
-        test_file = tmp_path / "test_file.mp4"
-        test_file.write_bytes(b"\x00" * 1000)  # 1000 bytes
+        Previously stubbed the internal ``get_boxes`` collaborator; now a real
+        MP4 is parsed and hashed end-to-end. ``print`` is a real callable whose
+        output we capture to verify the diagnostic output behavior.
+        """
+        printed: list[str] = []
 
-        # Use real hash algorithm
         algorithm = hashlib.md5(usedforsecurity=False)
-
-        # Mock print function to verify it's called (testing output behavior)
-        mock_print = MagicMock()
-
-        # Call hash_mp4file with print function
-        result = hash_mp4file(algorithm, test_file, print=mock_print)
+        result = hash_mp4file(
+            algorithm,
+            valid_mp4_file,
+            print=lambda *a: printed.append(" ".join(map(str, a))),
+        )
 
         # Verify result is a valid MD5 hash
         assert len(result) == 32
         assert all(c in "0123456789abcdef" for c in result)
 
-        # Verify print was called (at least for file and hash output)
-        assert mock_print.call_count >= 2
+        # print receives the file line, each box, and the final hash line.
+        assert any(str(valid_mp4_file) in line for line in printed)
+        assert any("Hash:" in line for line in printed)
 
-    @patch("fileio.mp4.get_boxes")
-    def test_hash_mp4file_invalid_mp4_error(self, mock_get_boxes, tmp_path):
-        """Test handling InvalidMP4Error during hash_mp4file."""
-        # Mock get_boxes to raise InvalidMP4Error (simulating rare edge case)
-        mock_get_boxes.side_effect = InvalidMP4Error("Test error")
+    def test_hash_mp4file_invalid_mp4_error(self, invalid_mp4_file):
+        """Test InvalidMP4Error from a real malformed MP4 (first box not ftyp).
 
-        # Create a real test file
-        test_file = tmp_path / "test_file.mp4"
-        test_file.write_bytes(b"\x00" * 1000)  # 1000 bytes
-
-        # Use real hash algorithm
+        Previously stubbed ``get_boxes`` with a side_effect to fake the error;
+        now the real ``get_boxes`` raises ``InvalidMP4Error`` when it reads a
+        first box whose fourcc is not ``ftyp``, and ``hash_mp4file`` re-raises
+        it wrapped with the file name.
+        """
         algorithm = hashlib.md5(usedforsecurity=False)
 
         with pytest.raises(InvalidMP4Error) as excinfo:
-            hash_mp4file(algorithm, test_file)
+            hash_mp4file(algorithm, invalid_mp4_file)
 
         # Verify the error message includes the file name
-        assert str(test_file) in str(excinfo.value)
+        assert str(invalid_mp4_file) in str(excinfo.value)

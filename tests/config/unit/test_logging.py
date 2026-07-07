@@ -51,7 +51,7 @@ def setup_loggers():
 def test_loggers_have_correct_bindings():
     """Test that loggers have correct extra bindings."""
     # Textio binding tests
-    record = {"extra": {"logger": "textio"}}
+    record: dict[str, dict[str, object]] = {"extra": {"logger": "textio"}}
     assert record["extra"].get("logger", None) == "textio"
     record = {"extra": {"logger": "json"}}
     assert record["extra"].get("logger", None) != "textio"
@@ -276,22 +276,19 @@ def test_get_log_level_minimum_debug():
 class TestInterceptHandler:
     """Cover InterceptHandler.emit branches (lines 75-96)."""
 
-    def test_emit_with_known_level(self):
-        """Standard log level is resolved by name (line 77)."""
+    @pytest.mark.parametrize(
+        ("level", "message"),
+        [
+            pytest.param(logging.INFO, "test message", id="known_level_info"),
+            pytest.param(logging.WARNING, "warning message", id="known_level_warning"),
+        ],
+    )
+    def test_emit_with_registered_level(self, level: int, message: str) -> None:
+        """Levels registered in loguru are resolved by name (line 77) — same
+        branch for INFO and WARNING; neither raises."""
         handler = InterceptHandler()
-        record = logging.LogRecord(
-            "test", logging.INFO, "", 0, "test message", (), None
-        )
+        record = logging.LogRecord("test", level, "", 0, message, (), None)
         # Should not raise — just routes to loguru
-        handler.emit(record)
-
-    def test_emit_with_custom_level(self):
-        """Custom level that exists in loguru is handled (line 77)."""
-        handler = InterceptHandler()
-        record = logging.LogRecord(
-            "test", logging.WARNING, "", 0, "warning message", (), None
-        )
-        # Should not raise
         handler.emit(record)
 
     def test_emit_with_exception(self):
@@ -389,48 +386,56 @@ class TestInterceptHandlerRouting:
     InterceptHandler.emit which dispatches to the correct bound loguru target.
     """
 
-    def test_sqlalchemy_record_routes_to_db_logger(self):
-        record = _make_log_record("sqlalchemy.engine")
-        assert InterceptHandler._select_target(record) is db_logger
-
-    def test_asyncpg_record_routes_to_db_logger(self):
-        record = _make_log_record("asyncpg")
-        assert InterceptHandler._select_target(record) is db_logger
-
-    def test_alembic_migration_routes_to_db_logger(self):
-        record = _make_log_record("alembic.runtime.migration")
-        assert InterceptHandler._select_target(record) is db_logger
-
-    def test_stash_graphql_client_routes_to_stash_logger(self):
-        record = _make_log_record("stash_graphql_client.types.scene")
-        assert InterceptHandler._select_target(record) is stash_logger
-
-    def test_warning_from_sgc_module_routes_to_stash_logger(self):
-        """py.warnings record from a stash_graphql_client/* module → stash sink.
+    @pytest.mark.parametrize(
+        ("logger_name", "warning_payload", "expected_target"),
+        [
+            pytest.param("sqlalchemy.engine", None, db_logger, id="sqlalchemy_to_db"),
+            pytest.param("asyncpg", None, db_logger, id="asyncpg_to_db"),
+            pytest.param(
+                "alembic.runtime.migration", None, db_logger, id="alembic_to_db"
+            ),
+            pytest.param(
+                "stash_graphql_client.types.scene",
+                None,
+                stash_logger,
+                id="sgc_to_stash",
+            ),
+            pytest.param(
+                "py.warnings",
+                "stash_graphql_client/types/scene.py:42: UserWarning: from sgc\n",
+                stash_logger,
+                id="warning_from_sgc_to_stash",
+            ),
+            pytest.param(
+                "py.warnings",
+                "some/other/module.py:1: UserWarning: from other module\n",
+                textio_logger,
+                id="warning_from_other_to_textio",
+            ),
+            pytest.param(
+                "some.unrelated.module", None, textio_logger, id="default_to_textio"
+            ),
+        ],
+    )
+    def test_select_target_routing(
+        self,
+        logger_name: str,
+        warning_payload: str | None,
+        expected_target: object,
+    ) -> None:
+        """Routing table: logger name (or, for py.warnings records, the
+        warning message payload) → bound loguru target.
 
         captureWarnings sends the formatted warning string AS the log
         message — `record.pathname` is always `warnings.py` (where
-        `_showwarning` lives), so routing keys off the message content
-        (which begins with the warning's source filename:lineno).
+        `_showwarning` lives), so py.warnings routing keys off the message
+        content (which begins with the warning's source filename:lineno).
         """
-        record = _make_log_record(
-            "py.warnings",
-            msg="%s",
-            args=("stash_graphql_client/types/scene.py:42: UserWarning: from sgc\n",),
-        )
-        assert InterceptHandler._select_target(record) is stash_logger
-
-    def test_warning_from_other_module_routes_to_textio_logger(self):
-        record = _make_log_record(
-            "py.warnings",
-            msg="%s",
-            args=("some/other/module.py:1: UserWarning: from other module\n",),
-        )
-        assert InterceptHandler._select_target(record) is textio_logger
-
-    def test_default_routes_to_textio_logger(self):
-        record = _make_log_record("some.unrelated.module")
-        assert InterceptHandler._select_target(record) is textio_logger
+        if warning_payload is None:
+            record = _make_log_record(logger_name)
+        else:
+            record = _make_log_record(logger_name, msg="%s", args=(warning_payload,))
+        assert InterceptHandler._select_target(record) is expected_target
 
 
 # -- update_logging_config --
@@ -458,7 +463,7 @@ class TestUpdateLoggingConfig:
     def test_update_requires_fanslyconfig(self):
         """Non-FanslyConfig raises TypeError (line 601)."""
         with pytest.raises(TypeError, match="must be an instance of FanslyConfig"):
-            update_logging_config("not_a_config", True)
+            update_logging_config("not_a_config", True)  # type: ignore[arg-type]  # intentionally passes non-FanslyConfig to prove it raises TypeError
 
 
 # -- setup_handlers and _configure_sqlalchemy_logging --

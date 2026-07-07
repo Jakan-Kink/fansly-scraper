@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import JsonValue
+
+from helpers.common import JsonDict, expect_dict, expect_list
 from textio import json_output
 
 from .models import AccountMedia, Media, get_store
@@ -26,7 +29,7 @@ if TYPE_CHECKING:
 
 async def process_media_info(
     config: FanslyConfig,  # noqa: ARG001
-    media_infos: dict,
+    media_infos: JsonDict,
 ) -> None:
     """Process accountMedia dicts — persist Media + AccountMedia to DB.
 
@@ -37,9 +40,15 @@ async def process_media_info(
     coercion, nested variant/location construction, accountId enrichment.
     """
     store = get_store()
-    items_to_process = media_infos.get("batch", [media_infos])
+    raw_items = media_infos.get("batch")
+    items_to_process: list[JsonValue] = (
+        expect_list(raw_items, "media_infos.batch")
+        if raw_items is not None
+        else [media_infos]
+    )
 
-    for info in items_to_process:
+    for raw_info in items_to_process:
+        info = expect_dict(raw_info, "accountMedia item")
         account_id = info.get("accountId")
 
         if account_id is None:
@@ -53,8 +62,9 @@ async def process_media_info(
         # Persist Media (with nested variants/locations) — FK constraint first
         for key in ("media", "preview"):
             if key in info:
-                info[key].setdefault("accountId", account_id)
-                media = Media.model_validate(info[key])
+                nested = expect_dict(info[key], f"accountMedia.{key}")
+                nested.setdefault("accountId", account_id)
+                media = Media.model_validate(nested)
                 await store.save(media)
 
         # Persist AccountMedia (extra="ignore" drops nested media/preview dicts)
@@ -64,18 +74,10 @@ async def process_media_info(
 
 async def process_media_item_dict(
     config: FanslyConfig,  # noqa: ARG001
-    media_item: dict,
+    media_item: JsonDict,
     account_id: int | None = None,
 ) -> None:
     """Process a single media item dictionary."""
-    if not isinstance(media_item, dict):
-        json_output(
-            2,
-            "meta/media - invalid_media_item_type",
-            {"type": type(media_item).__name__},
-        )
-        return
-
     store = get_store()
     media_item.setdefault("accountId", account_id)
     media = Media.model_validate(media_item)

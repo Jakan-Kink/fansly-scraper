@@ -1,6 +1,6 @@
 """Errors/Exceptions"""
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 
 # region Constants
@@ -44,7 +44,7 @@ class ConfigError(RuntimeError):
     Invalid data may have been provided by config.ini or command-line.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -57,7 +57,7 @@ class DaemonUnrecoverableError(RuntimeError):
     - HTTP 418 from the server (intentional shutdown signal)
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -68,7 +68,7 @@ class ApiError(RuntimeError):
     invalid user names or - in rare cases - changes to the Fansly API itself.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -79,7 +79,7 @@ class ApiAuthenticationError(ApiError):
     This may primarily be caused by an invalid token.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -90,7 +90,7 @@ class ApiAccountInfoError(ApiError):
     This may primarily be caused by an invalid user name.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -101,7 +101,7 @@ class DownloadError(RuntimeError):
     and so on.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -112,7 +112,7 @@ class MediaError(RuntimeError):
     Fansly API calls.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -121,14 +121,14 @@ class M3U8Error(MediaError):
     both no audio and no video.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
 class MediaHashMismatchError(MediaError):
     """Raised when a media file's hash doesn't match the database record."""
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -212,7 +212,7 @@ class StashError(RuntimeError):
     or when Stash API operations encounter errors.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -226,7 +226,7 @@ class StashGraphQLError(StashError):
     - Query execution errors
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -240,7 +240,7 @@ class StashConnectionError(StashError):
     - Authentication failures
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -253,7 +253,7 @@ class StashServerError(StashError):
     - Other server-side issues
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 
@@ -264,7 +264,7 @@ class StashCleanupWarning(UserWarning):
     which may indicate test isolation issues or leftover test data.
     """
 
-    def __init__(self, *args: Any) -> None:
+    def __init__(self, *args: object) -> None:
         super().__init__(*args)
 
 

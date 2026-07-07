@@ -47,6 +47,7 @@ from metadata import Post
 from metadata.models import get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -262,7 +263,7 @@ async def test_download_timeline_success_full_real_pipeline(
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
     # No wall-time pauses — timing_jitter wraps asyncio.sleep.
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_interactive):
         return None
@@ -334,7 +335,7 @@ async def test_download_timeline_empty_media_retries_and_exhausts(
         ]
     )
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
@@ -428,7 +429,7 @@ async def test_download_timeline_skips_when_probe_confirms_unchanged(
             )
         ]
     )
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     try:
         await download_timeline(config, state)
@@ -493,7 +494,7 @@ async def test_download_timeline_probe_falsified_persists_limbo_post(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_interactive):
         return None
@@ -542,7 +543,7 @@ async def test_download_timeline_key_error_on_malformed_response(
         url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
     ).mock(side_effect=[httpx.Response(200, json={"success": True})])
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_interactive):
         return None
@@ -677,7 +678,7 @@ async def test_download_timeline_should_continue_false_breaks_loop(
     # for the import-binding rationale.
     monkeypatch.setattr("download.common.download_media", _raise_duplicate_count)
     monkeypatch.setattr("download.media.download_media", _raise_duplicate_count)
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
@@ -771,7 +772,7 @@ async def test_download_timeline_debug_mode_prints_timeline_object(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -887,7 +888,7 @@ async def test_download_timeline_batch_duplicate_prints_skipped_count(
     monkeypatch.setattr(
         "download.media.download_media", _fake_download_that_counts_duplicate
     )
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -932,7 +933,7 @@ async def test_download_timeline_generic_exception_logs_and_breaks(
         url__startswith=FanslyApi.TIMELINE_NEW_ENDPOINT.format(creator_id)
     ).mock(side_effect=[RuntimeError("simulated API explosion")])
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1016,7 +1017,7 @@ async def test_download_timeline_cursor_index_error_breaks_cleanly(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1193,7 +1194,7 @@ async def test_download_timeline_non_200_2xx_response_skips_block_and_re_polls(
         ]
     )
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1232,7 +1233,7 @@ async def test_download_timeline_none_creator_id_raises_runtime_error(
     # Intentionally leave state.creator_id = None (default).
     state.creator_name = "none_cid"
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1292,7 +1293,7 @@ async def test_download_timeline_interactive_key_error_continues_loop(
         ]
     )
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1340,7 +1341,7 @@ async def test_download_timeline_interactive_generic_exception_continues_loop(
         ]
     )
 
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -1427,8 +1428,8 @@ async def test_download_timeline_duplicate_page_error_breaks_loop(
 
     # check_page_duplicates does an asyncio.sleep(5) before raising; short-
     # circuit via the module-level patch.
-    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.asyncio.sleep", scaled_async_sleep)
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
     # input_enter_continue is imported at module scope in BOTH
     # download.common and download.timeline — patch every call site plus
@@ -1505,8 +1506,8 @@ async def test_download_timeline_access_changed_bypasses_unchanged_probe(
             httpx.Response(200, json=_timeline_response(posts=[])),
         ]
     )
-    monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+    monkeypatch.setattr("download.common.asyncio.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None

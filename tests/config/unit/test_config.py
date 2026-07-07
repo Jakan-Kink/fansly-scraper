@@ -17,28 +17,35 @@ from config.schema import ConfigSchema
 from errors import ConfigError
 
 
-def test_user_names_str_none(fresh_config):
-    assert fresh_config.user_names is None
-    assert fresh_config.user_names_str() == "ReplaceMe"
+@pytest.mark.parametrize(
+    ("user_names", "expected"),
+    [
+        pytest.param(None, "ReplaceMe", id="none_default"),
+        pytest.param(set(), "", id="empty_set"),
+        pytest.param(
+            {"alice", "bob", "charlie"}, "alice, bob, charlie", id="with_names"
+        ),
+    ],
+)
+def test_user_names_str(fresh_config, user_names, expected):
+    """user_names_str(): None → 'ReplaceMe', empty set → '', names → sorted CSV."""
+    if user_names is None:
+        # Fresh config defaults to None — verify rather than assign.
+        assert fresh_config.user_names is None
+    else:
+        fresh_config.user_names = user_names
+    assert fresh_config.user_names_str() == expected
 
 
-def test_user_names_str_empty_set(fresh_config):
-    fresh_config.user_names = set()
-    assert fresh_config.user_names_str() == ""
-
-
-def test_user_names_str_with_names(fresh_config):
-    fresh_config.user_names = {"alice", "bob", "charlie"}
-    assert fresh_config.user_names_str() == "alice, bob, charlie"
-
-
-def test_parse_items_from_line_comma_separated():
-    line = "alice,bob,charlie"
-    assert parse_items_from_line(line) == ["alice", "bob", "charlie"]
-
-
-def test_parse_items_from_line_space_separated():
-    line = "alice bob charlie"
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("alice,bob,charlie", id="comma_separated"),
+        pytest.param("alice bob charlie", id="space_separated"),
+    ],
+)
+def test_parse_items_from_line(line):
+    """Both comma- and space-delimited lines split into the same item list."""
     assert parse_items_from_line(line) == ["alice", "bob", "charlie"]
 
 

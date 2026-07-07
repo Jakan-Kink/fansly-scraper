@@ -13,13 +13,13 @@ import time
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from types import TracebackType
-from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast, overload
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, overload
 
-from helpers.rich_progress import get_progress_manager
+from helpers.rich_progress import ProgressManager, get_progress_manager
 
 
 if TYPE_CHECKING:
-    from .rate_limiter import RateLimiter
+    from .rate_limiter import RateLimiter, RateLimiterStats
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -98,7 +98,7 @@ class RateLimiterDisplay:
             # Explicit cleanup on exit
             self._cleanup(progress)
 
-    def _update(self, progress: object) -> None:
+    def _update(self, progress: ProgressManager) -> None:
         """Single update tick — add/update/remove tasks as needed."""
         stats = self.rate_limiter.get_stats()
 
@@ -111,8 +111,8 @@ class RateLimiterDisplay:
 
     def _update_backoff(
         self,
-        progress: object,
-        stats: dict[str, object],
+        progress: ProgressManager,
+        stats: RateLimiterStats,
     ) -> None:
         """Show/update/hide the backoff countdown task."""
         if stats.get("is_in_backoff"):
@@ -142,8 +142,8 @@ class RateLimiterDisplay:
 
     def _update_tokens(
         self,
-        progress: object,
-        stats: dict[str, object],
+        progress: ProgressManager,
+        stats: RateLimiterStats,
     ) -> None:
         """Show/update/hide the token bucket task when utilization is high."""
         utilization = float(stats.get("utilization_percent", 0))
@@ -170,7 +170,7 @@ class RateLimiterDisplay:
             progress.remove_task("rate_limit_tokens")
             self._tokens_active = False
 
-    def _cleanup(self, progress: object) -> None:
+    def _cleanup(self, progress: ProgressManager) -> None:
         """Remove any active tasks."""
         if self._backoff_active:
             progress.remove_task("rate_limit_backoff")
@@ -211,26 +211,29 @@ class RateLimiterDisplay:
     @overload
     def __call__(self, func: Callable[P, R]) -> Callable[P, R]: ...
 
-    def __call__(
+    def __call__(  # type: ignore[misc]  # iscoroutinefunction can't narrow ParamSpec callables
         self,
-        func: Callable[P, Awaitable[R]] | Callable[P, R],
-    ) -> Callable[P, Awaitable[R]] | Callable[P, R]:
-        """Allow the display context to be used as a decorator."""
-        if inspect.iscoroutinefunction(func):
-            async_func = cast(Callable[P, Awaitable[R]], func)
+        func: Callable[P, R] | Callable[P, Awaitable[R]],
+    ) -> Callable[P, R] | Callable[P, Awaitable[R]]:
+        """Allow the display context to be used as a decorator.
 
-            @wraps(async_func)
+        mypy can't narrow ``func`` across the ``inspect.iscoroutinefunction``
+        runtime dispatch, so the impl carries a couple of ignores; the
+        @overload signatures above give callers precise async/sync typing.
+        """
+        if inspect.iscoroutinefunction(func):
+
+            @wraps(func)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
                 with self:
-                    return await async_func(*args, **kwargs)
+                    return await func(*args, **kwargs)
 
-            return cast(Callable[P, Awaitable[R]], async_wrapper)
+            return async_wrapper
 
-        sync_func = cast(Callable[P, R], func)
-
-        @wraps(sync_func)
+        @wraps(func)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             with self:
-                return sync_func(*args, **kwargs)
+                # Sync branch: func is the non-coroutine variant here.
+                return func(*args, **kwargs)  # type: ignore[return-value]
 
         return sync_wrapper

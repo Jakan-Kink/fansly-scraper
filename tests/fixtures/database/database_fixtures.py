@@ -27,7 +27,7 @@ import pytest
 import pytest_asyncio
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import Connection, ExecutionContext
+from sqlalchemy.engine import Connection, Engine, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command as alembic_command
 from config import FanslyConfig, db_logger
+from helpers.common import JsonDict
 from metadata import (
     Account,
     AccountMedia,
@@ -46,6 +47,7 @@ from metadata import (
     Media,
     Message,
     Post,
+    PostgresEntityStore,
     Wall,
 )
 from metadata.models import FanslyObject
@@ -305,6 +307,9 @@ class TestDatabase(Database):
     or the base Database class migrations.
     """
 
+    _async_engine: AsyncEngine
+    _async_session_factory: async_sessionmaker[AsyncSession]
+
     def __init__(
         self,
         config: FanslyConfig,
@@ -438,17 +443,17 @@ class TestDatabase(Database):
         not per-session. The readonly parameter is not currently implemented
         for PostgreSQL.
         """
-        session: Session = self._make_session()  # type: ignore[no-untyped-call]
+        session: Session = self._make_session()
 
         try:
             # PostgreSQL: isolation level is set at engine creation
             # readonly mode would require SET TRANSACTION READ ONLY
             if readonly:
-                session.execute(text("SET TRANSACTION READ ONLY"))  # type: ignore[attr-defined]
+                session.execute(text("SET TRANSACTION READ ONLY"))
             yield session
-            session.commit()  # type: ignore[attr-defined]
+            session.commit()
         except Exception:
-            session.rollback()  # type: ignore[attr-defined]
+            session.rollback()
             raise
 
     def close(self) -> None:
@@ -493,33 +498,36 @@ def test_data_dir() -> str:
 
 
 @pytest.fixture(scope="session")
-def timeline_data(test_data_dir: str) -> dict[str, Any]:
+def timeline_data(test_data_dir: str) -> JsonDict:
     """Load timeline test data."""
     json_file = Path(test_data_dir) / "timeline-sample-account.json"
     if not json_file.exists():
         pytest.skip(f"Test data file not found: {json_file}")
     with json_file.open() as f:
-        return json.load(f)  # type: ignore[no-any-return]
+        data: JsonDict = json.load(f)
+    return data
 
 
 @pytest.fixture(scope="session")
-def json_conversation_data(test_data_dir: str) -> dict[str, Any]:
+def json_conversation_data(test_data_dir: str) -> JsonDict:
     """Load conversation test data."""
     json_file = Path(test_data_dir) / "conversation-sample-account.json"
     if not json_file.exists():
         pytest.skip(f"Test data file not found: {json_file}")
     with json_file.open() as f:
-        return json.load(f)  # type: ignore[no-any-return]
+        data: JsonDict = json.load(f)
+    return data
 
 
 @pytest.fixture(scope="session")
-def conversation_data(test_data_dir: str) -> dict[str, Any]:
+def conversation_data(test_data_dir: str) -> JsonDict:
     """Load test message variants data for testing media variants and bundles."""
     json_file = Path(test_data_dir) / "test_message_variants.json"
     if not json_file.exists():
         pytest.skip(f"Test data file not found: {json_file}")
     with json_file.open() as f:
-        return json.load(f)  # type: ignore[no-any-return]
+        data: JsonDict = json.load(f)
+    return data
 
 
 def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., Any]:
@@ -542,7 +550,9 @@ def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., An
 
 
 @pytest_asyncio.fixture
-async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]:
+async def test_engine(
+    uuid_test_db_factory: FanslyConfig,
+) -> AsyncGenerator[AsyncEngine, None]:
     """Create a test database engine with isolated PostgreSQL database (UUID-based).
 
     Tables are pre-created in the session-scoped ``pg_template_db`` and
@@ -568,7 +578,7 @@ async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]
 
 @pytest_asyncio.fixture
 async def test_async_session(
-    uuid_test_db_factory,
+    uuid_test_db_factory: FanslyConfig,
 ) -> AsyncGenerator[AsyncSession, None]:
     """Create a test async database session with isolated PostgreSQL database (UUID-based).
 
@@ -602,7 +612,7 @@ async def test_async_session(
 
 
 @pytest.fixture
-def config(uuid_test_db_factory) -> FanslyConfig:
+def config(uuid_test_db_factory: FanslyConfig) -> FanslyConfig:
     """Create a test configuration with isolated PostgreSQL database (UUID-based)."""
     config = uuid_test_db_factory
 
@@ -610,7 +620,7 @@ def config(uuid_test_db_factory) -> FanslyConfig:
 
 
 @pytest.fixture
-def config_with_database(uuid_test_db_factory) -> FanslyConfig:
+def config_with_database(uuid_test_db_factory: FanslyConfig) -> FanslyConfig:
     """Create a test configuration with initialized database.
 
     This follows the uuid_test_db_factory usage pattern:
@@ -632,7 +642,9 @@ def config_with_database(uuid_test_db_factory) -> FanslyConfig:
 
 
 @pytest_asyncio.fixture
-async def entity_store(config):
+async def entity_store(
+    config: FanslyConfig,
+) -> AsyncGenerator[PostgresEntityStore, None]:
     """Create a PostgresEntityStore backed by an isolated test database.
 
     Provides the Pydantic EntityStore for tests that don't need SA sessions.
@@ -654,21 +666,21 @@ async def entity_store(config):
 
 
 @pytest.fixture
-def test_sync_engine(test_database_sync: Database):
+def test_sync_engine(test_database_sync: TestDatabase) -> Engine:
     """Get the sync database engine from test database."""
     return test_database_sync._sync_engine
 
 
 @pytest.fixture
-def session_factory(test_sync_engine) -> sessionmaker:
+def session_factory(test_sync_engine: Engine) -> sessionmaker[Session]:
     """Create a session factory."""
     return sessionmaker(bind=test_sync_engine)
 
 
 @pytest.fixture
 def test_database_sync(
-    config: FanslyConfig, test_engine
-) -> Generator[Database, None, None]:
+    config: FanslyConfig, test_engine: AsyncEngine
+) -> Generator[TestDatabase, None, None]:
     """Create a test database instance with enhanced features (sync version).
 
     Depends on test_engine to ensure tables are created before database initialization.
@@ -689,7 +701,7 @@ def test_database_sync(
 @pytest_asyncio.fixture
 async def test_database(
     config: FanslyConfig, test_engine: AsyncEngine
-) -> AsyncGenerator[Database, None]:
+) -> AsyncGenerator[TestDatabase, None]:
     """Create a test database instance with enhanced features (async version)."""
     # Skip migrations since test_engine already created tables with create_all()
     db = TestDatabase(config, skip_migrations=True)
@@ -726,7 +738,7 @@ async def test_database(
 
 
 @pytest_asyncio.fixture
-async def session(test_database: Database) -> AsyncGenerator[AsyncSession, None]:
+async def session(test_database: TestDatabase) -> AsyncGenerator[AsyncSession, None]:
     """Create an async database session."""
     async with test_database.async_session_scope() as session:
         try:
@@ -737,7 +749,7 @@ async def session(test_database: Database) -> AsyncGenerator[AsyncSession, None]
 
 
 @pytest.fixture
-def session_sync(test_database_sync: Database) -> Generator[Session, None, None]:
+def session_sync(test_database_sync: TestDatabase) -> Generator[Session, None, None]:
     """Create a sync database session."""
     with test_database_sync.session_scope() as session:
         try:
@@ -757,7 +769,9 @@ def _generate_unique_id(test_name: str) -> int:
 
 
 @pytest_asyncio.fixture
-async def test_account(entity_store, request) -> Account:
+async def test_account(
+    entity_store: PostgresEntityStore, request: pytest.FixtureRequest
+) -> Account:
     """Create a test account via EntityStore with unique ID per test."""
     test_name = request.node.name
     if request.node.cls is not None:
@@ -781,7 +795,7 @@ async def test_account(entity_store, request) -> Account:
 
 
 @pytest_asyncio.fixture
-async def test_media(entity_store, test_account: Account) -> Media:
+async def test_media(entity_store: PostgresEntityStore, test_account: Account) -> Media:
     """Create a test media item via EntityStore."""
     unique_id = _generate_unique_id(f"media_{test_account.id}")
 
@@ -789,6 +803,7 @@ async def test_media(entity_store, test_account: Account) -> Media:
     if existing:
         return existing
 
+    assert test_account.id is not None
     media = Media(
         id=unique_id,
         accountId=test_account.id,
@@ -806,7 +821,7 @@ async def test_media(entity_store, test_account: Account) -> Media:
 
 @pytest_asyncio.fixture
 async def test_account_media(
-    entity_store, test_account: Account, test_media: Media
+    entity_store: PostgresEntityStore, test_account: Account, test_media: Media
 ) -> AccountMedia:
     """Create a test account media association via EntityStore."""
     unique_id = _generate_unique_id(f"account_media_{test_account.id}_{test_media.id}")
@@ -815,6 +830,8 @@ async def test_account_media(
     if existing:
         return existing
 
+    assert test_account.id is not None
+    assert test_media.id is not None
     account_media = AccountMedia(
         id=unique_id,
         accountId=test_account.id,
@@ -828,7 +845,7 @@ async def test_account_media(
 
 
 @pytest_asyncio.fixture
-async def test_post(entity_store, test_account: Account) -> Post:
+async def test_post(entity_store: PostgresEntityStore, test_account: Account) -> Post:
     """Create a test post via EntityStore."""
     unique_id = _generate_unique_id(f"post_{test_account.id}")
 
@@ -836,19 +853,20 @@ async def test_post(entity_store, test_account: Account) -> Post:
     if existing:
         return existing
 
+    assert test_account.id is not None
     post = Post(
         id=unique_id,
         accountId=test_account.id,
         content="Test post content",
         createdAt=datetime.now(UTC),
-        fypFlag=0,
+        fypFlags=0,
     )
     await entity_store.save(post)
     return post
 
 
 @pytest_asyncio.fixture
-async def test_wall(entity_store, test_account: Account) -> Wall:
+async def test_wall(entity_store: PostgresEntityStore, test_account: Account) -> Wall:
     """Create a test wall via EntityStore."""
     unique_id = _generate_unique_id(f"wall_{test_account.id}")
 
@@ -856,6 +874,7 @@ async def test_wall(entity_store, test_account: Account) -> Wall:
     if existing:
         return existing
 
+    assert test_account.id is not None
     wall = Wall(
         id=unique_id,
         accountId=test_account.id,
@@ -869,7 +888,9 @@ async def test_wall(entity_store, test_account: Account) -> Wall:
 
 
 @pytest_asyncio.fixture
-async def test_message(entity_store, test_account: Account) -> Message:
+async def test_message(
+    entity_store: PostgresEntityStore, test_account: Account
+) -> Message:
     """Create a test message via EntityStore."""
     unique_id = _generate_unique_id(f"message_{test_account.id}")
 
@@ -877,6 +898,7 @@ async def test_message(entity_store, test_account: Account) -> Message:
     if existing:
         return existing
 
+    assert test_account.id is not None
     message = Message(
         id=unique_id,
         senderId=test_account.id,
@@ -890,7 +912,7 @@ async def test_message(entity_store, test_account: Account) -> Message:
 
 @pytest_asyncio.fixture
 async def test_bundle(
-    entity_store, test_account: Account, test_media: Media
+    entity_store: PostgresEntityStore, test_account: Account, test_media: Media
 ) -> AccountMediaBundle:
     """Create a test media bundle via EntityStore."""
     unique_id = _generate_unique_id(f"bundle_{test_account.id}")
@@ -899,6 +921,7 @@ async def test_bundle(
     if existing:
         return existing
 
+    assert test_account.id is not None
     bundle = AccountMediaBundle(
         id=unique_id,
         accountId=test_account.id,
@@ -910,7 +933,7 @@ async def test_bundle(
 
 
 @pytest.fixture
-def mock_account():
+def mock_account() -> Account:
     """Create an in-memory Account Pydantic model for unit tests (no database).
 
     Returns:
@@ -925,9 +948,10 @@ def mock_account():
 
 
 @pytest.fixture
-def mock_post(mock_account) -> Post:
+def mock_post(mock_account: Account) -> Post:
     """Create an in-memory Post for mock_account (not persisted)."""
     unique_id = snowflake_id()
+    assert mock_account.id is not None
     return Post(
         id=unique_id,
         accountId=mock_account.id,
@@ -937,7 +961,9 @@ def mock_post(mock_account) -> Post:
 
 
 @pytest.fixture
-def factory_session(test_database_sync: Database):
+def factory_session(
+    test_database_sync: TestDatabase,
+) -> Generator[Session, None, None]:
     """Configure FactoryBoy factories with a direct session from engine.
 
     Creates a session directly from the sync engine (like working project)
@@ -975,9 +1001,13 @@ def factory_session(test_database_sync: Database):
         StubTrackerFactory,
     ]
 
-    # Configure all factory classes to use this direct session
+    # Configure all factory classes to use this direct session.
+    # Factories use plain Factory (not SQLAlchemyModelFactory), so _meta is
+    # FactoryOptions which doesn't declare sqlalchemy_session statically —
+    # cast to Any to inject the attribute at runtime.
     for factory_class in factory_classes:
-        factory_class._meta.sqlalchemy_session = session
+        meta: Any = factory_class._meta
+        meta.sqlalchemy_session = session
 
     yield session
 
@@ -987,11 +1017,14 @@ def factory_session(test_database_sync: Database):
 
     # Reset factories
     for factory_class in factory_classes:
-        factory_class._meta.sqlalchemy_session = None
+        meta_reset: Any = factory_class._meta
+        meta_reset.sqlalchemy_session = None
 
 
 @pytest_asyncio.fixture
-async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession):
+async def factory_async_session(
+    test_engine: AsyncEngine, session: AsyncSession
+) -> AsyncGenerator[Any, None]:
     """Legacy SQLAlchemy session for FactoryBoy factories.
 
     The runtime metadata layer now uses Pydantic + asyncpg
@@ -1040,10 +1073,13 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
         StubTrackerFactory,
     ]
 
-    # Configure all factory classes to use the sync session
+    # Configure all factory classes to use the sync session.
+    # Cast to Any: plain Factory._meta is FactoryOptions, which doesn't declare
+    # these SQLAlchemy-specific attributes statically.
     for factory_class in factory_classes:
-        factory_class._meta.sqlalchemy_session = sync_session
-        factory_class._meta.sqlalchemy_session_persistence = "commit"
+        meta_async: Any = factory_class._meta
+        meta_async.sqlalchemy_session = sync_session
+        meta_async.sqlalchemy_session_persistence = "commit"
 
     class FactoryHelper:
         """Helper class for factory operations in async tests."""
@@ -1072,4 +1108,5 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
 
     # Reset factory configuration
     for factory_class in factory_classes:
-        factory_class._meta.sqlalchemy_session = None
+        meta_cleanup: Any = factory_class._meta
+        meta_cleanup.sqlalchemy_session = None

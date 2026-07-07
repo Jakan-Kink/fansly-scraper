@@ -1,6 +1,15 @@
 """Subscription / SubscriptionPlan / SubscriptionPromo / FollowEvent processor
-tests. Uses the real entity_store and exercises the same paths the WS handler
-and session-start orchestration go through.
+tests. Uses a real store and exercises the same paths the WS handler and
+session-start orchestration go through.
+
+Store-bearing tests share ONE class-scoped database via ``class_entity_store``
+(requested through ``reset_class_store``, which clears the in-memory
+cache/identity map between methods — the transition detection and the
+whole-type ``store.filter`` assertions are cache-only, so the reset keeps them
+isolated). Rows are namespaced by unique snowflake ids; saved usernames embed
+the id because ``accounts.username`` is UNIQUE in the shared database. The
+module-level ``_access_changed_accounts`` registry is cleared by the autouse
+``cleanup_access_changed_accounts`` fixture.
 """
 
 from __future__ import annotations
@@ -9,6 +18,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from helpers.common import JsonDict
 from metadata import (
     Account,
     FollowEvent,
@@ -19,6 +29,7 @@ from metadata import (
 )
 from metadata.subscriptions import (
     _access_changed_accounts,
+    apply_subscription_snapshot,
     apply_subscription_ws_event,
     consume_access_change,
     get_access_changed_accounts,
@@ -104,206 +115,496 @@ def _promo_payload(promo_id: int) -> dict:
     }
 
 
-# ── process_subscriptions_response ──────────────────────────────────────────
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("metadata_subscriptions")
+class TestSubscriptionsProcessing:
+    """Subscription processors over ONE shared class DB."""
 
+    # ── process_subscriptions_response ──────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_process_subscriptions_response_persists_three_shapes_and_registers_access(
-    entity_store,
-):
-    """End-to-end ingest: subs + plans + nested promos all land in their
-    tables, FK ordering is right (no stub for planId), and every newly-active
-    sub registers an access-change against its accountId."""
-    store = entity_store
+    async def test_process_subscriptions_response_persists_three_shapes_and_registers_access(
+        self, reset_class_store
+    ):
+        """End-to-end ingest: subs + plans + nested promos all land in their
+        tables, FK ordering is right (no stub for planId), and every newly-active
+        sub registers an access-change against its accountId."""
+        store = reset_class_store
 
-    creator_a = snowflake_id()
-    creator_b = snowflake_id()
-    tier_a = snowflake_id()
-    tier_b = snowflake_id()
-    plan_a = snowflake_id()
-    plan_b = snowflake_id()
-    promo_a = snowflake_id()
+        creator_a = snowflake_id()
+        creator_b = snowflake_id()
+        tier_a = snowflake_id()
+        tier_b = snowflake_id()
+        plan_a = snowflake_id()
+        plan_b = snowflake_id()
+        promo_a = snowflake_id()
 
-    await store.save(Account(id=creator_a, username="creator_a"))
-    await store.save(Account(id=creator_b, username="creator_b"))
+        await store.save(Account(id=creator_a, username=f"creator_a_{creator_a}"))
+        await store.save(Account(id=creator_b, username=f"creator_b_{creator_b}"))
 
-    response = {
-        "subscriptionPlans": [
-            _plan_payload(plan_a, creator_a, tier_a, promos=[_promo_payload(promo_a)]),
-            _plan_payload(plan_b, creator_b, tier_b),
-        ],
-        "subscriptions": [
-            _sub_payload(snowflake_id(), creator_a, tier_id=tier_a, plan_id=plan_a),
-            _sub_payload(snowflake_id(), creator_b, tier_id=tier_b, plan_id=plan_b),
-        ],
-    }
+        response: JsonDict = {
+            "subscriptionPlans": [
+                _plan_payload(
+                    plan_a, creator_a, tier_a, promos=[_promo_payload(promo_a)]
+                ),
+                _plan_payload(plan_b, creator_b, tier_b),
+            ],
+            "subscriptions": [
+                _sub_payload(snowflake_id(), creator_a, tier_id=tier_a, plan_id=plan_a),
+                _sub_payload(snowflake_id(), creator_b, tier_id=tier_b, plan_id=plan_b),
+            ],
+        }
 
-    added = await process_subscriptions_response(response)
-    assert added == 2
+        added = await process_subscriptions_response(response)
+        assert added == 2
 
-    plans_a = store.filter(SubscriptionPlan, lambda p, c=creator_a: p.accountId == c)
-    assert {p.id for p in plans_a} == {plan_a}
-    assert store.get_from_cache(SubscriptionPromo, promo_a) is not None
-    assert store.filter(Subscription, lambda s, c=creator_a: s.accountId == c)
-    assert get_access_changed_accounts() == {
-        creator_a: "sub-activated",
-        creator_b: "sub-activated",
-    }
-
-
-@pytest.mark.asyncio
-async def test_subscription_transition_triggers(entity_store):
-    """All five transition paths: bootstrap-activate, expired→active,
-    tier-upgrade, same-tier renewal, missing-required-field. Each goes through
-    the same processor entry point but produces different registry effects."""
-    store = entity_store
-
-    creator = snowflake_id()
-    sub_id = snowflake_id()
-    tier_old = snowflake_id()
-    tier_new = snowflake_id()
-    await store.save(Account(id=creator, username="creator"))
-
-    # 1) bootstrap (no prior) + active → sub-activated.
-    await process_subscriptions_response(
-        {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_old)]}
-    )
-    assert get_access_changed_accounts() == {creator: "sub-activated"}
-    _access_changed_accounts.clear()
-
-    # 2) cached active + same payload (no-op renewal) → no registry change.
-    await process_subscriptions_response(
-        {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_old)]}
-    )
-    assert get_access_changed_accounts() == {}
-
-    # 3) cached active + different tier → tier-upgraded.
-    await process_subscriptions_response(
-        {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_new)]}
-    )
-    assert get_access_changed_accounts() == {creator: "tier-upgraded"}
-    _access_changed_accounts.clear()
-
-    # 4) expire it, then re-activate → sub-activated again.
-    await process_subscriptions_response(
-        {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_new, status=5)]}
-    )
-    assert get_access_changed_accounts() == {}
-    await process_subscriptions_response(
-        {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_new, status=3)]}
-    )
-    assert get_access_changed_accounts() == {creator: "sub-activated"}
-    _access_changed_accounts.clear()
-
-    # 5) malformed (missing id) → no row, no registry entry.
-    await process_subscriptions_response(
-        {"subscriptions": [{"accountId": creator, "status": 3}]}
-    )
-    assert get_access_changed_accounts() == {}
-
-
-# ── apply_subscription_ws_event ─────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_apply_subscription_ws_event_version_guard(entity_store):
-    """Version guard skips stale events; equal/newer versions persist.
-    Missing version on either side bypasses the guard (preserves
-    pre-version-tracking behavior)."""
-    store = entity_store
-
-    creator = snowflake_id()
-    sub_id = snowflake_id()
-    tier = snowflake_id()
-    await store.save(Account(id=creator, username="creator"))
-
-    # Seed with version=5.
-    await store.save(
-        Subscription(
-            id=sub_id,
-            accountId=creator,
-            status=3,
-            subscriptionTierId=tier,
-            version=5,
+        plans_a = store.filter(
+            SubscriptionPlan, lambda p, c=creator_a: p.accountId == c
         )
-    )
-    _access_changed_accounts.clear()
+        assert {p.id for p in plans_a} == {plan_a}
+        assert store.get_from_cache(SubscriptionPromo, promo_a) is not None
+        assert store.filter(Subscription, lambda s, c=creator_a: s.accountId == c)
+        assert get_access_changed_accounts() == {
+            creator_a: "sub-activated",
+            creator_b: "sub-activated",
+        }
 
-    # Stale (version=4) → no upsert, no registry entry, cached version unchanged.
-    result = await apply_subscription_ws_event(
-        _sub_payload(sub_id, creator, tier_id=tier, version=4)
-    )
-    assert result is None
-    assert get_access_changed_accounts() == {}
-    cached = store.get_from_cache(Subscription, sub_id)
-    assert cached.version == 5
+    async def test_subscription_transition_triggers(self, reset_class_store):
+        """All five transition paths: bootstrap-activate, expired→active,
+        tier-upgrade, same-tier renewal, missing-required-field. Each goes through
+        the same processor entry point but produces different registry effects."""
+        store = reset_class_store
 
-    # Newer (version=6) — tier unchanged here so no access-change trigger,
-    # but the row IS upserted (version bumps).
-    result = await apply_subscription_ws_event(
-        _sub_payload(sub_id, creator, tier_id=tier, version=6)
-    )
-    assert result is None
-    cached = store.get_from_cache(Subscription, sub_id)
-    assert cached.version == 6
+        creator = snowflake_id()
+        sub_id = snowflake_id()
+        tier_old = snowflake_id()
+        tier_new = snowflake_id()
+        await store.save(Account(id=creator, username=f"creator_{creator}"))
 
-    # Missing version on incoming → guard doesn't fire, upsert proceeds
-    # (tier change triggers tier-upgraded).
-    new_tier = snowflake_id()
-    result = await apply_subscription_ws_event(
-        _sub_payload(sub_id, creator, tier_id=new_tier, version=None)
-    )
-    assert result == (creator, "tier-upgraded")
-    assert get_access_changed_accounts() == {creator: "tier-upgraded"}
+        # 1) bootstrap (no prior) + active → sub-activated.
+        await process_subscriptions_response(
+            {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_old)]}
+        )
+        assert get_access_changed_accounts() == {creator: "sub-activated"}
+        _access_changed_accounts.clear()
 
+        # 2) cached active + same payload (no-op renewal) → no registry change.
+        await process_subscriptions_response(
+            {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_old)]}
+        )
+        assert get_access_changed_accounts() == {}
 
-@pytest.mark.asyncio
-async def test_apply_subscription_ws_event_ignores_malformed(entity_store):
-    """Non-dict, missing id — both no-op."""
-    assert await apply_subscription_ws_event(None) is None  # type: ignore[arg-type]
-    assert await apply_subscription_ws_event("not-a-dict") is None  # type: ignore[arg-type]
-    assert await apply_subscription_ws_event({"accountId": snowflake_id()}) is None
-    assert get_access_changed_accounts() == {}
+        # 3) cached active + different tier → tier-upgraded.
+        await process_subscriptions_response(
+            {"subscriptions": [_sub_payload(sub_id, creator, tier_id=tier_new)]}
+        )
+        assert get_access_changed_accounts() == {creator: "tier-upgraded"}
+        _access_changed_accounts.clear()
 
+        # 4) expire it, then re-activate → sub-activated again.
+        await process_subscriptions_response(
+            {
+                "subscriptions": [
+                    _sub_payload(sub_id, creator, tier_id=tier_new, status=5)
+                ]
+            }
+        )
+        assert get_access_changed_accounts() == {}
+        await process_subscriptions_response(
+            {
+                "subscriptions": [
+                    _sub_payload(sub_id, creator, tier_id=tier_new, status=3)
+                ]
+            }
+        )
+        assert get_access_changed_accounts() == {creator: "sub-activated"}
+        _access_changed_accounts.clear()
 
-# ── record_follow_observation ───────────────────────────────────────────────
+        # 5) malformed (missing id) → no row, no registry entry.
+        await process_subscriptions_response(
+            {"subscriptions": [{"accountId": creator, "status": 3}]}
+        )
+        assert get_access_changed_accounts() == {}
 
+    # ── apply_subscription_ws_event ─────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_record_follow_observation_bootstrap_and_transitions(entity_store):
-    """Bootstrap: no prior + following=True → append. No prior + False → skip.
-    Steady-state: matching prior → skip. Transitions in either direction →
-    append."""
-    store = entity_store
-    creator = snowflake_id()
-    other = snowflake_id()
-    await store.save(Account(id=creator, username="creator"))
-    await store.save(Account(id=other, username="other"))
+    async def test_apply_subscription_ws_event_version_guard(self, reset_class_store):
+        """Version guard skips stale events; equal/newer versions persist.
+        Missing version on either side bypasses the guard (preserves
+        pre-version-tracking behavior)."""
+        store = reset_class_store
 
-    # Bootstrap — not following + no history → no append (avoids cluttering
-    # the audit log with every account we've ever seen).
-    assert await record_follow_observation(other, current_following=False) is False
-    assert not store.filter(FollowEvent, lambda e, c=other: e.accountId == c)
+        creator = snowflake_id()
+        sub_id = snowflake_id()
+        tier = snowflake_id()
+        await store.save(Account(id=creator, username=f"ws_creator_{creator}"))
 
-    # Bootstrap — following=True + no history → append.
-    assert await record_follow_observation(creator, current_following=True) is True
-    events = store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)
-    assert len(events) == 1
-    assert events[0].following_state is True
+        # Seed with version=5.
+        await store.save(
+            Subscription(
+                id=sub_id,
+                accountId=creator,
+                status=3,
+                subscriptionTierId=tier,
+                version=5,
+            )
+        )
+        _access_changed_accounts.clear()
 
-    # Steady-state — same value → no append.
-    assert await record_follow_observation(creator, current_following=True) is False
-    assert len(store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)) == 1
+        # Stale (version=4) → no upsert, no registry entry, cached version unchanged.
+        result = await apply_subscription_ws_event(
+            _sub_payload(sub_id, creator, tier_id=tier, version=4)
+        )
+        assert result is None
+        assert get_access_changed_accounts() == {}
+        cached = store.get_from_cache(Subscription, sub_id)
+        assert cached.version == 5
 
-    # Transition True → False → append.
-    assert await record_follow_observation(creator, current_following=False) is True
-    events = store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)
-    assert len(events) == 2
-    assert sorted(e.following_state for e in events) == [False, True]
+        # Newer (version=6) — tier unchanged here so no access-change trigger,
+        # but the row IS upserted (version bumps).
+        result = await apply_subscription_ws_event(
+            _sub_payload(sub_id, creator, tier_id=tier, version=6)
+        )
+        assert result is None
+        cached = store.get_from_cache(Subscription, sub_id)
+        assert cached.version == 6
 
-    # Transition False → True → append.
-    assert await record_follow_observation(creator, current_following=True) is True
-    assert len(store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)) == 3
+        # Missing version on incoming → guard doesn't fire, upsert proceeds
+        # (tier change triggers tier-upgraded).
+        new_tier = snowflake_id()
+        result = await apply_subscription_ws_event(
+            _sub_payload(sub_id, creator, tier_id=new_tier, version=None)
+        )
+        assert result == (creator, "tier-upgraded")
+        assert get_access_changed_accounts() == {creator: "tier-upgraded"}
+
+    async def test_apply_subscription_ws_event_ignores_malformed(
+        self, reset_class_store
+    ):
+        """Non-dict, missing id — both no-op."""
+        assert await apply_subscription_ws_event(None) is None  # type: ignore[arg-type]
+        assert await apply_subscription_ws_event("not-a-dict") is None  # type: ignore[arg-type]
+        assert await apply_subscription_ws_event({"accountId": snowflake_id()}) is None
+        assert get_access_changed_accounts() == {}
+
+    # ── record_follow_observation ───────────────────────────────────────
+
+    async def test_record_follow_observation_bootstrap_and_transitions(
+        self, reset_class_store
+    ):
+        """Bootstrap: no prior + following=True → append. No prior + False → skip.
+        Steady-state: matching prior → skip. Transitions in either direction →
+        append."""
+        store = reset_class_store
+        creator = snowflake_id()
+        other = snowflake_id()
+        await store.save(Account(id=creator, username=f"follow_creator_{creator}"))
+        await store.save(Account(id=other, username=f"follow_other_{other}"))
+
+        # Bootstrap — not following + no history → no append (avoids cluttering
+        # the audit log with every account we've ever seen).
+        assert await record_follow_observation(other, current_following=False) is False
+        assert not store.filter(FollowEvent, lambda e, c=other: e.accountId == c)
+
+        # Bootstrap — following=True + no history → append.
+        assert await record_follow_observation(creator, current_following=True) is True
+        events = store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)
+        assert len(events) == 1
+        assert events[0].following_state is True
+
+        # Steady-state — same value → no append.
+        assert await record_follow_observation(creator, current_following=True) is False
+        assert (
+            len(store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)) == 1
+        )
+
+        # Transition True → False → append.
+        assert await record_follow_observation(creator, current_following=False) is True
+        events = store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)
+        assert len(events) == 2
+        assert sorted(e.following_state for e in events) == [False, True]
+
+        # Transition False → True → append.
+        assert await record_follow_observation(creator, current_following=True) is True
+        assert (
+            len(store.filter(FollowEvent, lambda e, c=creator: e.accountId == c)) == 3
+        )
+
+    # ── Embedded `Account.subscription` (singular) coercion + persistence ──
+
+    async def test_account_validator_coerces_singular_subscription_to_list(
+        self, reset_class_store
+    ):
+        """The API gives ``account_data["subscription"]`` (singular dict) when
+        the user is subscribed; the model has ``subscriptions: list[Subscription]``.
+        Account's ``_coerce_embedded_subscription`` mode='before' validator
+        reshapes the singular dict into a 1-item list so the existing has_many
+        resolution path populates ``account.subscriptions`` in memory.
+        Idempotent on the same sub.id.
+        """
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        sub_payload = _sub_payload(sub_id, creator_id)
+
+        # Singular form → coerced into a 1-item list.
+        account = Account.model_validate(
+            {"id": creator_id, "username": "embed_test", "subscription": sub_payload}
+        )
+        assert len(account.subscriptions) == 1
+        assert account.subscriptions[0].id == sub_id
+        assert account.subscriptions[0].accountId == creator_id
+
+        # Same sub.id provided twice → deduped (idempotent).
+        account2 = Account.model_validate(
+            {
+                "id": creator_id,
+                "username": "embed_test",
+                "subscription": sub_payload,
+                "subscriptions": [sub_payload],
+            }
+        )
+        assert len(account2.subscriptions) == 1
+
+    async def test_process_account_data_embedded_subscription_persists_and_detects_bootstrap(
+        self, reset_class_store, mock_config
+    ):
+        """process_account_data with an embedded ``subscription`` persists the
+        row AND runs snapshot-vs-cache transition detection via
+        apply_subscription_snapshot. First observation (no prior cached row)
+        counts as bootstrap-activation per _process_single_subscription's
+        contract — registry receives "sub-activated".
+        """
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        sub_payload = _sub_payload(sub_id, creator_id)
+
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"persist_embedded_{creator_id}",
+                "following": True,
+                "subscription": sub_payload,
+            },
+        )
+
+        persisted = await reset_class_store.get(Subscription, sub_id)
+        assert persisted is not None
+        assert persisted.accountId == creator_id
+        assert persisted.status == 3
+        # First observation of an active sub for this creator → bootstrap-activation.
+        assert get_access_changed_accounts() == {creator_id: "sub-activated"}
+
+    async def test_process_account_data_embedded_subscription_no_transition_on_steady_state(
+        self, reset_class_store, mock_config
+    ):
+        """Second call with the same embedded subscription (same id, status,
+        tier) must NOT fire a transition. Steady-state snapshot ⇒ no registry
+        write."""
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        sub_payload = _sub_payload(sub_id, creator_id)
+
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"steady_state_{creator_id}",
+                "subscription": sub_payload,
+            },
+        )
+        _access_changed_accounts.clear()
+
+        # Re-snapshot with identical data → no transition detected.
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"steady_state_{creator_id}",
+                "subscription": sub_payload,
+            },
+        )
+        assert get_access_changed_accounts() == {}
+
+    async def test_process_account_data_embedded_subscription_detects_tier_upgrade(
+        self, reset_class_store, mock_config
+    ):
+        """Second call with the same sub.id but a different
+        ``subscriptionTierId`` (and status still active) must fire
+        "tier-upgraded". This is the per-creator transition detection the
+        original plan called out: catch upgrades without needing a fresh
+        /api/v1/subscriptions fetch."""
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        old_tier = snowflake_id()
+        new_tier = snowflake_id()
+
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"tier_upgrade_{creator_id}",
+                "subscription": _sub_payload(sub_id, creator_id, tier_id=old_tier),
+            },
+        )
+        _access_changed_accounts.clear()
+
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"tier_upgrade_{creator_id}",
+                "subscription": _sub_payload(sub_id, creator_id, tier_id=new_tier),
+            },
+        )
+
+        assert get_access_changed_accounts() == {creator_id: "tier-upgraded"}
+        persisted = await reset_class_store.get(Subscription, sub_id)
+        assert persisted.subscriptionTierId == new_tier
+
+    async def test_process_account_data_no_subscription_field_is_safe(
+        self, reset_class_store, mock_config
+    ):
+        """The common case: user isn't subscribed to this creator, so the API
+        omits the ``subscription`` key entirely. process_account_data must run
+        cleanly, persist the Account, and leave no Subscription rows or
+        registry entries behind."""
+        creator_id = snowflake_id()
+
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"no_sub_{creator_id}",
+                "following": True,
+                "subscribed": None,  # explicit None — separate from missing key
+            },
+        )
+
+        account = await reset_class_store.get(Account, creator_id)
+        assert account is not None
+        assert account.subscriptions == []
+        assert get_access_changed_accounts() == {}
+
+    async def test_process_account_data_updates_embedded_subscription_on_resnapshot(
+        self, reset_class_store, mock_config
+    ):
+        """A second process_account_data call with an updated embedded
+        subscription (same sub.id, different status/endsAt) must overwrite the
+        persisted row — the snapshot is authoritative for each invocation.
+        This is the actual use case the snapshot path exists for: refresh the
+        DB state with whatever the API last returned, no change-detection.
+        """
+        creator_id = snowflake_id()
+        sub_id = snowflake_id()
+        tier_id = snowflake_id()
+
+        # First snapshot: active sub with original endsAt.
+        first_payload = _sub_payload(sub_id, creator_id, tier_id=tier_id, status=3)
+        first_payload["endsAt"] = 1779729949000
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"resnapshot_{creator_id}",
+                "subscription": first_payload,
+            },
+        )
+        first_persisted = await reset_class_store.get(Subscription, sub_id)
+        assert first_persisted.status == 3
+        first_ends_at = first_persisted.endsAt
+        assert first_ends_at is not None
+
+        # Second snapshot: same sub renewed (endsAt extended) + tier upgrade.
+        new_tier_id = snowflake_id()
+        second_payload = _sub_payload(sub_id, creator_id, tier_id=new_tier_id, status=3)
+        second_payload["endsAt"] = 1799729949000  # later
+        second_payload["updatedAt"] = 1779730000000  # advanced
+        await process_account_data(
+            config=mock_config,
+            data={
+                "id": creator_id,
+                "username": f"resnapshot_{creator_id}",
+                "subscription": second_payload,
+            },
+        )
+        second_persisted = await reset_class_store.get(Subscription, sub_id)
+        # Same row id (upsert), but field values reflect the second snapshot.
+        assert second_persisted.id == sub_id
+        assert second_persisted.subscriptionTierId == new_tier_id
+        assert second_persisted.endsAt is not None
+        assert second_persisted.endsAt > first_ends_at
+
+    async def test_account_validator_singular_and_plural_with_different_ids_kept(
+        self, reset_class_store
+    ):
+        """Edge case: API gives singular `subscription` AND model receives a
+        `subscriptions` list with a DIFFERENT sub.id (e.g., from prior session
+        cache). Both must be kept — the dedup only matches by id, not by
+        presence of one or the other."""
+        creator_id = snowflake_id()
+        sub_a_id = snowflake_id()
+        sub_b_id = snowflake_id()
+
+        account = Account.model_validate(
+            {
+                "id": creator_id,
+                "username": "two_subs",
+                "subscription": _sub_payload(sub_a_id, creator_id),
+                "subscriptions": [_sub_payload(sub_b_id, creator_id)],
+            }
+        )
+        ids = sorted(s.id for s in account.subscriptions if s.id is not None)
+        assert ids == sorted([sub_a_id, sub_b_id])
+
+    # ── _process_single_plan edge paths (via process_subscriptions_response) ──
+
+    async def test_process_single_plan_edge_paths(self, reset_class_store):
+        """Plan branches through the real response entry point: a plan missing
+        its required id is skipped (no row); a plan with no ``promos`` key
+        persists with zero promo rows; a non-dict promo entry is skipped rather
+        than validated.
+        """
+        store = reset_class_store
+        creator = snowflake_id()
+        tier = snowflake_id()
+        plan_no_promos = snowflake_id()
+        plan_bad_promo = snowflake_id()
+        await store.save(Account(id=creator, username=f"plan_edges_{creator}"))
+
+        response: JsonDict = {
+            "subscriptionPlans": [
+                # No "promos" key → pop returns None → promo loop skipped entirely.
+                {
+                    "id": plan_no_promos,
+                    "accountId": creator,
+                    "subscriptionTierId": tier,
+                    "billingCycle": 30,
+                    "price": 5000,
+                    "useAmounts": 0,
+                },
+                # Non-dict promo entry → that entry is skipped, plan still persists.
+                {
+                    "id": plan_bad_promo,
+                    "accountId": creator,
+                    "subscriptionTierId": tier,
+                    "billingCycle": 30,
+                    "price": 5000,
+                    "useAmounts": 0,
+                    "promos": [12345],
+                },
+                # Missing required id → json_output + early return, never persisted.
+                {"accountId": creator, "subscriptionTierId": tier},
+            ]
+        }
+
+        await process_subscriptions_response(response)
+
+        assert store.get_from_cache(SubscriptionPlan, plan_no_promos) is not None
+        assert store.get_from_cache(SubscriptionPlan, plan_bad_promo) is not None
+        # Only the two valid plans persisted (the id-less plan was skipped).
+        assert len(store.filter(SubscriptionPlan, lambda _p: True)) == 2
+        # No promo rows: plan_no_promos had none, the non-dict entry was skipped.
+        assert not store.filter(SubscriptionPromo, lambda _p: True)
 
 
 # ── consume_access_change ───────────────────────────────────────────────────
@@ -325,246 +626,13 @@ async def test_consume_access_change_pops_once():
     assert get_access_changed_accounts() == {}
 
 
-# ── Embedded `Account.subscription` (singular) coercion + persistence ───────
-
-
 @pytest.mark.asyncio
-async def test_account_validator_coerces_singular_subscription_to_list(
-    entity_store,
-):
-    """The API gives ``account_data["subscription"]`` (singular dict) when
-    the user is subscribed; the model has ``subscriptions: list[Subscription]``.
-    Account's ``_coerce_embedded_subscription`` mode='before' validator
-    reshapes the singular dict into a 1-item list so the existing has_many
-    resolution path populates ``account.subscriptions`` in memory.
-    Idempotent on the same sub.id.
-    """
-    creator_id = snowflake_id()
-    sub_id = snowflake_id()
-    sub_payload = _sub_payload(sub_id, creator_id)
-
-    # Singular form → coerced into a 1-item list.
-    account = Account.model_validate(
-        {"id": creator_id, "username": "embed_test", "subscription": sub_payload}
-    )
-    assert len(account.subscriptions) == 1
-    assert account.subscriptions[0].id == sub_id
-    assert account.subscriptions[0].accountId == creator_id
-
-    # Same sub.id provided twice → deduped (idempotent).
-    account2 = Account.model_validate(
-        {
-            "id": creator_id,
-            "username": "embed_test",
-            "subscription": sub_payload,
-            "subscriptions": [sub_payload],
-        }
-    )
-    assert len(account2.subscriptions) == 1
-
-
-@pytest.mark.asyncio
-async def test_process_account_data_embedded_subscription_persists_and_detects_bootstrap(
-    mock_config, entity_store
-):
-    """process_account_data with an embedded ``subscription`` persists the
-    row AND runs snapshot-vs-cache transition detection via
-    apply_subscription_snapshot. First observation (no prior cached row)
-    counts as bootstrap-activation per _process_single_subscription's
-    contract — registry receives "sub-activated".
-    """
-    creator_id = snowflake_id()
-    sub_id = snowflake_id()
-    sub_payload = _sub_payload(sub_id, creator_id)
-
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "persist_embedded",
-            "following": True,
-            "subscription": sub_payload,
-        },
-    )
-
-    persisted = await entity_store.get(Subscription, sub_id)
-    assert persisted is not None
-    assert persisted.accountId == creator_id
-    assert persisted.status == 3
-    # First observation of an active sub for this creator → bootstrap-activation.
-    assert get_access_changed_accounts() == {creator_id: "sub-activated"}
-
-
-@pytest.mark.asyncio
-async def test_process_account_data_embedded_subscription_no_transition_on_steady_state(
-    mock_config, entity_store
-):
-    """Second call with the same embedded subscription (same id, status,
-    tier) must NOT fire a transition. Steady-state snapshot ⇒ no registry
-    write."""
-    creator_id = snowflake_id()
-    sub_id = snowflake_id()
-    sub_payload = _sub_payload(sub_id, creator_id)
-
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "steady_state",
-            "subscription": sub_payload,
-        },
-    )
-    _access_changed_accounts.clear()
-
-    # Re-snapshot with identical data → no transition detected.
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "steady_state",
-            "subscription": sub_payload,
-        },
-    )
+async def test_apply_subscription_snapshot_ignores_non_dict():
+    """The defensive non-dict guard on apply_subscription_snapshot is a no-op
+    (REST-embedded ``Account.subscription`` may be absent or malformed)."""
+    assert await apply_subscription_snapshot(None) is None
+    assert await apply_subscription_snapshot("garbage") is None
     assert get_access_changed_accounts() == {}
-
-
-@pytest.mark.asyncio
-async def test_process_account_data_embedded_subscription_detects_tier_upgrade(
-    mock_config, entity_store
-):
-    """Second call with the same sub.id but a different
-    ``subscriptionTierId`` (and status still active) must fire
-    "tier-upgraded". This is the per-creator transition detection the
-    original plan called out: catch upgrades without needing a fresh
-    /api/v1/subscriptions fetch."""
-    creator_id = snowflake_id()
-    sub_id = snowflake_id()
-    old_tier = snowflake_id()
-    new_tier = snowflake_id()
-
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "tier_upgrade",
-            "subscription": _sub_payload(sub_id, creator_id, tier_id=old_tier),
-        },
-    )
-    _access_changed_accounts.clear()
-
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "tier_upgrade",
-            "subscription": _sub_payload(sub_id, creator_id, tier_id=new_tier),
-        },
-    )
-
-    assert get_access_changed_accounts() == {creator_id: "tier-upgraded"}
-    persisted = await entity_store.get(Subscription, sub_id)
-    assert persisted.subscriptionTierId == new_tier
-
-
-@pytest.mark.asyncio
-async def test_process_account_data_no_subscription_field_is_safe(
-    mock_config, entity_store
-):
-    """The common case: user isn't subscribed to this creator, so the API
-    omits the ``subscription`` key entirely. process_account_data must run
-    cleanly, persist the Account, and leave no Subscription rows or
-    registry entries behind."""
-    creator_id = snowflake_id()
-
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "no_sub",
-            "following": True,
-            "subscribed": None,  # explicit None — separate from missing key
-        },
-    )
-
-    account = await entity_store.get(Account, creator_id)
-    assert account is not None
-    assert account.subscriptions == []
-    assert get_access_changed_accounts() == {}
-
-
-@pytest.mark.asyncio
-async def test_process_account_data_updates_embedded_subscription_on_resnapshot(
-    mock_config, entity_store
-):
-    """A second process_account_data call with an updated embedded
-    subscription (same sub.id, different status/endsAt) must overwrite the
-    persisted row — the snapshot is authoritative for each invocation.
-    This is the actual use case the snapshot path exists for: refresh the
-    DB state with whatever the API last returned, no change-detection.
-    """
-    creator_id = snowflake_id()
-    sub_id = snowflake_id()
-    tier_id = snowflake_id()
-
-    # First snapshot: active sub with original endsAt.
-    first_payload = _sub_payload(sub_id, creator_id, tier_id=tier_id, status=3)
-    first_payload["endsAt"] = 1779729949000
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "resnapshot",
-            "subscription": first_payload,
-        },
-    )
-    first_persisted = await entity_store.get(Subscription, sub_id)
-    assert first_persisted.status == 3
-    first_ends_at = first_persisted.endsAt
-    assert first_ends_at is not None
-
-    # Second snapshot: same sub renewed (endsAt extended) + tier upgrade.
-    new_tier_id = snowflake_id()
-    second_payload = _sub_payload(sub_id, creator_id, tier_id=new_tier_id, status=3)
-    second_payload["endsAt"] = 1799729949000  # later
-    second_payload["updatedAt"] = 1779730000000  # advanced
-    await process_account_data(
-        config=mock_config,
-        data={
-            "id": creator_id,
-            "username": "resnapshot",
-            "subscription": second_payload,
-        },
-    )
-    second_persisted = await entity_store.get(Subscription, sub_id)
-    # Same row id (upsert), but field values reflect the second snapshot.
-    assert second_persisted.id == sub_id
-    assert second_persisted.subscriptionTierId == new_tier_id
-    assert second_persisted.endsAt is not None
-    assert second_persisted.endsAt > first_ends_at
-
-
-@pytest.mark.asyncio
-async def test_account_validator_singular_and_plural_with_different_ids_kept(
-    entity_store,
-):
-    """Edge case: API gives singular `subscription` AND model receives a
-    `subscriptions` list with a DIFFERENT sub.id (e.g., from prior session
-    cache). Both must be kept — the dedup only matches by id, not by
-    presence of one or the other."""
-    creator_id = snowflake_id()
-    sub_a_id = snowflake_id()
-    sub_b_id = snowflake_id()
-
-    account = Account.model_validate(
-        {
-            "id": creator_id,
-            "username": "two_subs",
-            "subscription": _sub_payload(sub_a_id, creator_id),
-            "subscriptions": [_sub_payload(sub_b_id, creator_id)],
-        }
-    )
-    ids = sorted(s.id for s in account.subscriptions)
-    assert ids == sorted([sub_a_id, sub_b_id])
 
 
 def test_account_validator_no_subscription_or_null_is_safe():

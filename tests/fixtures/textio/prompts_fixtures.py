@@ -25,7 +25,7 @@ class FakePromptSession:
     _answers: list[str] = []
     _captured_messages: list[str] = []
 
-    def __init__(self, *_args, **_kwargs) -> None:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
         pass
 
     async def prompt_async(self, message: str) -> str:

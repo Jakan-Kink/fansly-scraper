@@ -232,21 +232,35 @@ class TestDoRollover:
         handler.close()
 
     def test_rollover_with_gz_compression(self, tmp_path):
-        """Rollover with gz compression creates .1.gz file (lines 214-215, 228-229)."""
+        """Rollover with gz compression creates .1.gz file (lines 214-215, 228-229).
+
+        Also seeds an existing ``.1`` backup with ``keep_uncompressed=1`` so it
+        survives init *uncompressed*; the rotation loop then renames the
+        uncompressed ``.1`` to ``.2`` and hits the compress-the-rotated-file
+        branch (line 245-246, which has no keep-uncompressed guard): an
+        uncompressed ``dfn`` exists + compression on -> ``_compress_file`` runs,
+        producing ``.2.gz``. (With ``keep_uncompressed=0`` init would eagerly
+        compress the seeded ``.1`` to ``.1.gz`` first, so the loop would take
+        the compressed-variant rename branch and line 246 would never fire.)
+        """
         log_file = tmp_path / "test.log"
         log_file.write_text("compress me")
+        # keep_uncompressed=1 keeps this .1 uncompressed through init, so the
+        # rollover rotates the uncompressed .1 -> .2 and line 246 compresses it.
+        Path(f"{log_file}.1").write_text("older backup")
 
         handler = SizeAndTimeRotatingFileHandler(
             filename=str(log_file),
             backupCount=3,
             compression="gz",
-            keep_uncompressed=0,
+            keep_uncompressed=1,
         )
         handler.doRollover()
 
-        # The .1.gz file should exist (or .1 if keep_uncompressed > 0)
-        gz_backup = Path(f"{log_file}.1.gz")
-        assert gz_backup.exists()
+        # The new .1.gz exists (current content compressed, line 261) AND the
+        # rotated backup was compressed via the line-246 branch (.2.gz).
+        assert Path(f"{log_file}.1.gz").exists()
+        assert Path(f"{log_file}.2.gz").exists()
         handler.close()
 
     def test_rollover_with_db_logger_name(self, tmp_path):
@@ -255,7 +269,11 @@ class TestDoRollover:
         log_file.write_text("content")
 
         handler = SizeAndTimeRotatingFileHandler(filename=str(log_file), backupCount=2)
-        handler.db_logger_name = "database_logger"
+        # db_logger_name is a dynamic debug attribute (textio/logging.py:65,190 —
+        # hasattr-guarded, never declared on the class); set it via a computed
+        # name so mypy/ruff don't treat it as a declared attribute.
+        db_logger_attr = "db_logger_name"
+        setattr(handler, db_logger_attr, "database_logger")
 
         handler.doRollover()
         # No assertion on stderr output, just verify no crash
@@ -365,120 +383,104 @@ class TestClose:
 class TestCompressFile:
     """Cover _compress_file branches."""
 
-    def test_gz_compression(self, tmp_path):
-        """gz compression creates .gz file and removes original (lines 287-323)."""
+    @pytest.mark.parametrize(
+        ("compression", "keep_uncompressed", "target_suffix", "expect_ext"),
+        [
+            pytest.param("gz", 0, ".3", ".gz", id="gz"),
+            pytest.param("bz2", 0, ".3", ".bz2", id="bz2"),
+            pytest.param("xz", 0, ".3", ".xz", id="xz"),
+            pytest.param("gz", 3, ".1", None, id="skip_keep_uncompressed"),
+            pytest.param(None, 0, ".1", None, id="no_compression"),
+        ],
+    )
+    def test_compress_file_outcomes(
+        self,
+        tmp_path: Path,
+        compression: str | None,
+        keep_uncompressed: int,
+        target_suffix: str,
+        expect_ext: str | None,
+    ) -> None:
+        """Each compression kind creates <target>.<ext> and removes the
+        original (lines 287-323); keep_uncompressed range (lines 284-285,
+        file_num=1 < keep_uncompressed=3) and compression=None (early return,
+        lines 264-265) leave the file untouched and uncompressed.
+        """
         log_file = tmp_path / "test.log"
         handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="gz", keep_uncompressed=0
+            filename=str(log_file),
+            compression=compression,
+            keep_uncompressed=keep_uncompressed,
         )
 
-        target = tmp_path / "test.log.3"
+        target = tmp_path / f"test.log{target_suffix}"
         target.write_text("compress this")
 
         handler._compress_file(str(target))
 
-        assert Path(f"{target}.gz").exists()
-        assert not target.exists()
+        if expect_ext is not None:
+            assert Path(f"{target}{expect_ext}").exists()
+            assert not target.exists()
+        else:
+            assert not Path(f"{target}.gz").exists()
+            assert target.exists()  # unchanged
         handler.close()
 
-    def test_gz_compression_skips_keep_uncompressed(self, tmp_path):
-        """Files within keep_uncompressed range are not compressed (lines 284-285)."""
+    @pytest.mark.parametrize(
+        ("keep_uncompressed", "target_name", "write_target", "patch_spec"),
+        [
+            pytest.param(None, "nonexistent.log.1", False, None, id="not_found"),
+            pytest.param(
+                None,
+                "test.log.1",
+                False,
+                ("pathlib.Path.exists", "disk error"),
+                id="oserror_on_exists",
+            ),
+            pytest.param(
+                0,
+                "test.log.3",
+                True,
+                ("pathlib.Path.open", "No such file or directory"),
+                id="source_deleted_during_read",
+            ),
+        ],
+    )
+    def test_compress_file_error_paths_no_raise(
+        self,
+        tmp_path: Path,
+        keep_uncompressed: int | None,
+        target_name: str,
+        write_target: bool,
+        patch_spec: tuple[str, str] | None,
+    ) -> None:
+        """Early-return error paths: non-existent file (lines 270-271), OSError
+        during the existence check (lines 272-274), and source deleted while
+        reading (lines 299-302 — the message must contain 'No such file or
+        directory' to take that branch). None of these raise.
+        """
         log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="gz", keep_uncompressed=3
-        )
+        if keep_uncompressed is None:
+            handler = SizeAndTimeRotatingFileHandler(
+                filename=str(log_file), compression="gz"
+            )
+        else:
+            handler = SizeAndTimeRotatingFileHandler(
+                filename=str(log_file),
+                compression="gz",
+                keep_uncompressed=keep_uncompressed,
+            )
 
-        target = tmp_path / "test.log.1"
-        target.write_text("keep me uncompressed")
+        target = tmp_path / target_name
+        if write_target:
+            target.write_text("content")
 
-        handler._compress_file(str(target))
-
-        # Should NOT be compressed (file_num=1 < keep_uncompressed=3)
-        assert not Path(f"{target}.gz").exists()
-        assert target.exists()
-        handler.close()
-
-    def test_no_compression_configured(self, tmp_path):
-        """No compression → early return (line 264-265)."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression=None
-        )
-
-        target = tmp_path / "test.log.1"
-        target.write_text("no compression")
-
-        handler._compress_file(str(target))
-        assert target.exists()  # unchanged
-        handler.close()
-
-    def test_compress_file_not_found(self, tmp_path):
-        """Non-existent file → early return (lines 270-271)."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="gz"
-        )
-        # Should not raise
-        handler._compress_file(str(tmp_path / "nonexistent.log.1"))
-        handler.close()
-
-    def test_compress_file_oserror_on_exists(self, tmp_path):
-        """OSError during file existence check → early return (lines 272-274)."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="gz"
-        )
-
-        with patch("pathlib.Path.exists", side_effect=OSError("disk error")):
-            handler._compress_file(str(tmp_path / "test.log.1"))
-        handler.close()
-
-    def test_gz_source_deleted_during_read(self, tmp_path):
-        """Source file deleted while reading → handled (lines 299-302)."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="gz", keep_uncompressed=0
-        )
-
-        target = tmp_path / "test.log.3"
-        target.write_text("content")
-
-        with patch(
-            "pathlib.Path.open", side_effect=OSError("No such file or directory")
-        ):
+        if patch_spec is None:
             handler._compress_file(str(target))
-        handler.close()
-
-    def test_bz2_compression(self, tmp_path):
-        """bz2 compression creates .bz2 file and removes original."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="bz2", keep_uncompressed=0
-        )
-
-        target = tmp_path / "test.log.3"
-        target.write_text("compress this with bz2")
-
-        handler._compress_file(str(target))
-
-        assert Path(f"{target}.bz2").exists()
-        assert not target.exists()
-        handler.close()
-
-    def test_xz_compression(self, tmp_path):
-        """xz compression creates .xz file and removes original."""
-        log_file = tmp_path / "test.log"
-        handler = SizeAndTimeRotatingFileHandler(
-            filename=str(log_file), compression="xz", keep_uncompressed=0
-        )
-
-        target = tmp_path / "test.log.3"
-        target.write_text("compress this with xz")
-
-        handler._compress_file(str(target))
-
-        assert Path(f"{target}.xz").exists()
-        assert not target.exists()
+        else:
+            patch_target, message = patch_spec
+            with patch(patch_target, side_effect=OSError(message)):
+                handler._compress_file(str(target))
         handler.close()
 
 
@@ -608,27 +610,25 @@ class TestSizeTimeRotatingHandler:
         handler = SizeTimeRotatingHandler(filename=str(log_file))
         handler.__del__()  # Should not raise
 
-    def test_log_level_string(self, tmp_path):
-        """String log_level is converted to int (lines 413-417)."""
+    @pytest.mark.parametrize(
+        ("log_level", "expected_levelno"),
+        [
+            pytest.param("DEBUG", logging.DEBUG, id="string"),
+            pytest.param("NONEXISTENT", logging.INFO, id="invalid_string_falls_back"),
+            pytest.param(30, 30, id="int_used_directly"),
+        ],
+    )
+    def test_log_level_resolution(
+        self,
+        tmp_path: Path,
+        log_level: str | int,
+        expected_levelno: int,
+    ) -> None:
+        """String log_level converts to int, invalid strings fall back to
+        INFO, and ints pass through directly (lines 413-419)."""
         log_file = tmp_path / "logs" / "test.log"
-        handler = SizeTimeRotatingHandler(filename=str(log_file), log_level="DEBUG")
-        assert handler.levelno == logging.DEBUG
-        handler.close()
-
-    def test_log_level_invalid_string(self, tmp_path):
-        """Invalid string log_level falls back to INFO (line 417)."""
-        log_file = tmp_path / "logs" / "test.log"
-        handler = SizeTimeRotatingHandler(
-            filename=str(log_file), log_level="NONEXISTENT"
-        )
-        assert handler.levelno == logging.INFO
-        handler.close()
-
-    def test_log_level_int(self, tmp_path):
-        """Integer log_level is used directly (lines 418-419)."""
-        log_file = tmp_path / "logs" / "test.log"
-        handler = SizeTimeRotatingHandler(filename=str(log_file), log_level=30)
-        assert handler.levelno == 30
+        handler = SizeTimeRotatingHandler(filename=str(log_file), log_level=log_level)
+        assert handler.levelno == expected_levelno
         handler.close()
 
     def test_ensure_log_directory_permission_error(self, tmp_path):

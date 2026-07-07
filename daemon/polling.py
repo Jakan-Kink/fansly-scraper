@@ -27,6 +27,7 @@ import httpx
 from loguru import logger
 
 from config.fanslyconfig import FanslyConfig
+from helpers.common import expect_dict, expect_list
 from metadata.models import MonitorState, Post, get_store
 
 
@@ -71,12 +72,17 @@ async def poll_home_timeline(
     new_creator_ids: set[int] = set()
     posts_by_creator: dict[int, list[dict]] = {}
 
-    posts: list[dict] = data.get("posts", []) if isinstance(data, dict) else []
+    posts = (
+        expect_list(data.get("posts", []), "home timeline posts")
+        if isinstance(data, dict)
+        else []
+    )
 
     for post in posts:
-        post_id: int = post["id"]
-        creator_id: int = post["accountId"]
-        posts_by_creator.setdefault(creator_id, []).append(post)
+        post_obj = expect_dict(post, "post")
+        post_id = int(str(post_obj["id"]))
+        creator_id = int(str(post_obj["accountId"]))
+        posts_by_creator.setdefault(creator_id, []).append(post_obj)
         if store.get_from_cache(Post, post_id) is None:
             new_creator_ids.add(creator_id)
 
@@ -104,7 +110,7 @@ async def poll_story_states(
     """
     try:
         response = await config.get_api().get_story_states_following()
-        states: list[dict] = config.get_api().get_json_response_contents(response)
+        states = config.get_api().get_json_response_contents(response)
     except httpx.HTTPError as exc:
         logger.warning("daemon.polling: story states API call failed — {}", exc)
         return []
@@ -125,9 +131,11 @@ async def poll_story_states(
     creators_with_new_stories: list[int] = []
 
     for state in states:
-        creator_id: int = state["accountId"]
-        is_active: bool = bool(
-            state.get("hasActiveStories", False) or state.get("storyCount", 0) > 0
+        state_obj = expect_dict(state, "story state")
+        creator_id = int(str(state_obj["accountId"]))
+        story_count = int(str(state_obj.get("storyCount", 0) or 0))
+        is_active: bool = (
+            bool(state_obj.get("hasActiveStories", False)) or story_count > 0
         )
 
         try:

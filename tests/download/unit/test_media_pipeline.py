@@ -6,6 +6,12 @@ External boundaries patched:
 - download.m3u8.download_m3u8 (spawns ffmpeg)
 HTTP via respx. Everything else runs real code including dedupe_media_file,
 _verify_existing_file, _download_regular_file, entity store operations.
+
+Store-bearing classes share ONE class-scoped database each via
+``class_entity_store`` (requested through ``reset_class_store``). Hash-dedup
+lookups (``find_one(Media, content_hash=...)``) are GLOBAL across the shared
+database, so every content-hash constant is namespaced with the test's
+account id — two tests must never persist or probe the same hash value.
 """
 
 import io
@@ -115,13 +121,14 @@ class TestVerifyExistingFile:
 # ── _download_file + _download_regular_file ─────────────────────────────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("download_media_pipeline_funcs")
 class TestDownloadFunctions:
     """Lines 220-294: stream download with respx at HTTP boundary.
 
     Uses one CDN route with ordered side_effect responses, asserts on route.calls.
     """
 
-    @pytest.mark.asyncio
     async def test_download_file_success(self, respx_fansly_api, mock_config, tmp_path):
         """Lines 222-239: 200 → writes chunks to file."""
         url = "https://cdn.fansly.com/content/img.jpg"
@@ -139,7 +146,6 @@ class TestDownloadFunctions:
         assert out.read_bytes() == b"image bytes"
         assert len(cdn_route.calls) == 1
 
-    @pytest.mark.asyncio
     async def test_download_regular_file_success_paths(
         self, respx_fansly_api, mock_config, tmp_path
     ):
@@ -219,21 +225,54 @@ class TestDownloadFunctions:
 
         assert "404" in str(excinfo.value)
 
+    @pytest.mark.parametrize(
+        "invoke",
+        [
+            pytest.param(
+                lambda cfg, _state, media, path: _download_regular_file(
+                    cfg, media, path
+                ),
+                id="regular",
+            ),
+            pytest.param(
+                _download_m3u8_file,
+                id="m3u8",
+            ),
+        ],
+    )
+    async def test_download_raises_when_download_url_unset(
+        self, invoke, mock_config, reset_class_store, tmp_path
+    ):
+        """Both download fns raise DownloadError when download_url is None.
+
+        download_url is the transient field parse_media_info populates; if it
+        never resolved, the guard fails fast with DownloadError instead of
+        passing None into get_with_ngsw / download_m3u8. The store fixture is
+        required: _download_m3u8_file calls get_store() before the guard.
+        """
+        media = _make_media(snowflake_id())
+        media.download_url = None
+        with pytest.raises(DownloadError):
+            await invoke(mock_config, DownloadState(), media, tmp_path / "out.bin")
+
 
 # ── _download_m3u8_file ─────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("download_media_pipeline_m3u8")
 class TestDownloadM3u8File:
-    """Lines 297-358: HLS download + hash dedup.
+    """Lines 297-358: HLS download + hash dedup, over ONE shared class DB.
 
     Patches download_m3u8 (spawns ffmpeg) and hash_mp4file (MP4 parser).
     """
 
-    @pytest.mark.asyncio
-    async def test_new_file_and_duplicate(self, mock_config, entity_store, tmp_path):
+    async def test_new_file_and_duplicate(
+        self, mock_config, reset_class_store, tmp_path
+    ):
         """New hash → save + vid_count; existing hash → duplicate."""
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         # ── New file path ──
         state = _make_state(acct_id)
@@ -248,7 +287,7 @@ class TestDownloadM3u8File:
 
         with (
             patch("download.media.download_m3u8", return_value=temp_file),
-            patch("fileio.fnmanip.hash_mp4file", return_value="newhash"),
+            patch("fileio.fnmanip.hash_mp4file", return_value=f"new_{acct_id}"),
         ):
             is_dupe = await _download_m3u8_file(mock_config, state, media, check_path)
 
@@ -261,11 +300,11 @@ class TestDownloadM3u8File:
             id=snowflake_id(),
             accountId=acct_id,
             mimetype="video/mp4",
-            content_hash="duphash",
+            content_hash=f"dup_{acct_id}",
             local_filename="existing.mp4",
             is_downloaded=True,
         )
-        await entity_store.save(existing)
+        await reset_class_store.save(existing)
 
         state2 = _make_state(acct_id)
         media2 = _make_media(acct_id, mimetype="video/mp4")
@@ -278,7 +317,7 @@ class TestDownloadM3u8File:
 
         with (
             patch("download.media.download_m3u8", return_value=temp_file2),
-            patch("fileio.fnmanip.hash_mp4file", return_value="duphash"),
+            patch("fileio.fnmanip.hash_mp4file", return_value=f"dup_{acct_id}"),
         ):
             is_dupe = await _download_m3u8_file(
                 mock_config, state2, media2, check_path2
@@ -291,14 +330,16 @@ class TestDownloadM3u8File:
 # ── download_media ──────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("download_media_pipeline_loop")
 class TestDownloadMedia:
-    """Lines 361-491: main download loop.
+    """Lines 361-491: main download loop, over ONE shared class DB.
 
     Patches: imagehash.phash (external lib), hash_mp4file (MP4 parser),
     download_m3u8 (ffmpeg). HTTP via respx. Everything else runs real.
+    Content hashes are namespaced by account id (global dedup lookups).
     """
 
-    @pytest.mark.asyncio
     async def test_notset_type_and_empty_list(self, mock_config):
         """Lines 367-373: NOTSET → RuntimeError; empty → immediate return."""
         state = DownloadState()
@@ -309,7 +350,6 @@ class TestDownloadMedia:
         state2 = _make_state(snowflake_id())
         await download_media(mock_config, state2, [])  # no error
 
-    @pytest.mark.asyncio
     async def test_duplicate_threshold_exceeded(self, mock_config, tmp_path):
         """Lines 390-395: duplicate count > threshold → DuplicateCountError."""
         mock_config.use_duplicate_threshold = True
@@ -322,15 +362,16 @@ class TestDownloadMedia:
         with pytest.raises(DuplicateCountError):
             await download_media(mock_config, state, [_make_media(state.creator_id)])
 
-    @pytest.mark.asyncio
-    async def test_already_downloaded_skips(self, mock_config, entity_store, tmp_path):
+    async def test_already_downloaded_skips(
+        self, mock_config, reset_class_store, tmp_path
+    ):
         """Lines 407-415: DB says already downloaded → add_duplicate, skip."""
         mock_config.use_duplicate_threshold = False
         mock_config.download_media_previews = False
         mock_config.download_directory = tmp_path
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         state = _make_state(acct_id)
         media = Media(
@@ -340,17 +381,16 @@ class TestDownloadMedia:
             download_url="https://cdn.fansly.com/x.jpg",
             file_extension="jpg",
             is_downloaded=True,
-            content_hash="h",
+            content_hash=f"already_{acct_id}",
             local_filename="f.jpg",
         )
-        await entity_store.save(media)
+        await reset_class_store.save(media)
 
         await download_media(mock_config, state, [media])
         assert state.duplicate_count == 1
 
-    @pytest.mark.asyncio
     async def test_regular_image_download(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path
+        self, respx_fansly_api, mock_config, reset_class_store, tmp_path
     ):
         """Lines 467-484: regular image download end-to-end via respx + real dedupe.
 
@@ -364,7 +404,7 @@ class TestDownloadMedia:
         mock_config.separate_previews = False
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         state = _make_state(acct_id)
         media = _make_media(acct_id)
@@ -381,7 +421,7 @@ class TestDownloadMedia:
             ]
         )
 
-        with patch("fileio.fnmanip.imagehash.phash", return_value="testhash"):
+        with patch("fileio.fnmanip.imagehash.phash", return_value=f"img_{acct_id}"):
             try:
                 await download_media(mock_config, state, [media])
             finally:
@@ -389,8 +429,9 @@ class TestDownloadMedia:
 
         assert state.pic_count == 1
 
-    @pytest.mark.asyncio
-    async def test_m3u8_download_and_error(self, mock_config, entity_store, tmp_path):
+    async def test_m3u8_download_and_error(
+        self, mock_config, reset_class_store, tmp_path
+    ):
         """Lines 428-432, 457-465, 486-487: m3u8 → .mp4 conversion; M3U8Error → skip.
 
         Two media items: first succeeds (m3u8 download), second raises M3U8Error.
@@ -403,7 +444,7 @@ class TestDownloadMedia:
         mock_config.separate_previews = False
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         state = _make_state(acct_id)
 
@@ -430,16 +471,15 @@ class TestDownloadMedia:
 
         with (
             patch("download.media.download_m3u8", side_effect=m3u8_side_effect),
-            patch("fileio.fnmanip.hash_mp4file", return_value="newhash"),
+            patch("fileio.fnmanip.hash_mp4file", return_value=f"newh_{acct_id}"),
         ):
             await download_media(mock_config, state, [media1, media2])
 
         # First succeeded, second was skipped via M3U8Error
         assert state.vid_count == 1
 
-    @pytest.mark.asyncio
     async def test_skip_preview_and_invalid_and_process_error(
-        self, mock_config, entity_store, tmp_path
+        self, mock_config, reset_class_store, tmp_path
     ):
         """Lines 397-418: three media items exercising early-exit branches.
 
@@ -452,7 +492,7 @@ class TestDownloadMedia:
         mock_config.download_directory = tmp_path
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
         state = _make_state(acct_id)
 
         preview_media = _make_media(acct_id)
@@ -469,9 +509,8 @@ class TestDownloadMedia:
             mock_config, state, [preview_media, invalid_media, error_media]
         )
 
-    @pytest.mark.asyncio
     async def test_existing_file_verified_and_temp_download(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path
+        self, respx_fansly_api, mock_config, reset_class_store, tmp_path
     ):
         """Lines 442-449: file exists on disk → _verify_existing_file (hash match) → skip.
 
@@ -489,14 +528,14 @@ class TestDownloadMedia:
         mock_config.temp_folder = None
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
         state = _make_state(acct_id)
 
         # Media 1: existing file, hash matches → _verify_existing_file returns True
-        media1 = _make_media(acct_id, content_hash="match_hash")
+        media1 = _make_media(acct_id, content_hash=f"match_{acct_id}")
 
         # Media 2: existing file, hash mismatch → _verify_temp_download
-        media2 = _make_media(acct_id, content_hash="temp_hash")
+        media2 = _make_media(acct_id, content_hash=f"temp_{acct_id}")
 
         # Pre-create the download directory and files
         dl_dir = tmp_path / f"dl_{acct_id}" / "Timeline" / "Pictures"
@@ -514,10 +553,10 @@ class TestDownloadMedia:
         )
 
         # phash call sequence:
-        # 1. _verify_existing_file(media1) → "match_hash" == media1.content_hash → True → skip
+        # 1. _verify_existing_file(media1) → match == media1.content_hash → True → skip
         # 2. _verify_existing_file(media2) → "wrong" != media2.content_hash → False
-        # 3. _verify_temp_download(media2) → downloads, hashes → "temp_hash" == media2.content_hash → True → skip
-        phash_returns = iter(["match_hash", "wrong", "temp_hash"])
+        # 3. _verify_temp_download(media2) → downloads, hashes → temp == media2.content_hash → True → skip
+        phash_returns = iter([f"match_{acct_id}", "wrong", f"temp_{acct_id}"])
 
         with patch("fileio.fnmanip.imagehash.phash", side_effect=phash_returns):
             try:
@@ -528,15 +567,16 @@ class TestDownloadMedia:
         # Both were duplicates (via different paths)
         assert state.duplicate_count == 2
 
-    @pytest.mark.asyncio
-    async def test_valueerror_in_save_path(self, mock_config, entity_store, tmp_path):
+    async def test_valueerror_in_save_path(
+        self, mock_config, reset_class_store, tmp_path
+    ):
         """Lines 433-435: get_media_save_path raises ValueError → skip."""
         mock_config.use_duplicate_threshold = False
         mock_config.download_media_previews = False
         mock_config.download_directory = tmp_path
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
         state = _make_state(acct_id)
 
         # Media with unknown mimetype → get_media_save_path raises ValueError
@@ -550,9 +590,8 @@ class TestDownloadMedia:
 
         await download_media(mock_config, state, [media])
 
-    @pytest.mark.asyncio
     async def test_regular_download_dedup_is_true(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path
+        self, respx_fansly_api, mock_config, reset_class_store, tmp_path
     ):
         """Lines 476-484: regular download completes, dedupe returns True → add_duplicate."""
         mock_config.use_duplicate_threshold = False
@@ -563,7 +602,7 @@ class TestDownloadMedia:
         mock_config.separate_previews = False
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
         state = _make_state(acct_id)
         media = _make_media(acct_id)
 
@@ -579,7 +618,7 @@ class TestDownloadMedia:
         )
 
         # imagehash.phash returns a hash, dedupe finds it's a duplicate
-        with patch("fileio.fnmanip.imagehash.phash", return_value="duphash"):
+        with patch("fileio.fnmanip.imagehash.phash", return_value=f"dupreg_{acct_id}"):
             try:
                 await download_media(mock_config, state, [media])
             finally:
@@ -589,9 +628,8 @@ class TestDownloadMedia:
         # dedupe_media_file with real entity store — hash won't match existing
         # so is_dupe will be False, but the download itself completes
 
-    @pytest.mark.asyncio
     async def test_verify_temp_download_video_match_and_temp_folder(
-        self, respx_fansly_api, mock_config, entity_store, tmp_path
+        self, respx_fansly_api, mock_config, reset_class_store, tmp_path
     ):
         """Lines 169-217: _verify_temp_download with video mimetype + temp_folder config.
 
@@ -602,7 +640,7 @@ class TestDownloadMedia:
         (tmp_path / "temp").mkdir()
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         state = _make_state(acct_id)
         check_path = tmp_path / "target" / "video.mp4"
@@ -616,8 +654,10 @@ class TestDownloadMedia:
         )
 
         # Match case → True, vid_count++
-        media1 = _make_media(acct_id, mimetype="video/mp4", content_hash="vidhash")
-        with patch("fileio.fnmanip.hash_mp4file", return_value="vidhash"):
+        media1 = _make_media(
+            acct_id, mimetype="video/mp4", content_hash=f"vid_{acct_id}"
+        )
+        with patch("fileio.fnmanip.hash_mp4file", return_value=f"vid_{acct_id}"):
             try:
                 result1 = await _verify_temp_download(
                     mock_config, state, media1, check_path
@@ -629,15 +669,18 @@ class TestDownloadMedia:
 
         # Mismatch case → return False, finally cleanup
         check_path2 = tmp_path / "target" / "video2.mp4"
-        media2 = _make_media(acct_id, mimetype="video/mp4", content_hash="expected")
-        with patch("fileio.fnmanip.hash_mp4file", return_value="different"):
+        media2 = _make_media(
+            acct_id, mimetype="video/mp4", content_hash=f"exp_{acct_id}"
+        )
+        with patch("fileio.fnmanip.hash_mp4file", return_value="mismatch"):
             result2 = await _verify_temp_download(
                 mock_config, state, media2, check_path2
             )
         assert result2 is False
 
-    @pytest.mark.asyncio
-    async def test_m3u8_self_dedup_guard(self, mock_config, entity_store, tmp_path):
+    async def test_m3u8_self_dedup_guard(
+        self, mock_config, reset_class_store, tmp_path
+    ):
         """Lines 328-329, 307: m3u8 with temp_folder + existing_by_hash is self → not a dupe.
 
         When find_one returns the media itself (same effective_id),
@@ -647,15 +690,17 @@ class TestDownloadMedia:
         (tmp_path / "temp").mkdir()
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         state = _make_state(acct_id)
-        media = _make_media(acct_id, mimetype="video/mp4", content_hash="selfhash")
+        media = _make_media(
+            acct_id, mimetype="video/mp4", content_hash=f"self_{acct_id}"
+        )
         media.file_extension = "m3u8"
         media.download_url = "https://cdn.fansly.com/stream.m3u8"
         media.is_downloaded = True
         media.local_filename = "old.mp4"
-        await entity_store.save(media)
+        await reset_class_store.save(media)
 
         check_path = tmp_path / "target" / "video.mp4"
         check_path.parent.mkdir(parents=True, exist_ok=True)
@@ -666,7 +711,7 @@ class TestDownloadMedia:
 
         with (
             patch("download.media.download_m3u8", return_value=temp_mp4),
-            patch("fileio.fnmanip.hash_mp4file", return_value="selfhash"),
+            patch("fileio.fnmanip.hash_mp4file", return_value=f"self_{acct_id}"),
         ):
             is_dupe = await _download_m3u8_file(mock_config, state, media, check_path)
 
@@ -674,9 +719,8 @@ class TestDownloadMedia:
         assert is_dupe is False
         assert state.vid_count == 1
 
-    @pytest.mark.asyncio
     async def test_m3u8_dupe_via_download_media(
-        self, mock_config, entity_store, tmp_path
+        self, mock_config, reset_class_store, tmp_path
     ):
         """Line 465: m3u8 download finds duplicate → is_dupe=True → continue."""
         mock_config.use_duplicate_threshold = False
@@ -687,17 +731,17 @@ class TestDownloadMedia:
         mock_config.separate_previews = False
 
         acct_id = snowflake_id()
-        await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
 
         existing = Media(
             id=snowflake_id(),
             accountId=acct_id,
             mimetype="video/mp4",
-            content_hash="duphash",
+            content_hash=f"dupm_{acct_id}",
             local_filename="existing.mp4",
             is_downloaded=True,
         )
-        await entity_store.save(existing)
+        await reset_class_store.save(existing)
 
         state = _make_state(acct_id)
         media = _make_media(acct_id, mimetype="video/mp4")
@@ -709,7 +753,7 @@ class TestDownloadMedia:
 
         with (
             patch("download.media.download_m3u8", return_value=temp_mp4),
-            patch("fileio.fnmanip.hash_mp4file", return_value="duphash"),
+            patch("fileio.fnmanip.hash_mp4file", return_value=f"dupm_{acct_id}"),
         ):
             await download_media(mock_config, state, [media])
 

@@ -3,17 +3,17 @@
 These tests use respx_stash_processor fixture for edge mocking.
 """
 
+import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
 from PIL import Image
 from stash_graphql_client.types import Image as SGCImage
-from stash_graphql_client.types import Performer
 
+from metadata import PostMention
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
@@ -29,7 +29,7 @@ class TestAccountProcessingMixin:
     """Test the account processing mixin functionality."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, respx_stash_processor, entity_store):
+    async def test_find_account(self, respx_stash_processor, entity_store, caplog):
         """Test _find_account method.
 
         This test doesn't require GraphQL mocking since it only tests database queries.
@@ -66,15 +66,13 @@ class TestAccountProcessingMixin:
         respx_stash_processor.state.creator_name = "nonexistent_user"
 
         # Call _find_account
-        with patch(
-            "stash.processing.mixins.account.print_warning"
-        ) as mock_print_warning:
-            found_account = await respx_stash_processor._find_account()
+        caplog.set_level(logging.WARNING)
+        found_account = await respx_stash_processor._find_account()
 
-        # Verify no account and warning was printed
+        # Verify no account and warning was printed (loguru routes to caplog)
         assert found_account is None
-        mock_print_warning.assert_called_once()
-        assert "nonexistent_user" in str(mock_print_warning.call_args)
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("nonexistent_user" in msg for msg in warnings)
 
     @pytest.mark.asyncio
     async def test_process_creator(self, respx_stash_processor, entity_store):
@@ -355,6 +353,61 @@ class TestAccountProcessingMixin:
         assert graphql_route.call_count == 1
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "make_entity",
+        [
+            pytest.param(
+                lambda: AccountFactory.build(
+                    id=snowflake_id(), username="dual_user", stash_id=None
+                ),
+                id="account_by_username",
+            ),
+            pytest.param(
+                lambda: PostMention(
+                    id=snowflake_id(), postId=snowflake_id(), handle="dual_user"
+                ),
+                id="postmention_by_handle",
+            ),
+        ],
+    )
+    async def test_find_existing_performer_accepts_account_and_postmention(
+        self, respx_stash_processor, make_entity
+    ):
+        """Both arms of the ``Account | PostMention`` param resolve a performer.
+
+        Account resolves via ``username``, PostMention via ``handle`` (the
+        isinstance-narrowed branch). One backing name lets a single
+        findPerformers mock serve either type. Guards against re-narrowing the
+        param back to ``Account`` (which would drop the mention path).
+        """
+        entity = make_entity()
+        await respx_stash_processor.context.get_client()
+
+        performer_dict = create_performer_dict(id="999", name="dual_user")
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 1, "performers": [performer_dict]},
+                    ),
+                ),
+            ]
+        )
+
+        try:
+            performer = await respx_stash_processor._find_existing_performer(entity)
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls, "test_find_existing_performer_dual_type"
+            )
+
+        assert performer is not None
+        assert performer.name == "dual_user"
+        assert graphql_route.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_find_existing_performer_not_found(self, respx_stash_processor):
         """Test _find_existing_performer returns None when not found."""
         acct_id = snowflake_id()
@@ -423,10 +476,21 @@ class TestAccountProcessingMixin:
     async def test_get_or_create_performer_found_by_alias_raw_syntax(
         self, respx_stash_processor
     ):
-        """Test _get_or_create_performer with raw GraphQL filter syntax for aliases.
+        """Real _get_or_create_performer resolves a performer via the alias branch.
 
-        Uses raw filter: aliases={"value": username, "modifier": "INCLUDES"}
-        This is the workaround for stash-graphql-client v0.10.5.
+        Drives the REAL method (no reimplementation) over the respx Stash edge:
+        the name search returns empty, so production falls through to the alias
+        search (``store.find_one(Performer, aliases__contains=username)`` at
+        account.py:145), which returns a hit. Asserts the found performer is
+        returned without a create.
+
+        Merged from the former ``_found_by_alias_django_style`` test, which had
+        swapped in a test-authored ``django_style_method`` reimplementation and
+        therefore exercised ZERO production lines. Both old tests differed only
+        in the GraphQL filter SYNTAX they narrated; production emits exactly one
+        path (``aliases__contains``), so the reimplementation variant was
+        dropped and this real-method test is the single source of truth for the
+        alias-resolution branch.
         """
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="test_user")
@@ -467,95 +531,8 @@ class TestAccountProcessingMixin:
                 "test_get_or_create_performer_found_by_alias_raw_syntax",
             )
 
-        # Verify performer was found (not created)
-        assert result.id == "999"
-        assert graphql_route.call_count == 2  # Name search + alias search only
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_performer_found_by_alias_django_style(
-        self, respx_stash_processor
-    ):
-        """Test _get_or_create_performer with Django-style alias filtering.
-
-        Uses Django-style filter: aliases__contains=username
-        This syntax works with stash-graphql-client v0.10.6+.
-        """
-        acct_id = snowflake_id()
-        account = AccountFactory.build(id=acct_id, username="test_user")
-
-        # Create performer that will be found by alias
-        existing_performer_dict = create_performer_dict(
-            id="999", name="Test User", aliases=["test_user"]
-        )
-
-        # Mock GraphQL: first call finds nothing by name, second call finds by alias
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # findPerformers by name - not found
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 0, "performers": []},
-                    ),
-                ),
-                # findPerformers by alias using Django-style filter - FOUND
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 1, "performers": [existing_performer_dict]},
-                    ),
-                ),
-            ]
-        )
-
-        await respx_stash_processor.context.get_client()
-
-        # Temporarily override the method to use Django-style filtering
-        original_method = respx_stash_processor._get_or_create_performer.__func__
-
-        async def django_style_method(self, account):
-            """Version using Django-style alias filter."""
-            search_name = account.displayName or account.username
-            fansly_url = f"https://fansly.com/{account.username}"
-
-            # Try exact name match first
-            performer = await self.store.find_one(Performer, name__exact=search_name)
-            if performer:
-                return performer
-
-            # Try Django-style alias match (v0.10.6+)
-            performer = await self.store.find_one(
-                Performer, aliases__contains=account.username
-            )
-            if performer:
-                return performer
-
-            # Try URL match
-            performer = await self.store.find_one(Performer, url__contains=fansly_url)
-            if performer:
-                return performer
-
-            # Create new
-            performer = self._performer_from_account(account)
-            return await self.context.client.create_performer(performer)
-
-        # Patch the method
-        try:
-            with patch.object(
-                respx_stash_processor,
-                "_get_or_create_performer",
-                new=lambda account: django_style_method(respx_stash_processor, account),
-            ):
-                result = await respx_stash_processor._get_or_create_performer(account)
-        finally:
-            dump_graphql_calls(
-                graphql_route.calls,
-                "test_get_or_create_performer_found_by_alias_django_style",
-            )
-
-        # Verify performer was found (not created)
+        # Verify performer was found (not created) via the alias branch.
+        assert graphql_route.called
         assert result.id == "999"
         assert graphql_route.call_count == 2  # Name search + alias search only
 

@@ -11,12 +11,11 @@ Key Principles:
 - Return data in the format that gql.Client.execute() returns
 
 Usage:
-    import respx
     import httpx
+    import respx
     from tests.fixtures.stash import create_graphql_response, create_find_tags_result
 
-    @respx.mock
-    async def test_find_tags(tag_mixin):
+    async def test_find_tags(respx_stash_processor):
         # Create response data
         tags_data = create_find_tags_result(count=1, tags=[
             {"id": "123", "name": "test", "aliases": [], "parents": [], "children": []}
@@ -33,9 +32,8 @@ Usage:
             ]
         )
 
-        # Initialize client and test
-        await tag_mixin.context.get_client()
-        result = await tag_mixin.context.client.find_tags(tag_filter={"name": {"value": "test"}})
+        client = respx_stash_processor.context.client
+        result = await client.find_tags(tag_filter={"name": {"value": "test"}})
         assert result.count == 1
 """
 
@@ -177,7 +175,7 @@ def create_performer_dict(
     gender: str | None = None,
     tags: list[dict] | None = None,
     stash_ids: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Performer dict matching the Performer type schema.
 
@@ -297,7 +295,7 @@ def create_scene_dict(
     studio: dict | None = None,
     performers: list[dict] | None = None,
     tags: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Scene dict matching the Scene type schema.
 
@@ -370,7 +368,7 @@ def create_image_dict(
     studio: dict | None = None,
     performers: list[dict] | None = None,
     tags: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create an Image dict matching the Image type schema.
 
@@ -500,7 +498,7 @@ def create_gallery_dict(
     tags: list[dict] | None = None,
     scenes: list[dict] | None = None,
     images: list[dict] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a Gallery dict matching the Gallery type schema.
 
@@ -576,7 +574,9 @@ def create_gallery_update_result(gallery: dict[str, Any]) -> dict[str, Any]:
     return gallery
 
 
-def create_find_gallery_result(gallery: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_find_gallery_result(
+    gallery: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Create a findGallery query result (single gallery lookup).
 
     Args:

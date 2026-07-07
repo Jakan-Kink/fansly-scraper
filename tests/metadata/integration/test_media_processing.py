@@ -20,11 +20,18 @@ from metadata import (
 async def test_process_video_from_timeline(entity_store, mock_config, timeline_data):
     """Test processing a video from timeline data."""
     response = FanslyApi.convert_ids_to_int(copy.deepcopy(timeline_data["response"]))
+    assert isinstance(response, dict)
 
     # Find a video in the test data
     media_data = None
-    for media in response.get("accountMedia", []):
-        if media.get("media", {}).get("mimetype", "").startswith("video/"):
+    account_media = response.get("accountMedia", [])
+    assert isinstance(account_media, list)
+    for media in account_media:
+        assert isinstance(media, dict)
+        media_obj = media.get("media")
+        if isinstance(media_obj, dict) and str(
+            media_obj.get("mimetype", "")
+        ).startswith("video/"):
             media_data = media
             break
 
@@ -36,21 +43,26 @@ async def test_process_video_from_timeline(entity_store, mock_config, timeline_d
 
     # Pre-create the Account (FK constraint: Media.accountId → accounts.id)
     account_id = media_data["accountId"]
+    assert isinstance(account_id, int)
     await entity_store.save(Account(id=account_id, username=f"test_user_{account_id}"))
 
     # Process the media via production code
     await process_media_info(mock_config, media_data)
 
     # Verify Media record was created
-    media_id = media_data["media"]["id"]
+    media_dict = media_data["media"]
+    assert isinstance(media_dict, dict)
+    media_id = media_dict["id"]
     media = await entity_store.get(Media, media_id)
     assert media is not None
-    assert media.mimetype == media_data["media"]["mimetype"]
+    assert media.mimetype == media_dict["mimetype"]
 
     # Verify metadata (duration, dimensions)
-    if "metadata" in media_data["media"]:
+    if "metadata" in media_dict:
+        raw_metadata = media_dict["metadata"]
+        assert isinstance(raw_metadata, str)
         try:
-            metadata = json.loads(media_data["media"]["metadata"])
+            metadata = json.loads(raw_metadata)
         except json.JSONDecodeError:
             metadata = {}
 
@@ -82,19 +94,32 @@ async def test_process_media_bundle_from_timeline(
 ):
     """Test processing a media bundle from timeline data."""
     response = FanslyApi.convert_ids_to_int(copy.deepcopy(timeline_data["response"]))
+    assert isinstance(response, dict)
 
     if "accountMediaBundles" not in response:
         pytest.skip("No bundles found in test data")
 
-    bundle_data = response["accountMediaBundles"][0]
-    account_id = response["accountMedia"][0]["accountId"]
+    bundles = response["accountMediaBundles"]
+    assert isinstance(bundles, list)
+    bundle_data = bundles[0]
+    assert isinstance(bundle_data, dict)
+    account_media = response["accountMedia"]
+    assert isinstance(account_media, list)
+    first_am = account_media[0]
+    assert isinstance(first_am, dict)
+    account_id = first_am["accountId"]
+    assert isinstance(account_id, int)
 
     # Pre-create the Account (FK constraint)
     await entity_store.save(Account(id=account_id, username=f"test_user_{account_id}"))
 
     # Pre-create Media records that bundles reference
-    for content in bundle_data.get("bundleContent", []):
+    bundle_content = bundle_data.get("bundleContent", [])
+    assert isinstance(bundle_content, list)
+    for content in bundle_content:
+        assert isinstance(content, dict)
         media_id = content["accountMediaId"]
+        assert isinstance(media_id, int)
         await entity_store.save(
             Media(id=media_id, accountId=account_id, mimetype="image/jpeg")
         )

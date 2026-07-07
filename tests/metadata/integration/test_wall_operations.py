@@ -3,8 +3,10 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.downloadstate import DownloadState
+from helpers.common import JsonDict
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -90,7 +92,7 @@ async def test_wall_updates_with_posts(entity_store, mock_config):
     await entity_store.save(wall)
 
     # Update wall through production code
-    new_wall_data = [
+    new_wall_data: list[JsonValue] = [
         {
             "id": wall_id,
             "pos": 2,
@@ -121,7 +123,7 @@ async def test_wall_post_processing(entity_store, mock_config):
 
     # Create posts data in timeline format
     post_ids = [snowflake_id() for _ in range(3)]
-    posts_data = {
+    posts_data: JsonDict = {
         "posts": [
             {
                 "id": pid,
