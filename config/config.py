@@ -150,6 +150,12 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.use_pagination_duplication = opts.use_pagination_duplication
     config.use_folder_suffix = opts.use_folder_suffix
     config.respect_timeline_stats = opts.respect_timeline_stats
+    # Deep-copy so runtime mutations (e.g. -u narrowing, interactive
+    # empty-spec answers) never alias the schema's dict/objects — a mid-run
+    # save would otherwise persist those runtime-only mutations to YAML.
+    config.wall_filters = {
+        key: spec.model_copy(deep=True) for key, spec in opts.wall_filters.items()
+    }
     config.interactive = opts.interactive
     config.prompt_on_exit = opts.prompt_on_exit
     # ``debug`` and ``trace`` are no longer schema-backed. They're runtime

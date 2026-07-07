@@ -537,6 +537,83 @@ async def validate_adjust_download_mode(
                 done = True
 
 
+def _derive_wall_filter_scope(config: FanslyConfig) -> None:
+    """Make wall_filters keys the run's creator scope; narrow on -u subset."""
+    filter_keys = set(config.wall_filters)
+    if "user_names" in config._ephemeral_overrides and config.user_names:
+        unknown = config.user_names - filter_keys
+        if unknown:
+            raise ConfigError(
+                "Configuration error - -u creator(s) not present in "
+                f"wall_filters: {', '.join(sorted(unknown))}."
+            )
+        config.wall_filters = {
+            key: spec
+            for key, spec in config.wall_filters.items()
+            if key in config.user_names
+        }
+        config._ephemeral_overrides.add("wall_filters")
+    else:
+        config.user_names = filter_keys
+        config._ephemeral_overrides.add("user_names")
+
+
+async def validate_adjust_wall_filters(config: FanslyConfig) -> None:
+    """Enforce WALL-only mode, resolve empty specs, derive creator scope.
+
+    Args:
+        config: The configuration to validate and adjust.
+
+    Raises:
+        ConfigError: On a non-WALL download_mode, an unresolvable empty
+            spec, or a -u creator missing from the wall_filters keys.
+    """
+    if not config.wall_filters:
+        return
+
+    if config.download_mode != DownloadMode.WALL:
+        raise ConfigError(
+            "Configuration error - wall_filters requires download_mode: wall "
+            f"(current mode: {config.download_mode})."
+        )
+
+    if config.use_following:
+        raise ConfigError(
+            "Configuration error - wall_filters cannot be combined with "
+            "use_following; wall_filters defines the creator scope."
+        )
+
+    for creator, spec in config.wall_filters.items():
+        if spec.all_walls or not spec.is_empty:
+            continue
+        if not config.interactive:
+            raise ConfigError(
+                f"Configuration error - wall_filters entry '{creator}' is "
+                "empty; list wall name(s)/ID(s) or remove the entry."
+            )
+        if await aconfirm(
+            f"\n{20 * ' '}► wall_filters entry '{creator}' is empty. "
+            "Download ALL walls for this creator?",
+            default=False,
+        ):
+            spec.all_walls = True
+            config._ephemeral_overrides.add("wall_filters")
+            continue
+        entries = await aprompt_text(
+            f"\n{20 * ' '}► Enter wall name(s)/snowflake ID(s) for "
+            f"'{creator}' (comma-separated): "
+        )
+        spec.includes = [t.strip() for t in entries.split(",") if t.strip()]
+        config._ephemeral_overrides.add("wall_filters")
+        if not spec.includes:
+            raise ConfigError(
+                "Configuration error - no walls provided for wall_filters "
+                f"entry '{creator}'."
+            )
+
+    _derive_wall_filter_scope(config)
+
+
 async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) -> None:
     """Validates all input values from `config.ini`
     and corrects them if possible.
@@ -544,6 +621,8 @@ async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) 
     :param FanslyConfig config: The configuration to validate and correct.
     :param bool download_mode_set: Indicates whether a download mode as been set using args
     """
+    await validate_adjust_wall_filters(config)
+
     if not await validate_creator_names(config):
         raise ConfigError("Configuration error - no valid creator name specified.")
 
@@ -558,5 +637,5 @@ async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) 
     await validate_adjust_download_directory(config)
 
     await validate_adjust_download_mode(
-        config, download_mode_set
+        config, download_mode_set or bool(config.wall_filters)
     )  # don't prompt if download mode has specifically been set with args

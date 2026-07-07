@@ -20,6 +20,7 @@ from config.schema import (
     LoggingSection,
     StashContextSection,
 )
+from config.wall_filters import WallFilterSpec
 
 
 if TYPE_CHECKING:
@@ -70,6 +71,7 @@ class FanslyConfig:
     trace: bool = False  # For very detailed logging
     # If specified on the command-line
     post_id: str | None = None
+    wall_filters: dict[str, WallFilterSpec] = field(default_factory=dict)
 
     # Objects
     _schema: ConfigSchema | None = field(default=None)
@@ -613,6 +615,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     )
     _maybe_set(base.options, "use_folder_suffix", config.use_folder_suffix)
     _maybe_set(base.options, "respect_timeline_stats", config.respect_timeline_stats)
+    _maybe_set(base.options, "wall_filters", config.wall_filters)
     _maybe_set(base.options, "interactive", config.interactive)
     _maybe_set(base.options, "prompt_on_exit", config.prompt_on_exit)
     _maybe_set(base.options, "timeline_retries", config.timeline_retries)

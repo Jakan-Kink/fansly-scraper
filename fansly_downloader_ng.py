@@ -62,6 +62,7 @@ from download.statistics import (
     print_timing_statistics,
     update_global_statistics,
 )
+from download.wallfilters import resolve_wall_filter, resolve_wall_filter_id_keys
 from errors import (
     API_ERROR,
     CONFIG_ERROR,
@@ -468,6 +469,9 @@ async def main(config: FanslyConfig) -> int:
                 print_error(f"Failed to process following list: {e}")
                 return 1
 
+    if config.wall_filters:
+        await resolve_wall_filter_id_keys(config)
+
     # Process each creator
     creators_list = sorted(
         config.user_names, key=str.lower, reverse=config.reverse_order
@@ -555,20 +559,23 @@ async def main(config: FanslyConfig) -> int:
                                 )
                                 and state.walls
                             ):
-                                walls_list = sorted(state.walls)
-                                progress_mgr.add_task(
-                                    name="download_walls",
-                                    description="Processing walls",
-                                    total=len(walls_list),
-                                    parent_task="creators",
-                                    show_elapsed=True,
+                                walls_list = sorted(
+                                    await resolve_wall_filter(config, state)
                                 )
-                                for wall_id in walls_list:
-                                    await download_wall(config, state, wall_id)
-                                    progress_mgr.update_task(
-                                        "download_walls", advance=1
+                                if walls_list:
+                                    progress_mgr.add_task(
+                                        name="download_walls",
+                                        description="Processing walls",
+                                        total=len(walls_list),
+                                        parent_task="creators",
+                                        show_elapsed=True,
                                     )
-                                progress_mgr.remove_task("download_walls")
+                                    for wall_id in walls_list:
+                                        await download_wall(config, state, wall_id)
+                                        progress_mgr.update_task(
+                                            "download_walls", advance=1
+                                        )
+                                    progress_mgr.remove_task("download_walls")
 
                         update_global_statistics(
                             global_download_state, download_state=state
@@ -974,7 +981,7 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         # (py-spy: 7 sinks → 8s post-atexit). Tracked-only so foreign
         # handlers (pytest-loguru's caplog) survive. Use print() after.
         remove_start = time.time()
-        print_info("Closing log sinks…")
+        print_info("Closing log sinks...")
         try:
             from config.logging import remove_tracked_handlers  # noqa: PLC0415, I001  # circular: config.logging imports FanslyConfig
 
@@ -1048,15 +1055,23 @@ async def _async_main(config: FanslyConfig) -> int:
             await cleanup_with_global_timeout(config)
             # Our sinks are closed; print() reaches the console, the
             # loguru emit reaches surviving handlers (caplog in tests).
-            print("💡 Cleanup completed successfully", flush=True)
+            print(
+                "💡 Cleanup completed successfully", flush=True
+            )  # CCH:dual-log  # sinks closed, console needs print
             logger.opt(depth=1).log("INFO", "Cleanup completed successfully")
         except asyncio.CancelledError:
-            print("❌ Cleanup was cancelled!", flush=True, file=sys.stderr)
+            print(
+                "❌ Cleanup was cancelled!", flush=True, file=sys.stderr
+            )  # CCH:dual-log  # sinks closed, console needs print
             logger.opt(depth=1).log("ERROR", "Cleanup was cancelled!")
             sys.exit(1)
         except Exception as e:
-            print(f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr)
-            print(traceback.format_exc(), flush=True, file=sys.stderr)
+            print(
+                f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr
+            )  # CCH:dual-log  # sinks closed, console needs print
+            print(
+                traceback.format_exc(), flush=True, file=sys.stderr
+            )  # CCH:dual-log  # sinks closed, console needs print
             logger.opt(depth=1).log("ERROR", f"Fatal error during cleanup: {e}")
             sys.exit(1)
 

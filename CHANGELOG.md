@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `wall_filters` — download only specific wall(s) per creator, by wall name or ID, with optional excludes; available as a persistent `options.wall_filters` config section and an ephemeral `--wall-filters` CLI flag (both enforce wall-only mode).
+
 ## [0.14.5] - 2026-06-14
 
 ### Added

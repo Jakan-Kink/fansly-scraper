@@ -1,6 +1,7 @@
 """Argument Parsing and Configuration Mapping"""
 
 import argparse
+import json
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -28,6 +29,7 @@ from .schema import (
     StashContextSection,
     TargetedCreatorSection,
 )
+from .wall_filters import WallFilterSpec, normalize_wall_filters
 
 
 _GENERATE_CONFIG_HEADER = """\
@@ -324,6 +326,19 @@ def parse_args() -> argparse.Namespace:
         "by link or ID from an arbitrary creator. "
         "A post ID must be at least 10 characters and consist of digits only."
         "Example - https://fansly.com/post/1283998432982 -> ID is: 1283998432982",
+    )
+    download_modes.add_argument(
+        "--wall-filters",
+        required=False,
+        default=None,
+        metavar="SPEC",
+        dest="download_mode_wall_filters",
+        help='Use "Wall" download mode restricted to specific wall(s). '
+        "SPEC is either a JSON mapping of creators to wall lists/specs "
+        '(\'{"creator1": ["FULL VIDEOS"]}\') or, together with exactly '
+        "one -u creator, a comma-separated list of wall names/IDs "
+        "('FULL VIDEOS,Promos'). Wall names are matched "
+        "case-insensitively; all-digit tokens of 10+ chars are wall IDs.",
     )
 
     # endregion Download Modes
@@ -793,7 +808,71 @@ def _handle_download_mode(
         config._ephemeral_overrides.add("download_mode")
         return True, True
 
+    # --wall-filters implies (and enforces, via the mutually-exclusive
+    # group) WALL mode; the SPEC itself is applied later by
+    # _apply_cli_wall_filters once -u has been processed.
+    if args.download_mode_wall_filters is not None:
+        config.download_mode = DownloadMode.WALL
+        config._ephemeral_overrides.add("download_mode")
+        return True, True
+
     return config_overridden, download_mode_set
+
+
+def _apply_cli_wall_filters(args: argparse.Namespace, config: FanslyConfig) -> None:
+    """Parse --wall-filters SPEC (JSON or bare form) onto the config.
+
+    Args:
+        args: Parsed CLI namespace.
+        config: The configuration to apply the ephemeral filter to.
+
+    Raises:
+        ConfigError: On invalid JSON, a -u/JSON-key mismatch, or a bare
+            SPEC without exactly one -u creator.
+    """
+    if args.download_mode_wall_filters is None:
+        return
+
+    raw = args.download_mode_wall_filters.strip()
+    if raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ConfigError(
+                f"Argument error - --wall-filters is not valid JSON: {e}"
+            ) from e
+        filters = normalize_wall_filters(parsed)
+        if not filters:
+            raise ConfigError("Argument error - --wall-filters got an empty spec.")
+        keys = set(filters)
+        if args.users is not None:
+            if config.user_names != keys:
+                raise ConfigError(
+                    "Argument error - the -u list must exactly match the "
+                    "--wall-filters JSON keys. "
+                    f"-u gave: {', '.join(sorted(config.user_names or set()))}; "
+                    f"--wall-filters JSON keys: {', '.join(sorted(keys))}."
+                )
+        else:
+            config.user_names = set(keys)
+            config._ephemeral_overrides.add("user_names")
+    else:
+        if (
+            args.users is None
+            or config.user_names is None
+            or len(config.user_names) != 1
+        ):
+            raise ConfigError(
+                "Argument error - the bare --wall-filters form requires "
+                "exactly one -u creator."
+            )
+        tokens = [t.strip() for t in raw.split(",") if t.strip()]
+        if not tokens:
+            raise ConfigError("Argument error - --wall-filters got an empty spec.")
+        filters = {next(iter(config.user_names)): WallFilterSpec(includes=tokens)}
+
+    config.wall_filters = filters
+    config._ephemeral_overrides.add("wall_filters")
 
 
 def _handle_path_settings(
@@ -989,6 +1068,8 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     _, mode_set = _handle_download_mode(args, config)
     if mode_set:
         download_mode_set = True
+
+    _apply_cli_wall_filters(args, config)
 
     _handle_not_none_settings(args, config)
     _handle_boolean_settings(args, config)

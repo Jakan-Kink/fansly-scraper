@@ -171,6 +171,7 @@ def default_cli_args():
         download_mode_timeline=False,
         download_mode_collection=False,
         download_mode_single=None,
+        download_mode_wall_filters=None,
         download_directory=None,
         token=None,
         user_agent=None,

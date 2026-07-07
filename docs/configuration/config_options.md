@@ -178,6 +178,35 @@ the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
 | `rate_limiting_max_backoff_seconds` | `int`   | `300`   | Cap on the backoff sleep duration                                                                                                                                          |
 | `respect_timeline_stats`            | `bool`  | `true`  | When `true`, the timeline/wall downloaders short-circuit a full scan when `TimelineStats` counts and wall structure match the local DB. Set `false` to force a full scan   |
 
+### `wall_filters`
+
+Restrict wall downloads to specific wall(s) per creator. When set, the run is **WALL-only** (`download_mode: wall` is required — any other mode raises a config error) and **only the creators listed here are processed** (`usernames` is not consulted for scope).
+
+Keys are creator usernames (or account snowflake IDs for advanced use). Values are either a list of wall names/IDs (an *includes* list) or a mapping with optional `includes`/`excludes` lists:
+
+```yaml
+options:
+  download_mode: wall
+  wall_filters:
+    creator1: ["FULL VIDEOS"]
+    creator2:
+      includes: ["Promos", "1234567890123"]
+      excludes: ["previews"]
+```
+
+Wall names match case-insensitively against the names shown as tabs on the creator's page; all-digit tokens of 10+ characters are treated as wall IDs (visible in DevTools). `excludes` without `includes` means "all walls except these". An empty entry prompts interactively (download all walls? / enter wall names) and errors in non-interactive runs.
+
+CLI equivalent (ephemeral, never written back to `config.yaml`):
+
+```bash
+# one creator, bare form
+python fansly_downloader_ng.py -u creator1 --wall-filters "FULL VIDEOS,Promos"
+# multiple creators, JSON form
+python fansly_downloader_ng.py --wall-filters '{"creator1": ["FULL VIDEOS"], "creator2": {"excludes": ["previews"]}}'
+```
+
+With `-u` alongside YAML `wall_filters`, `-u` must name a subset of the filter keys and narrows the run to those creators. Wall names containing commas (and excludes) require the JSON form.
+
 ### Retired fields (silently dropped on load)
 
 The following keys were valid in earlier versions and are now silently
@@ -559,6 +588,12 @@ of the YAML setting.
 | `options.download_mode = COLLECTION` | `--collection` |
 | `options.download_mode = SINGLE`     | `--single`     |
 | `options.download_mode = STASH_ONLY` | `--stash-only` |
+
+**Wall filters**
+
+| Config field           | CLI flag                     |
+| ---------------------- | ----------------------------- |
+| `options.wall_filters` | `--wall-filters` (ephemeral, forces `WALL` mode) |
 
 **Output / paths**
 

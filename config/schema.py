@@ -22,6 +22,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     PrivateAttr,
     SecretStr,
     ValidationError,
@@ -33,6 +34,7 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
 from config.modes import DownloadMode
+from config.wall_filters import WallFilterSpec, normalize_wall_filters
 
 
 # Render-policy marker used in ``Field(json_schema_extra=_ALWAYS)``. A field
@@ -41,7 +43,7 @@ from config.modes import DownloadMode
 # ``_sync_to_map`` then forces the containing section to render. Default
 # policy is "conditional" — fields render only when in ``model_fields_set``.
 # See docs/configuration/render-policy.md (TODO) for full semantics.
-_ALWAYS: dict[str, str] = {"render": "always"}
+_ALWAYS: dict[str, JsonValue] = {"render": "always"}
 
 
 def _is_always(field_info: Any) -> bool:
@@ -306,6 +308,10 @@ class OptionsSection(_BaseSection):
     # when TimelineStats counts and wall structure match the DB. Conditional
     # by default; absent from scaffolded YAML.
     respect_timeline_stats: bool = True
+    # Per-creator wall include/exclude filters. Non-empty wall_filters
+    # requires download_mode: wall (enforced in config/validation.py) and
+    # defines the run's creator scope.
+    wall_filters: dict[str, WallFilterSpec] = Field(default_factory=dict)
     rate_limiting_enabled: bool = True
     rate_limiting_adaptive: bool = True
     rate_limiting_requests_per_minute: int = 60
@@ -322,6 +328,12 @@ class OptionsSection(_BaseSection):
         if isinstance(v, str):
             return DownloadMode(v.upper())
         return v
+
+    @field_validator("wall_filters", mode="before")
+    @classmethod
+    def _normalize_wall_filters(cls, v: Any) -> dict[str, WallFilterSpec]:
+        """Accept lenient list/dict shapes; see config/wall_filters.py."""
+        return normalize_wall_filters(v)
 
     @field_validator("repair_previews", mode="before")
     @classmethod

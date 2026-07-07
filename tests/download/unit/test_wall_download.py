@@ -14,9 +14,11 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
+from config.wall_filters import WallFilterSpec
 from download.downloadstate import DownloadState
 from download.types import DownloadType
 from download.wall import download_wall, process_wall_data, process_wall_media
+from download.wallfilters import resolve_wall_filter
 from metadata.models import Account, Post, Wall
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -527,6 +529,70 @@ class TestDownloadWall:
         # Loop entered: at least one wall-page fetched. Without the bypass
         # both early-returns would short-circuit before any HTTP call.
         assert route.call_count >= 1
+
+
+# ── wall_filters pipeline ────────────────────────────────────────────────
+
+
+class TestWallFilterPipeline:
+    """Filtered wall pass fetches ONLY the resolved wall's posts."""
+
+    def _make_state(self, creator_id):
+        state = DownloadState()
+        state.creator_id = creator_id
+        state.creator_name = f"wall_{creator_id}"
+        return state
+
+    def _make_config(self, mock_config, tmp_path):
+        mock_config.use_duplicate_threshold = False
+        mock_config.use_pagination_duplication = False
+        mock_config.debug = False
+        mock_config.show_downloads = True
+        mock_config.show_skipped_downloads = False
+        mock_config.interactive = False
+        mock_config.timeline_retries = 0
+        mock_config.timeline_delay_seconds = 0
+        mock_config.download_directory = Path(tmp_path)
+        mock_config.download_media_previews = False
+        return mock_config
+
+    @pytest.mark.asyncio
+    async def test_filter_prunes_wall_fetches(
+        self, respx_fansly_api, mock_config, entity_store, tmp_path
+    ):
+        """resolve_wall_filter narrows state.walls, and download_wall
+        issues wall-posts requests for only the resolved wallId."""
+        config = self._make_config(mock_config, tmp_path)
+        creator_id = snowflake_id()
+
+        await entity_store.save(Account(id=creator_id, username="creator1"))
+        wall_promos = Wall(id=snowflake_id(), accountId=creator_id, name="Promos")
+        wall_full = Wall(id=snowflake_id(), accountId=creator_id, name="FULL VIDEOS")
+        await entity_store.save(wall_promos)
+        await entity_store.save(wall_full)
+
+        state = self._make_state(creator_id)
+        state.creator_name = "creator1"
+        state.walls = {wall_promos.id, wall_full.id}
+
+        config.wall_filters = {"creator1": WallFilterSpec(includes=["FULL VIDEOS"])}
+
+        route = respx.get(url__startswith=FANSLY_API).mock(
+            side_effect=[_ok(_wall_response(creator_id, post_count=0, media_count=0))]
+        )
+
+        try:
+            resolved = await resolve_wall_filter(config, state)
+            for wall_id in sorted(resolved):
+                await download_wall(config, state, wall_id)
+        finally:
+            dump_fansly_calls(route.calls, "test_filter_prunes_wall_fetches")
+
+        assert resolved == {wall_full.id}
+        called_wall_ids = {
+            call.request.url.params.get("wallId") for call in route.calls
+        }
+        assert called_wall_ids == {str(wall_full.id)}
 
 
 # ---------------------------------------------------------------------------
