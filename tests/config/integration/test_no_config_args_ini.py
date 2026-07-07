@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import pytest
+
 from config.args import map_args_to_config
 from config.fanslyconfig import FanslyConfig
 
@@ -22,28 +24,21 @@ from config.fanslyconfig import FanslyConfig
 # ---------------------------------------------------------------------------
 
 
-def test_original_config_path_attribute_removed() -> None:
-    """FanslyConfig must not have an original_config_path attribute."""
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        pytest.param("original_config_path", id="original_config_path"),
+        pytest.param("_save_token_to_original_config", id="save_token_helper"),
+        pytest.param("_save_checkkey_to_original_config", id="save_checkkey_helper"),
+    ],
+)
+def test_config_args_ini_attributes_removed(attribute: str) -> None:
+    """The config_args.ini workaround attributes must not exist on FanslyConfig;
+    _save_config() / save_config_or_raise() replaced the per-attribute helpers."""
     cfg = FanslyConfig(program_version="0.13.0")
-    assert not hasattr(cfg, "original_config_path"), (
-        "original_config_path was removed as part of retiring the "
-        "config_args.ini workaround. It must not exist on FanslyConfig."
-    )
-
-
-def test_save_token_to_original_config_removed() -> None:
-    """_save_token_to_original_config helper must not exist on FanslyConfig."""
-    cfg = FanslyConfig(program_version="0.13.0")
-    assert not hasattr(cfg, "_save_token_to_original_config"), (
-        "_save_token_to_original_config was removed; use _save_config() instead."
-    )
-
-
-def test_save_checkkey_to_original_config_removed() -> None:
-    """_save_checkkey_to_original_config helper must not exist on FanslyConfig."""
-    cfg = FanslyConfig(program_version="0.13.0")
-    assert not hasattr(cfg, "_save_checkkey_to_original_config"), (
-        "_save_checkkey_to_original_config was removed; use save_config_or_raise() instead."
+    assert not hasattr(cfg, attribute), (
+        f"{attribute} was removed as part of retiring the config_args.ini "
+        "workaround. It must not exist on FanslyConfig."
     )
 
 

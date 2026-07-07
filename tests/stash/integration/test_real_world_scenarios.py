@@ -7,10 +7,12 @@ Note: These tests are skipped when running in the sandbox environment.
 
 import asyncio
 import os
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 
 import pytest
-from stash_graphql_client import StashClient
+from stash_graphql_client import StashClient, present
 from stash_graphql_client.types import (
     GenerateMetadataInput,
     GenerateMetadataOptions,
@@ -32,6 +34,10 @@ pytestmark = pytest.mark.skipif(
     reason="Integration tests require a running Stash instance",
 )
 
+# stash_cleanup_tracker yields a factory: tracker(client) -> async ctx of the
+# id-buckets dict. enable_scene_creation is a setup/teardown fixture (value unused).
+CleanupTracker = Callable[..., AbstractAsyncContextManager[dict[str, list[str]]]]
+
 
 def get_id(obj):
     """Get ID from Pydantic model."""
@@ -51,8 +57,8 @@ async def test_content_import_workflow(
     stash_client: StashClient,
     mock_account: Account,
     mock_post: Post,
-    stash_cleanup_tracker,
-    enable_scene_creation,
+    stash_cleanup_tracker: CleanupTracker,
+    enable_scene_creation: object,
 ) -> None:
     """Test importing content from a platform.
 
@@ -104,7 +110,7 @@ async def test_content_import_workflow(
                     scene = Scene(
                         title=f"{mock_account.username} - {mock_post.id}",
                         details=mock_post.content,
-                        date=mock_post.createdAt.strftime("%Y-%m-%d"),
+                        date=present(mock_post.createdAt).strftime("%Y-%m-%d"),
                         urls=[f"https://example.com/posts/{mock_post.id}"],
                         organized=True,
                         performers=[performer],
@@ -152,7 +158,7 @@ async def test_content_import_workflow(
             assert final_scene is not None
             assert performer.id in get_ids(final_scene.performers)
             assert get_id(final_scene.studio) == studio.id
-            assert len(final_scene.tags) == len(tags)
+            assert len(present(final_scene.tags)) == len(tags)
             assert get_ids(final_scene.tags) == {t.id for t in tags}
     except RuntimeError as e:
         if "Stash instance" in str(e):
@@ -166,8 +172,8 @@ async def test_content_import_workflow(
 async def test_batch_import_workflow(
     stash_client: StashClient,
     mock_account: Account,
-    stash_cleanup_tracker,
-    enable_scene_creation,
+    stash_cleanup_tracker: CleanupTracker,
+    enable_scene_creation: object,
 ) -> None:
     """Test batch importing content.
 
@@ -207,7 +213,7 @@ async def test_batch_import_workflow(
                     for i in range(10):
                         post = Post(
                             id=base_id + i,
-                            accountId=mock_account.id,
+                            accountId=present(mock_account.id),
                             content=f"Test post {i} content #tag{i}",
                             createdAt=datetime.now(UTC),
                         )
@@ -224,7 +230,7 @@ async def test_batch_import_workflow(
                             scene = Scene(
                                 title=f"{mock_account.username} - {post.id}",
                                 details=post.content,
-                                date=post.createdAt.strftime("%Y-%m-%d"),
+                                date=present(post.createdAt).strftime("%Y-%m-%d"),
                                 urls=[f"https://example.com/posts/{post.id}"],
                                 organized=True,
                                 performers=[performer],
@@ -307,8 +313,8 @@ async def test_batch_import_workflow(
 async def test_incremental_update_workflow(
     stash_client: StashClient,
     mock_account: Account,
-    stash_cleanup_tracker,
-    enable_scene_creation,
+    stash_cleanup_tracker: CleanupTracker,
+    enable_scene_creation: object,
 ) -> None:
     """Test incremental content updates.
 

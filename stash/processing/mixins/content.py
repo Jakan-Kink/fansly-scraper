@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from stash_graphql_client.types import is_set
+
 from metadata import (
     Account,
     Attachment,
@@ -73,12 +75,15 @@ class ContentProcessingMixin(StashProcessingProtocol):
         for owner in owners:
             if owner.attachments:
                 continue
+            if owner.id is None:
+                continue
             atts = grouped.get(owner.id)
             if not atts:
                 continue
             ordered = sorted(atts, key=lambda a: (a.pos, a.id))
             object.__setattr__(owner, "attachments", ordered)
-            owner._snapshot["attachments"] = ordered.copy()
+            if owner._snapshot is not None:
+                owner._snapshot["attachments"] = ordered.copy()
 
     def _reconstruct_mention_lists(self) -> None:
         """Rebuild the ``Post.mentions`` has_many list a cold preload leaves empty.
@@ -103,14 +108,15 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 by_post[mention.postId].append(mention)
 
         for post in store.filter(Post):
-            if post.mentions:
+            if post.mentions or post.id is None:
                 continue
             post_mentions = by_post.get(post.id)
             if not post_mentions:
                 continue
             ordered = sorted(post_mentions, key=lambda m: m.id or 0)
             object.__setattr__(post, "mentions", ordered)
-            post._snapshot["mentions"] = ordered.copy()
+            if post._snapshot is not None:
+                post._snapshot["mentions"] = ordered.copy()
 
     async def _gather_creator_posts(self, account: Account) -> list[Post]:
         """Gather the creator's posts that carry attachments.
@@ -161,6 +167,8 @@ class ContentProcessingMixin(StashProcessingProtocol):
         """
         store = get_store()
         account_id = account.id
+        if account_id is None:
+            return []
         account_group_ids = await self._resolve_account_group_ids(account_id)
         if not account_group_ids:
             return []
@@ -190,7 +198,7 @@ class ContentProcessingMixin(StashProcessingProtocol):
         store = get_store()
         groups = store.filter(
             Group,
-            lambda g: g.users and any(u.id == account_id for u in g.users),
+            lambda g: bool(g.users) and any(u.id == account_id for u in g.users),
         )
         if not groups:
             all_groups = await store.find(Group)
@@ -199,7 +207,7 @@ class ContentProcessingMixin(StashProcessingProtocol):
                 for g in all_groups
                 if g.users and any(u.id == account_id for u in g.users)
             ]
-        return {g.id for g in groups}
+        return {g.id for g in groups if g.id is not None}
 
     async def _collect_media_from_attachments(
         self,
@@ -221,27 +229,32 @@ class ContentProcessingMixin(StashProcessingProtocol):
         for attachment in attachments:
             # Direct media
             if attachment.media:
-                if attachment.media.media:
-                    media_list.append(attachment.media.media)
-                if attachment.media.preview:
+                direct_media = attachment.media.media
+                if is_set(direct_media) and direct_media is not None:
+                    media_list.append(direct_media)
+                preview = attachment.media.preview
+                if is_set(preview) and preview is not None:
                     # Stamp preview media so downstream Stash tagging
                     # ("Trailer") can detect it.
-                    attachment.media.preview.is_preview = True
-                    media_list.append(attachment.media.preview)
+                    preview.is_preview = True
+                    media_list.append(preview)
 
             # Media bundles
             if attachment.bundle:
                 if attachment.bundle.accountMedia:
                     for account_media in attachment.bundle.accountMedia:
-                        if account_media.media:
-                            media_list.append(account_media.media)
-                        if account_media.preview:
-                            account_media.preview.is_preview = True
-                            media_list.append(account_media.preview)
+                        am_media = account_media.media
+                        if is_set(am_media) and am_media is not None:
+                            media_list.append(am_media)
+                        preview = account_media.preview
+                        if is_set(preview) and preview is not None:
+                            preview.is_preview = True
+                            media_list.append(preview)
 
-                if attachment.bundle.preview:
-                    attachment.bundle.preview.is_preview = True
-                    media_list.append(attachment.bundle.preview)
+                bundle_preview = attachment.bundle.preview
+                if is_set(bundle_preview) and bundle_preview is not None:
+                    bundle_preview.is_preview = True
+                    media_list.append(bundle_preview)
 
             # Aggregated posts (recursively collect media)
             if attachment.is_aggregated_post and attachment.aggregated_post:

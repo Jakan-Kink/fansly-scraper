@@ -4,11 +4,13 @@ These tests use REAL database objects and EntityStore from fixtures.
 Only external calls (like hash calculation) are mocked using patch.
 """
 
+import io
 import re
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from loguru import logger as loguru_logger
 from PIL import Image
 
 from download.types import DownloadType
@@ -92,13 +94,12 @@ async def test_safe_rglob(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_calculate_file_hash(tmp_path):
+async def test_calculate_file_hash(tmp_path, valid_mp4_file):
     """Test calculate_file_hash function."""
     image_file = create_test_image(tmp_path, "test.jpg")
-    video_file = create_test_file(tmp_path, "test.mp4", b"video content")
     text_file = create_test_file(tmp_path, "test.txt", b"text content")
 
-    # Test image hash calculation
+    # Test image hash calculation (imagehash.phash is an edge leaf -> patched)
     with patch("imagehash.phash", return_value="image_hash"):
         result, hash_value, debug_info = calculate_file_hash((image_file, "image/jpeg"))
         assert result == image_file
@@ -106,13 +107,16 @@ async def test_calculate_file_hash(tmp_path):
         assert debug_info["hash_type"] == "image"
         assert debug_info["hash_success"] is True
 
-    # Test video hash calculation
-    with patch("fileio.dedupe.get_hash_for_other_content", return_value="video_hash"):
-        result, hash_value, debug_info = calculate_file_hash((video_file, "video/mp4"))
-        assert result == video_file
-        assert hash_value == "video_hash"
-        assert debug_info["hash_type"] == "video/audio"
-        assert debug_info["hash_success"] is True
+    # Test video hash calculation through the REAL hashing pipeline: a real MP4
+    # runs through get_hash_for_other_content -> hash_mp4file -> hashlib and
+    # yields a real 32-char hex MD5 digest (no internal stub).
+    result, hash_value, debug_info = calculate_file_hash((valid_mp4_file, "video/mp4"))
+    assert result == valid_mp4_file
+    assert hash_value is not None
+    assert len(hash_value) == 32
+    assert all(c in "0123456789abcdef" for c in hash_value)
+    assert debug_info["hash_type"] == "video/audio"
+    assert debug_info["hash_success"] is True
 
     # Test unsupported mimetype
     result, hash_value, debug_info = calculate_file_hash((text_file, "text/plain"))
@@ -183,24 +187,28 @@ async def test_categorize_file(tmp_path):
 
     # Test hash2 categorization
     result = await categorize_file(hash2_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "hash2"
     assert result[1][0] == hash2_file
     assert result[1][3] == "abc123"
 
     # Test media_id categorization
     result = await categorize_file(media_id_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "media_id"
     assert result[1][0] == media_id_file
     assert result[1][1] == media_id
 
     # Test needs_hash categorization
     result = await categorize_file(regular_file, hash2_pattern)
+    assert result is not None
     assert result[0] == "needs_hash"
     assert result[1][0] == regular_file
 
     # Test unsupported mimetype
     with patch("mimetypes.guess_type", return_value=("text/plain", None)):
         result = await categorize_file(text_file, hash2_pattern)
+        assert result is not None
         assert result[0] == "needs_hash"
 
 
@@ -455,8 +463,18 @@ async def test_dedupe_init_full_pipeline(entity_store, config, tmp_path):
     )
     await store.save(no_name_media)
 
-    with patch("imagehash.phash", return_value="test_hash"):
-        await dedupe_init(config, state)
+    warning_sink = io.StringIO()
+    sink_id = loguru_logger.add(warning_sink, level="WARNING")
+    try:
+        with patch("imagehash.phash", return_value="test_hash"):
+            await dedupe_init(config, state)
+    finally:
+        loguru_logger.remove(sink_id)
+
+    # Regression: the hash-pool cleanup must not spuriously warn. It previously
+    # called pool.join(timeout=1.0) — multiprocessing.Pool.join takes no args,
+    # so it raised TypeError on every run, caught and logged as this warning.
+    assert "Error cleaning up process pool" not in warning_sink.getvalue()
 
     # DB cleanup happened
     updated_missing = await store.get(Media, missing_media.id)
@@ -1146,13 +1164,17 @@ class TestCalculateHashForFileEdge:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_video_hash(self, tmp_path):
-        """Lines 900-901: video mimetype → get_hash_for_other_content."""
+    async def test_video_hash(self, valid_mp4_file):
+        """Lines 900-901: video mimetype → real get_hash_for_other_content.
 
-        file_path = create_test_file(tmp_path, "test.mp4", b"x" * 1024)
-        with patch("fileio.fnmanip.hash_mp4file", return_value="vidhash"):
-            result = await _calculate_hash_for_file(file_path, "video/mp4")
-        assert result == "vidhash"
+        Previously stubbed the internal ``hash_mp4file`` collaborator; now a
+        real MP4 runs the full get_hash_for_other_content -> hash_mp4file ->
+        hashlib pipeline and yields a real 32-char hex MD5 digest.
+        """
+        result = await _calculate_hash_for_file(valid_mp4_file, "video/mp4")
+        assert result is not None
+        assert len(result) == 32
+        assert all(c in "0123456789abcdef" for c in result)
 
 
 class TestMigrateFullPathsEdge:

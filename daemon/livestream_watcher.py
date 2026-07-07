@@ -28,6 +28,7 @@ from loguru import logger
 
 from config.fanslyconfig import FanslyConfig
 from download.livestream import _record_stream, _salvage_orphan_segments
+from helpers.common import expect_dict, expect_list
 from metadata.models import StreamChannel, StreamingInfo
 
 
@@ -164,7 +165,8 @@ async def _poll_and_diff(
         return
 
     # Parse accounts from aggregationData (they carry the streaming.channel).
-    accounts_raw: list[dict] = data.get("aggregationData", {}).get("accounts", [])
+    agg = expect_dict(data.get("aggregationData", {}), "aggregationData")
+    accounts_raw = expect_list(agg.get("accounts", []), "accounts")
 
     # Build a mapping of creator_id → StreamChannel for everyone currently
     # live AND in scope for this invocation. Scope-filter using the username
@@ -179,7 +181,8 @@ async def _poll_and_diff(
     # / ``-u`` whitelist.
     currently_live: dict[int, tuple[str, StreamChannel]] = {}
     for raw_account in accounts_raw:
-        streaming_raw = raw_account.get("streaming")
+        account = expect_dict(raw_account, "account")
+        streaming_raw = account.get("streaming")
         if not streaming_raw:
             continue
         try:
@@ -193,7 +196,7 @@ async def _poll_and_diff(
         if streaming_info.channel is None or streaming_info.channel.status != 2:
             continue
         creator_id = int(streaming_info.accountId)
-        username = raw_account.get("username", str(creator_id))
+        username = str(account.get("username", str(creator_id)))
         if not config.is_username_in_scope(username):
             logger.debug(
                 "daemon.livestream_watcher: live creator {} ({}) out of scope "

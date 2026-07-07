@@ -7,6 +7,7 @@ on the pinned_posts junction table.
 
 import pytest
 
+from helpers.common import JsonDict
 from metadata import (
     Account,
     Post,
@@ -20,7 +21,7 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 def _make_account_data_with_pinned_posts(
     account_id: int,
     pinned_post_ids: list[int],
-) -> dict:
+) -> JsonDict:
     """Build minimal account API data with pinnedPosts.
 
     Mirrors the real Fansly API response shape for account data.
@@ -40,25 +41,47 @@ def _make_account_data_with_pinned_posts(
     }
 
 
-@pytest.mark.asyncio
-async def test_pinned_posts_creates_stubs_for_missing_posts(entity_store, mock_config):
-    """Pinned post targets that don't exist yet get stub Post rows."""
-    account_id = snowflake_id()
-    post_ids = [snowflake_id() for _ in range(3)]
+@pytest.mark.xdist_group("pinned_posts")
+class TestPinnedPostStubLifecycle:
+    """Stub-creation, junction population, and idempotency on one shared store."""
 
-    data = _make_account_data_with_pinned_posts(account_id, post_ids)
-    await process_account_data(mock_config, data)
+    @pytest.mark.asyncio
+    async def test_pinned_posts_stub_lifecycle(self, entity_store, mock_config):
+        """Process once -> stubs + junction rows; process again -> idempotent."""
+        account_id = snowflake_id()
+        post_ids = [snowflake_id() for _ in range(3)]
 
-    # All three Posts should exist as stubs
-    for pid in post_ids:
-        post = await entity_store.get(Post, pid)
-        assert post is not None, f"Stub Post {pid} was not created"
-        assert post.accountId == account_id
+        data = _make_account_data_with_pinned_posts(account_id, post_ids)
 
-    # Stubs should be registered in stub_tracker
-    tracked = await get_stubs("posts")
-    for pid in post_ids:
-        assert pid in tracked, f"Post {pid} not in stub_tracker"
+        # First pass: stub Posts created for every missing pinned target.
+        await process_account_data(mock_config, data)
+
+        for pid in post_ids:
+            post = await entity_store.get(Post, pid)
+            assert post is not None, f"Stub Post {pid} was not created"
+            assert post.accountId == account_id
+
+        # Stubs registered in stub_tracker.
+        tracked = await get_stubs("posts")
+        for pid in post_ids:
+            assert pid in tracked, f"Post {pid} not in stub_tracker"
+
+        # Junction rows populated after stubs.
+        rows = await entity_store.find_records(PinnedPost, accountId=account_id)
+        junction_post_ids = {r["postId"] for r in rows}
+        assert junction_post_ids == set(post_ids)
+
+        # Second pass: reprocessing the same data must not duplicate.
+        await process_account_data(mock_config, data)
+
+        rows = await entity_store.find_records(PinnedPost, accountId=account_id)
+        junction_post_ids = {r["postId"] for r in rows}
+        assert junction_post_ids == set(post_ids)
+
+        # Each post should still exist exactly once.
+        for pid in post_ids:
+            post = await entity_store.get(Post, pid)
+            assert post is not None
 
 
 @pytest.mark.asyncio
@@ -89,53 +112,13 @@ async def test_pinned_posts_skips_existing_posts(entity_store, mock_config):
 
 
 @pytest.mark.asyncio
-async def test_pinned_posts_junction_rows_created(entity_store, mock_config):
-    """The pinned_posts junction table should be populated after stubs."""
-    account_id = snowflake_id()
-    post_ids = [snowflake_id() for _ in range(2)]
-
-    data = _make_account_data_with_pinned_posts(account_id, post_ids)
-    await process_account_data(mock_config, data)
-
-    # Verify junction rows exist in DB
-
-    rows = await entity_store.find_records(PinnedPost, accountId=account_id)
-    junction_post_ids = {r["postId"] for r in rows}
-    assert junction_post_ids == set(post_ids)
-
-
-@pytest.mark.asyncio
 async def test_account_without_pinned_posts_works(entity_store, mock_config):
     """Accounts without pinnedPosts should save normally (no regression)."""
     account_id = snowflake_id()
-    data = {"id": account_id, "username": "no_pins"}
+    data: JsonDict = {"id": account_id, "username": "no_pins"}
 
     await process_account_data(mock_config, data)
 
     account = await entity_store.get(Account, account_id)
     assert account is not None
     assert account.username == "no_pins"
-
-
-@pytest.mark.asyncio
-async def test_pinned_posts_idempotent_on_reprocess(entity_store, mock_config):
-    """Processing the same account data twice should not duplicate stubs."""
-    account_id = snowflake_id()
-    post_ids = [snowflake_id() for _ in range(2)]
-
-    data = _make_account_data_with_pinned_posts(account_id, post_ids)
-
-    # Process twice
-    await process_account_data(mock_config, data)
-    await process_account_data(mock_config, data)
-
-    # Should still have exactly the same junction rows
-
-    rows = await entity_store.find_records(PinnedPost, accountId=account_id)
-    junction_post_ids = {r["postId"] for r in rows}
-    assert junction_post_ids == set(post_ids)
-
-    # Each post should exist exactly once
-    for pid in post_ids:
-        post = await entity_store.get(Post, pid)
-        assert post is not None

@@ -126,8 +126,7 @@ async def test_message_attachment_ordering(entity_store):
     ]
 
 
-@pytest.mark.asyncio
-async def test_attachment_content_resolution(entity_store):
+def test_attachment_content_resolution():
     """Test content type helper properties on attachments."""
     post_id = snowflake_id()
     content_id1 = snowflake_id()
@@ -163,8 +162,7 @@ async def test_attachment_content_resolution(entity_store):
     assert att_story.is_account_media_bundle is False
 
 
-@pytest.mark.asyncio
-async def test_attachment_exclusivity(entity_store):
+def test_attachment_exclusivity():
     """Test that an attachment can have postId or messageId, but not both.
 
     The DB has a CHECK constraint, but at the Pydantic level both fields are
@@ -189,8 +187,7 @@ async def test_attachment_exclusivity(entity_store):
     assert att.messageId == msg_id
 
 
-@pytest.mark.asyncio
-async def test_invalid_content_type_raises(entity_store):
+def test_invalid_content_type_raises():
     """Test that invalid contentType values raise ValidationError.
 
     In the SA ORM world, Attachment.process_attachment() silently skipped invalid types.
@@ -200,7 +197,7 @@ async def test_invalid_content_type_raises(entity_store):
     with pytest.raises(ValidationError, match="contentType"):
         Attachment(
             contentId=snowflake_id(),
-            contentType=99999,
+            contentType=99999,  # type: ignore[arg-type]  # invalid contentType is the test
             pos=0,
         )
 
@@ -227,10 +224,11 @@ class TestAttachmentResolution:
         )
         await entity_store.save(bundle)
 
-        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlags=0)
         await entity_store.save(post)
 
         # ACCOUNT_MEDIA type → .media resolves
+        assert isinstance(am.id, int)
         att1 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),
@@ -243,6 +241,7 @@ class TestAttachmentResolution:
         assert att1.bundle is None
 
         # BUNDLE type → .bundle resolves
+        assert isinstance(bundle.id, int)
         att2 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),
@@ -254,6 +253,7 @@ class TestAttachmentResolution:
         assert att2.bundle.id == bundle.id
 
         # AGGREGATED_POSTS → .aggregated_post resolves
+        assert isinstance(post.id, int)
         att3 = Attachment(
             id=snowflake_id(),
             postId=snowflake_id(),

@@ -51,6 +51,7 @@ import pytest
 import respx
 from m3u8 import M3U8
 
+from api.fansly import FanslyApi
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import (
     _mux_segments_with_ffmpeg,
@@ -109,10 +110,10 @@ class _FakeFFmpegStream:
         path = str(self._output_path) if self._output_path is not None else "output.mp4"
         return ["ffmpeg", "-i", "hls", path]
 
-    def global_args(self, *_a, **_k) -> _FakeFFmpegStream:
+    def global_args(self, *_a: object, **_k: object) -> _FakeFFmpegStream:
         return self
 
-    def run(self, *_a, **_k) -> None:
+    def run(self, *_a: object, **_k: object) -> None:
         if self._raises is not None:
             raise self._raises
         if self._output_path is not None:
@@ -138,6 +139,31 @@ def _install_fake_ffmpeg_input(monkeypatch, fake_stream):
         return _Input()
 
     monkeypatch.setattr(ffmpeg, "input", _fake_input)
+
+
+def _mount_master_variant_route() -> respx.Route:
+    """Serve a single-variant master playlist at ``video.m3u8`` so the REAL
+    ``_get_highest_quality_variant_url`` runs and resolves the variant URL.
+
+    Mirrors ``TestFetchM3U8SegmentPlaylist`` wiring — no internal-function
+    patch. The lone ``EXT-X-STREAM-INF`` points at ``video_1080.m3u8``, so
+    production's ``max(resolution)`` selection returns
+    ``https://example.com/video_1080.m3u8`` (the URL the av/ffmpeg leaf fakes
+    then receive). ``url__startswith`` accounts for get_with_ngsw's
+    ``?ngsw-bypass=true`` suffix. The caller owns the try/finally +
+    dump_fansly_calls on the returned route.
+    """
+    master = (
+        "#EXTM3U\n"
+        "#EXT-X-VERSION:3\n"
+        "#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\n"
+        "video_1080.m3u8\n"
+    )
+    base = "https://example.com/"
+    opt = respx.options(url__startswith=base)  # CCH:NO-DUMP  # caller dumps
+    opt.mock(side_effect=[httpx.Response(200)] * 2)
+    get = respx.get(url__startswith=base + "video.m3u8")  # CCH:NO-DUMP  # caller dumps
+    return get.mock(side_effect=[httpx.Response(200, text=master)])
 
 
 # ---------------------------------------------------------------------------
@@ -883,21 +909,23 @@ class _FakeOutputContainer:
 class TestDirectDownloadPyAV:
     """Real-code tests for ``_try_direct_download_pyav``.
 
-    Leaf-patches: ``av.open`` (returns fake containers),
-    ``download.m3u8._get_highest_quality_variant_url`` (skips HTTP master
-    playlist fetch). Real ``tmp_path`` + fake's ``close()`` writes actual
-    bytes → production exists/stat checks run against real filesystem.
+    Leaf-patches: ``av.open`` (returns fake input/output containers) — the
+    true external edge. The master-playlist fetch + variant selection run
+    REAL via respx (``_mount_master_variant_route``); no internal function is
+    patched. ``av.open`` is invoked only for the HLS input + output, so the
+    ``containers.pop(0)`` ordering is unaffected by the real variant fetch
+    (which goes through ``get_with_ngsw_sync`` / respx instead). Real
+    ``tmp_path`` + the fake's ``close()`` writing actual bytes → production
+    exists/stat checks run against the real filesystem.
     """
 
-    def test_success_remuxes_packets(self, tmp_path, monkeypatch):
+    def test_success_remuxes_packets(self, tmp_path, monkeypatch, respx_fansly_api):
         """PyAV success: one video stream, three packets, remux succeeds."""
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         video_stream = _FakeAVStream("video", has_codec_context=True)
         input_container = _FakeInputContainer(
@@ -913,30 +941,35 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is True
         assert output_container.mux_calls == 3
         assert output_path.exists()
         assert output_path.stat().st_size > 0
+        # Real variant selection ran (master fetched once).
+        assert master_route.call_count == 1
 
-    def test_stream_without_codec_context_is_skipped(self, tmp_path, monkeypatch):
+    def test_stream_without_codec_context_is_skipped(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """Stream with codec_context=None → continue; remaining streams mapped.
 
         Covers line 217-218 (``if not stream.codec_context: continue``).
         """
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         s_no_ctx = _FakeAVStream("data", has_codec_context=False)
         s_video = _FakeAVStream("video", has_codec_context=True)
@@ -949,29 +982,32 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is True
         # Only one stream template added (video); data stream skipped.
         assert len(output_container.template_streams) == 1
 
-    def test_no_valid_streams_returns_false(self, tmp_path, monkeypatch):
+    def test_no_valid_streams_returns_false(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """All streams lack codec_context → stream_mapping empty → False.
 
         Covers lines 222-224 (``if not stream_mapping: return False``).
         """
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         s1 = _FakeAVStream("data", has_codec_context=False)
         s2 = _FakeAVStream("data", has_codec_context=False)
@@ -981,24 +1017,27 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is False
 
-    def test_packet_without_dts_is_skipped(self, tmp_path, monkeypatch):
+    def test_packet_without_dts_is_skipped(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """Packets with dts=None skipped; others remuxed (line 229-230)."""
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         video = _FakeAVStream("video")
         input_container = _FakeInputContainer(
@@ -1014,28 +1053,31 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is True
         assert output_container.mux_calls == 2
 
-    def test_empty_output_file_returns_false(self, tmp_path, monkeypatch):
+    def test_empty_output_file_returns_false(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """Demux succeeds but output is empty → "produced empty file" branch.
 
         Covers line 249 (the missing-or-empty-file warning).
         """
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         video = _FakeAVStream("video")
         input_container = _FakeInputContainer(streams=[video], packets=[])
@@ -1043,28 +1085,31 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is False
 
-    def test_ffmpeg_error_from_av_returns_false(self, tmp_path, monkeypatch):
+    def test_ffmpeg_error_from_av_returns_false(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """av.open raises av.error.FFmpegError → specific branch fires.
 
         Covers lines 251-253 (the dedicated ``except av.error.FFmpegError``
         handler separate from the generic Exception handler).
         """
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         def _raise_ffmpeg_error(*_a, **_k):
             # av.error.FFmpegError requires (code, message, [filename, [log]]).
@@ -1072,24 +1117,27 @@ class TestDirectDownloadPyAV:
 
         monkeypatch.setattr(av, "open", _raise_ffmpeg_error)
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is False
 
-    def test_generic_exception_returns_false(self, tmp_path, monkeypatch):
+    def test_generic_exception_returns_false(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """Generic Exception → ``except Exception`` handler fires (lines 254-256)."""
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
         monkeypatch.setattr(
             av,
             "open",
@@ -1098,16 +1146,21 @@ class TestDirectDownloadPyAV:
             ),
         )
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is False
 
-    def test_packet_from_unknown_stream_is_skipped(self, tmp_path, monkeypatch):
+    def test_packet_from_unknown_stream_is_skipped(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
         """Packet whose stream is NOT in stream_mapping → skipped silently.
 
         Covers partial branch 231->228: ``if packet.stream in stream_mapping``
@@ -1116,24 +1169,17 @@ class TestDirectDownloadPyAV:
         (e.g., subtitle streams filtered out by codec_context=None check).
         """
         config = _make_real_config()
+        config._api = respx_fansly_api
         output_path = tmp_path / "video.mp4"
 
-        monkeypatch.setattr(
-            "download.m3u8._get_highest_quality_variant_url",
-            lambda *_a, **_k: "https://example.com/v_1080.m3u8",
-        )
+        master_route = _mount_master_variant_route()
 
         mapped_video = _FakeAVStream("video", has_codec_context=True)
-        orphan_stream = _FakeAVStream("subtitle", has_codec_context=True)
 
-        # Note: only mapped_video will be put in stream_mapping because we
-        # construct input_container with both, but orphan_stream packets
-        # have a stream ref that won't appear in the mapping dict if the
-        # mapping logic uses `is`/`==` identity comparison. Actually,
-        # _try_direct_download_pyav iterates input.streams and adds EACH
-        # one that has codec_context — so orphan_stream WOULD be added.
-        # To force an orphan packet, inject a packet whose .stream points
-        # to a DIFFERENT object than either container stream.
+        # _try_direct_download_pyav iterates input.streams and adds EACH one
+        # that has codec_context — so to force an orphan packet we inject a
+        # packet whose .stream points to a DIFFERENT object (rogue_stream)
+        # than the single mapped stream.
         rogue_stream = _FakeAVStream("data", has_codec_context=True)
 
         input_container = _FakeInputContainer(
@@ -1148,12 +1194,15 @@ class TestDirectDownloadPyAV:
         containers = [input_container, output_container]
         monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
 
-        result = _try_direct_download_pyav(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8",
-            output_path=output_path,
-            cookies={"CloudFront-Policy": "a"},
-        )
+        try:
+            result = _try_direct_download_pyav(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+        finally:
+            dump_fansly_calls(master_route.calls)
 
         assert result is True
         # Rogue packet skipped — only mapped_video packets muxed (2 of 3).
@@ -1746,7 +1795,7 @@ class TestSegmentDownload:
     at module level — their own tests (above) cover their real behavior.
     """
 
-    def _make_config_with_segments(self, fansly_api) -> FanslyConfig:
+    def _make_config_with_segments(self, fansly_api: FanslyApi) -> FanslyConfig:
         """Build a real config attached to ``fansly_api``.
 
         Tests mount their own respx routes for the playlist + segment URLs

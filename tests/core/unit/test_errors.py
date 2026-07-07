@@ -58,101 +58,146 @@ def test_update_constants():
     assert UPDATE_SUCCESS == 1
 
 
-class TestDuplicateCountError:
-    """Test DuplicateCountError exception."""
+@pytest.mark.parametrize(
+    ("exc_class", "args", "expected_str", "expected_bases", "expected_attrs"),
+    [
+        pytest.param(
+            DuplicateCountError,
+            (42,),
+            "Irrationally high rise in duplicates: 42",
+            (RuntimeError,),
+            {"duplicate_count": 42},
+            id="duplicate-count-error",
+        ),
+        pytest.param(
+            ConfigError,
+            ("Invalid configuration",),
+            "Invalid configuration",
+            (RuntimeError,),
+            {},
+            id="config-error",
+        ),
+        pytest.param(
+            ApiError,
+            ("API error occurred",),
+            "API error occurred",
+            (RuntimeError,),
+            {},
+            id="api-error",
+        ),
+        pytest.param(
+            ApiAuthenticationError,
+            ("Authentication failed",),
+            "Authentication failed",
+            (ApiError, RuntimeError),
+            {},
+            id="api-authentication-error",
+        ),
+        pytest.param(
+            ApiAccountInfoError,
+            ("Invalid account info",),
+            "Invalid account info",
+            (ApiError, RuntimeError),
+            {},
+            id="api-account-info-error",
+        ),
+        pytest.param(
+            DownloadError,
+            ("Download failed",),
+            "Download failed",
+            (RuntimeError,),
+            {},
+            id="download-error",
+        ),
+        pytest.param(
+            MediaError,
+            ("Media error occurred",),
+            "Media error occurred",
+            (RuntimeError,),
+            {},
+            id="media-error",
+        ),
+        pytest.param(
+            M3U8Error,
+            ("Invalid M3U8 data",),
+            "Invalid M3U8 data",
+            (MediaError, RuntimeError),
+            {},
+            id="m3u8-error",
+        ),
+        pytest.param(
+            MediaHashMismatchError,
+            ("Hash mismatch detected",),
+            "Hash mismatch detected",
+            (MediaError, RuntimeError),
+            {},
+            id="media-hash-mismatch-error",
+        ),
+        pytest.param(
+            InvalidTraceLogError,
+            ("DEBUG",),
+            "trace_logger only accepts TRACE level messages, got DEBUG",
+            (RuntimeError,),
+            {"level_name": "DEBUG"},
+            id="invalid-trace-log-error",
+        ),
+        pytest.param(
+            StashError,
+            ("Stash error occurred",),
+            "Stash error occurred",
+            (RuntimeError,),
+            {},
+            id="stash-error",
+        ),
+        pytest.param(
+            StashGraphQLError,
+            ("GraphQL query failed",),
+            "GraphQL query failed",
+            (StashError, RuntimeError),
+            {},
+            id="stash-graphql-error",
+        ),
+        pytest.param(
+            StashConnectionError,
+            ("Cannot connect to Stash",),
+            "Cannot connect to Stash",
+            (StashError, RuntimeError),
+            {},
+            id="stash-connection-error",
+        ),
+        pytest.param(
+            StashServerError,
+            ("Stash server error 500",),
+            "Stash server error 500",
+            (StashError, RuntimeError),
+            {},
+            id="stash-server-error",
+        ),
+        pytest.param(
+            StashCleanupWarning,
+            ("Failed to cleanup test data",),
+            "Failed to cleanup test data",
+            (UserWarning,),
+            {},
+            id="stash-cleanup-warning",
+        ),
+    ],
+)
+def test_exception_construction(
+    exc_class: type[BaseException],
+    args: tuple[object, ...],
+    expected_str: str,
+    expected_bases: tuple[type, ...],
+    expected_attrs: dict[str, object],
+) -> None:
+    """Each exception formats its message and preserves its inheritance chain."""
+    error = exc_class(*args)
 
-    def test_init(self):
-        """Test initialization and message formatting."""
-        count = 42
-        error = DuplicateCountError(count)
-
-        assert error.duplicate_count == count
-        assert str(error) == f"Irrationally high rise in duplicates: {count}"
-        assert isinstance(error, RuntimeError)
-
-
-class TestConfigError:
-    """Test ConfigError exception."""
-
-    def test_init(self):
-        """Test initialization with message."""
-        message = "Invalid configuration"
-        error = ConfigError(message)
-
-        assert str(error) == message
-        assert isinstance(error, RuntimeError)
-
-
-class TestApiError:
-    """Test ApiError and its subclasses."""
-
-    def test_api_error(self):
-        """Test base ApiError."""
-        message = "API error occurred"
-        error = ApiError(message)
-
-        assert str(error) == message
-        assert isinstance(error, RuntimeError)
-
-    def test_api_authentication_error(self):
-        """Test ApiAuthenticationError."""
-        message = "Authentication failed"
-        error = ApiAuthenticationError(message)
-
-        assert str(error) == message
-        assert isinstance(error, ApiError)
-        assert isinstance(error, RuntimeError)
-
-    def test_api_account_info_error(self):
-        """Test ApiAccountInfoError."""
-        message = "Invalid account info"
-        error = ApiAccountInfoError(message)
-
-        assert str(error) == message
-        assert isinstance(error, ApiError)
-        assert isinstance(error, RuntimeError)
-
-
-class TestDownloadError:
-    """Test DownloadError exception."""
-
-    def test_init(self):
-        """Test initialization with message."""
-        message = "Download failed"
-        error = DownloadError(message)
-
-        assert str(error) == message
-        assert isinstance(error, RuntimeError)
-
-
-class TestMediaErrors:
-    """Test MediaError and its subclasses."""
-
-    def test_media_error(self):
-        """Test base MediaError."""
-        message = "Media error occurred"
-        error = MediaError(message)
-
-        assert str(error) == message
-        assert isinstance(error, RuntimeError)
-
-    def test_m3u8_error(self):
-        """Test M3U8Error."""
-        message = "Invalid M3U8 data"
-        error = M3U8Error(message)
-
-        assert str(error) == message
-        assert isinstance(error, MediaError)
-        assert isinstance(error, RuntimeError)
-
-    def test_media_hash_mismatch_error(self):
-        """Test MediaHashMismatchError."""
-        message = "Hash mismatch detected"
-        error = MediaHashMismatchError(message)
-
-        assert str(error) == message
-        assert isinstance(error, MediaError)
-        assert isinstance(error, RuntimeError)
+    assert str(error) == expected_str
+    for base in expected_bases:
+        assert isinstance(error, base)
+    for attr, value in expected_attrs.items():
+        assert getattr(error, attr) == value
 
 
 class TestDuplicatePageError:
@@ -196,19 +241,6 @@ class TestDuplicatePageError:
         assert isinstance(error, RuntimeError)
 
 
-class TestInvalidTraceLogError:
-    """Test InvalidTraceLogError exception."""
-
-    def test_init(self):
-        """Test initialization and message formatting."""
-        level = "DEBUG"
-        error = InvalidTraceLogError(level)
-
-        assert error.level_name == level
-        assert str(error) == "trace_logger only accepts TRACE level messages, got DEBUG"
-        assert isinstance(error, RuntimeError)
-
-
 class TestInvalidMP4Error:
     """Test InvalidMP4Error exception."""
 
@@ -220,7 +252,7 @@ class TestInvalidMP4Error:
             "Invalid MP4 container format",
         ],
     )
-    def test_init(self, message: str):
+    def test_init(self, message: str) -> None:
         """Test initialization with various error messages."""
         error = InvalidMP4Error(message)
 
@@ -233,53 +265,6 @@ class TestInvalidMP4Error:
 
         assert str(error) == ""
         assert isinstance(error, RuntimeError)
-
-
-class TestStashErrors:
-    """Test Stash-related exceptions."""
-
-    def test_stash_error(self):
-        """Test base StashError."""
-        message = "Stash error occurred"
-        error = StashError(message)
-
-        assert str(error) == message
-        assert isinstance(error, RuntimeError)
-
-    def test_stash_graphql_error(self):
-        """Test StashGraphQLError."""
-        message = "GraphQL query failed"
-        error = StashGraphQLError(message)
-
-        assert str(error) == message
-        assert isinstance(error, StashError)
-        assert isinstance(error, RuntimeError)
-
-    def test_stash_connection_error(self):
-        """Test StashConnectionError."""
-        message = "Cannot connect to Stash"
-        error = StashConnectionError(message)
-
-        assert str(error) == message
-        assert isinstance(error, StashError)
-        assert isinstance(error, RuntimeError)
-
-    def test_stash_server_error(self):
-        """Test StashServerError."""
-        message = "Stash server error 500"
-        error = StashServerError(message)
-
-        assert str(error) == message
-        assert isinstance(error, StashError)
-        assert isinstance(error, RuntimeError)
-
-    def test_stash_cleanup_warning(self):
-        """Test StashCleanupWarning."""
-        message = "Failed to cleanup test data"
-        warning = StashCleanupWarning(message)
-
-        assert str(warning) == message
-        assert isinstance(warning, UserWarning)
 
 
 class TestStubNotImplementedError:

@@ -11,12 +11,15 @@ Service IDs and event-type semantics are documented in
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+
+from pydantic import JsonValue
 
 from api.websocket_protocol import format_event_label
 from config.logging import textio_logger as logger
 from config.logging import websocket_logger as ws_logger
+from helpers.common import JsonDict
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +137,7 @@ class MarkMessagesDeleted(WorkItem):
 # ---------------------------------------------------------------------------
 
 
-def _safe_int(value: Any) -> int | None:
+def _safe_int(value: JsonValue) -> int | None:
     """Convert *value* to int, returning None on failure.
 
     Handles None, empty strings, and values that cannot be coerced without
@@ -152,6 +155,8 @@ def _safe_int(value: Any) -> int | None:
     """
     if value is None or isinstance(value, bool):
         return None
+    if not isinstance(value, (str, int, float)):
+        return None
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -163,7 +168,7 @@ def _safe_int(value: Any) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def _handle_new_message(event: dict[str, Any]) -> WorkItem | None:
+def _handle_new_message(event: JsonDict) -> WorkItem | None:
     """Handle svc=5 type=1 — new message with possible attachments.
 
     Returns:
@@ -189,7 +194,7 @@ def _handle_new_message(event: dict[str, Any]) -> WorkItem | None:
     return DownloadMessagesForGroup(group_id=group_id, sender_id=sender_id)
 
 
-def _handle_subscription_event(event: dict[str, Any]) -> WorkItem | None:
+def _handle_subscription_event(event: JsonDict) -> WorkItem | None:
     """Handle svc=15 type=5 — subscription lifecycle event.
 
     Returns:
@@ -214,7 +219,7 @@ def _handle_subscription_event(event: dict[str, Any]) -> WorkItem | None:
     return FullCreatorDownload(creator_id=creator_id)
 
 
-def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
+def _handle_ppv_purchase(event: JsonDict) -> WorkItem | None:
     """Handle svc=2 type=7/8 and svc=32 type=7 — PPV media / bundle / story purchased.
 
     Returns:
@@ -241,7 +246,7 @@ def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
     )
 
 
-def _handle_message_deleted(event: dict[str, Any]) -> WorkItem | None:
+def _handle_message_deleted(event: JsonDict) -> WorkItem | None:
     """Handle svc=5 type=10 — message deleted.
 
     Returns:
@@ -278,7 +283,7 @@ def _handle_message_deleted(event: dict[str, Any]) -> WorkItem | None:
     )
 
 
-def _handle_account_profile_updated(event: dict[str, Any]) -> WorkItem | None:
+def _handle_account_profile_updated(event: JsonDict) -> WorkItem | None:
     """Handle svc=12 type=2 — account profile updated.
 
     Observation-only for now. Documentation is ambiguous about whether this
@@ -297,7 +302,7 @@ def _handle_account_profile_updated(event: dict[str, Any]) -> WorkItem | None:
     return None
 
 
-def _handle_new_follow(event: dict[str, Any]) -> WorkItem | None:
+def _handle_new_follow(event: JsonDict) -> WorkItem | None:
     """Handle svc=3 type=2 — new follow event.
 
     Returns:
@@ -318,7 +323,7 @@ def _handle_new_follow(event: dict[str, Any]) -> WorkItem | None:
     return CheckCreatorAccess(creator_id=creator_id)
 
 
-def _handle_wallet_event(_event: dict[str, Any]) -> WorkItem | None:
+def _handle_wallet_event(_event: JsonDict) -> WorkItem | None:
     """Handle svc=6 type=2 — wallet credited.
 
     Informational only — no download action required.
@@ -329,7 +334,7 @@ def _handle_wallet_event(_event: dict[str, Any]) -> WorkItem | None:
     return None
 
 
-def _handle_wallet_transaction(event: dict[str, Any]) -> WorkItem | None:
+def _handle_wallet_transaction(event: JsonDict) -> WorkItem | None:
     """Handle svc=6 type=3 — wallet transaction (subscription/PPV payment).
 
     Observation-only. Transaction events lack the creator/accountId we'd
@@ -359,7 +364,7 @@ def _handle_wallet_transaction(event: dict[str, Any]) -> WorkItem | None:
 
 
 def _handle_noop_events(
-    event: dict[str, Any],
+    event: JsonDict,
     service_id: int,
     event_type: int,
     description: str,
@@ -397,7 +402,7 @@ def _handle_noop_events(
 
 
 def _handle_gathering_events(
-    event: dict[str, Any],
+    event: JsonDict,
     service_id: int,
     event_type: int,
     description: str,
@@ -429,7 +434,7 @@ def _handle_gathering_events(
 
 # Maps (service_id, event_type) → handler callable for events the daemon
 # translates into a WorkItem (or filters inline by returning None).
-_DISPATCH: dict[tuple[int, int], Any] = {
+_DISPATCH: dict[tuple[int, int], Callable[[JsonDict], WorkItem | None]] = {
     (5, 1): _handle_new_message,
     (5, 10): _handle_message_deleted,
     (15, 5): _handle_subscription_event,
@@ -591,7 +596,7 @@ def has_handler(service_id: int, event_type: int) -> bool:
 def dispatch_ws_event(
     service_id: int,
     event_type: int,
-    event: dict[str, Any],
+    event: JsonDict,
 ) -> WorkItem | None:
     """Translate a decoded ServiceEvent into a WorkItem, or None if no action needed.
 

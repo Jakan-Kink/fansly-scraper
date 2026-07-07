@@ -44,6 +44,7 @@ from download.livestream_chat import (
     unregister_chat_recorder,
 )
 from fileio.livestream import _unique_output_path
+from helpers.common import expect_dict
 from metadata.models import StreamChannel
 from pathio.livestream import _build_output_path, _get_segments_base
 
@@ -214,7 +215,11 @@ async def _record_stream(
                 monitor_task.cancel()
                 if chat_task is not None:
                     chat_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
+                    # The chat task's own crash is already surfaced by its
+                    # done-callback (_surface_chat_task_failure); draining it
+                    # here must not re-raise and abort an otherwise-complete
+                    # recording over a chat-WS hiccup.
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
                         await chat_task
 
             if not segments:
@@ -293,10 +298,10 @@ async def _get_authenticated_playback_url(
         response = await api.get_streaming_channel(creator_id)
         data = api.get_json_response_contents(response)
         if isinstance(data, dict):
-            stream = data.get("stream") or {}
+            stream = expect_dict(data.get("stream") or {}, "stream")
             auth_url = stream.get("playbackUrl") or data.get("playbackUrl")
             if auth_url:
-                return auth_url
+                return str(auth_url)
     except Exception as exc:
         logger.warning(
             "download.livestream: get_streaming_channel({}) failed — {}; "
@@ -902,7 +907,10 @@ def _mux_ivs_segments(  # noqa: PLR0911  # multiple early-exit paths for failure
                             packet.stream = output_video_stream
                             output.mux(packet)
                             seg_muxed_video += 1
-                        elif packet.stream is input_audio:
+                        elif (
+                            packet.stream is input_audio
+                            and output_audio_stream is not None
+                        ):
                             if seg_audio_first_ts is None:
                                 seg_audio_first_ts = min(pkt_pts, pkt_dts)
                             packet.pts = pkt_pts - seg_audio_first_ts + audio_pts_offset

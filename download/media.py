@@ -8,8 +8,9 @@ import shutil
 import tempfile
 import traceback
 from asyncio import sleep as async_sleep
+from collections.abc import Sequence
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
@@ -18,7 +19,7 @@ from config import FanslyConfig
 from errors import DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file, get_filename_only
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
-from helpers.common import batch_list
+from helpers.common import batch_list, expect_dict
 from helpers.rich_progress import get_progress_manager
 from helpers.timer import timing_jitter
 from media import parse_media_info
@@ -39,10 +40,23 @@ from .m3u8 import download_m3u8
 from .types import DownloadType
 
 
+def _media_type_label(mimetype: str | None) -> str:
+    """Extract the media-type label from a mimetype for display.
+
+    ``"image/jpeg"`` -> ``"image"``. Returns a safe fallback for a missing or
+    slash-less mimetype so progress and dedup messages never crash on an unset
+    value (Media.mimetype is typed ``str | None``).
+    """
+    if not mimetype:
+        return "media"
+    parts = mimetype.split("/")
+    return parts[-2] if len(parts) >= 2 else mimetype
+
+
 async def fetch_and_process_media(
     config: FanslyConfig,
     state: DownloadState,
-    media_ids: list[int | str],
+    media_ids: Sequence[int | str],
     post_id: str | None = None,
 ) -> list[Media]:
     """Fetch accountMedia from API, persist to DB, select download variants.
@@ -70,6 +84,8 @@ async def fetch_and_process_media(
 
             response = await api.get_account_media(media_ids_str)
             media_infos = api.get_json_response_contents(response)
+            if not isinstance(media_infos, list):
+                raise TypeError("Fansly API: expected an account-media array response")
 
             # Persist Media + AccountMedia via Pydantic pipeline
             await process_media_info(config, {"batch": media_infos})
@@ -79,7 +95,10 @@ async def fetch_and_process_media(
                 try:
                     all_media.append(
                         await parse_media_info(
-                            state, info, post_id, interactive=config.interactive
+                            state,
+                            expect_dict(info, "media info"),
+                            post_id,
+                            interactive=config.interactive,
                         )
                     )
                 except Exception:
@@ -124,14 +143,12 @@ async def refresh_locked_account_media(
 
     locked_am = store.filter(
         AccountMedia,
-        lambda am, cid=creator_id: (
-            am.accountId == cid and not am.deleted and not am.access
-        ),
+        lambda am: am.accountId == creator_id and not am.deleted and not am.access,
     )
     locked_bundles = store.filter(
         AccountMediaBundle,
-        lambda b, cid=creator_id: (
-            b.accountId == cid
+        lambda b: (
+            b.accountId == creator_id
             and not b.deleted
             and not b.access
             and not b.purchased
@@ -139,7 +156,7 @@ async def refresh_locked_account_media(
         ),
     )
 
-    refresh_ids: set[int] = {am.id for am in locked_am}
+    refresh_ids: set[int] = {am.id for am in locked_am if am.id is not None}
     for bundle in locked_bundles:
         for am in bundle.accountMedia or []:
             if am.id is not None:
@@ -185,11 +202,12 @@ def _update_media_type_stats(state: DownloadState, media: Media) -> None:
         media.preview_id if media.is_preview else (media.download_id or media.id)
     )
 
-    if "image" in media.mimetype:
+    mimetype = media.mimetype or ""
+    if "image" in mimetype:
         state.recent_photo_media_ids.add(media_id)
-    elif "video" in media.mimetype:
+    elif "video" in mimetype:
         state.recent_video_media_ids.add(media_id)
-    elif "audio" in media.mimetype:
+    elif "audio" in mimetype:
         state.recent_audio_media_ids.add(media_id)
 
 
@@ -205,7 +223,7 @@ async def _verify_existing_file(
         f"Calculating hash for existing {'preview ' if is_preview else ''}file: {check_path}"
     )
 
-    mimetype = media.preview_mimetype if is_preview else media.mimetype
+    mimetype = (media.preview_mimetype if is_preview else media.mimetype) or ""
 
     hash_func = (
         get_hash_for_image if "image" in mimetype else get_hash_for_other_content
@@ -218,7 +236,7 @@ async def _verify_existing_file(
     if media.content_hash == existing_hash:
         if config.show_downloads and config.show_skipped_downloads:
             print_info(
-                f"Deduplication [Hash]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
+                f"Deduplication [Hash]: {_media_type_label(mimetype)} '{check_path.name}' → skipped (hash verified)"
             )
         state.add_duplicate()
 
@@ -243,15 +261,19 @@ async def _verify_temp_download(
     store = get_store()
     temp_path = None
     try:
-        kwargs = {"suffix": check_path.suffix, "delete": False}
-        if config.temp_folder:
-            kwargs["dir"] = config.temp_folder
-        with tempfile.NamedTemporaryFile(**kwargs) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w+b",
+            suffix=check_path.suffix,
+            dir=config.temp_folder,
+            delete=False,
+        ) as temp_file:
             temp_path = Path(temp_file.name)
 
             url = media.preview_url if is_preview else media.download_url
-            mimetype = media.preview_mimetype if is_preview else media.mimetype
+            mimetype = (media.preview_mimetype if is_preview else media.mimetype) or ""
 
+            if url is None:
+                return False
             await _download_file(config, url, temp_file)
 
         hash_func = (
@@ -272,7 +294,7 @@ async def _verify_temp_download(
 
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
-                    f"Deduplication [File]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
+                    f"Deduplication [File]: {_media_type_label(mimetype)} '{check_path.name}' → skipped (hash verified)"
                 )
             state.add_duplicate()
 
@@ -284,13 +306,15 @@ async def _verify_temp_download(
             return True
 
     finally:
-        if temp_path and await asyncio.to_thread(temp_path.exists):
+        if temp_path is not None and await asyncio.to_thread(temp_path.exists):
             await asyncio.to_thread(temp_path.unlink)
 
     return False
 
 
-async def _download_file(config: FanslyConfig, url: str, output_file: BinaryIO) -> None:
+async def _download_file(
+    config: FanslyConfig, url: str, output_file: IO[bytes]
+) -> None:
     """Download file from URL to output file."""
     response = None
     try:
@@ -322,10 +346,15 @@ async def _download_regular_file(
     file_save_path: Path,
 ) -> None:
     """Download a regular media file with progress bar."""
+    download_url = media.download_url
+    if download_url is None:
+        raise DownloadError(
+            f"Cannot download {media.get_file_name()}: no download URL resolved."
+        )
     response = None
     try:
         response = await config.get_api().get_with_ngsw(
-            url=media.download_url,
+            url=download_url,
             stream=True,
             add_fansly_headers=False,
         )
@@ -390,15 +419,17 @@ async def _download_m3u8_file(
 ) -> bool:
     """Download and process an m3u8 file. Returns True if duplicate."""
     store = get_store()
-    kwargs = {}
-    if config.temp_folder:
+    download_url = media.download_url
+    if download_url is None:
+        raise DownloadError(
+            f"Cannot download {media.get_file_name()}: no download URL resolved."
+        )
+    temp_folder = config.temp_folder
+    if temp_folder:
         # mkdtemp does not create intermediates; ensure the parent
         # exists or we crash with FileNotFoundError mid-download.
-        await asyncio.to_thread(
-            Path(config.temp_folder).mkdir, parents=True, exist_ok=True
-        )
-        kwargs["dir"] = config.temp_folder
-    temp_dir = Path(tempfile.mkdtemp(**kwargs))
+        await asyncio.to_thread(Path(temp_folder).mkdir, parents=True, exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(dir=temp_folder))
     temp_path = temp_dir / f"temp_{check_path.name}"
 
     try:
@@ -407,7 +438,7 @@ async def _download_m3u8_file(
         temp_path = await asyncio.to_thread(
             download_m3u8,
             config,
-            media.download_url,
+            download_url,
             temp_path,
             media.created_at_timestamp,
         )
@@ -429,8 +460,8 @@ async def _download_m3u8_file(
 
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
-                    f"Deduplication [Hash]: {media.mimetype.split('/')[-2]} '{temp_path.name}' → "
-                    f"skipped (duplicate of {Path(existing_by_hash.local_filename).name})"
+                    f"Deduplication [Hash]: {_media_type_label(media.mimetype)} '{temp_path.name}' → "
+                    f"skipped (duplicate of {Path(existing_by_hash.local_filename or '').name})"
                 )
             state.add_duplicate()
             return True
@@ -502,7 +533,7 @@ async def download_media(
                     if result is None:
                         if config.show_downloads and config.show_skipped_downloads:
                             print_info(
-                                f"Deduplication [Database]: {media.mimetype.split('/')[-2]} '{media.get_file_name()}' → skipped (already downloaded)"
+                                f"Deduplication [Database]: {_media_type_label(media.mimetype)} '{media.get_file_name()}' → skipped (already downloaded)"
                             )
                         state.add_duplicate()
                         continue
@@ -544,7 +575,7 @@ async def download_media(
 
                 if config.show_downloads:
                     print_info(
-                        f"Downloading {media.mimetype.split('/')[-2]} '{filename}'"
+                        f"Downloading {_media_type_label(media.mimetype)} '{filename}'"
                     )
 
                 try:
@@ -567,12 +598,13 @@ async def download_media(
                             )
                             continue
 
+                        media_mime = media.mimetype or ""
                         is_dupe = await dedupe_media_file(
-                            config, state, media.mimetype, file_save_path, media
+                            config, state, media_mime, file_save_path, media
                         )
 
-                        state.pic_count += 1 if "image" in media.mimetype else 0
-                        state.vid_count += 1 if "video" in media.mimetype else 0
+                        state.pic_count += 1 if "image" in media_mime else 0
+                        state.vid_count += 1 if "video" in media_mime else 0
 
                         if is_dupe:
                             state.add_duplicate()

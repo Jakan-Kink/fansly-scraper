@@ -106,7 +106,7 @@ class StashProcessingProtocol(Protocol):
         self,
         content: str | None,
         username: str,
-        created_at: datetime,
+        created_at: datetime | None,
         current_pos: int | None = None,
         total_media: int | None = None,
     ) -> str: ...

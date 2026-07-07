@@ -664,9 +664,9 @@ class TestIsUsernameInScope:
         cfg.use_following = False
         cfg.user_names = {"alice"}
         with pytest.raises(TypeError, match=r"expects str.*got int"):
-            cfg.is_username_in_scope(12345)
+            cfg.is_username_in_scope(12345)  # type: ignore[arg-type]  # intentionally passes int to prove the entry point rejects non-str
         with pytest.raises(TypeError, match=r"expects str"):
-            cfg.is_username_in_scope([1, 2, 3])
+            cfg.is_username_in_scope([1, 2, 3])  # type: ignore[arg-type]  # intentionally passes list to prove the entry point rejects non-str
 
     def test_all_digit_username_is_a_real_username_not_an_id(self):
         """Numeric-string usernames pass the predicate normally.

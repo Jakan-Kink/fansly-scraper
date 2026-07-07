@@ -7,8 +7,9 @@ EntityStore migration patterns.
 import pytest
 
 from metadata import ContentType
+from metadata.entity_store import PostgresEntityStore
 from stash.processing import StashProcessing
-from tests.fixtures import (
+from tests.fixtures.metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
@@ -24,52 +25,44 @@ class TestCollectMediaFromAttachments:
     These tests verify pure object manipulation without HTTP calls.
     """
 
+    @pytest.mark.parametrize(
+        "attachment_count",
+        [0, 2],
+        ids=["empty_attachments", "attachments_without_media"],
+    )
     @pytest.mark.asyncio
-    async def test_empty_attachments(
+    async def test_attachments_yield_no_media(
         self,
         respx_stash_processor: StashProcessing,
-    ):
-        """Test _collect_media_from_attachments with empty attachments."""
-        attachments = []
+        attachment_count: int,
+    ) -> None:
+        """Test _collect_media_from_attachments yields nothing.
+
+        Covers both the empty-attachments case (loop never entered) and
+        attachments whose contentId points at non-existent AccountMedia
+        (dict-lookup miss branch).
+        """
+        attachments = [
+            AttachmentFactory.build(
+                id=60001 + pos,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                contentId=snowflake_id(),  # Non-existent AccountMedia
+                pos=pos,
+            )
+            for pos in range(attachment_count)
+        ]
+
         result = await respx_stash_processor._collect_media_from_attachments(
             attachments
         )
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_attachments_no_media(
-        self,
-        respx_stash_processor: StashProcessing,
-    ):
-        """Test _collect_media_from_attachments with attachments that have no media."""
-        content_id_1 = snowflake_id()
-        content_id_2 = snowflake_id()
-
-        # Create attachments with contentType but no media relationship set
-        att1 = AttachmentFactory.build(
-            id=60001,
-            contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=content_id_1,  # Non-existent AccountMedia
-            pos=0,
-        )
-        att2 = AttachmentFactory.build(
-            id=60002,
-            contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=content_id_2,  # Non-existent AccountMedia
-            pos=1,
-        )
-
-        result = await respx_stash_processor._collect_media_from_attachments(
-            [att1, att2]
-        )
-        assert result == []
-
-    @pytest.mark.asyncio
     async def test_attachments_with_media(
         self,
-        entity_store,
+        entity_store: PostgresEntityStore,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments with attachments that have media."""
         acct_id = snowflake_id()
         media_id_1 = snowflake_id()
@@ -138,9 +131,9 @@ class TestCollectMediaFromAttachments:
     @pytest.mark.asyncio
     async def test_attachments_with_previews(
         self,
-        entity_store,
+        entity_store: PostgresEntityStore,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _collect_media_from_attachments collects preview media (lines 241, 250, 253).
 
         AccountMedia and bundles can have a previewId pointing to a separate

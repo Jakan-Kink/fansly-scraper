@@ -5,10 +5,12 @@ import contextlib
 import json
 import logging
 import os
+import socket
 import sys
 import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
 from unittest.mock import patch
 
 # Removed: from unittest.mock import AsyncMock, MagicMock
@@ -17,10 +19,26 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
+from pydantic import JsonValue
 from stash_graphql_client import StashClient, StashContext
 from stash_graphql_client.types import Scene, SceneCreateInput
 
 from errors import StashCleanupWarning
+from helpers.common import JsonDict
+
+
+def skip_if_stash_unavailable(host: str = "localhost", port: int = 9999) -> None:
+    """Skip the requesting test when the Docker Stash server is unreachable.
+
+    Mirrors the PostgreSQL skip in ``uuid_test_db_factory``: real-server Stash
+    fixtures must SKIP (not ERROR at setup) when the ``stash`` container is
+    down. Call this before the first real ``stash_context.get_client()``.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            pass
+    except OSError as exc:
+        pytest.skip(f"Stash server not available at {host}:{port}: {exc}")
 
 
 def _mock_capability_response() -> httpx.Response:
@@ -87,7 +105,7 @@ def _mock_capability_response() -> httpx.Response:
     )
 
 
-def _extract_query(call) -> str:
+def _extract_query(call: respx.models.Call | dict[str, Any]) -> str:
     """Pull the GraphQL query string out of either call shape (respx or dict)."""
     if isinstance(call, dict):
         return call.get("query", "") or ""
@@ -95,7 +113,7 @@ def _extract_query(call) -> str:
     return body.get("query", "") or ""
 
 
-def _extract_variables(call) -> dict:
+def _extract_variables(call: respx.models.Call | dict[str, Any]) -> JsonDict:
     """Pull the GraphQL variables out of either call shape (respx or dict)."""
     if isinstance(call, dict):
         return call.get("variables") or {}
@@ -106,9 +124,9 @@ def _extract_variables(call) -> dict:
 _MISSING = object()
 
 
-def _get_nested(data: dict, path: list[str]):
+def _get_nested(data: JsonDict, path: list[str]) -> JsonValue | object:
     """Walk nested dict by key list. Returns sentinel _MISSING on miss."""
-    cur = data
+    cur: JsonValue = data
     for key in path:
         if not isinstance(cur, dict) or key not in cur:
             return _MISSING
@@ -116,7 +134,7 @@ def _get_nested(data: dict, path: list[str]):
     return cur
 
 
-def assert_op(call, op_name: str) -> None:
+def assert_op(call: respx.models.Call | dict[str, Any], op_name: str) -> None:
     """Assert that a GraphQL call invokes a named operation.
 
     Works with both respx route.calls[i] (unit tests) and capture_graphql_calls
@@ -140,10 +158,10 @@ def assert_op(call, op_name: str) -> None:
 
 
 def assert_op_with_vars(
-    call,
+    call: respx.models.Call | dict[str, Any],
     op_name: str,
     paths: dict[tuple[str, ...], object] | None = None,
-    **expected_vars,
+    **expected_vars: Any,
 ) -> None:
     """Assert op_name AND that every expected variable matches.
 
@@ -216,7 +234,10 @@ def assert_op_with_vars(
         )
 
 
-def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
+def dump_graphql_calls(
+    calls: respx.models.CallList | list[dict[str, Any]],
+    label: str = "GraphQL calls",
+) -> None:
     """Print request/response details for each GraphQL call.
 
     Works with both respx route.calls (unit tests) and capture_graphql_calls
@@ -296,6 +317,7 @@ __all__ = [
     "dump_graphql_calls",
     "enable_scene_creation",
     "respx_stash_client",
+    "skip_if_stash_unavailable",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
@@ -358,6 +380,7 @@ async def stash_client(
     Yields:
         StashClient: An initialized client for Stash API interactions
     """
+    skip_if_stash_unavailable()
     client: StashClient = await stash_context.get_client()
     yield client
     # Ensure we explicitly clean up after each test
@@ -564,22 +587,81 @@ async def stash_cleanup_tracker():
                          If False, require manual tracking via cleanup[type].append(id).
                          Default True for convenience, set False for performance.
         """
-        created_objects = {
+        created_objects: dict[str, list[str]] = {
             "scenes": [],
             "performers": [],
             "studios": [],
             "tags": [],
             "galleries": [],
+            "markers": [],
+            "groups": [],
         }
         capture_mode = "with auto-capture" if auto_capture else "manual tracking"
         print(f"\n{'=' * 60}")
         print(f"CLEANUP TRACKER: Context entered ({capture_mode})")
         print(f"{'=' * 60}")
         if auto_capture:
+            assert client._session is not None
             original_execute = client._session.execute
 
-            async def execute_with_capture(document, *args, **kwargs):
-                """Execute GraphQL and auto-capture created object IDs."""
+            # Create-mutation FIELD NAME -> cleanup bucket. Used for both
+            # unaliased single mutations (response keyed "sceneCreate") AND
+            # batched mutations (execute_batch aliases each op "op0"/"op1" and
+            # keys the response by the alias, so the field name is recovered
+            # from the request document — see aliased_create_fields).
+            create_field_to_bucket = {
+                "sceneCreate": "scenes",
+                "performerCreate": "performers",
+                "studioCreate": "studios",
+                "tagCreate": "tags",
+                "galleryCreate": "galleries",
+                "sceneMarkerCreate": "markers",
+                "groupCreate": "groups",
+            }
+
+            def capture(field_name: str, obj_data: JsonValue) -> None:
+                """Record a created object's id under its cleanup bucket."""
+                bucket = create_field_to_bucket.get(field_name)
+                if bucket is None or not isinstance(obj_data, dict):
+                    return
+                obj_id = obj_data.get("id")
+                if isinstance(obj_id, str) and obj_id not in created_objects[bucket]:
+                    created_objects[bucket].append(obj_id)
+
+            def aliased_create_fields(document: object) -> dict[str, str]:
+                """Map alias -> mutation field name for aliased selections.
+
+                execute_batch builds ``op0: sceneCreate(...) op1: tagCreate(...)``
+                and keys the response by alias, so the only way to know what each
+                ``opN`` payload created is to read the field name off the request
+                document. Returns only aliased fields (unaliased single mutations
+                are handled by the direct-key path).
+                """
+                mapping: dict[str, str] = {}
+                # gql 4 hands _session.execute a GraphQLRequest wrapper whose
+                # AST lives at .document; older/raw paths pass the DocumentNode
+                # directly (no .document attr → fall back to the object itself).
+                node = getattr(document, "document", document)
+                for defn in getattr(node, "definitions", ()) or ():
+                    selection_set = getattr(defn, "selection_set", None)
+                    if selection_set is None:
+                        continue
+                    for sel in selection_set.selections:
+                        alias = getattr(sel, "alias", None)
+                        name = getattr(sel, "name", None)
+                        if alias is not None and name is not None:
+                            mapping[alias.value] = name.value
+                return mapping
+
+            async def execute_with_capture(
+                document: object, *args: Any, **kwargs: Any
+            ) -> JsonValue:
+                """Execute GraphQL and auto-capture created object IDs.
+
+                Handles two response shapes: unaliased single mutations (keys are
+                the mutation field names) and execute_batch's aliased ops (keys
+                are op0/op1/...; field names come from the request document).
+                """
                 result = await original_execute(document, *args, **kwargs)
 
                 # Quick check - only process if result is a dict and has data
@@ -587,48 +669,26 @@ async def stash_cleanup_tracker():
                 if not (result and isinstance(result, dict)):
                     return result
 
-                # Fast string check: only inspect if result contains "Create" mutations
-                # Check first key for pattern - create mutations start with lowercase + "Create"
                 result_keys = result.keys()
-                has_create = any("Create" in key for key in result_keys)
-                if not has_create:
+                has_direct_create = any("Create" in key for key in result_keys)
+                has_batch = any(
+                    key[:2] == "op" and key[2:].isdigit() for key in result_keys
+                )
+                if not (has_direct_create or has_batch):
                     return result
 
-                # Now check specific create mutations
-                if "sceneCreate" in result:
-                    if (
-                        (obj_data := result["sceneCreate"])
-                        and (scene_id := obj_data.get("id"))
-                        and scene_id not in created_objects["scenes"]
-                    ):
-                        created_objects["scenes"].append(scene_id)
-                elif "performerCreate" in result:
-                    if (
-                        (obj_data := result["performerCreate"])
-                        and (performer_id := obj_data.get("id"))
-                        and performer_id not in created_objects["performers"]
-                    ):
-                        created_objects["performers"].append(performer_id)
-                elif "studioCreate" in result:
-                    if (
-                        (obj_data := result["studioCreate"])
-                        and (studio_id := obj_data.get("id"))
-                        and studio_id not in created_objects["studios"]
-                    ):
-                        created_objects["studios"].append(studio_id)
-                elif "tagCreate" in result:
-                    if (
-                        (obj_data := result["tagCreate"])
-                        and (tag_id := obj_data.get("id"))
-                        and tag_id not in created_objects["tags"]
-                    ):
-                        created_objects["tags"].append(tag_id)
-                elif "galleryCreate" in result and (
-                    (obj_data := result["galleryCreate"])
-                    and (gallery_id := obj_data.get("id"))
-                    and gallery_id not in created_objects["galleries"]
-                ):
-                    created_objects["galleries"].append(gallery_id)
+                # Unaliased single mutations: the response key IS the field name.
+                if has_direct_create:
+                    for field_name in create_field_to_bucket:
+                        if field_name in result:
+                            capture(field_name, result[field_name])
+
+                # Batched mutations: recover each alias's field name from the
+                # request document, then capture the aliased payloads.
+                if has_batch:
+                    for alias, field_name in aliased_create_fields(document).items():
+                        if alias in result:
+                            capture(field_name, result[alias])
 
                 return result
 
@@ -665,13 +725,29 @@ async def stash_cleanup_tracker():
                     )
 
             # Clean up created objects in correct dependency order
-            # Galleries reference scenes/performers/studios/tags - delete first
-            # Scenes reference performers/studios/tags - delete second
+            # Markers reference scenes - delete first
+            # Galleries reference scenes/performers/studios/tags - delete second
+            # Scenes reference performers/studios/tags - delete third
+            # Groups reference studios/tags - delete after scenes
             # Performers/Studios/Tags have no cross-dependencies - delete last
             errors = []
 
             try:
-                # Delete galleries first (they can reference scenes)
+                # Delete markers first (they reference scenes)
+                for marker_id in created_objects["markers"]:
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteMarker($id: ID!) {
+                                sceneMarkerDestroy(id: $id)
+                            }
+                            """,
+                            {"id": marker_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Marker {marker_id}: {e}")
+
+                # Delete galleries second (they can reference scenes)
                 if created_objects["galleries"]:
                     for gallery_id in created_objects["galleries"]:
                         try:
@@ -686,7 +762,7 @@ async def stash_cleanup_tracker():
                         except Exception as e:
                             errors.append(f"Gallery {gallery_id}: {e}")
 
-                # Delete scenes second (they reference performers/studios/tags)
+                # Delete scenes third (they reference performers/studios/tags)
                 for scene_id in created_objects["scenes"]:
                     try:
                         await client.execute(
@@ -699,6 +775,20 @@ async def stash_cleanup_tracker():
                         )
                     except Exception as e:
                         errors.append(f"Scene {scene_id}: {e}")
+
+                # Delete groups (they reference studios/tags)
+                for group_id in created_objects["groups"]:
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteGroup($id: ID!) {
+                                groupDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": group_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Group {group_id}: {e}")
 
                 # Delete performers
                 for performer_id in created_objects["performers"]:

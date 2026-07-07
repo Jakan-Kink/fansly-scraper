@@ -14,6 +14,7 @@ from pydantic import SecretStr, ValidationError
 
 from config.modes import DownloadMode
 from config.schema import (
+    CacheSection,
     ConfigSchema,
     LoggingSection,
     LogicSection,
@@ -23,6 +24,7 @@ from config.schema import (
     PostgresSection,
     StashContextSection,
     TargetedCreatorSection,
+    _python_to_yaml_value,
 )
 
 
@@ -287,30 +289,31 @@ class TestUsernameFormatValidator:
 # ---------------------------------------------------------------------------
 
 
-def test_download_mode_case_insensitive_lower(tmp_path: Path) -> None:
-    """download_mode accepts lowercase 'normal' from YAML."""
-    yaml_content = "options:\n  download_mode: normal\n"
-    cfg_path = tmp_path / "dm.yaml"
-    cfg_path.write_text(yaml_content, encoding="utf-8")
-
-    schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.options.download_mode == DownloadMode.NORMAL
-
-
-def test_download_mode_case_insensitive_mixed(tmp_path: Path) -> None:
-    """download_mode accepts mixed-case 'Timeline'."""
-    yaml_content = "options:\n  download_mode: Timeline\n"
-    cfg_path = tmp_path / "dm2.yaml"
-    cfg_path.write_text(yaml_content, encoding="utf-8")
-
-    schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.options.download_mode == DownloadMode.TIMELINE
-
-
-def test_download_mode_case_insensitive_upper() -> None:
-    """OptionsSection accepts uppercase directly via model_validate."""
-    section = OptionsSection.model_validate({"download_mode": "MESSAGES"})
-    assert section.download_mode == DownloadMode.MESSAGES
+@pytest.mark.parametrize(
+    ("raw", "expected", "via_yaml"),
+    [
+        pytest.param("normal", DownloadMode.NORMAL, True, id="lower_via_yaml"),
+        pytest.param("Timeline", DownloadMode.TIMELINE, True, id="mixed_via_yaml"),
+        pytest.param("MESSAGES", DownloadMode.MESSAGES, False, id="upper_direct"),
+    ],
+)
+def test_download_mode_case_insensitive(
+    raw: str,
+    expected: DownloadMode,
+    via_yaml: bool,
+    tmp_path: Path,
+) -> None:
+    """download_mode accepts any casing — via YAML load or direct model_validate."""
+    if via_yaml:
+        cfg_path = tmp_path / "dm.yaml"
+        cfg_path.write_text(
+            f"options:\n  download_mode: {raw}\n",
+            encoding="utf-8",
+        )
+        section = ConfigSchema.load_yaml(cfg_path).options
+    else:
+        section = OptionsSection.model_validate({"download_mode": raw})
+    assert section.download_mode == expected
 
 
 # ---------------------------------------------------------------------------
@@ -330,11 +333,13 @@ def test_missing_section_gets_defaults(tmp_path: Path) -> None:
     assert schema.targeted_creator.usernames == ["alice"]
 
     # All omitted sections fall back to defaults
+    assert schema.monitoring is not None
     assert schema.monitoring.daemon_mode is False
     assert schema.monitoring.active_duration_minutes == 60
     assert schema.postgres.pg_host == "localhost"
     assert schema.postgres.pg_port == 5432
     assert schema.options.download_mode == DownloadMode.NORMAL
+    assert schema.logic is not None
     assert schema.logic.check_key_pattern != ""
 
 
@@ -388,40 +393,47 @@ def test_download_mode_rejects_invalid_string() -> None:
         OptionsSection(download_mode="bogus_mode")  # type: ignore[arg-type]
 
 
-def test_retired_field_separate_metadata_silently_dropped() -> None:
+@pytest.mark.parametrize(
+    ("payload", "retired_key", "expected_mode"),
+    [
+        pytest.param(
+            {"separate_metadata": False, "download_mode": "NORMAL"},
+            "separate_metadata",
+            DownloadMode.NORMAL,
+            id="separate_metadata_false",
+        ),
+        pytest.param(
+            {"separate_metadata": True},
+            "separate_metadata",
+            None,
+            id="separate_metadata_true_value",
+        ),
+        pytest.param(
+            {"metadata_handling": "Advanced", "download_mode": "NORMAL"},
+            "metadata_handling",
+            DownloadMode.NORMAL,
+            id="metadata_handling",
+        ),
+    ],
+)
+def test_retired_field_silently_dropped(
+    payload: dict[str, object],
+    retired_key: str,
+    expected_mode: DownloadMode | None,
+) -> None:
     """Old config.yaml files with removed keys load cleanly.
 
-    separate_metadata was removed (legacy SQLite-era flag that was no-op
-    under Postgres). An upgrade from an older version must not fail
-    validation just because the file still carries the key — the
-    _drop_retired_fields validator strips it before extra="forbid"
-    runs. Re-add any future removed fields to _DROPPED_FIELDS.
+    separate_metadata (legacy SQLite-era flag, no-op under Postgres) and
+    metadata_handling were removed. An upgrade from an older version must
+    not fail validation just because the file still carries the key — the
+    _drop_retired_fields validator strips it before extra="forbid" runs,
+    regardless of the retired field's value. Re-add any future removed
+    fields to _DROPPED_FIELDS.
     """
-    section = OptionsSection.model_validate(
-        {"separate_metadata": False, "download_mode": "NORMAL"}
-    )
-    assert not hasattr(section, "separate_metadata")
-    assert section.download_mode == DownloadMode.NORMAL
-
-
-def test_retired_field_survives_true_value() -> None:
-    """The value of the retired field is irrelevant — it's dropped either way."""
-    section = OptionsSection.model_validate({"separate_metadata": True})
-    assert not hasattr(section, "separate_metadata")
-
-
-def test_retired_field_metadata_handling_silently_dropped() -> None:
-    """metadata_handling was removed — no runtime code branches on it.
-
-    Legacy YAML/INI files carry ``metadata_handling: Advanced`` everywhere;
-    the _drop_retired_fields validator strips the key before extra="forbid"
-    rejects it.
-    """
-    section = OptionsSection.model_validate(
-        {"metadata_handling": "Advanced", "download_mode": "NORMAL"}
-    )
-    assert not hasattr(section, "metadata_handling")
-    assert section.download_mode == DownloadMode.NORMAL
+    section = OptionsSection.model_validate(payload)
+    assert not hasattr(section, retired_key)
+    if expected_mode is not None:
+        assert section.download_mode == expected_mode
 
 
 def test_unknown_non_retired_field_still_rejected() -> None:
@@ -435,7 +447,7 @@ def test_unknown_non_retired_field_still_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validation_error_formatter_extra_forbidden(tmp_path) -> None:
+def test_validation_error_formatter_extra_forbidden(tmp_path: Path) -> None:
     """Unknown key error mentions the value and suggests removing the line."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -449,7 +461,7 @@ def test_validation_error_formatter_extra_forbidden(tmp_path) -> None:
     assert "remove the line" in msg
 
 
-def test_validation_error_formatter_bool_parsing(tmp_path) -> None:
+def test_validation_error_formatter_bool_parsing(tmp_path: Path) -> None:
     """bool_parsing error tells the user true/false is expected."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -462,7 +474,7 @@ def test_validation_error_formatter_bool_parsing(tmp_path) -> None:
     assert "maybe" in msg
 
 
-def test_validation_error_formatter_int_parsing(tmp_path) -> None:
+def test_validation_error_formatter_int_parsing(tmp_path: Path) -> None:
     """int_parsing error asks for a whole number."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -474,7 +486,7 @@ def test_validation_error_formatter_int_parsing(tmp_path) -> None:
     assert "expected a whole number" in msg
 
 
-def test_validation_error_formatter_multiple_errors(tmp_path) -> None:
+def test_validation_error_formatter_multiple_errors(tmp_path: Path) -> None:
     """Multiple problems all surface — no early-return on the first."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -493,7 +505,7 @@ def test_validation_error_formatter_multiple_errors(tmp_path) -> None:
     assert "options.unicorn_mode" in msg
 
 
-def test_validation_error_formatter_value_error_strips_prefix(tmp_path) -> None:
+def test_validation_error_formatter_value_error_strips_prefix(tmp_path: Path) -> None:
     """Field validators raising ValueError shouldn't show 'Value error, ' prefix."""
 
     yaml_path = tmp_path / "config.yaml"
@@ -522,6 +534,7 @@ def test_load_yaml_empty_file_returns_defaults(tmp_path: Path) -> None:
     # Should equal a default-constructed instance. Note: ``usernames``
     # default is now None — fresh scaffold has no creators yet; CLI
     # ``-u alice`` or hand-edited YAML populates it at runtime.
+    assert schema.monitoring is not None
     assert schema.monitoring.daemon_mode is False
     assert schema.postgres.pg_host == "localhost"
     assert schema.targeted_creator.usernames is None
@@ -542,6 +555,7 @@ def test_dump_yaml_string(tmp_path: Path) -> None:
     """
     schema = ConfigSchema()
     schema.options.timeline_retries = 7
+    assert schema.monitoring is not None
     schema.monitoring.daemon_mode = True
 
     yaml_str = schema.dump_yaml_string()
@@ -556,16 +570,38 @@ def test_dump_yaml_string(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_monitoring_session_baseline_default_is_none() -> None:
-    """MonitoringSection.session_baseline defaults to None."""
-    section = MonitoringSection()
-    assert section.session_baseline is None
-
-
-def test_monitoring_session_baseline_default_via_schema() -> None:
-    """ConfigSchema().monitoring.session_baseline is None by default."""
-    schema = ConfigSchema()
-    assert schema.monitoring.session_baseline is None
+@pytest.mark.parametrize(
+    "via_schema",
+    [pytest.param(False, id="direct"), pytest.param(True, id="via_schema")],
+)
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        pytest.param("session_baseline", None, id="session_baseline"),
+        pytest.param(
+            "unrecoverable_error_timeout_seconds",
+            3600,
+            id="unrecoverable_timeout",
+        ),
+    ],
+)
+def test_monitoring_defaults(
+    attr: str,
+    expected: int | None,
+    via_schema: bool,
+) -> None:
+    """Monitoring defaults hold on MonitoringSection() and via ConfigSchema()."""
+    if via_schema:
+        schema = ConfigSchema()
+        assert schema.monitoring is not None
+        section = schema.monitoring
+    else:
+        section = MonitoringSection()
+    value = getattr(section, attr)
+    if expected is None:
+        assert value is None
+    else:
+        assert value == expected
 
 
 def test_monitoring_session_baseline_round_trip(tmp_path: Path) -> None:
@@ -573,11 +609,13 @@ def test_monitoring_session_baseline_round_trip(tmp_path: Path) -> None:
     baseline = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.session_baseline = baseline
     out_path = tmp_path / "monitoring_baseline.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is not None
     # Recover aware datetime — ruamel may write as offset-aware or UTC
     reloaded_dt = reloaded.monitoring.session_baseline
@@ -600,11 +638,13 @@ def test_monitoring_session_baseline_naive_coerced_to_utc() -> None:
 def test_monitoring_section_none_session_baseline_round_trip(tmp_path: Path) -> None:
     """session_baseline=None round-trips: absent in YAML → still None after reload."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     assert schema.monitoring.session_baseline is None
     out_path = tmp_path / "no_baseline.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.session_baseline is None
 
 
@@ -613,26 +653,16 @@ def test_monitoring_section_none_session_baseline_round_trip(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_monitoring_unrecoverable_error_timeout_default() -> None:
-    """MonitoringSection.unrecoverable_error_timeout_seconds defaults to 3600."""
-    section = MonitoringSection()
-    assert section.unrecoverable_error_timeout_seconds == 3600
-
-
-def test_monitoring_unrecoverable_error_timeout_default_via_schema() -> None:
-    """ConfigSchema().monitoring.unrecoverable_error_timeout_seconds is 3600 by default."""
-    schema = ConfigSchema()
-    assert schema.monitoring.unrecoverable_error_timeout_seconds == 3600
-
-
 def test_monitoring_unrecoverable_error_timeout_round_trip(tmp_path: Path) -> None:
     """Custom unrecoverable_error_timeout_seconds survives a YAML dump/load round-trip."""
     schema = ConfigSchema()
+    assert schema.monitoring is not None
     schema.monitoring.unrecoverable_error_timeout_seconds = 7200
     out_path = tmp_path / "urt.yaml"
     schema.dump_yaml(out_path)
 
     reloaded = ConfigSchema.load_yaml(out_path)
+    assert reloaded.monitoring is not None
     assert reloaded.monitoring.unrecoverable_error_timeout_seconds == 7200
 
 
@@ -906,7 +936,7 @@ def test_repair_previews_coercion(raw, expected):
 
 def test_repair_previews_rejects_garbage():
     with pytest.raises(ValidationError, match=r"dry-run"):
-        OptionsSection(repair_previews="sometimes")
+        OptionsSection(repair_previews="sometimes")  # type: ignore[arg-type]  # intentionally passes an out-of-contract literal to prove it raises ValidationError
 
 
 class TestEnableSceneSplitValidator:
@@ -944,6 +974,12 @@ class TestEnableSceneSplitValidator:
         with pytest.raises(ValidationError, match=r"dry-run"):
             StashContextSection.model_validate({"enable_scene_split": "enabled"})
 
+    def test_non_bool_non_str_rejected(self) -> None:
+        """A non-bool/non-str value falls to the validator's `return v` tail
+        (schema.py:730); Pydantic then rejects the int against the field type."""
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"enable_scene_split": 123})
+
 
 class TestScanSettleSeconds:
     """scan_settle_s: post-scan settle window, default 3.5, bounded 0..30."""
@@ -967,3 +1003,140 @@ class TestScanSettleSeconds:
     def test_above_max_rejected(self) -> None:
         with pytest.raises(ValidationError):
             StashContextSection.model_validate({"scan_settle_s": 30.1})
+
+
+# ---------------------------------------------------------------------------
+# mode="before" validator defensive tails (the `return v` / early-return arms)
+# ---------------------------------------------------------------------------
+
+
+class TestValidatorPassthroughTails:
+    """The defensive ``return v`` arms of the section before-validators.
+
+    Each runs when the input is not one of the types the validator handles;
+    the value is passed straight to Pydantic, which then accepts (when the
+    type is still valid, e.g. an ISO string for a datetime) or rejects it.
+    """
+
+    def test_drop_retired_fields_ignores_non_dict_input(self) -> None:
+        """_drop_retired_fields takes its non-dict arm (schema.py:158->161)."""
+        with pytest.raises(ValidationError):
+            OptionsSection.model_validate(123)  # type: ignore[arg-type]
+
+    def test_download_mode_non_string_rejected(self) -> None:
+        """DownloadMode is a StrEnum, so only a genuinely non-str value reaches
+        the validator's ``return v`` tail (schema.py:332); Pydantic rejects it."""
+        with pytest.raises(ValidationError):
+            OptionsSection(download_mode=123)  # type: ignore[arg-type]
+
+    def test_repair_previews_non_bool_non_str_rejected(self) -> None:
+        """repair_previews passes a non-bool/non-str through (schema.py:351)."""
+        with pytest.raises(ValidationError):
+            OptionsSection(repair_previews=123)  # type: ignore[arg-type]
+
+    def test_session_baseline_iso_string_parsed_after_passthrough(self) -> None:
+        """A str session_baseline isn't None/datetime, so the validator returns
+        it (schema.py:789) and Pydantic parses it to an aware datetime."""
+        section = MonitoringSection.model_validate(
+            {"session_baseline": "2024-01-01T12:00:00+00:00"}
+        )
+        assert section.session_baseline == datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+
+
+class TestLegacyLoggingMigrationEdges:
+    """Defensive arms of LoggingSection._migrate_legacy_logging (mode=before)."""
+
+    def test_non_dict_input_returned_early(self) -> None:
+        """Non-dict input returns before migration (schema.py:622)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate("not-a-dict")  # type: ignore[arg-type]
+
+    def test_legacy_alias_skipped_when_target_already_non_dict(self) -> None:
+        """A legacy single-target alias whose destination key is already a
+        non-dict skips the setdefault (schema.py:635->631)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate({"sqlalchemy": "INFO", "db": "not-a-dict"})
+
+    def test_textio_fanout_skipped_when_target_non_dict(self) -> None:
+        """The textio→(main_log, rich_handler) fan-out skips a non-dict target
+        (schema.py:642->640)."""
+        with pytest.raises(ValidationError):
+            LoggingSection.model_validate({"textio": "INFO", "main_log": "not-a-dict"})
+
+
+def test_managed_optional_sections_coerced_from_explicit_null() -> None:
+    """Explicit YAML null for cache/monitoring/logic is coerced back to empty
+    section instances so runtime access needs no null guard (schema.py:856, 858,
+    860). They default via default_factory, so only an explicit null reaches it.
+    """
+    schema = ConfigSchema.model_validate(
+        {"cache": None, "monitoring": None, "logic": None}
+    )
+    assert isinstance(schema.cache, CacheSection)
+    assert isinstance(schema.monitoring, MonitoringSection)
+    assert isinstance(schema.logic, LogicSection)
+
+
+def test_override_dldir_without_mapped_path_rejected() -> None:
+    """override_dldir_w_mapped=true with no mapped_path is rejected at load
+    (schema.py:741) -- the flag would otherwise silently no-op."""
+    with pytest.raises(ValidationError, match=r"mapped_path"):
+        StashContextSection.model_validate({"override_dldir_w_mapped": True})
+
+
+def test_load_yaml_bounds_error_uses_pydantic_fallback_message(
+    tmp_path: Path,
+) -> None:
+    """A bounds violation has no bespoke formatter, so _pretty_error_message
+    falls back to Pydantic's own msg (schema.py:140) inside load_yaml's
+    ValidationError handler, and the error-type is surfaced in the line."""
+    cfg = tmp_path / "out_of_range.yaml"
+    cfg.write_text(
+        "monitoring:\n  livestream_manifest_poll_interval_seconds: 99\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as exc_info:
+        ConfigSchema.load_yaml(cfg)
+    msg = str(exc_info.value)
+    assert "livestream_manifest_poll_interval_seconds" in msg
+    assert "less_than_equal" in msg
+
+
+def test_python_to_yaml_value_normalizes_list_of_tuples() -> None:
+    """A list of tuples/lists is emitted as a list of lists (schema.py:1042)."""
+    assert _python_to_yaml_value([(1, 2), (3, 4)], [(1, 2), (3, 4)]) == [[1, 2], [3, 4]]
+
+
+class TestDumpCascadeEdges:
+    """Cascade-up deletions and yaml-map reuse in the dump path."""
+
+    def test_dump_yaml_string_reuses_loaded_yaml_map(
+        self, sample_yaml_path: Path
+    ) -> None:
+        """After load_yaml populates _yaml_map, dump_yaml_string reuses it rather
+        than building a fresh CommentedMap (schema.py:927->929)."""
+        schema = ConfigSchema.load_yaml(sample_yaml_path)
+        out = schema.dump_yaml_string()
+        assert isinstance(out, str)
+        assert out
+
+    def test_optional_section_set_to_none_dropped_on_dump(self, tmp_path: Path) -> None:
+        """A stash_context present on disk but None at runtime is deleted from
+        the YAML on dump (schema.py:1074)."""
+        cfg = tmp_path / "with_stash.yaml"
+        cfg.write_text('stash_context:\n  apikey: "abc"\n', encoding="utf-8")
+        schema = ConfigSchema.load_yaml(cfg)
+        schema.stash_context = None
+        out = tmp_path / "out.yaml"
+        schema.dump_yaml(out)
+        assert "stash_context" not in out.read_text(encoding="utf-8")
+
+    def test_empty_section_on_disk_dropped_on_dump(self, tmp_path: Path) -> None:
+        """A section present on disk with nothing renderable (empty cache, no
+        always-leaves) is removed on dump via cascade-up (schema.py:1081)."""
+        cfg = tmp_path / "empty_cache.yaml"
+        cfg.write_text("cache: {}\n", encoding="utf-8")
+        schema = ConfigSchema.load_yaml(cfg)
+        out = tmp_path / "out.yaml"
+        schema.dump_yaml(out)
+        assert "cache" not in out.read_text(encoding="utf-8")

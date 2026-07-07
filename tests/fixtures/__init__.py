@@ -77,10 +77,12 @@ from .core import (
 from .daemon import (
     RecordingSimulator,
     StubSimulator,
+    async_noop_spy,
     isolate_active_recordings,
     progress_manager,
 )
 from .database import (
+    class_entity_store,
     config,
     config_with_database,
     conversation_data,
@@ -91,6 +93,7 @@ from .database import (
     mock_account,
     mock_post,
     pg_template_db,
+    reset_class_store,
     session,
     session_factory,
     session_sync,
@@ -185,10 +188,8 @@ from .stash import (
     StudioFactory,
     TagFactory,
     VideoFileFactory,
-    account_mixin,
     assert_op,
     assert_op_with_vars,
-    content_mixin,
     create_find_galleries_result,
     create_find_gallery_result,
     create_find_images_result,
@@ -211,12 +212,10 @@ from .stash import (
     dump_graphql_calls,
     enable_scene_creation,
     fansly_network_studio,
-    gallery_mixin,
     gallery_mock_performer,
     gallery_mock_studio,
     gallery_orchestration_setup,
     isolate_scene_create_input,
-    media_mixin,
     message_media_generator,
     mock_gallery,  # From stash_type_factories (real factory)
     mock_image,  # From stash_type_factories (real factory)
@@ -233,8 +232,6 @@ from .stash import (
     stash_cleanup_tracker,
     stash_client,
     stash_context,
-    studio_mixin,
-    tag_mixin,
     test_state,
 )
 from .textio import (
@@ -262,6 +259,10 @@ from .utils import (
     log_dir,
     log_setup,
     logging_config,
+    scaled_async_sleep,
+    scaled_async_sleep_recording,
+    scaled_sync_sleep,
+    scaled_sync_sleep_recording,
     snowflake_id,
 )
 
@@ -298,6 +299,7 @@ mod_config_fixtures = [
 mod_daemon_fakes = [
     "RecordingSimulator",
     "StubSimulator",
+    "async_noop_spy",
     "isolate_active_recordings",
     "progress_manager",
 ]
@@ -452,12 +454,6 @@ mod_stash_fixtures = [
 ]
 
 mod_stash_mixin_fixtures = [
-    "account_mixin",
-    "content_mixin",
-    "gallery_mixin",
-    "media_mixin",
-    "studio_mixin",
-    "tag_mixin",
     "gallery_mock_performer",
     "gallery_mock_studio",
     "gallery_orchestration_setup",
@@ -477,6 +473,8 @@ mod_database_fixtures = [
     "config",
     "config_with_database",
     "entity_store",
+    "class_entity_store",
+    "reset_class_store",
     "test_sync_engine",
     "session_factory",
     "test_database_sync",
@@ -545,6 +543,8 @@ mod_utils_helpers = [
     "close_qs",
     "get_unique_test_id",
     "get_worker_id",
+    "scaled_async_sleep",
+    "scaled_sync_sleep",
     "snowflake_id",
 ]
 
@@ -553,6 +553,8 @@ mod_utils_fixtures = [
     "log_dir",
     "log_setup",
     "logging_config",
+    "scaled_async_sleep_recording",
+    "scaled_sync_sleep_recording",
 ]
 
 mod_textio_fixtures = [

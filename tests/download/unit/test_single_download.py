@@ -591,7 +591,7 @@ class TestDownloadSinglePost:
             ]
         )
 
-        async def _fake_aprompt_text(_prompt: str, **_k) -> str:
+        async def _fake_aprompt_text(_prompt: str, **_k: object) -> str:
             return next(inputs)
 
         monkeypatch.setattr("download.single.aprompt_text", _fake_aprompt_text)

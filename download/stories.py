@@ -7,6 +7,7 @@ Downloads ephemeral media stories for a creator. Stories are single-page
 from __future__ import annotations
 
 from config import FanslyConfig
+from helpers.common import expect_dict, expect_list
 from metadata import MediaStoryState, get_store, process_media_stories
 from textio import print_info, print_warning
 
@@ -41,11 +42,14 @@ async def download_stories(
     """
     store = get_store()
 
+    if state.creator_id is None:
+        print_warning("Cannot check stories: no creator ID set.")
+        return
+
     # Early exit if we already know there are no active stories
-    if state.creator_id:
-        story_state = await store.get(MediaStoryState, state.creator_id)
-        if story_state and not story_state.hasActiveStories:
-            return
+    story_state = await store.get(MediaStoryState, state.creator_id)
+    if story_state and not story_state.hasActiveStories:
+        return
 
     print_info("Checking for active Stories...")
 
@@ -55,8 +59,13 @@ async def download_stories(
         response = await config.get_api().get_media_stories(state.creator_id)
         response.raise_for_status()
 
-        stories_response = config.get_api().get_json_response_contents(response)
-        media_stories = stories_response.get("mediaStories", [])
+        stories_response = expect_dict(
+            config.get_api().get_json_response_contents(response),
+            "stories response",
+        )
+        media_stories = expect_list(
+            stories_response.get("mediaStories", []), "mediaStories"
+        )
 
         if not media_stories:
             print_info("No active stories found.")
@@ -70,7 +79,9 @@ async def download_stories(
         saved_stories = await process_media_stories(config, stories_response)
 
         # Extract media IDs from aggregationData (not top-level)
-        aggregation = stories_response.get("aggregationData", {})
+        aggregation = expect_dict(
+            stories_response.get("aggregationData", {}), "aggregationData"
+        )
         account_media = aggregation.get("accountMedia", [])
         media_ids = get_unique_media_ids({"accountMedia": account_media})
 

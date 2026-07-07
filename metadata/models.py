@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -32,6 +32,10 @@ from stash_graphql_client.types.unset import UNSET, UnsetType
 
 from errors import StubNotImplementedError
 from helpers.common import parse_timestamp
+
+
+if TYPE_CHECKING:
+    from metadata.entity_store import PostgresEntityStore
 
 
 # ── Snowflake ID type ───────────────────────────────────────────────────
@@ -66,7 +70,7 @@ SnowflakeId = Annotated[int, BeforeValidator(_validate_snowflake)]
 # ── Module-level store accessor ──────────────────────────────────────────
 
 
-def get_store() -> Any:
+def get_store() -> PostgresEntityStore:
     """Get the global EntityStore singleton.
 
     Returns the store set on FanslyObject._store. Raises RuntimeError if
@@ -451,7 +455,7 @@ class FanslyObject(BaseModel):
     well-defined and don't need the triality.
     """
 
-    _store: ClassVar[Any] = None  # Set to PostgresEntityStore at runtime
+    _store: ClassVar[PostgresEntityStore | None] = None  # set at runtime
 
     __table_name__: ClassVar[str] = ""
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {}
@@ -617,7 +621,7 @@ class FanslyObject(BaseModel):
                 # Evict during re-validation to avoid recursion. try/finally
                 # guards against a validation-error leak that would otherwise
                 # force the next save into INSERT → UniqueViolationError.
-                cls._store.invalidate(cls, cached.id)
+                cls._store.invalidate(cls, entity_id)
                 try:
                     validated = handler(processed, ctx)
 
@@ -706,7 +710,7 @@ class FanslyObject(BaseModel):
                 continue
 
             if meta.is_list and isinstance(value, list):
-                resolved = []
+                resolved: list[object] = []
                 for item in value:
                     if isinstance(item, int):
                         cached = cls._store.get_from_cache_by_type_name(
@@ -958,7 +962,7 @@ class FanslyObject(BaseModel):
     # ── Output Serialization ─────────────────────────────────────────
 
     @staticmethod
-    def _get_id(obj: Any) -> int | None:
+    def _get_id(obj: object) -> int | None:
         """Extract ID from an object or dict. Used by store for associations."""
         if isinstance(obj, dict):
             return obj.get("id")
@@ -2385,7 +2389,7 @@ _TYPE_REGISTRY: dict[str, type[FanslyObject]] = {
 
 
 def get_from_cache_by_type_name(
-    store: Any, type_name: str, entity_id: int
+    store: PostgresEntityStore, type_name: str, entity_id: int
 ) -> FanslyObject | None:
     """Lookup cached entity by type name string."""
     model_type = _TYPE_REGISTRY.get(type_name)

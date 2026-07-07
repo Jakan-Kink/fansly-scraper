@@ -6,11 +6,13 @@ No external boundaries — all pure logic. Uses real Rich objects.
 import threading
 import time
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import pytest
-from rich.console import Console
-from rich.progress import ProgressBar, Task
+from rich.console import Console, ConsoleRenderable, RichCast
+from rich.progress import Task, TaskID
+from rich.progress_bar import ProgressBar
 from rich.segment import Segment
 from rich.text import Text
 
@@ -28,6 +30,7 @@ from helpers.rich_progress import (
     get_rich_console,
     handle_download_progress,
 )
+from tests.fixtures.utils import scaled_sync_sleep
 
 
 class TestContextualTimeColumn:
@@ -36,7 +39,7 @@ class TestContextualTimeColumn:
     def _make_task(self, description="", fields=None):
         """Build a minimal Rich Task for rendering."""
         task = Task(
-            id=0,
+            id=TaskID(0),
             description=description,
             total=100,
             completed=0,
@@ -46,38 +49,27 @@ class TestContextualTimeColumn:
             task.fields = fields
         return task
 
-    def test_explicit_show_elapsed(self):
-        """Lines 56-57: show_elapsed=True → elapsed column."""
+    @pytest.mark.parametrize(
+        ("description", "fields"),
+        [
+            # Lines 56-57: show_elapsed=True → elapsed column.
+            pytest.param("", {"show_elapsed": True}, id="explicit-show-elapsed"),
+            # Lines 58-59: show_elapsed=False → remaining column.
+            pytest.param("", {"show_elapsed": False}, id="explicit-show-remaining"),
+            # Lines 88-90: description matches elapsed pattern → elapsed.
+            pytest.param("Scanning files", None, id="auto-detect-elapsed-pattern"),
+            # Lines 93-95: description matches remaining pattern → remaining.
+            pytest.param("Downloading media", None, id="auto-detect-remaining-pattern"),
+            # Line 98: no pattern match → defaults to remaining.
+            pytest.param("Some unknown task", None, id="auto-detect-default"),
+        ],
+    )
+    def test_render_returns_text(
+        self, description: str, fields: dict[str, bool] | None
+    ) -> None:
+        """Explicit show_elapsed field or description pattern → renders a Text."""
         col = ContextualTimeColumn()
-        task = self._make_task(fields={"show_elapsed": True})
-        result = col.render(task)
-        assert isinstance(result, Text)
-
-    def test_explicit_show_remaining(self):
-        """Lines 58-59: show_elapsed=False → remaining column."""
-        col = ContextualTimeColumn()
-        task = self._make_task(fields={"show_elapsed": False})
-        result = col.render(task)
-        assert isinstance(result, Text)
-
-    def test_auto_detect_elapsed_pattern(self):
-        """Lines 88-90: description matches elapsed pattern → elapsed."""
-        col = ContextualTimeColumn()
-        task = self._make_task(description="Scanning files")
-        result = col.render(task)
-        assert isinstance(result, Text)
-
-    def test_auto_detect_remaining_pattern(self):
-        """Lines 93-95: description matches remaining pattern → remaining."""
-        col = ContextualTimeColumn()
-        task = self._make_task(description="Downloading media")
-        result = col.render(task)
-        assert isinstance(result, Text)
-
-    def test_auto_detect_default(self):
-        """Line 98: no pattern match → defaults to remaining."""
-        col = ContextualTimeColumn()
-        task = self._make_task(description="Some unknown task")
+        task = self._make_task(description=description, fields=fields)
         result = col.render(task)
         assert isinstance(result, Text)
 
@@ -90,7 +82,13 @@ class TestPhasedBar:
     Tests render to a Console and verify the produced segments / styles.
     """
 
-    def _render(self, bar: PhasedBar, *, color_system="truecolor"):
+    def _render(
+        self,
+        bar: PhasedBar,
+        *,
+        color_system: Literal["auto", "standard", "256", "truecolor", "windows"]
+        | None = "truecolor",
+    ) -> list[ConsoleRenderable | RichCast | str | Segment]:
         """Render a PhasedBar against a deterministic Console and return segments."""
         # Use a fixed-width, color-enabled console so phase styles render to Segments.
         console = Console(
@@ -121,114 +119,222 @@ class TestPhasedBar:
         assert bar.pulse is False
         assert bar.animation_time == 1.5
 
-    def test_pulse_true_delegates_to_progress_bar(self):
-        """Lines 165-174: pulse=True yields fallback ProgressBar segments."""
+    @pytest.mark.parametrize(
+        (
+            "total",
+            "phases",
+            "phase_styles",
+            "width",
+            "pulse",
+            "color_system",
+            "min_text_segments",
+            "bar_chars",
+        ),
+        [
+            # Lines 165-174: pulse=True yields fallback ProgressBar segments
+            # (at least one Segment — the pulse animation; text not required).
+            pytest.param(
+                100,
+                {"a": 50},
+                {"a": "green"},
+                20,
+                True,
+                "truecolor",
+                0,
+                (),
+                id="pulse-true-delegates-to-progress-bar",
+            ),
+            # Lines 165-174: total=None also takes the indeterminate path.
+            pytest.param(
+                None,
+                {},
+                {},
+                20,
+                False,
+                "truecolor",
+                0,
+                (),
+                id="total-none-delegates-to-pulse-fallback",
+            ),
+            # Lines 186-211: each non-zero phase yields a Segment with its
+            # style; BAR character is "━", ASCII fallback is "-".
+            pytest.param(
+                10,
+                {"green_phase": 5, "red_phase": 3},
+                {"green_phase": "green", "red_phase": "red"},
+                20,
+                False,
+                "truecolor",
+                1,
+                ("━", "-"),
+                id="renders-phase-segments-with-styles",
+            ),
+            # Lines 188-189: count <= 0 → continue without yielding; green
+            # phase still renders even with two zero phases.
+            pytest.param(
+                10,
+                {"green": 5, "red": 0, "blue": 0},
+                {"green": "green", "red": "red", "blue": "blue"},
+                20,
+                False,
+                "truecolor",
+                1,
+                (),
+                id="skips-zero-count-phases",
+            ),
+            # Lines 194-197: tiny non-zero count (1 of 1000 = 0.1% would
+            # round to 0 halves) → at least 1 half-char; both phases visible.
+            pytest.param(
+                1000,
+                {"errors": 1, "ok": 999},
+                {"errors": "red", "ok": "green"},
+                20,
+                False,
+                "truecolor",
+                2,
+                (),
+                id="minimum-one-half-for-tiny-phases",
+            ),
+            # Lines 213-226: only 25% filled — remaining 75% fills with the
+            # background style, producing segments beyond the phase.
+            pytest.param(
+                20,
+                {"a": 5},
+                {"a": "green"},
+                20,
+                False,
+                "truecolor",
+                2,
+                (),
+                id="background-fill-when-color-system-present",
+            ),
+            # Line 215: color_system=None → no color → background fill
+            # skipped; the phase itself still renders.
+            pytest.param(
+                20,
+                {"a": 5},
+                {"a": "green"},
+                20,
+                False,
+                None,
+                1,
+                (),
+                id="no-background-when-color-disabled",
+            ),
+            # Line 199: width=2 → 4 halves; "a" (2/2) claims all 4, "b" then
+            # computes min(max(1, 4), 4 - 4) == 0 → phase_halves <= 0 →
+            # skipped without yielding. Only "a" renders, bar fills exactly.
+            pytest.param(
+                2,
+                {"a": 2, "b": 2},
+                {"a": "green", "b": "red"},
+                2,
+                False,
+                "truecolor",
+                1,
+                ("━",),
+                id="phase-clamped-to-zero-halves-is-skipped",
+            ),
+            # Branch 218->221: width=10 → 20 halves; "a" (1/3) → 7 halves
+            # (odd → has_half True) so `if not last_had_half` is False and
+            # control jumps straight to the background fill at line 221.
+            pytest.param(
+                3,
+                {"a": 1},
+                {"a": "green"},
+                10,
+                False,
+                "truecolor",
+                1,
+                (),
+                id="background-skips-boundary-half-when-last-phase-had-half",
+            ),
+            # Branch 223->225: width=20 → 40 halves; "a" (19/20) → 38 halves
+            # (even). Boundary half_left decrements remaining to 1 → bg_full
+            # is 0, so only the trailing half_left renders.
+            pytest.param(
+                20,
+                {"a": 19},
+                {"a": "green"},
+                20,
+                False,
+                "truecolor",
+                1,
+                (),
+                id="background-with-only-a-half-remaining",
+            ),
+            # Branch 225->exit: width=10 → 20 halves; "a"+"b" (1/3 each) →
+            # 7+7 = 14 halves used, last_had_half True → no boundary
+            # decrement; remaining 6 even → bg_half 0 → final `if` False.
+            pytest.param(
+                3,
+                {"a": 1, "b": 1},
+                {"a": "green", "b": "red"},
+                10,
+                False,
+                "truecolor",
+                1,
+                (),
+                id="background-with-even-remaining-emits-no-trailing-half",
+            ),
+        ],
+    )
+    def test_render_segments(
+        self,
+        total: int | None,
+        phases: dict[str, float],
+        phase_styles: dict[str, str],
+        width: int,
+        pulse: bool,
+        color_system: Literal["truecolor"] | None,
+        min_text_segments: int,
+        bar_chars: tuple[str, ...],
+    ) -> None:
+        """Render each PhasedBar configuration and check the emitted segments."""
         bar = PhasedBar(
-            total=100,
-            phases={"a": 50},
-            phase_styles={"a": "green"},
-            width=20,
-            pulse=True,
+            total=total,
+            phases=phases,
+            phase_styles=phase_styles,
+            width=width,
+            pulse=pulse,
         )
-        segments = self._render(bar)
-        # ProgressBar fallback yields at least one Segment (the pulse animation).
+        segments = self._render(bar, color_system=color_system)
+
+        # Every configuration yields at least one Segment.
         assert any(isinstance(s, Segment) for s in segments)
 
-    def test_total_none_delegates_to_pulse_fallback(self):
-        """Lines 165-174: total=None also takes the indeterminate path."""
-        bar = PhasedBar(
-            total=None,
-            phases={},
-            phase_styles={},
-            width=20,
-        )
-        segments = self._render(bar)
-        assert any(isinstance(s, Segment) for s in segments)
-
-    def test_renders_phase_segments_with_styles(self):
-        """Lines 186-211: each non-zero phase yields a Segment with its style."""
-        bar = PhasedBar(
-            total=10,
-            phases={"green_phase": 5, "red_phase": 3},
-            phase_styles={"green_phase": "green", "red_phase": "red"},
-            width=20,
-        )
-        segments = self._render(bar)
-        # Collect just text segments (excluding Style/no-text markers).
-        rendered = [s for s in segments if isinstance(s, Segment) and s.text]
-        # The two phases produce visible bar characters; combined text must cover them.
-        all_text = "".join(s.text for s in rendered)
-        # BAR character is "━"; ASCII fallback is "-". Either should appear.
-        assert "━" in all_text or "-" in all_text
-
-    def test_skips_zero_count_phases(self):
-        """Lines 188-189: count <= 0 → continue without yielding."""
-        bar = PhasedBar(
-            total=10,
-            phases={"green": 5, "red": 0, "blue": 0},
-            phase_styles={"green": "green", "red": "red", "blue": "blue"},
-            width=20,
-        )
-        segments = self._render(bar)
-        # Should still render — green phase yields output even with two zero phases.
-        assert any(isinstance(s, Segment) and s.text for s in segments)
-
-    def test_minimum_one_half_for_tiny_phases(self):
-        """Lines 194-197: tiny non-zero count → at least 1 half-char visible."""
-        bar = PhasedBar(
-            total=1000,
-            # 1 of 1000 = 0.1% — would normally round to 0 halves.
-            phases={"errors": 1, "ok": 999},
-            phase_styles={"errors": "red", "ok": "green"},
-            width=20,
-        )
-        segments = self._render(bar)
-        # Both phases must yield something visible — total segments should
-        # include both red and green styles.
         text_segments = [s for s in segments if isinstance(s, Segment) and s.text]
-        assert len(text_segments) >= 2
+        assert len(text_segments) >= min_text_segments
 
-    def test_background_fill_when_color_system_present(self):
-        """Lines 213-226: remaining halves fill with background style."""
-        bar = PhasedBar(
-            total=20,
-            phases={"a": 5},  # only 25% — leaves 75% for background
-            phase_styles={"a": "green"},
-            width=20,
-        )
-        segments = self._render(bar, color_system="truecolor")
-        # Background fill must produce additional segments beyond the phase.
-        text_segments = [s for s in segments if isinstance(s, Segment) and s.text]
-        assert len(text_segments) >= 2
+        if bar_chars:
+            all_text = "".join(s.text for s in text_segments)
+            assert any(char in all_text for char in bar_chars)
 
-    def test_no_background_when_color_disabled(self):
-        """Line 215: ``not console.no_color and console.color_system`` gates fill."""
-        # color_system=None → no color → background fill skipped.
-        bar = PhasedBar(
-            total=20,
-            phases={"a": 5},
-            phase_styles={"a": "green"},
-            width=20,
-        )
-        segments = self._render(bar, color_system=None)
-        # Phase still renders, but no background segments added.
-        assert any(isinstance(s, Segment) and s.text for s in segments)
-
-    def test_measure_with_explicit_width(self):
-        """Lines 233-234: width set → Measurement(width, width)."""
-        bar = PhasedBar(total=10, phases={}, phase_styles={}, width=15)
+    @pytest.mark.parametrize(
+        ("width", "expected_minimum", "expected_maximum"),
+        [
+            # Lines 233-234: width set → Measurement(width, width).
+            pytest.param(15, 15, 15, id="explicit-width-15"),
+            # Line 235: width=None → Measurement(4, options.max_width);
+            # None here means "assert against console.options.max_width".
+            pytest.param(None, 4, None, id="width-none-min-4-max-console"),
+        ],
+    )
+    def test_measure(
+        self,
+        width: int | None,
+        expected_minimum: int,
+        expected_maximum: int | None,
+    ) -> None:
+        """__rich_measure__ uses explicit width or falls back to (4, max_width)."""
+        bar = PhasedBar(total=10, phases={}, phase_styles={}, width=width)
         console = Console(width=80)
         measurement = bar.__rich_measure__(console, console.options)
-        assert measurement.minimum == 15
-        assert measurement.maximum == 15
-
-    def test_measure_without_width(self):
-        """Line 235: width=None → Measurement(4, options.max_width)."""
-        bar = PhasedBar(total=10, phases={}, phase_styles={}, width=None)
-        console = Console(width=80)
-        measurement = bar.__rich_measure__(console, console.options)
-        assert measurement.minimum == 4
-        assert measurement.maximum == console.options.max_width
+        assert measurement.minimum == expected_minimum
+        if expected_maximum is None:
+            assert measurement.maximum == console.options.max_width
+        else:
+            assert measurement.maximum == expected_maximum
 
 
 class TestPhasedBarColumn:
@@ -238,7 +344,7 @@ class TestPhasedBarColumn:
         # Rich's Task.started is a read-only property derived from
         # start_time != None. Set start_time directly to control it.
         task = Task(
-            id=0,
+            id=TaskID(0),
             description="Test task",
             total=total,
             completed=completed,
@@ -407,6 +513,35 @@ class TestProgressManagerExtras:
         with pm.session():
             assert pm.get_task_fields("missing") == {}
 
+    def test_reset_task_unknown_name_is_noop(self):
+        """Line 563: name not in active_tasks → early return without touching Rich."""
+        pm = ProgressManager()
+        with pm.session():
+            # Must not raise even though the task was never added.
+            pm.reset_task("never_added", total=5, description="x")
+
+    def test_reset_task_defaults_skip_optional_kwargs(self):
+        """Branches 565->567 and 567->569: total/description None → not added to reset_kwargs.
+
+        With both optional args omitted, only ``completed=0`` flows into
+        ``Progress.reset()`` — the two ``if ... is not None`` guards are False.
+        """
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task("resettable", "Reset me", total=10)
+            pm.update_task("resettable", completed=10)
+            # Defaults (total=None, description=None) take both False arcs.
+            pm.reset_task("resettable")
+            assert "resettable" in pm.active_tasks
+
+    def test_reset_task_applies_total_and_description(self):
+        """Branches 565->566 and 567->568: both optionals set → reset_kwargs carries them."""
+        pm = ProgressManager()
+        with pm.session():
+            pm.add_task("retask", "Original", total=10)
+            pm.reset_task("retask", total=42, description="Refreshed")
+            assert "retask" in pm.active_tasks
+
 
 class TestProgressManager:
     """Lines 101-250: session lifecycle, task CRUD, nested sessions."""
@@ -515,6 +650,26 @@ class TestGlobalInstances:
 class TestCreateRichHandler:
     """Lines 283-333: RichHandler with custom level styles."""
 
+    def test_handler_when_console_lacks_push_theme(self, monkeypatch):
+        """Branch 732->741: console without ``push_theme`` → skip theme, return handler.
+
+        The ``hasattr(_console, "push_theme")`` guard exists for older rich
+        versions (pre-3.11). Modern rich always has it, so the False arc is only
+        reachable by forcing the predicate for the ``push_theme`` lookup.
+        """
+        real_hasattr = hasattr
+
+        def fake_hasattr(obj, name):
+            if name == "push_theme":
+                return False
+            return real_hasattr(obj, name)
+
+        monkeypatch.setattr(
+            "helpers.rich_progress.hasattr", fake_hasattr, raising=False
+        )
+        # Reaches the early ``return handler`` without pushing a theme.
+        assert create_rich_handler() is not None
+
     def test_default_and_custom_styles(self):
         """Default styles, custom styles, and None all produce a handler."""
         assert create_rich_handler() is not None
@@ -553,7 +708,7 @@ class TestDoWatchProgress:
 
         with (
             patch("helpers.rich_progress.time.time", side_effect=[0, 0, 11]),
-            patch("helpers.rich_progress.time.sleep"),
+            patch("helpers.rich_progress.time.sleep", scaled_sync_sleep),
         ):
             _do_watch_progress(nonexistent, lambda k, v: events.append((k, v)))
 
@@ -584,6 +739,37 @@ class TestDoWatchProgress:
         thread.join(timeout=1.0)
 
         assert not thread.is_alive(), "stop_event did not break the read loop"
+
+    def test_stop_event_set_before_file_created(self, tmp_path):
+        """Line 767: stop_event already set while still waiting for the file → return.
+
+        Exercises the cancellation check inside the ``while not file.exists()``
+        wait loop (distinct from the read-loop check at 775).
+        """
+        nonexistent = tmp_path / "never_created.txt"
+        stop_event = threading.Event()
+        stop_event.set()
+        events = []
+
+        _do_watch_progress(nonexistent, lambda k, v: events.append((k, v)), stop_event)
+
+        assert events == []
+
+    def test_handler_exception_is_swallowed(self, tmp_path):
+        """Lines 796-800: an exception in the read loop is caught, not propagated.
+
+        A raising handler would otherwise kill the daemon thread; the broad
+        ``except Exception`` logs at DEBUG and returns. The function returning
+        normally (no raise) proves the except arc ran.
+        """
+        progress_file = tmp_path / "ffmpeg_progress.txt"
+        progress_file.write_text("frame=1\nprogress=end\n")
+
+        def boom(_key, _value):
+            raise RuntimeError("handler blew up")
+
+        # Must return without raising — the except block swallowed RuntimeError.
+        _do_watch_progress(progress_file, boom)
 
 
 class TestWatchProgress:
@@ -617,6 +803,26 @@ class TestFfmpegProgress:
             time.sleep(0.2)
 
         assert "test_mux" not in pm.active_tasks
+
+    def test_unknown_duration_updates_description_and_skips_completion(self):
+        """Indeterminate path: ``total_duration <= 0`` → ``total`` is None.
+
+        Drives the progress_handler through the real watch thread:
+          - ``out_time_ms`` → ``known_duration`` False → the else branch updates
+            the description with elapsed time (line 899),
+          - ``progress=end`` → the ``total is not None`` clause is False, so the
+            100% completion update is skipped (branch 904->exit).
+        """
+        with ffmpeg_progress(
+            total_duration=0.0, task_name="test_indeterminate"
+        ) as progress_file:
+            pm = get_progress_manager()
+            assert "test_indeterminate" in pm.active_tasks
+
+            progress_file.write_text("out_time_ms=5000000\nprogress=end\n")
+            time.sleep(0.2)
+
+        assert "test_indeterminate" not in pm.active_tasks
 
 
 class TestAtexitShutdown:

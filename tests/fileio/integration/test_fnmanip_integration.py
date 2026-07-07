@@ -33,7 +33,12 @@ class TestImageHashIntegration:
     """Integration tests for the image hashing functions."""
 
     def test_get_hash_for_image_with_real_file(self, valid_image_file):
-        """Test get_hash_for_image with a real image file."""
+        """Test get_hash_for_image with a real image file.
+
+        Pinning the result to the deterministic direct ``imagehash.phash``
+        computation also subsumes the former consistency test (two calls both
+        equal the same direct hash, so they equal each other).
+        """
         # Get the hash
         hash_result = get_hash_for_image(valid_image_file)
 
@@ -46,15 +51,6 @@ class TestImageHashIntegration:
             direct_hash = str(imagehash.phash(img, hash_size=16))
 
         assert hash_result == direct_hash
-
-    def test_get_hash_for_image_consistency(self, valid_image_file):
-        """Test that get_hash_for_image returns consistent results."""
-        # Get the hash twice
-        hash1 = get_hash_for_image(valid_image_file)
-        hash2 = get_hash_for_image(valid_image_file)
-
-        # Verify the results are the same
-        assert hash1 == hash2
 
     def test_get_hash_for_image_with_invalid_file(self, invalid_image_file):
         """Test get_hash_for_image with an invalid image file."""
@@ -77,7 +73,12 @@ class TestVideoHashIntegration:
     """Integration tests for the video hashing functions."""
 
     def test_get_hash_for_other_content_with_real_file(self, valid_mp4_file):
-        """Test get_hash_for_other_content with a real MP4 file."""
+        """Test get_hash_for_other_content with a real MP4 file.
+
+        Unlike the image test there is no deterministic direct-hash anchor
+        here, so the former consistency test's two-call equality assertion is
+        carried into this test rather than dropped.
+        """
         # Get the hash
         hash_result = get_hash_for_other_content(valid_mp4_file)
 
@@ -90,14 +91,8 @@ class TestVideoHashIntegration:
         # Check that it only contains hex characters
         assert all(c in "0123456789abcdef" for c in hash_result.lower())
 
-    def test_get_hash_for_other_content_consistency(self, valid_mp4_file):
-        """Test that get_hash_for_other_content returns consistent results."""
-        # Get the hash twice
-        hash1 = get_hash_for_other_content(valid_mp4_file)
-        hash2 = get_hash_for_other_content(valid_mp4_file)
-
-        # Verify the results are the same
-        assert hash1 == hash2
+        # Consistency: a second call over the same file yields the same hash.
+        assert get_hash_for_other_content(valid_mp4_file) == hash_result
 
     def test_get_hash_for_other_content_with_invalid_file(self, invalid_mp4_file):
         """Test get_hash_for_other_content with an invalid MP4 file."""

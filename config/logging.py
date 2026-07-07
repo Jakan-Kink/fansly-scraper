@@ -11,6 +11,8 @@ Other modules should import and use these loggers rather than
 creating their own handlers.
 """
 
+from __future__ import annotations
+
 import codecs
 import contextlib
 import logging
@@ -19,12 +21,22 @@ import sys
 import traceback
 import warnings as _warnings_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import regex as _regex
 from loguru import logger
 
 from errors import InvalidTraceLogError
+
+
+if TYPE_CHECKING:
+    from config.fanslyconfig import FanslyConfig
+    from config.schema import (
+        ConsoleLoggerEntry,
+        FileLoggerEntry,
+        LoggingGlobalSection,
+    )
+    from textio.logging import SizeTimeRotatingHandler
 
 
 def _collapse_grapheme_clusters(text: str) -> str:
@@ -356,7 +368,9 @@ def _trace_level_only(record: Any) -> bool:
 
 trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
 
-_handler_ids: dict[int, tuple[Any, Any]] = {}  # {id: (handler, file_handler)}
+_handler_ids: dict[
+    int, tuple[SizeTimeRotatingHandler | None, SizeTimeRotatingHandler | None]
+] = {}  # {id: (handler, file_handler)}
 
 
 def remove_tracked_handlers() -> None:
@@ -375,7 +389,12 @@ def remove_tracked_handlers() -> None:
     _handler_ids.clear()
 
 
-def _resolve(entry: Any, global_section: Any, attr: str, default_attr: str) -> Any:
+def _resolve(
+    entry: FileLoggerEntry,
+    global_section: LoggingGlobalSection,
+    attr: str,
+    default_attr: str,
+) -> object:
     """Resolve a per-handler field, falling through to a global default.
 
     Returns the entry's value if non-``None``, otherwise the matching
@@ -528,7 +547,7 @@ def setup_handlers() -> None:
         use_colorize = True
 
     def _add_file_handler(
-        entry: Any,
+        entry: FileLoggerEntry,
         *,
         filter: Any,
         default_format: str,
@@ -536,7 +555,7 @@ def setup_handlers() -> None:
         default_level: str = "INFO",
         encoding: str | None = None,
         tag_db: bool = False,
-    ) -> Any:
+    ) -> SizeTimeRotatingHandler | None:
         """Build a SizeTimeRotatingHandler from a FileLoggerEntry and add it.
 
         Skips the add entirely when ``entry.enabled`` is False. Returns
@@ -578,7 +597,7 @@ def setup_handlers() -> None:
         return wrapper
 
     def _add_console_handler(
-        entry: Any, *, filter: Any, level_logger_name: str
+        entry: ConsoleLoggerEntry, *, filter: Any, level_logger_name: str
     ) -> None:
         """Add a Rich-console sink driven by a ConsoleLoggerEntry."""
         if not entry.enabled:
@@ -669,7 +688,7 @@ def setup_handlers() -> None:
     )
 
 
-def init_logging_config(config: Any) -> None:
+def init_logging_config(config: FanslyConfig | None) -> None:
     """Initialize logging configuration.
 
     Mirrors the live ``config.debug`` / ``config.trace`` runtime attributes
@@ -758,7 +777,7 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
     return max(level, _LEVEL_VALUES["DEBUG"])
 
 
-def update_logging_config(config: Any, enabled: bool) -> None:
+def update_logging_config(config: FanslyConfig, enabled: bool) -> None:
     """Refresh handlers + asyncio plumbing after a verbosity toggle.
 
     Args:

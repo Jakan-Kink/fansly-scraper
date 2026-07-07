@@ -3,154 +3,122 @@
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.core import DownloadState
+from helpers.common import JsonDict
 from metadata import ContentType, Group, Message, process_messages_metadata
 from metadata.messages import _process_single_group, _process_single_message
 from metadata.models import Account, Attachment
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.mark.asyncio
-async def test_direct_message_creation(entity_store):
-    """Test creating a direct message between users."""
-    store = entity_store
+@pytest.mark.xdist_group("message_basics")
+class TestMessageBasics:
+    """Round-trip Message/Group/Attachment shapes on one shared store.
 
-    sender_id = snowflake_id()
-    recipient_id = snowflake_id()
-    msg_id = snowflake_id()
+    Merges the former test_direct_message_creation, test_group_creation,
+    test_group_message, and test_message_with_attachment into one deeper
+    test sharing sender/recipient scaffolding (mirrors TestFullMessagePipeline).
+    """
 
-    account1 = Account(id=sender_id, username="sender")
-    account2 = Account(id=recipient_id, username="recipient")
-    await store.save(account1)
-    await store.save(account2)
+    @pytest.mark.asyncio
+    async def test_message_and_group_shapes(self, entity_store):
+        """Direct message, group-with-users, group message, message-with-attachment."""
+        store = entity_store
 
-    message = Message(
-        id=msg_id,
-        senderId=sender_id,
-        recipientId=recipient_id,
-        content="Test message",
-        createdAt=datetime.now(UTC),
-    )
-    await store.save(message)
+        sender_id = snowflake_id()
+        recipient_id = snowflake_id()
 
-    saved = await store.get(Message, msg_id)
-    assert saved is not None
-    assert saved.content == "Test message"
-    assert saved.senderId == sender_id
-    assert saved.recipientId == recipient_id
-    assert saved.groupId is None
+        account1 = Account(id=sender_id, username="sender")
+        account2 = Account(id=recipient_id, username="recipient")
+        await store.save(account1)
+        await store.save(account2)
 
-
-@pytest.mark.asyncio
-async def test_group_creation(entity_store):
-    """Test creating a message group."""
-    store = entity_store
-
-    sender_id = snowflake_id()
-    recipient_id = snowflake_id()
-    group_id = snowflake_id()
-
-    account1 = Account(id=sender_id, username="sender")
-    account2 = Account(id=recipient_id, username="recipient")
-    await store.save(account1)
-    await store.save(account2)
-
-    group = Group(id=group_id, createdBy=sender_id)
-    await store.save(group)
-
-    # Add users via relationship
-    group.users = [account1, account2]
-    await store.save(group)
-
-    saved = await store.get(Group, group_id)
-    assert saved is not None
-    assert saved.createdBy == sender_id
-    assert len(saved.users) == 2
-    user_ids = {u.id for u in saved.users}
-    assert user_ids == {sender_id, recipient_id}
-
-
-@pytest.mark.asyncio
-async def test_group_message(entity_store):
-    """Test creating a message in a group."""
-    store = entity_store
-
-    sender_id = snowflake_id()
-    group_id = snowflake_id()
-    msg_id = snowflake_id()
-
-    account1 = Account(id=sender_id, username="sender")
-    await store.save(account1)
-
-    group = Group(id=group_id, createdBy=sender_id)
-    await store.save(group)
-
-    message = Message(
-        id=msg_id,
-        groupId=group_id,
-        senderId=sender_id,
-        content="Group message",
-        createdAt=datetime.now(UTC),
-    )
-    await store.save(message)
-
-    # Update group's lastMessageId
-    group.lastMessageId = msg_id
-    await store.save(group)
-
-    saved_group = await store.get(Group, group_id)
-    assert saved_group is not None
-    assert saved_group.lastMessageId == msg_id
-
-    saved_message = await store.get(Message, msg_id)
-    assert saved_message is not None
-    assert saved_message.groupId == group_id
-    assert saved_message.content == "Group message"
-
-
-@pytest.mark.asyncio
-async def test_message_with_attachment(entity_store):
-    """Test message with an attachment."""
-    store = entity_store
-
-    sender_id = snowflake_id()
-    recipient_id = snowflake_id()
-    msg_id = snowflake_id()
-    content_id = snowflake_id()
-
-    account1 = Account(id=sender_id, username="sender")
-    account2 = Account(id=recipient_id, username="recipient")
-    await store.save(account1)
-    await store.save(account2)
-
-    # Create message first (FK for attachments)
-    message = Message(
-        id=msg_id,
-        senderId=sender_id,
-        recipientId=recipient_id,
-        content="Message with attachment",
-        createdAt=datetime.now(UTC),
-    )
-    await store.save(message)
-
-    # Add attachment and re-save
-    message.attachments = [
-        Attachment(
-            contentId=content_id,
-            messageId=msg_id,
-            contentType=ContentType.ACCOUNT_MEDIA,
-            pos=1,
+        # --- Direct message between users ---
+        direct_msg_id = snowflake_id()
+        direct = Message(
+            id=direct_msg_id,
+            senderId=sender_id,
+            recipientId=recipient_id,
+            content="Test message",
+            createdAt=datetime.now(UTC),
         )
-    ]
-    await store.save(message)
+        await store.save(direct)
 
-    saved = await store.get(Message, msg_id)
-    assert saved is not None
-    assert saved.content == "Message with attachment"
-    assert len(saved.attachments) == 1
-    assert saved.attachments[0].contentType == ContentType.ACCOUNT_MEDIA
-    assert saved.attachments[0].contentId == content_id
+        saved_direct = await store.get(Message, direct_msg_id)
+        assert saved_direct is not None
+        assert saved_direct.content == "Test message"
+        assert saved_direct.senderId == sender_id
+        assert saved_direct.recipientId == recipient_id
+        assert saved_direct.groupId is None
+
+        # --- Group with users via relationship ---
+        group_id = snowflake_id()
+        group = Group(id=group_id, createdBy=sender_id)
+        await store.save(group)
+
+        group.users = [account1, account2]
+        await store.save(group)
+
+        saved_group = await store.get(Group, group_id)
+        assert saved_group is not None
+        assert saved_group.createdBy == sender_id
+        assert len(saved_group.users) == 2
+        user_ids = {u.id for u in saved_group.users}
+        assert user_ids == {sender_id, recipient_id}
+
+        # --- Message in the group, updating lastMessageId ---
+        group_msg_id = snowflake_id()
+        group_message = Message(
+            id=group_msg_id,
+            groupId=group_id,
+            senderId=sender_id,
+            content="Group message",
+            createdAt=datetime.now(UTC),
+        )
+        await store.save(group_message)
+
+        group.lastMessageId = group_msg_id
+        await store.save(group)
+
+        saved_group = await store.get(Group, group_id)
+        assert saved_group is not None
+        assert saved_group.lastMessageId == group_msg_id
+
+        saved_group_message = await store.get(Message, group_msg_id)
+        assert saved_group_message is not None
+        assert saved_group_message.groupId == group_id
+        assert saved_group_message.content == "Group message"
+
+        # --- Message with an attachment ---
+        attach_msg_id = snowflake_id()
+        content_id = snowflake_id()
+        attach_message = Message(
+            id=attach_msg_id,
+            senderId=sender_id,
+            recipientId=recipient_id,
+            content="Message with attachment",
+            createdAt=datetime.now(UTC),
+        )
+        await store.save(attach_message)
+
+        attach_message.attachments = [
+            Attachment(
+                contentId=content_id,
+                messageId=attach_msg_id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                pos=1,
+            )
+        ]
+        await store.save(attach_message)
+
+        saved_attach = await store.get(Message, attach_msg_id)
+        assert saved_attach is not None
+        assert saved_attach.content == "Message with attachment"
+        assert len(saved_attach.attachments) == 1
+        assert saved_attach.attachments[0].contentType == ContentType.ACCOUNT_MEDIA
+        assert saved_attach.attachments[0].contentId == content_id
 
 
 @pytest.mark.asyncio
@@ -171,7 +139,7 @@ async def test_process_messages_metadata(entity_store, config):
     await store.save(account1)
     await store.save(account2)
 
-    messages_data = [
+    messages_data: list[JsonValue] = [
         {
             "id": msg_id,
             "senderId": sender_id,
@@ -188,7 +156,8 @@ async def test_process_messages_metadata(entity_store, config):
         }
     ]
 
-    await process_messages_metadata(config, None, {"messages": messages_data})
+    payload: JsonDict = {"messages": messages_data}
+    await process_messages_metadata(config, DownloadState(), payload)
 
     saved = await store.get(Message, msg_id)
     assert saved is not None
@@ -243,7 +212,7 @@ class TestFullMessagePipeline:
         await entity_store.save(Account(id=acct_id, username=f"msg_{acct_id}"))
 
         msg_id = snowflake_id()
-        messages = [
+        messages: list[JsonDict] = [
             {
                 "id": msg_id,
                 "senderId": acct_id,

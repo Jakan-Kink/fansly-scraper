@@ -14,6 +14,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `wall_filters` — download only specific wall(s) per creator, by wall name or ID, with optional excludes; available as a persistent `options.wall_filters` config section and an ephemeral `--wall-filters` CLI flag (both enforce wall-only mode).
 
+### Changed
+
+- **asyncpg constraint widened to `>=0.30.0,<0.32.0` (lock now 0.31.0), unblocking Python 3.14.** 0.30.0 has no cp314 wheels and never will, so 3.14 users were stuck building from source. The pin existed because 0.31.0 segfaulted under pytest (MagicStack/asyncpg#1292); the crash is now fully root-caused: it requires asyncpg to be *used, dropped from `sys.modules`, re-imported, and used again* — 0.31.0 (built with Cython >=3.2.1's per-module state) crashes in `BaseProtocol.__init__` on the NULL module state, while 0.30.0 survives the same sequence but silently splits its exception classes into two generations so `except asyncpg.X:` stops matching. The only in-repo trigger was coverage.py probe-importing dotted `--cov=pkg.module` sources and un-importing them; path-form `--cov` sources are now mandated (`docs/testing/TESTING_REQUIREMENTS.md`) and the full suite runs green on 0.31.0. Neither failure mode is reachable from normal app use — production never re-imports asyncpg.
+- **Production code is now fully statically typed — mypy reports zero errors project-wide.** The API JSON ingestion boundary returns honest `JsonDict | list[JsonValue]` instead of `Any`, with new `expect_dict`/`expect_list`/`expect_int`/`str_or_none` narrowing helpers (`helpers/common.py`) forcing explicit fail-fast coercion of Fansly payload scalars; `get_store()` is typed `PostgresEntityStore`; stats shapes became TypedDicts; error and Stash-processing signatures carry concrete types. Requires `stash-graphql-client >=0.12.12` (its `TypeIs` guards narrow under a py3.12 mypy target).
+- **Test suite: internal mocks removed in favor of real pipelines, per-test UUID databases collapsed into 37 class-shared stores, shallow tests parametrized/merged (~375 test functions removed), and the whole `tests/` tree brought under mypy.** Stash integration tests now SKIP (not ERROR) when the local Stash server is down, mirroring the PostgreSQL skip. Coverage held at 96.89% with a double full-suite gate identical at 2763 passed / 0 failed.
+
+### Fixed
+
+- **The daemon now holds its Stash context open for the daemon's lifetime.** Each incremental pass previously ran its own Stash cleanup, closing the shared singleton client out from under later passes; the open now happens once at daemon startup and the close only at shutdown, with passes connecting lazily when Stash is inactive or the initial connect fails.
+- **Livestream recordings no longer abort on a chat-WS hiccup.** The chat-task drain at stream end is non-fatal, and a debug-only `assert` in that path became a real runtime check so optimized (`-O`) builds get the same protection.
+- **Stash background-task failures are logged again.** `logger.exception` was given an f-string interpolating the exception repr; any repr containing braces hit loguru's `str.format` and raised `KeyError`, masking the original error. Now uses the `exc_info` form.
+- **`get_project_version()` crashed with `KeyError` when falling back to reading `pyproject.toml` directly** — the tomllib fallback still read the pre-PEP-621 `[tool.poetry].version` location. It now reads `[project].version` first, keeping `[tool.poetry]` as the legacy fallback.
+- **Latent shape bugs surfaced by the typing pass, fixed en route:** a group-id int/str mismatch in messages processing, dead `_handled` writes in the timeline/wall/messages loops, an invalid `Pool.join()` argument, a dead identity-map cache scan, missing `download_url` None-guards, a media-index leaf-collision owner-union, a preview-repair DB reconcile gap, and WS envelope decoding that raised `AttributeError` on non-object payloads (now degrades to an empty dict with id fields coerced through `expect_int`).
+
 ## [0.14.5] - 2026-06-14
 
 ### Added

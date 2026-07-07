@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any
 
 from textio import json_output
 
-from .models import Account, Group, Media, Message, get_store
+from .models import Account, FanslyObject, Group, Media, Message, get_store
 
 
 # Table name → model type mapping for existence checks
-_TABLE_MODEL_MAP: dict[str, type] = {
+_TABLE_MODEL_MAP: dict[str, type[FanslyObject]] = {
     "accounts": Account,
     "media": Media,
     "messages": Message,
@@ -26,9 +25,9 @@ missing_relationships: dict[str, dict[str, set]] = defaultdict(lambda: defaultdi
 async def log_missing_relationship(
     table_name: str,
     field_name: str,
-    missing_id: Any,
+    missing_id: str | int,
     referenced_table: str,
-    context: dict[str, Any] | None = None,
+    context: dict[str, object] | None = None,
 ) -> bool:
     """Log a missing relationship and check if it exists.
 
@@ -55,7 +54,7 @@ async def log_missing_relationship(
         missing_relationships[referenced_table][table_name].add(str_id)
 
         if not was_logged:
-            log_context = {
+            log_context: dict[str, object] = {
                 "table": table_name,
                 "field": field_name,
                 "missing_id": str_id,

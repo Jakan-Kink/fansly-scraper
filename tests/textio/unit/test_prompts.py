@@ -22,7 +22,7 @@ from textio.prompts import (
 
 class TestRequireTty:
     def test_passes_when_stdin_is_a_tty(self, tty):
-        assert _require_tty() is None
+        _require_tty()  # returns None; passing = no TtyRequiredError raised
 
     def test_raises_when_stdin_not_a_tty(self, monkeypatch):
         class _NonTTY:
@@ -129,11 +129,11 @@ class TestAprompt:
 class TestAwaitForEnter:
     async def test_completes_after_one_prompt(self, tty, fake_prompt_session):
         fake_prompt_session.append("")
-        assert await await_for_enter("Press enter") is None
+        await await_for_enter("Press enter")  # returns None; passing = completes
 
     async def test_discards_typed_text(self, tty, fake_prompt_session):
         fake_prompt_session.append("ignored stuff typed before enter")
-        assert await await_for_enter() is None
+        await await_for_enter()  # returns None; passing = completes
 
 
 # ── TTY guard wiring (each public helper must enforce it) ─────────────────

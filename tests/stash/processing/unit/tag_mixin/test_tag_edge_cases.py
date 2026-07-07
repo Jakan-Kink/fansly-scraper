@@ -8,9 +8,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 import respx
+from stash_graphql_client import present
 
-from tests.fixtures import (
-    HashtagFactory,
+from tests.fixtures.metadata import HashtagFactory
+from tests.fixtures.stash import (
     SceneFactory,
     TagFactory,
     create_find_tags_result,
@@ -191,8 +192,9 @@ async def test_add_preview_tag_existing_tag(respx_stash_processor):
     )
 
     # Verify tag is already present
-    assert len(scene.tags) == 1
-    assert scene.tags[0].id == "500"
+    scene_tags = present(scene.tags)
+    assert len(scene_tags) == 1
+    assert scene_tags[0].id == "500"
 
     # Add the tag again
     try:
@@ -201,8 +203,9 @@ async def test_add_preview_tag_existing_tag(respx_stash_processor):
         dump_graphql_calls(route.calls, "test_add_preview_tag_existing_tag")
 
     # Verify tag wasn't duplicated
-    assert len(scene.tags) == 1
-    assert scene.tags[0].id == "500"
+    scene_tags = present(scene.tags)
+    assert len(scene_tags) == 1
+    assert scene_tags[0].id == "500"
 
 
 @pytest.mark.asyncio
@@ -234,7 +237,7 @@ async def test_add_preview_tag_no_tag_found(respx_stash_processor):
         dump_graphql_calls(route.calls, "test_add_preview_tag_no_tag_found")
 
     # Verify no tag was added since none was found
-    assert len(scene.tags) == 0
+    assert len(present(scene.tags)) == 0
 
 
 @pytest.mark.asyncio

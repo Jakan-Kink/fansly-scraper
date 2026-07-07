@@ -19,7 +19,12 @@ class TestPathioInit:
     def test_invalid_attribute_raises_error(self):
         """Test that accessing invalid attribute raises AttributeError."""
         # Try to access an attribute that doesn't exist
+        # A computed attr name keeps the deliberately-absent lookup dynamic:
+        # mypy resolves a literal (and ruff B009 rewrites getattr-with-literal
+        # back to attribute access), but neither touches a variable. The
+        # AttributeError is the assertion.
+        missing_attr = "nonexistent_function"
         with pytest.raises(
             AttributeError, match="has no attribute 'nonexistent_function'"
         ):
-            _ = pathio.nonexistent_function
+            getattr(pathio, missing_attr)

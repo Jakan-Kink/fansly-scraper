@@ -1,13 +1,14 @@
 """Test pagination duplication detection functionality."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from download.common import check_page_duplicates
 from errors import DuplicatePageError
 from metadata.models import Account, Message, Post, Wall
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -75,33 +76,94 @@ async def test_check_page_duplicates_timeline_new_posts(
     )
 
 
-async def test_check_page_duplicates_timeline_all_existing(
-    mock_config, entity_store, synthetic_timeline_page
+@pytest.mark.parametrize(
+    ("kind", "page_type", "wall_name", "use_wall", "cursor"),
+    [
+        ("timeline", "timeline", None, False, "123"),
+        ("wall_named", "wall", "Test Wall", True, "123"),
+        ("wall_noname", "wall", None, True, "123"),
+        ("wall_nonexistent", "wall", None, False, "123"),
+        ("messages", "messages", None, False, "500"),
+    ],
+    ids=[
+        "timeline_all_existing",
+        "wall_all_existing_named",
+        "wall_no_name",
+        "wall_nonexistent",
+        "messages_all_existing",
+    ],
+)
+async def test_check_page_duplicates_all_existing_raises(
+    kind,
+    page_type,
+    wall_name,
+    use_wall,
+    cursor,
+    mock_config,
+    entity_store,
+    synthetic_timeline_page,
+    messages_page_data,
 ):
-    """Test detection of all posts already in metadata for timeline."""
+    """All items on a page already cached → DuplicatePageError across every
+    page_type, with the page-type-specific noun and identifier in the message.
+
+    Runs the real ``check_page_duplicates`` pipeline + entity_store; the only
+    boundary is the scaled-sleep accelerator standing in for the 5s pre-raise
+    pause (real await, ~0 duration).
+    """
     mock_config.use_pagination_duplication = True
 
     account_id = snowflake_id()
-    account = Account(id=account_id, username="all_existing_test")
-    await entity_store.save(account)
+    wall_id = snowflake_id()
+    page_id: str | None
+    await entity_store.save(Account(id=account_id, username=f"{kind}_test"))
 
-    # Add all posts to store
-    for post_dict in synthetic_timeline_page["posts"]:
-        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
+    if page_type == "messages":
+        page_data = messages_page_data
+        page_id = str(snowflake_id())
+        sender_id = messages_page_data["messages"][0]["senderId"]
+        await entity_store.save(Account(id=sender_id, username="msg_sender"))
+        for msg in messages_page_data["messages"]:
+            await entity_store.save(
+                Message(
+                    id=msg["id"],
+                    senderId=sender_id,
+                    content="x",
+                    createdAt=datetime.now(UTC),
+                )
+            )
+    else:
+        page_data = synthetic_timeline_page
+        page_id = str(wall_id) if page_type == "wall" else None
+        if use_wall:
+            await entity_store.save(
+                Wall(id=wall_id, name=wall_name, accountId=account_id)
+            )
+        for post_dict in synthetic_timeline_page["posts"]:
+            await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     with (
         pytest.raises(DuplicatePageError) as exc_info,
-        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+        patch("download.common.asyncio.sleep", scaled_async_sleep),
     ):
         await check_page_duplicates(
             config=mock_config,
-            page_data=synthetic_timeline_page,
-            page_type="timeline",
-            cursor="123",
+            page_data=page_data,
+            page_type=page_type,
+            page_id=page_id,
+            cursor=cursor,
+            bypass=False,
         )
 
-    assert "timeline" in str(exc_info.value)
-    assert "123" in str(exc_info.value)
+    err = str(exc_info.value)
+    assert page_type in err
+    assert cursor in err
+    if kind == "wall_named":
+        assert "Test Wall" in err
+    elif kind in ("wall_noname", "wall_nonexistent"):
+        assert str(wall_id) in err
+    elif kind == "messages":
+        assert "All messages on messages" in err
 
 
 async def test_check_page_duplicates_wall_new_posts(
@@ -130,148 +192,6 @@ async def test_check_page_duplicates_wall_new_posts(
         page_id=str(wall_id),
         cursor="123",
     )
-
-
-async def test_check_page_duplicates_wall_all_existing(
-    mock_config, entity_store, synthetic_timeline_page
-):
-    """Test detection of all posts already in metadata for wall."""
-    mock_config.use_pagination_duplication = True
-
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-    account = Account(id=account_id, username="wall_all_test")
-    await entity_store.save(account)
-
-    # Create wall with name
-    await entity_store.save(Wall(id=wall_id, name="Test Wall", accountId=account_id))
-
-    # Add all posts to store
-    for post_dict in synthetic_timeline_page["posts"]:
-        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
-
-    with (
-        pytest.raises(DuplicatePageError) as exc_info,
-        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        await check_page_duplicates(
-            config=mock_config,
-            page_data=synthetic_timeline_page,
-            page_type="wall",
-            page_id=str(wall_id),
-            cursor="123",
-        )
-
-    assert "wall" in str(exc_info.value)
-    assert "Test Wall" in str(exc_info.value)
-    assert "123" in str(exc_info.value)
-
-
-async def test_check_page_duplicates_wall_no_name(
-    mock_config, entity_store, synthetic_timeline_page
-):
-    """Test wall duplicate detection when wall has no name."""
-    mock_config.use_pagination_duplication = True
-
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-    account = Account(id=account_id, username="wall_noname_test")
-    await entity_store.save(account)
-
-    # Create wall without name
-    await entity_store.save(Wall(id=wall_id, accountId=account_id))
-
-    # Add all posts to store
-    for post_dict in synthetic_timeline_page["posts"]:
-        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
-
-    with (
-        pytest.raises(DuplicatePageError) as exc_info,
-        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        await check_page_duplicates(
-            config=mock_config,
-            page_data=synthetic_timeline_page,
-            page_type="wall",
-            page_id=str(wall_id),
-            cursor="123",
-        )
-
-    assert "wall" in str(exc_info.value)
-    assert str(wall_id) in str(exc_info.value)
-    assert "123" in str(exc_info.value)
-
-
-async def test_check_page_duplicates_wall_nonexistent(
-    mock_config, entity_store, synthetic_timeline_page
-):
-    """Test wall duplicate detection for nonexistent wall."""
-    mock_config.use_pagination_duplication = True
-
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-    account = Account(id=account_id, username="wall_nonexist_test")
-    await entity_store.save(account)
-
-    # Add all posts to store, but don't create the wall
-    for post_dict in synthetic_timeline_page["posts"]:
-        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
-
-    with (
-        pytest.raises(DuplicatePageError) as exc_info,
-        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        await check_page_duplicates(
-            config=mock_config,
-            page_data=synthetic_timeline_page,
-            page_type="wall",
-            page_id=str(wall_id),
-            cursor="123",
-        )
-
-    assert "wall" in str(exc_info.value)
-    assert str(wall_id) in str(exc_info.value)
-    assert "123" in str(exc_info.value)
-
-
-async def test_check_page_duplicates_messages_all_existing_raises(
-    mock_config, entity_store, messages_page_data
-):
-    """All messages on the page already cached → DuplicatePageError; the
-    error message uses the messages-specific noun, not "posts"."""
-    mock_config.use_pagination_duplication = True
-
-    account_id = snowflake_id()
-    sender_id = messages_page_data["messages"][0]["senderId"]
-    await entity_store.save(Account(id=account_id, username="msg_dup_test"))
-    await entity_store.save(Account(id=sender_id, username="msg_sender"))
-
-    for msg in messages_page_data["messages"]:
-        await entity_store.save(
-            Message(
-                id=msg["id"],
-                senderId=sender_id,
-                content="x",
-                createdAt=datetime.now(UTC),
-            )
-        )
-
-    with (
-        pytest.raises(DuplicatePageError) as exc_info,
-        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        await check_page_duplicates(
-            config=mock_config,
-            page_data=messages_page_data,
-            page_type="messages",
-            page_id=str(snowflake_id()),
-            cursor="500",
-        )
-
-    msg = str(exc_info.value)
-    assert "messages" in msg
-    assert "All messages on messages" in msg
-    assert "500" in msg
 
 
 async def test_check_page_duplicates_messages_new_messages_no_raise(

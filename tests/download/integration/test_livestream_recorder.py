@@ -33,8 +33,11 @@ import asyncio
 from pathlib import Path
 
 import av
+import httpx
 import pytest
 
+from api.fansly import FanslyApi
+from config.fanslyconfig import FanslyConfig
 from download.livestream import _record_stream, _salvage_orphan_segments
 from metadata.models import StreamChannel
 from pathio.livestream import _get_segments_base
@@ -80,8 +83,8 @@ def _make_channel(
 
 
 async def _drive_ivs_recording(
-    config_wired,
-    tmp_path,
+    config_wired: FanslyConfig,
+    tmp_path: Path,
     *,
     segment_bytes: bytes,
     username: str = "ivs_creator",
@@ -144,10 +147,10 @@ class TestRecordStreamHappyPath:
     @pytest.mark.timeout(30)
     async def test_full_record_cycle_writes_mp4_and_cleans_up(
         self,
-        respx_fansly_api,
-        respx_ivs_cdn,
-        config_wired,
-        tmp_path,
+        respx_fansly_api: FanslyApi,
+        respx_ivs_cdn: httpx.AsyncClient,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Happy path: 5 real .ts segments + ENDLIST → real PyAV mux → MP4.
 
@@ -209,6 +212,7 @@ class TestRecordStreamHappyPath:
             muxed.close()
 
         # Temp segment dir removed on successful mux.
+        assert config_wired.temp_folder is not None
         temp_dirs = list(config_wired.temp_folder.glob("*_segments"))
         assert temp_dirs == [], f"Temp segment dir should be cleaned up: {temp_dirs}"
 
@@ -221,10 +225,10 @@ class TestRecordStreamBadPackets:
     @pytest.mark.timeout(30)
     async def test_corrupt_packets_dropped_but_recording_survives(
         self,
-        respx_fansly_api,
-        respx_ivs_cdn,
-        config_wired,
-        tmp_path,
+        respx_fansly_api: FanslyApi,
+        respx_ivs_cdn: httpx.AsyncClient,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Each segment carries 2 TEI-flagged packets (AWS IVS drops ~2 per
         file). libav's +discardcorrupt drops them at demux — before the
@@ -284,8 +288,8 @@ class TestRecordStreamSalvage:
     @pytest.mark.timeout(30)
     async def test_salvage_muxes_orphan_segment_dir(
         self,
-        config_wired,
-        tmp_path,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
     ) -> None:
         """Fabricate an orphan segment dir (real synthetic .ts files + an
         ``output_path.txt`` sidecar) and run ``_salvage_orphan_segments``: it

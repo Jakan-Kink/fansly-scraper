@@ -78,7 +78,7 @@ from errors import (
 )
 from fileio.dedupe import dedupe_init
 from fileio.preview_repair import repair_preview_folder_items
-from helpers.common import open_location, parse_timestamp
+from helpers.common import expect_dict, open_location, parse_timestamp
 from helpers.rich_progress import get_progress_manager, get_rich_console
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
@@ -302,7 +302,10 @@ async def load_client_account_into_db(
             "main - client-account-data",
             response.json(),
         )
-        creator_dict = api.get_json_response_contents(response)[0]
+        accounts = api.get_json_response_contents(response)
+        if not isinstance(accounts, list):
+            raise TypeError("Fansly API: expected an accounts array response")
+        creator_dict = expect_dict(accounts[0], "account")
     except Exception as e:
         print_error(f"Error getting client account info: {e}")
         print_error(f"Error getting client account info: {traceback.format_exc()}")
@@ -443,6 +446,10 @@ async def main(config: FanslyConfig) -> int:
                         subs_data = config.get_api().get_json_response_contents(
                             subs_response
                         )
+                        if not isinstance(subs_data, dict):
+                            raise RuntimeError(
+                                "Fansly API: expected a subscriptions object response"
+                            )
                         added = await process_subscriptions_response(subs_data)
                         if added:
                             print_info(
@@ -1049,30 +1056,41 @@ async def _async_main(config: FanslyConfig) -> int:
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
     finally:
+        # Sinks are closed by cleanup; print() reaches the console while the
+        # loguru emit reaches surviving handlers (caplog in tests). Funnelled
+        # through one helper so the dual-emit lives in a single marked spot.
+        def _emit_cleanup(
+            level: str, console: str, log: str, *, to_stderr: bool = False
+        ) -> None:
+            stream = sys.stderr if to_stderr else sys.stdout
+            print(console, file=stream, flush=True)  # CCH:dual-log  # sinks closed
+            logger.opt(depth=2).log(level, log)
+
         try:
             # Run cleanup with global timeout
             print_info("Starting final cleanup process...")
             await cleanup_with_global_timeout(config)
-            # Our sinks are closed; print() reaches the console, the
-            # loguru emit reaches surviving handlers (caplog in tests).
-            print(
-                "💡 Cleanup completed successfully", flush=True
-            )  # CCH:dual-log  # sinks closed, console needs print
-            logger.opt(depth=1).log("INFO", "Cleanup completed successfully")
+            _emit_cleanup(
+                "INFO",
+                "💡 Cleanup completed successfully",
+                "Cleanup completed successfully",
+            )
         except asyncio.CancelledError:
-            print(
-                "❌ Cleanup was cancelled!", flush=True, file=sys.stderr
-            )  # CCH:dual-log  # sinks closed, console needs print
-            logger.opt(depth=1).log("ERROR", "Cleanup was cancelled!")
+            _emit_cleanup(
+                "ERROR",
+                "❌ Cleanup was cancelled!",
+                "Cleanup was cancelled!",
+                to_stderr=True,
+            )
             sys.exit(1)
         except Exception as e:
-            print(
-                f"❌ Fatal error during cleanup: {e}", flush=True, file=sys.stderr
-            )  # CCH:dual-log  # sinks closed, console needs print
-            print(
-                traceback.format_exc(), flush=True, file=sys.stderr
-            )  # CCH:dual-log  # sinks closed, console needs print
-            logger.opt(depth=1).log("ERROR", f"Fatal error during cleanup: {e}")
+            _emit_cleanup(
+                "ERROR",
+                f"❌ Fatal error during cleanup: {e}",
+                f"Fatal error during cleanup: {e}",
+                to_stderr=True,
+            )
+            print(traceback.format_exc(), flush=True, file=sys.stderr)
             sys.exit(1)
 
     return exit_code

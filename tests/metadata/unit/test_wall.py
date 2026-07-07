@@ -1,275 +1,306 @@
-"""Unit tests for metadata.wall module."""
+"""Unit tests for metadata.wall module.
+
+All methods share ONE class-scoped database via ``class_entity_store``
+(requested through ``reset_class_store``, which clears the in-memory
+cache/identity map between methods). Every row is namespaced by unique
+snowflake ids — accounts, walls, and posts never collide across the
+shared database, and wall lookups filter by their own ``accountId``.
+"""
 
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import JsonValue
 
 from download.downloadstate import DownloadState
+from helpers.common import JsonDict
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
+from metadata.entity_store import PostgresEntityStore
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.mark.asyncio
-async def test_wall_creation(entity_store):
-    """Test creating a wall with basic attributes."""
-    store = entity_store
+async def _make_account(store: PostgresEntityStore) -> tuple[Account, int]:
+    """Create + persist a fresh Account, returning it with its (int) id.
 
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    wall = Wall(
-        id=wall_id,
-        accountId=account_id,
-        pos=1,
-        name="Test Wall",
-        description="Test Description",
-    )
-    await store.save(wall)
-
-    saved = await store.get(Wall, wall_id)
-    assert saved is not None
-    assert saved.name == "Test Wall"
-    assert saved.description == "Test Description"
-    assert saved.pos == 1
-    assert saved.accountId == account_id
-
-
-@pytest.mark.asyncio
-async def test_wall_post_association(entity_store):
-    """Test associating posts with a wall."""
-    store = entity_store
-
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-    post_ids = [snowflake_id() for _ in range(3)]
-
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
-    await store.save(wall)
-
-    # Create posts
-    for i, pid in enumerate(post_ids):
-        post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
-        await store.save(post)
-
-    # Associate posts with wall
-    wall.posts = [await store.get(Post, pid) for pid in post_ids]
-    await store.save(wall)
-
-    saved = await store.get(Wall, wall_id)
-    assert saved is not None
-    assert len(saved.posts) == 3
-    assert sorted(p.content for p in saved.posts) == ["Post 1", "Post 2", "Post 3"]
-
-
-@pytest.mark.asyncio
-async def test_process_account_walls(entity_store, config):
-    """Test processing walls data for an account.
-
-    process_account_walls uses get_store() internally, wired via entity_store.
+    Usernames embed the id because ``accounts.username`` is UNIQUE and the
+    whole class shares one database.
     """
-    store = entity_store
-
     account_id = snowflake_id()
-    wall_id1 = snowflake_id()
-    wall_id2 = snowflake_id()
-
-    account = Account(id=account_id, username="test_user")
+    account = Account(id=account_id, username=f"wall_user_{account_id}")
     await store.save(account)
-
-    walls_data = [
-        {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
-        {"id": wall_id2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
-    ]
-
-    await process_account_walls(config=config, account=account, walls_data=walls_data)
-
-    walls = await store.find(Wall, accountId=account_id)
-    assert len(walls) == 2
-    walls_sorted = sorted(walls, key=lambda w: w.pos)
-    assert walls_sorted[0].name == "Wall 1"
-    assert walls_sorted[1].name == "Wall 2"
-    assert walls_sorted[0].pos == 1
-    assert walls_sorted[1].pos == 2
+    return account, account_id
 
 
-@pytest.mark.asyncio
-async def test_wall_cleanup(entity_store, config):
-    """Test cleanup of removed walls.
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("metadata_wall")
+class TestWallProcessing:
+    """Wall model + processing functions over ONE shared class DB."""
 
-    process_account_walls deletes walls that are no longer in the data.
-    """
-    store = entity_store
+    async def test_wall_creation(self, reset_class_store):
+        """Test creating a wall with basic attributes."""
+        store = reset_class_store
 
-    account_id = snowflake_id()
-    wall_id1 = snowflake_id()
-    wall_id2 = snowflake_id()
-    wall_id3 = snowflake_id()
+        _account, account_id = await _make_account(store)
+        wall_id = snowflake_id()
 
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    # Create initial walls
-    for wid, i in zip([wall_id1, wall_id2, wall_id3], range(1, 4), strict=True):
-        wall = Wall(id=wid, accountId=account_id, name=f"Wall {i}", pos=i)
+        wall = Wall(
+            id=wall_id,
+            accountId=account_id,
+            pos=1,
+            name="Test Wall",
+            description="Test Description",
+        )
         await store.save(wall)
 
-    # Process with only walls 1 and 3
-    new_walls_data = [
-        {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
-        {"id": wall_id3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
-    ]
+        saved = await store.get(Wall, wall_id)
+        assert saved is not None
+        assert saved.name == "Test Wall"
+        assert saved.description == "Test Description"
+        assert saved.pos == 1
+        assert saved.accountId == account_id
 
-    await process_account_walls(config, account, new_walls_data)
+    async def test_wall_post_association(self, reset_class_store):
+        """Test associating posts with a wall."""
+        store = reset_class_store
 
-    # Verify wall 2 was removed
-    remaining = await store.find(Wall, accountId=account_id)
-    remaining_ids = sorted([w.id for w in remaining])
-    assert remaining_ids == sorted([wall_id1, wall_id3])
+        _account, account_id = await _make_account(store)
+        wall_id = snowflake_id()
+        post_ids = [snowflake_id() for _ in range(3)]
 
+        wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
+        await store.save(wall)
 
-@pytest.mark.asyncio
-async def test_wall_cleanup_with_posts(entity_store, config):
-    """Regression test for issue #109: deleting a wall that still has wall_posts rows.
+        # Create posts
+        for i, pid in enumerate(post_ids):
+            post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
+            await store.save(post)
 
-    A removed wall must be deletable even when posts are attached — the
-    wall_posts junction rows cascade away while the posts themselves survive.
-    """
-    store = entity_store
+        # Associate posts with wall
+        wall.posts = [await store.get(Post, pid) for pid in post_ids]
+        await store.save(wall)
 
-    account_id = snowflake_id()
-    kept_wall_id = snowflake_id()
-    removed_wall_id = snowflake_id()
-    post_ids = [snowflake_id() for _ in range(2)]
+        saved = await store.get(Wall, wall_id)
+        assert saved is not None
+        assert len(saved.posts) == 3
+        assert sorted(p.content for p in saved.posts) == ["Post 1", "Post 2", "Post 3"]
 
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
+    async def test_process_account_walls(self, reset_class_store, mock_config):
+        """Test processing walls data for an account.
 
-    kept_wall = Wall(id=kept_wall_id, accountId=account_id, name="Kept", pos=1)
-    await store.save(kept_wall)
+        process_account_walls uses get_store() internally, wired via the
+        class-scoped store.
+        """
+        store = reset_class_store
 
-    removed_wall = Wall(id=removed_wall_id, accountId=account_id, name="Gone", pos=2)
-    await store.save(removed_wall)
+        account, account_id = await _make_account(store)
+        wall_id1 = snowflake_id()
+        wall_id2 = snowflake_id()
 
-    for i, pid in enumerate(post_ids):
-        post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
+        walls_data: list[JsonValue] = [
+            {
+                "id": wall_id1,
+                "pos": 1,
+                "name": "Wall 1",
+                "description": "Description 1",
+            },
+            {
+                "id": wall_id2,
+                "pos": 2,
+                "name": "Wall 2",
+                "description": "Description 2",
+            },
+        ]
+
+        await process_account_walls(
+            config=mock_config, account=account, walls_data=walls_data
+        )
+
+        walls = await store.find(Wall, accountId=account_id)
+        assert len(walls) == 2
+        walls_sorted = sorted(walls, key=lambda w: w.pos)
+        assert walls_sorted[0].name == "Wall 1"
+        assert walls_sorted[1].name == "Wall 2"
+        assert walls_sorted[0].pos == 1
+        assert walls_sorted[1].pos == 2
+
+    async def test_wall_cleanup(self, reset_class_store, mock_config):
+        """Test cleanup of removed walls.
+
+        process_account_walls deletes walls that are no longer in the data.
+        """
+        store = reset_class_store
+
+        account, account_id = await _make_account(store)
+        wall_id1 = snowflake_id()
+        wall_id2 = snowflake_id()
+        wall_id3 = snowflake_id()
+
+        # Create initial walls
+        for wid, i in zip([wall_id1, wall_id2, wall_id3], range(1, 4), strict=True):
+            wall = Wall(id=wid, accountId=account_id, name=f"Wall {i}", pos=i)
+            await store.save(wall)
+
+        # Process with only walls 1 and 3
+        new_walls_data: list[JsonValue] = [
+            {
+                "id": wall_id1,
+                "pos": 1,
+                "name": "Wall 1",
+                "description": "Description 1",
+            },
+            {
+                "id": wall_id3,
+                "pos": 2,
+                "name": "Wall 3",
+                "description": "Description 3",
+            },
+        ]
+
+        await process_account_walls(mock_config, account, new_walls_data)
+
+        # Verify wall 2 was removed
+        remaining = await store.find(Wall, accountId=account_id)
+        remaining_ids = sorted([w.id for w in remaining])
+        assert remaining_ids == sorted([wall_id1, wall_id3])
+
+    async def test_wall_cleanup_with_posts(self, reset_class_store, mock_config):
+        """Regression test for issue #109: deleting a wall that still has wall_posts rows.
+
+        A removed wall must be deletable even when posts are attached — the
+        wall_posts junction rows cascade away while the posts themselves survive.
+        """
+        store = reset_class_store
+
+        account, account_id = await _make_account(store)
+        kept_wall_id = snowflake_id()
+        removed_wall_id = snowflake_id()
+        post_ids = [snowflake_id() for _ in range(2)]
+
+        kept_wall = Wall(id=kept_wall_id, accountId=account_id, name="Kept", pos=1)
+        await store.save(kept_wall)
+
+        removed_wall = Wall(
+            id=removed_wall_id, accountId=account_id, name="Gone", pos=2
+        )
+        await store.save(removed_wall)
+
+        for i, pid in enumerate(post_ids):
+            post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
+            await store.save(post)
+
+        removed_wall.posts = [await store.get(Post, pid) for pid in post_ids]
+        await store.save(removed_wall)
+
+        # Process with only the kept wall — must not raise ForeignKeyViolationError
+        new_walls_data: list[JsonValue] = [
+            {
+                "id": kept_wall_id,
+                "pos": 1,
+                "name": "Kept",
+                "description": "Description",
+            },
+        ]
+        await process_account_walls(mock_config, account, new_walls_data)
+
+        remaining = await store.find(Wall, accountId=account_id)
+        assert [w.id for w in remaining] == [kept_wall_id]
+
+        # Junction rows are gone, but the posts themselves survive
+        pool = await store._get_pool()
+        rows = await pool.fetch(
+            'SELECT "postId" FROM wall_posts WHERE "wallId" = $1', removed_wall_id
+        )
+        assert rows == []
+        for pid in post_ids:
+            assert await store.get(Post, pid) is not None
+
+    async def test_process_wall_posts(self, reset_class_store, mock_config):
+        """Test processing posts for a wall.
+
+        process_wall_posts uses get_store() internally, wired via the
+        class-scoped store.
+        """
+        store = reset_class_store
+
+        account, account_id = await _make_account(store)
+        wall_id = snowflake_id()
+        post_id1 = snowflake_id()
+        post_id2 = snowflake_id()
+
+        wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
+        await store.save(wall)
+
+        state = DownloadState()
+        state.creator_id = account_id
+
+        posts_data: JsonDict = {
+            "posts": [
+                {
+                    "id": post_id1,
+                    "accountId": account_id,
+                    "content": "Post 1",
+                    "createdAt": int(datetime.now(UTC).timestamp()),
+                },
+                {
+                    "id": post_id2,
+                    "accountId": account_id,
+                    "content": "Post 2",
+                    "createdAt": int(datetime.now(UTC).timestamp()),
+                },
+            ],
+            "accounts": [{"id": account_id, "username": account.username}],
+            "accountMedia": [],
+        }
+
+        await process_wall_posts(mock_config, state, str(wall_id), posts_data)
+
+        # Verify posts were created
+        post1 = await store.get(Post, post_id1)
+        post2 = await store.get(Post, post_id2)
+        assert post1 is not None
+        assert post2 is not None
+
+        # Verify wall-post association via raw query
+        pool = await store._get_pool()
+        rows = await pool.fetch(
+            'SELECT "postId" FROM wall_posts WHERE "wallId" = $1 ORDER BY "postId"',
+            wall_id,
+        )
+        post_ids_saved = [row["postId"] for row in rows]
+        assert post_ids_saved == sorted([post_id1, post_id2])
+
+    async def test_wall_post_already_in_wall(self, reset_class_store, mock_config):
+        """metadata/wall.py 70→68: post already in wall.posts → skip append, no duplicate."""
+        store = reset_class_store
+        _account, account_id = await _make_account(store)
+
+        wall = Wall(id=snowflake_id(), accountId=account_id, name="dup_test", pos=0)
+        await store.save(wall)
+
+        post = Post(id=snowflake_id(), accountId=account_id, fypFlags=0)
         await store.save(post)
 
-    removed_wall.posts = [await store.get(Post, pid) for pid in post_ids]
-    await store.save(removed_wall)
+        state = DownloadState()
+        state.creator_id = account_id
 
-    # Process with only the kept wall — must not raise ForeignKeyViolationError
-    new_walls_data = [
-        {"id": kept_wall_id, "pos": 1, "name": "Kept", "description": "Description"},
-    ]
-    await process_account_walls(config, account, new_walls_data)
+        posts_data: JsonDict = {
+            "posts": [
+                {
+                    "id": post.id,
+                    "accountId": account_id,
+                    "fypFlags": 0,
+                    "createdAt": 1700000000,
+                }
+            ],
+            "accounts": [],
+            "accountMedia": [],
+            "accountMediaBundles": [],
+        }
 
-    remaining = await store.find(Wall, accountId=account_id)
-    assert [w.id for w in remaining] == [kept_wall_id]
+        # First call adds the post
+        await process_wall_posts(mock_config, state, str(wall.id), posts_data)
+        assert post in wall.posts
 
-    # Junction rows are gone, but the posts themselves survive
-    pool = await store._get_pool()
-    rows = await pool.fetch(
-        'SELECT "postId" FROM wall_posts WHERE "wallId" = $1', removed_wall_id
-    )
-    assert rows == []
-    for pid in post_ids:
-        assert await store.get(Post, pid) is not None
-
-
-@pytest.mark.asyncio
-async def test_process_wall_posts(entity_store, config):
-    """Test processing posts for a wall.
-
-    process_wall_posts uses get_store() internally, wired via entity_store.
-    """
-    store = entity_store
-
-    account_id = snowflake_id()
-    wall_id = snowflake_id()
-    post_id1 = snowflake_id()
-    post_id2 = snowflake_id()
-
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
-    await store.save(wall)
-
-    state = DownloadState()
-    state.creator_id = account_id
-
-    posts_data = {
-        "posts": [
-            {
-                "id": post_id1,
-                "accountId": account_id,
-                "content": "Post 1",
-                "createdAt": int(datetime.now(UTC).timestamp()),
-            },
-            {
-                "id": post_id2,
-                "accountId": account_id,
-                "content": "Post 2",
-                "createdAt": int(datetime.now(UTC).timestamp()),
-            },
-        ],
-        "accounts": [{"id": account_id, "username": "test_user"}],
-        "accountMedia": [],
-    }
-
-    await process_wall_posts(config, state, str(wall_id), posts_data)
-
-    # Verify posts were created
-    post1 = await store.get(Post, post_id1)
-    post2 = await store.get(Post, post_id2)
-    assert post1 is not None
-    assert post2 is not None
-
-    # Verify wall-post association via raw query
-    pool = await store._get_pool()
-    rows = await pool.fetch(
-        'SELECT "postId" FROM wall_posts WHERE "wallId" = $1 ORDER BY "postId"', wall_id
-    )
-    post_ids_saved = [row["postId"] for row in rows]
-    assert post_ids_saved == sorted([post_id1, post_id2])
-
-
-@pytest.mark.asyncio
-async def test_wall_post_already_in_wall(entity_store, mock_config, test_account):
-    """metadata/wall.py 70→68: post already in wall.posts → skip append, no duplicate."""
-    wall = Wall(id=snowflake_id(), accountId=test_account.id, name="dup_test", pos=0)
-    await entity_store.save(wall)
-
-    post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
-    await entity_store.save(post)
-
-    state = DownloadState()
-    state.creator_id = test_account.id
-
-    posts_data = {
-        "posts": [
-            {
-                "id": post.id,
-                "accountId": test_account.id,
-                "fypFlags": 0,
-                "createdAt": 1700000000,
-            }
-        ],
-        "accounts": [],
-        "accountMedia": [],
-        "accountMediaBundles": [],
-    }
-
-    # First call adds the post
-    await process_wall_posts(mock_config, state, str(wall.id), posts_data)
-    assert post in wall.posts
-
-    # Second call — post already in wall.posts → 70→68 skip
-    await process_wall_posts(mock_config, state, str(wall.id), posts_data)
-    assert wall.posts.count(post) == 1
+        # Second call — post already in wall.posts → 70→68 skip
+        await process_wall_posts(mock_config, state, str(wall.id), posts_data)
+        assert wall.posts.count(post) == 1

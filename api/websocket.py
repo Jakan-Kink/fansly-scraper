@@ -21,6 +21,8 @@ from collections.abc import Callable
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any
 
+from pydantic import JsonValue
+from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosedOK, WebSocketException
 
@@ -34,6 +36,7 @@ from api.websocket_protocol import (
     SILENT_SERVICE_EVENTS,
 )
 from config.logging import websocket_logger as logger
+from helpers.common import JsonDict
 from helpers.timer import timing_jitter
 
 
@@ -49,7 +52,7 @@ if TYPE_CHECKING:
 _QUEUE_POLL_INTERVAL_S = 0.5
 
 
-def _is_silent_service_event(event_data: Any) -> bool:
+def _is_silent_service_event(event_data: JsonValue) -> bool:
     """Return True when this service event is in ``SILENT_SERVICE_EVENTS``.
 
     Silent events skip both the WS-layer DEBUG/TRACE log lines and the
@@ -150,13 +153,13 @@ class _ChildWebSocket:
         self.session_id: str | None = None
         self.websocket_session_id: str | None = None
         self.account_id: str | None = None
-        self.websocket = None
+        self.websocket: ClientConnection | None = None
         self._ping_task: asyncio.Task | None = None
         # Signalled by the subprocess supervisor on shutdown request.
         # _maintain_connection and ping_worker check .is_set() to exit
         # cleanly. Single-loop access — no cross-thread plumbing.
         self._stop_event = asyncio.Event()
-        self._event_handlers: dict[int, Callable[[dict[str, Any]], Any]] = {}
+        self._event_handlers: dict[int, Callable[[JsonValue], Any]] = {}
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 5
         self._reconnect_delay = 1.5  # JS: reconnect_timeout_ = 1500
@@ -216,9 +219,9 @@ class _ChildWebSocket:
         jar = self.http_client.cookies.jar
         try:
             with jar._cookies_lock:  # type: ignore[attr-defined]
-                return {c.name: c.value for c in jar}
+                return {c.name: c.value for c in jar if c.value is not None}
         except AttributeError:
-            return {c.name: c.value for c in list(jar)}
+            return {c.name: c.value for c in list(jar) if c.value is not None}
 
     def _create_cookie_header(self) -> str:
         """Create Cookie header from the current cookie snapshot.
@@ -283,7 +286,7 @@ class _ChildWebSocket:
     def register_handler(
         self,
         message_type: int,
-        handler: Callable[[dict[str, Any]], Any],
+        handler: Callable[[JsonValue], Any],
     ) -> None:
         """Register a custom event handler for specific message types.
 
@@ -324,7 +327,7 @@ class _ChildWebSocket:
             # match on (serviceId, inner.type) without re-parsing later.
             # The decoded dict is reused in the MSG_SERVICE_EVENT branch
             # below, so this is a one-time outer decode, not a duplicate.
-            service_event_data: Any = None
+            service_event_data: JsonValue = None
             if message_type == MSG_SERVICE_EVENT:
                 service_event_data = (
                     json.loads(message_data)
@@ -401,7 +404,7 @@ class _ChildWebSocket:
         except Exception as e:
             logger.error("Error handling WebSocket message: {}", e)
 
-    async def _handle_error_event(self, error_data: dict[str, Any]) -> None:
+    async def _handle_error_event(self, error_data: JsonDict) -> None:
         """Handle error events from WebSocket.
 
         Args:
@@ -741,8 +744,8 @@ class _ChildWebSocket:
 
     async def _dispatch_event(
         self,
-        handler: Callable[[Any], Any],
-        event: Any,
+        handler: Callable[[JsonValue], Any],
+        event: JsonValue,
     ) -> None:
         """Invoke a registered handler with the decoded event payload.
 
@@ -756,7 +759,7 @@ class _ChildWebSocket:
         else:
             handler(event)
 
-    async def send_message(self, message_type: int, data: Any) -> None:
+    async def send_message(self, message_type: int, data: JsonValue) -> None:
         """Send a message through the WebSocket connection.
 
         Args:
@@ -899,8 +902,8 @@ def _run_ws_subprocess(
 
     ws._absorb_response_cookies = _forward_response_cookies  # type: ignore[method-assign]
 
-    def _make_forwarder(msg_type: int) -> Callable[[Any], Any]:
-        async def _forward(event_data: Any) -> None:
+    def _make_forwarder(msg_type: int) -> Callable[[JsonValue], Any]:
+        async def _forward(event_data: JsonValue) -> None:
             evt_q.put({"kind": "event", "type": msg_type, "data": event_data})
 
         return _forward
@@ -1077,7 +1080,7 @@ class FanslyWebSocket:
         on_unauthorized: Callable[[], Any] | None = None,
         on_rate_limited: Callable[[], Any] | None = None,
         base_url: str | None = None,
-        http_client: httpx.Client | None = None,
+        http_client: httpx.AsyncClient | httpx.Client | None = None,
     ) -> None:
         self.token = token
         self.user_agent = user_agent
@@ -1096,7 +1099,7 @@ class FanslyWebSocket:
 
         # Same shape as _ChildWebSocket._event_handlers so daemon/bootstrap.py's
         # `bootstrap.ws._event_handlers.pop(...)` keeps working.
-        self._event_handlers: dict[int, Callable[[Any], Any]] = {}
+        self._event_handlers: dict[int, Callable[[JsonValue], Any]] = {}
 
         self._proc: mp.process.BaseProcess | None = None
         self._cmd_q: MpQueue | None = None
@@ -1107,7 +1110,7 @@ class FanslyWebSocket:
     def register_handler(
         self,
         message_type: int,
-        handler: Callable[[Any], Any],
+        handler: Callable[[JsonValue], Any],
     ) -> None:
         """Register a parent-side handler for a given message type.
 
@@ -1208,7 +1211,7 @@ class FanslyWebSocket:
         self._evt_q = None
         self.connected = False
 
-    async def send_message(self, message_type: int, data: Any) -> None:
+    async def send_message(self, message_type: int, data: JsonValue) -> None:
         """Send a message through the WS subprocess.
 
         Raises:
@@ -1249,7 +1252,7 @@ class FanslyWebSocket:
         except asyncio.CancelledError:
             pass
 
-    async def _dispatch_event(self, msg_type: int, data: Any) -> None:
+    async def _dispatch_event(self, msg_type: int, data: JsonValue) -> None:
         handler = self._event_handlers.get(msg_type)
         if handler is None:
             return
@@ -1312,7 +1315,9 @@ class FanslyWebSocket:
     def _snapshot_cookies(self) -> dict[str, str]:
         if self.http_client is None:
             return dict(self.cookies)
-        return {c.name: c.value for c in self.http_client.cookies.jar}
+        return {
+            c.name: c.value for c in self.http_client.cookies.jar if c.value is not None
+        }
 
     def _send_cmd(self, cmd: dict[str, Any]) -> None:
         if self._cmd_q is None:

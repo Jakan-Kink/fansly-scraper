@@ -217,11 +217,12 @@ def get_media_save_path(
         save_dir = base_directory
     else:
         # Get media type directory
-        if "image" in media_item.mimetype:
+        mimetype = media_item.mimetype or ""
+        if "image" in mimetype:
             save_dir = base_directory / "Pictures"
-        elif "video" in media_item.mimetype:
+        elif "video" in mimetype:
             save_dir = base_directory / "Videos"
-        elif "audio" in media_item.mimetype:
+        elif "audio" in mimetype:
             save_dir = base_directory / "Audio"
         else:
             raise ValueError(f"Unknown mimetype: {media_item.mimetype}")

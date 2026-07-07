@@ -10,7 +10,7 @@ import warnings
 from copy import deepcopy
 from datetime import datetime
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Self
 
 from stash_graphql_client import ServerCapabilities, StashContext
 from stash_graphql_client.errors import (
@@ -144,7 +144,7 @@ class StashProcessingBase(StashProcessingProtocol):
         cls,
         config: FanslyConfig,
         state: DownloadState,
-    ) -> Any:  # Return type will be the derived class
+    ) -> Self:
         """Create processor from config.
 
         Args:
@@ -300,7 +300,7 @@ class StashProcessingBase(StashProcessingProtocol):
     async def _safe_background_processing(
         self,
         account: Account | None,
-        performer: Any | None,
+        performer: Performer | None,
     ) -> None:
         """Safely handle background processing with cleanup.
 
@@ -319,12 +319,12 @@ class StashProcessingBase(StashProcessingProtocol):
             debug_print({"status": "background_task_cancelled"})
             raise
         except Exception as e:
-            logger.exception(
-                f"Background task failed: {e}",
-                traceback=True,
-                exc_info=e,
-                stack_info=True,
-            )
+            # Static message + exc_info=e (sibling convention, e.g.
+            # file_first.py:109). An f-string here interpolates exceptions whose
+            # repr contains literal braces (e.g. "[{'message': 'boom'}]"), which
+            # loguru then feeds to str.format(), raising KeyError and masking the
+            # real failure.
+            logger.exception("Background task failed", exc_info=e)
             debug_print(
                 {
                     "error": f"background_task_failed: {e}",
@@ -431,7 +431,7 @@ class StashProcessingBase(StashProcessingProtocol):
         self,
         content: str | None,
         username: str,
-        created_at: datetime,
+        created_at: datetime | None,
         current_pos: int | None = None,
         total_media: int | None = None,
     ) -> str:
@@ -458,7 +458,11 @@ class StashProcessingBase(StashProcessingProtocol):
 
         # If no suitable title from content, use date format
         if not title:
-            title = f"{username} - {created_at.strftime('%Y/%m/%d')}"
+            title = (
+                f"{username} - {created_at.strftime('%Y/%m/%d')}"
+                if created_at is not None
+                else username
+            )
 
         # Append position if multiple media
         if total_media and total_media > 1 and current_pos:
@@ -473,10 +477,12 @@ class StashProcessingBase(StashProcessingProtocol):
 
         Keyed on PurePath(local_filename).name (the leaf) so a swept Stash file
         matches by basename. Includes variants (each has its own local_filename).
-        A Media shared across items carries every owner (earliest first, by id):
+        A file shared across items carries every owner (earliest first, by id):
         its adjudicated entity joins all their galleries, and the earliest owner
-        is canonical for the entity's own metadata. A leaf claimed by a DIFFERENT
-        Media is a collision — keep the first, warn.
+        is canonical for the entity's own metadata. "Shared" covers both the same
+        Media object and distinct media resolving to the same download target
+        (same leaf). A leaf claimed by a media with a DIFFERENT target is a
+        genuine collision — keep the first, warn.
         """
         index: dict[str, tuple[Media, list[Post | Message]]] = {}
         for item in items:
@@ -497,11 +503,12 @@ class StashProcessingBase(StashProcessingProtocol):
         media: Media,
         item: Post | Message,
     ) -> None:
-        """Record media under its leaf, fanning shared media to every owner.
+        """Record media under its leaf, fanning shared files to every owner.
 
-        First writer for a leaf wins the Media; a later same-Media item is
-        appended as an additional owner; a later DIFFERENT Media is a collision
-        (kept out, logged).
+        First writer for a leaf wins the Media. A later item is appended as an
+        additional owner when it resolves to the same file — the same Media
+        object, or a distinct media with the same download target. A later media
+        with a DIFFERENT target is a collision (kept out, logged).
         """
         if media.local_filename is None:
             # Caller (_build_media_index) only registers media with a filename.
@@ -512,12 +519,23 @@ class StashProcessingBase(StashProcessingProtocol):
             index[leaf] = (media, [item])
             return
         existing_media, owners = existing
-        if existing_media is not media:
+        # Same file when it's the same Media object, OR distinct media that
+        # resolve to the same downloaded file (shared download target — the
+        # leaf is built from `download_id or id`, so a same-leaf clash with a
+        # matching target IS one physical file). Only a different target is a
+        # genuine ambiguous collision.
+        same_file = existing_media is media or (
+            existing_media.download_id or existing_media.id
+        ) == (media.download_id or media.id)
+        if not same_file:
             logger.warning(
                 f"Media-index leaf collision on {leaf!r}: media "
                 f"{existing_media.id} already claims it; ignoring media {media.id}."
             )
             return
+        # Keep the first Media canonical for the entity's own metadata, but
+        # record this item as an additional owner so its gallery still receives
+        # the adjudicated entity (no dropped post→gallery joins).
         if all(owner.id != item.id for owner in owners):
             owners.append(item)
 

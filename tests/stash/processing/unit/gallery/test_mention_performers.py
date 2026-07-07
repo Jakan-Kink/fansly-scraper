@@ -12,11 +12,16 @@ verifies applies to the incremental flow too (mentions hydrated by
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set
 
 from metadata import PostMention
-from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
+from stash.processing import StashProcessing
+from tests.fixtures.metadata.metadata_factories import PostFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
-from tests.fixtures.stash.stash_graphql_fixtures import create_graphql_response
+from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_find_performers_result,
+    create_graphql_response,
+)
 from tests.fixtures.stash.stash_type_factories import GalleryFactory, PerformerFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -24,57 +29,67 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 class TestGalleryMentionPerformers:
     """_setup_gallery_performers links mentioned accounts as gallery performers."""
 
+    @pytest.mark.parametrize(
+        ("handle", "seed_mentioned", "expected_names", "expected_calls"),
+        [
+            ("alice", True, {"creator", "alice"}, 0),
+            ("ghost", False, {"creator"}, 1),
+        ],
+        ids=["mentioned_linked", "unresolvable_skipped"],
+    )
     @pytest.mark.asyncio
-    async def test_mentioned_account_linked_as_gallery_performer(
-        self, respx_stash_processor
-    ):
-        """A post's PostMention resolves to a cached performer and joins the gallery.
+    async def test_mention_performer_resolution(
+        self,
+        respx_stash_processor: StashProcessing,
+        request: pytest.FixtureRequest,
+        handle: str,
+        seed_mentioned: bool,
+        expected_names: set[str],
+        expected_calls: int,
+    ) -> None:
+        """A post's PostMention resolves (or not) against the performer store.
 
-        Discriminating: the gallery ends with BOTH the main creator and the
-        mentioned performer. Zero GraphQL — the mentioned performer is seeded in
-        the store cache so ``_find_existing_performer`` resolves it by name, and
-        ``add_performer`` stays in memory (``galleries`` seeded empty so the
-        inverse sync does not fetch).
-        """
-        acct = AccountFactory.build(id=snowflake_id(), username="creator")
-        post = PostFactory.build(id=snowflake_id(), accountId=acct.id)
-        # Set after build — PostFactory's model_validator drops non-dict mentions.
-        post.mentions = [PostMention(id=1, postId=post.id, handle="alice")]
+        mentioned_linked: the mentioned performer is seeded in the store cache
+        so ``_find_existing_performer`` resolves it by name with ZERO GraphQL
+        (``galleries`` seeded empty so ``add_performer``'s inverse sync does
+        not fetch); the gallery ends with BOTH the main creator and the
+        mentioned performer.
 
-        main = PerformerFactory(id="123", name="creator", galleries=[])
-        respx_stash_processor.store.add(
-            PerformerFactory(id="456", name="alice", galleries=[])
-        )
-        gallery = GalleryFactory()
-
-        await respx_stash_processor._setup_gallery_performers(gallery, post, main)
-
-        assert {p.name for p in gallery.performers} == {"creator", "alice"}
-
-    @pytest.mark.asyncio
-    async def test_unresolvable_mention_is_skipped_main_still_linked(
-        self, respx_stash_processor
-    ):
-        """A mention with no matching performer is dropped; the creator remains.
-
-        ``_find_existing_performer`` returns None for an unknown handle (cache
-        miss + a routed-empty findPerformers would too); the gallery keeps only
-        the main performer rather than appending a None.
+        unresolvable_skipped: a mention with no matching performer is dropped —
+        cache miss makes ``_find_existing_performer`` issue findPerformers
+        (routed empty, exactly one call); the gallery keeps only the main
+        performer rather than appending a None.
         """
         post = PostFactory.build(id=snowflake_id(), accountId=snowflake_id())
-        post.mentions = [PostMention(id=1, postId=post.id, handle="ghost")]
-        main = PerformerFactory(id="123", name="creator", galleries=[])
-        gallery = GalleryFactory()
+        # Set after build — PostFactory's model_validator drops non-dict mentions.
+        post.mentions = [PostMention(id=1, postId=post.id, handle=handle)]
+        main = PerformerFactory.build(id="123", name="creator", galleries=[])
+        if seed_mentioned:
+            respx_stash_processor.store.add(
+                PerformerFactory.build(id="456", name=handle, galleries=[])
+            )
+        gallery = GalleryFactory.build()
 
-        # Cache miss -> _find_existing_performer issues findPerformers; route empty.
-        route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(200, json=create_graphql_response("findPerformers", []))
+        side_effect = (
+            []
+            if seed_mentioned
+            else [
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", create_find_performers_result()
+                    ),
+                )
             ]
+        )
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=side_effect
         )
         try:
             await respx_stash_processor._setup_gallery_performers(gallery, post, main)
         finally:
-            dump_graphql_calls(route.calls, "unresolvable_mention_skipped")
+            dump_graphql_calls(route.calls, request.node.name)
 
-        assert {p.name for p in gallery.performers} == {"creator"}
+        assert len(route.calls) == expected_calls
+        assert is_set(gallery.performers)
+        assert {p.name for p in gallery.performers} == expected_names

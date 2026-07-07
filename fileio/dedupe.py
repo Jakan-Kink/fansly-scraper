@@ -66,7 +66,7 @@ async def migrate_full_paths_to_filenames() -> None:
 
         for media in records:
             try:
-                new_filename = get_filename_only(media.local_filename)
+                new_filename = get_filename_only(media.local_filename or "")
                 media.local_filename = new_filename
                 await store.save(media)
                 updated += 1
@@ -364,7 +364,9 @@ async def get_or_create_media(
         media_by_id.is_downloaded = True
         media_by_id.mimetype = mimetype
         if not media_by_id.accountId:
-            media_by_id.accountId = await get_account_id(state)
+            account_id = await get_account_id(state)
+            if account_id is not None:
+                media_by_id.accountId = account_id
         await store.save(media_by_id)
 
         hash_verified = bool(file_hash)
@@ -518,11 +520,11 @@ async def dedupe_init(
     """
     store = get_store()
 
-    # Use function attribute to track pass count (avoids global variable)
-    if not hasattr(dedupe_init, "pass_count"):
-        dedupe_init.pass_count = 0
-    dedupe_init.pass_count += 1
-    call_count = dedupe_init.pass_count
+    # Use function attribute to track pass count (avoids global variable);
+    # go through __dict__ (typed dict[str, Any]) so mypy doesn't reject the
+    # dynamic attribute on the function object.
+    call_count = dedupe_init.__dict__.get("pass_count", 0) + 1
+    dedupe_init.__dict__["pass_count"] = call_count
 
     json_output(
         1,
@@ -586,7 +588,7 @@ async def dedupe_init(
         for f in await safe_rglob(state.download_path, "*")
         if await asyncio.to_thread(f.is_file)
     ]
-    file_batches = {
+    file_batches: dict[str, list[Any]] = {
         "hash2": [],  # (file_path, media_id, mimetype, hash2_value)
         "media_id": [],  # (file_path, media_id, mimetype)
         "needs_hash": [],  # (file_path, mimetype)
@@ -648,13 +650,15 @@ async def dedupe_init(
             max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
             semaphore = asyncio.Semaphore(max_concurrent)
 
-            async def process_file(file_info: tuple[Path, str, str]) -> None:
+            async def process_file(
+                file_info: tuple[Path, str, str],
+            ) -> tuple[Media, bool]:
                 file_path, media_id, mimetype = file_info
                 async with semaphore:
                     try:
                         result = await get_or_create_media(
                             file_path=file_path,
-                            media_id=media_id,
+                            media_id=int(media_id),
                             mimetype=mimetype,
                             state=state,
                             trust_filename=True,
@@ -668,10 +672,10 @@ async def dedupe_init(
             chunk_size = 50  # Adjust based on testing
             for i in range(0, len(file_batches["media_id"]), chunk_size):
                 chunk = file_batches["media_id"][i : i + chunk_size]
-                tasks = [process_file(file_info) for file_info in chunk]
-                results = await asyncio.gather(*tasks)
+                id_tasks = [process_file(file_info) for file_info in chunk]
+                id_results = await asyncio.gather(*id_tasks)
                 processed_count += sum(
-                    1 for _, hash_verified in results if hash_verified
+                    1 for _, hash_verified in id_results if hash_verified
                 )
 
     # Process files needing hashes
@@ -713,7 +717,7 @@ async def dedupe_init(
                                 _, hash_verified = await get_or_create_media(
                                     file_path=file_path,
                                     media_id=get_id_from_filename(file_path.name)[0],
-                                    mimetype=mimetypes.guess_type(file_path)[0],
+                                    mimetype=mimetypes.guess_type(file_path)[0] or "",
                                     state=state,
                                     file_hash=file_hash,
                                     trust_filename=False,
@@ -740,7 +744,7 @@ async def dedupe_init(
                     # Clean up resources
                     try:
                         pool.terminate()
-                        pool.join(timeout=1.0)
+                        pool.join()
                     except Exception as e:
                         print_warning(f"Error cleaning up process pool: {e}")
                     finally:
@@ -821,12 +825,12 @@ async def dedupe_init(
             progress_mgr.update_task(db_check_task, advance=1)
 
     # Get updated counts
-    result = await store.find(
+    final_media = await store.find(
         Media,
         is_downloaded=True,
         accountId=state.creator_id,
     )
-    final_downloaded = len(result)
+    final_downloaded = len(final_media)
 
     # Log final statistics
     json_output(
@@ -890,7 +894,7 @@ async def _calculate_hash_for_file(
 
 
 async def _check_file_exists(
-    base_path: Path,
+    base_path: Path | None,
     filename: str,
 ) -> bool:
     """Check if a file exists in the given base path.
@@ -902,6 +906,8 @@ async def _check_file_exists(
     Returns:
         True if file exists, False otherwise
     """
+    if base_path is None:
+        return False
     found_files = await safe_rglob(base_path, filename)
     for found_file in found_files:
         if await asyncio.to_thread(found_file.is_file):
@@ -983,7 +989,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     if duplicate_media:
                         # Found duplicate by hash - check if its file exists
                         db_file_exists = await _check_file_exists(
-                            state.download_path, duplicate_media.local_filename
+                            state.download_path, duplicate_media.local_filename or ""
                         )
                         if db_file_exists:
                             # Duplicate exists - update this record to reference it
@@ -1073,7 +1079,10 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
             is_downloaded=True,
         )
         for existing in existing_by_id_pattern:
-            if existing.local_filename not in paths_to_check:
+            if (
+                existing.local_filename
+                and existing.local_filename not in paths_to_check
+            ):
                 paths_to_check.append(existing.local_filename)
 
     for path_to_check in paths_to_check:
@@ -1095,7 +1104,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 if file_hash and file_hash == existing_by_name.content_hash:
                     # Same content but wrong filename - check if DB's file exists
                     db_file_exists = await _check_file_exists(
-                        state.download_path, existing_by_name.local_filename
+                        state.download_path, existing_by_name.local_filename or ""
                     )
 
                     if db_file_exists:
@@ -1115,7 +1124,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
         if media:
             # Found by hash - check if DB's file exists
             db_file_exists = await _check_file_exists(
-                state.download_path, media.local_filename
+                state.download_path, media.local_filename or ""
             )
 
             if db_file_exists:

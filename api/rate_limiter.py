@@ -6,13 +6,33 @@ import asyncio
 import time
 from collections import deque
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 from config.logging import textio_logger as logger
 
 
 if TYPE_CHECKING:
     from config import FanslyConfig
+
+
+class RateLimiterStats(TypedDict):
+    """Snapshot of rate limiter state, as returned by ``get_stats``."""
+
+    enabled: bool
+    configured_rate: int
+    current_rate_per_minute: int
+    burst_size: int
+    available_tokens: float
+    total_requests: int
+    blocked_requests: int
+    rate_limit_violations: int
+    consecutive_violations: int
+    consecutive_successes: int
+    adaptive_adjustments: int
+    current_backoff_seconds: float
+    backoff_remaining: float
+    is_in_backoff: bool
+    utilization_percent: float
 
 
 class RateLimiter:
@@ -253,6 +273,10 @@ class RateLimiter:
                             f"(minimum floor: {minimum_backoff:.1f}s). "
                             f"Total violations: {self.rate_limit_violations}"
                         )
+                    self.last_refill = min(
+                        self.last_refill,
+                        self.last_backoff_time + self.current_backoff_seconds,
+                    )
                 else:
                     # First successful request after rate limiting
                     logger.info(
@@ -403,7 +427,7 @@ class RateLimiter:
             if response_time > 5.0:
                 logger.debug(f"Slow response detected: {response_time:.2f}s")
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> RateLimiterStats:
         """Get rate limiter statistics."""
         with self._lock:
             # Calculate recent request rate

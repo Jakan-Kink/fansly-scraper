@@ -43,7 +43,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
@@ -52,6 +52,7 @@ import pytest
 from websockets.exceptions import ConnectionClosedOK
 from websockets.frames import Close
 
+from api.websocket import FanslyWebSocket
 from api.websocket_protocol import MSG_SERVICE_EVENT as _PROTO_MSG_SERVICE_EVENT
 
 
@@ -152,7 +153,7 @@ def fake_websocket_session(
     session_id: str = "test-session-id-1",
     ws_session_id: str = "test-ws-session-id-1",
     account_id: str = "100000001",
-):
+) -> Iterator[FakeSocket]:
     """Replace ``FanslyWebSocket`` with an in-process stub that auto-authenticates.
 
     Production ``FanslyWebSocket.start_in_thread`` spawns a subprocess via
@@ -230,12 +231,19 @@ def _make_in_process_ws_stub(
     return _InProcessFanslyWebSocketStub
 
 
-class FakeWS:
+class FakeWS(FanslyWebSocket):
     """Client-level WebSocket stub — stands in for an entire FanslyWebSocket.
 
     No real network connection. Suitable for tests that inject a fake into
     components expecting a ``FanslyWebSocket``-shaped object (e.g.,
     ``daemon/runner.py`` via its ``ws_factory`` injection seam).
+
+    Subclasses ``FanslyWebSocket`` (and deliberately does NOT call
+    ``super().__init__``, so no subprocess/network is created) purely so it is
+    a nominal subtype — daemon seams typed ``FanslyWebSocket`` accept it with no
+    ``# type: ignore``. It overrides exactly the lifecycle surface the daemon
+    loops touch; any other real method is inherited but never reached by these
+    no-network tests.
 
     Mirrors the post-thread-refactor surface:
       * ``register_handler(msg_type, handler)`` — record a handler

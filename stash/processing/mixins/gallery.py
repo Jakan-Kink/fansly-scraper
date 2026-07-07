@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
 
-from stash_graphql_client.types import Gallery, GalleryChapter, Studio, is_set
+from stash_graphql_client.types import (
+    Gallery,
+    GalleryChapter,
+    Performer,
+    Studio,
+    is_set,
+)
 
 from metadata import Account, ContentType, Post
 
@@ -59,13 +64,20 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         """
         # Cache-first: try sync filter() (zero-cost after preload),
         # fall back to async find() only if cache misses
-        target_date = item.createdAt.strftime("%Y-%m-%d")
+        target_date = item.createdAt.strftime("%Y-%m-%d") if item.createdAt else None
         galleries = self.store.filter(
             Gallery,
             lambda g: (
                 g.title == title
                 and g.date == target_date
-                and (not studio or (g.studio and g.studio.id == studio.id))
+                and (
+                    not studio
+                    or (
+                        is_set(g.studio)
+                        and g.studio is not None
+                        and g.studio.id == studio.id
+                    )
+                )
             ),
         )
         gallery = galleries[0] if galleries else None
@@ -78,7 +90,14 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                     g
                     for g in galleries
                     if g.date == target_date
-                    and (not studio or (g.studio and g.studio.id == studio.id))
+                    and (
+                        not studio
+                        or (
+                            is_set(g.studio)
+                            and g.studio is not None
+                            and g.studio.id == studio.id
+                        )
+                    )
                 ),
                 None,
             )
@@ -200,7 +219,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             title=title,
             details=item.content,
             code=str(item.id),  # Use post/message ID as code for uniqueness
-            date=item.createdAt.strftime("%Y-%m-%d"),
+            date=(item.createdAt.strftime("%Y-%m-%d") if item.createdAt else None),
             # created_at and updated_at handled by Stash
             organized=True,  # Mark as organized since we have metadata
             performers=[],  # Initialize as empty list to avoid UnsetType
@@ -241,7 +260,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         self,
         gallery: Gallery,
         item: HasMetadata,
-        performer: Any,
+        performer: Performer | None,
     ) -> None:
         """Set up performers for a gallery.
 
@@ -316,6 +335,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                     and attachment.contentType == ContentType.AGGREGATED_POSTS
                     and hasattr(attachment, "resolve_content")
                     and (post := await attachment.resolve_content())
+                    and isinstance(post, Post)
                     and await self._check_aggregated_posts([post])
                 ):
                     debug_print(
@@ -341,7 +361,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         self,
         item: HasMetadata,
         account: Account,
-        performer: Any,
+        performer: Performer | None,
         studio: Studio | None,
         item_type: str,  # noqa: ARG002
         url_pattern: str,
@@ -415,6 +435,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                     and attachment.contentType == ContentType.AGGREGATED_POSTS
                     and hasattr(attachment, "resolve_content")
                     and (post := await attachment.resolve_content())
+                    and isinstance(post, Post)
                     and await self._has_media_content(post)
                 ):
                     # Only create chapter if post has media

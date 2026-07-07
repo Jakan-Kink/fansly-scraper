@@ -24,10 +24,16 @@ import respx
 from loguru import logger
 
 from api.fansly import FanslyApi
+from config.fanslyconfig import FanslyConfig
 from daemon.runner import run_daemon
 from daemon.simulator import ActivitySimulator
-from metadata.models import MonitorState
-from tests.fixtures.api import dump_fansly_calls, make_ws_factory_for
+from metadata.entity_store import PostgresEntityStore
+from metadata.models import Account, MonitorState
+from tests.fixtures.api import (
+    FakeFanslyWSServer,
+    dump_fansly_calls,
+    make_ws_factory_for,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -63,10 +69,10 @@ class TestRunDaemonE2E:
     @pytest.mark.timeout(20)
     async def test_poll_to_persist_cycle(
         self,
-        config_wired,
-        entity_store,
-        saved_account,
-        ws_server,
+        config_wired: FanslyConfig,
+        entity_store: PostgresEntityStore,
+        saved_account: Account,
+        ws_server: FakeFanslyWSServer,
     ) -> None:
         """run_daemon completes one full poll -> filter -> download -> persist cycle.
 
@@ -89,6 +95,7 @@ class TestRunDaemonE2E:
           - MonitorState row exists for the creator with a recent lastCheckedAt
             (set by mark_creator_processed after FullCreatorDownload).
         """
+        assert saved_account.id is not None
         creator_id: int = saved_account.id
         post_id: int = snowflake_id()
 

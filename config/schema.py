@@ -16,7 +16,7 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -29,12 +29,19 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import ErrorDetails
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
 from config.modes import DownloadMode
 from config.wall_filters import WallFilterSpec, normalize_wall_filters
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pydantic.fields import FieldInfo
 
 
 # Render-policy marker used in ``Field(json_schema_extra=_ALWAYS)``. A field
@@ -46,7 +53,7 @@ from config.wall_filters import WallFilterSpec, normalize_wall_filters
 _ALWAYS: dict[str, JsonValue] = {"render": "always"}
 
 
-def _is_always(field_info: Any) -> bool:
+def _is_always(field_info: FieldInfo | None) -> bool:
     """Return True iff a field's json_schema_extra marks it as render=always."""
     extra = getattr(field_info, "json_schema_extra", None)
     return isinstance(extra, dict) and extra.get("render") == "always"
@@ -78,7 +85,7 @@ def _format_validation_error(exc: ValidationError, path: Path) -> str:
 # Pydantic error-type → formatter(value, ctx) → sentence. Module-level
 # dict dispatch avoids a PLR0911 return-cascade in _pretty_error_message;
 # unknown types fall through to Pydantic's own ``msg``.
-_ERROR_FORMATTERS: dict[str, Any] = {
+_ERROR_FORMATTERS: dict[str, Callable[..., str]] = {
     "extra_forbidden": lambda value, _ctx: (
         f"unknown key (value was {value!r}). Either a typo, a key "
         "that belongs in a different section, or a field that was "
@@ -110,7 +117,7 @@ _ERROR_FORMATTERS: dict[str, Any] = {
 }
 
 
-def _pretty_error_message(err: dict[str, Any]) -> str:
+def _pretty_error_message(err: ErrorDetails) -> str:
     """Render one Pydantic error dict as a plain-English sentence.
 
     Dispatches via ``_ERROR_FORMATTERS`` for known types. ``value_error``
@@ -896,7 +903,7 @@ class ConfigSchema(_BaseSection):
             instance = cls.model_validate(raw)
         except ValidationError as exc:
             raise ValueError(_format_validation_error(exc, path)) from exc
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover - defensive: model_validate raises only ValidationError for real config input
             # Non-Pydantic errors (shouldn't happen here, but keep a
             # catch so the user still gets a message rather than a raw
             # traceback at the top level).

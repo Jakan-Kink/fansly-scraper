@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import copy
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
 
+from pydantic import JsonValue
+
+from helpers.common import JsonDict, expect_dict, expect_int, expect_list
 from textio import json_output
 
 from .models import (
@@ -32,10 +34,6 @@ from .models import (
     SubscriptionPromo,
     get_store,
 )
-
-
-if TYPE_CHECKING:
-    pass
 
 
 _SUBSCRIPTION_STATUS_ACTIVE = 3
@@ -68,7 +66,7 @@ def _is_active(status: int | None) -> bool:
 
 
 async def _process_single_subscription(
-    sub_data: dict[str, Any],
+    sub_data: JsonDict,
 ) -> tuple[int, str] | None:
     """Persist one Subscription row and return (accountId, reason) when
     the upsert constitutes an access-change for that creator.
@@ -93,26 +91,31 @@ async def _process_single_subscription(
         )
         return None
 
-    prev = store.get_from_cache(Subscription, int(sub_id))
+    prev = store.get_from_cache(Subscription, expect_int(sub_id, "id"))
     prev_active = prev is not None and _is_active(prev.status)
     prev_tier = prev.subscriptionTierId if prev else None
 
-    new_status = sub_data.get("status")
+    new_status_raw = sub_data.get("status")
+    new_status = (
+        expect_int(new_status_raw, "status") if new_status_raw is not None else None
+    )
     new_active = _is_active(new_status)
     new_tier = sub_data.get("subscriptionTierId")
-    new_tier_int = int(new_tier) if new_tier is not None else None
+    new_tier_int = (
+        expect_int(new_tier, "subscriptionTierId") if new_tier is not None else None
+    )
 
     sub = Subscription.model_validate(sub_data)
     await store.save(sub)
 
     if new_active and not prev_active:
-        return (int(account_id), "sub-activated")
+        return (expect_int(account_id, "accountId"), "sub-activated")
     if new_active and prev_active and prev_tier != new_tier_int:
-        return (int(account_id), "tier-upgraded")
+        return (expect_int(account_id, "accountId"), "tier-upgraded")
     return None
 
 
-async def _process_single_plan(plan_data: dict[str, Any]) -> None:
+async def _process_single_plan(plan_data: JsonDict) -> None:
     """Persist one SubscriptionPlan + its nested promos.
 
     The API embeds ``promos: [...]`` inside each plan. We strip them before
@@ -132,20 +135,21 @@ async def _process_single_plan(plan_data: dict[str, Any]) -> None:
         )
         return
 
-    promos = plan_data.pop("promos", []) or []
+    promos = plan_data.pop("promos", None)
     plan = SubscriptionPlan.model_validate(plan_data)
     await store.save(plan)
 
-    for promo_data in promos:
-        if not isinstance(promo_data, dict):
-            continue
-        promo_payload = {**promo_data, "planId": plan_id}
-        promo = SubscriptionPromo.model_validate(promo_payload)
-        await store.save(promo)
+    if isinstance(promos, list):
+        for promo_data in promos:
+            if not isinstance(promo_data, dict):
+                continue
+            promo_payload = {**promo_data, "planId": plan_id}
+            promo = SubscriptionPromo.model_validate(promo_payload)
+            await store.save(promo)
 
 
 async def process_subscriptions_response(
-    response: dict[str, Any],
+    response: JsonDict,
 ) -> int:
     """Persist the full /api/v1/subscriptions response and write detected
     access-state changes into the module-level registry
@@ -167,21 +171,27 @@ async def process_subscriptions_response(
     response = copy.deepcopy(response)
     added = 0
 
-    for plan_data in response.get("subscriptionPlans", []):
-        await _process_single_plan(plan_data)
+    plans = response.get("subscriptionPlans")
+    if plans is not None:
+        for plan_data in expect_list(plans, "subscriptionPlans"):
+            await _process_single_plan(expect_dict(plan_data, "subscriptionPlan"))
 
-    for sub_data in response.get("subscriptions", []):
-        result = await _process_single_subscription(sub_data)
-        if result is not None:
-            account_id, reason = result
-            _access_changed_accounts[account_id] = reason
-            added += 1
+    subs = response.get("subscriptions")
+    if subs is not None:
+        for sub_data in expect_list(subs, "subscriptions"):
+            result = await _process_single_subscription(
+                expect_dict(sub_data, "subscription")
+            )
+            if result is not None:
+                account_id, reason = result
+                _access_changed_accounts[account_id] = reason
+                added += 1
 
     return added
 
 
 async def apply_subscription_snapshot(
-    sub_data: dict[str, Any],
+    sub_data: JsonValue,
 ) -> tuple[int, str] | None:
     """Apply a subscription snapshot from a REST source (e.g., the
     embedded ``Account.subscription`` field in /account?usernames= responses).
@@ -204,7 +214,7 @@ async def apply_subscription_snapshot(
 
 
 async def apply_subscription_ws_event(
-    sub_data: dict[str, Any],
+    sub_data: JsonValue,
 ) -> tuple[int, str] | None:
     """Apply an embedded subscription payload from a WS event to the store.
 
@@ -228,13 +238,13 @@ async def apply_subscription_ws_event(
         return None
 
     store = get_store()
-    cached = store.get_from_cache(Subscription, int(sub_id_raw))
+    cached = store.get_from_cache(Subscription, expect_int(sub_id_raw, "id"))
     incoming_version = sub_data.get("version")
     if (
         cached is not None
         and incoming_version is not None
         and cached.version is not None
-        and incoming_version < cached.version
+        and expect_int(incoming_version, "version") < cached.version
     ):
         return None
 
@@ -265,7 +275,7 @@ async def record_follow_observation(
 
     prior = store.filter(
         FollowEvent,
-        lambda e, aid=account_id: e.accountId == aid,
+        lambda e: e.accountId == account_id,
     )
     prior_sorted = sorted(prior, key=lambda e: e.observed_at, reverse=True)
     latest = prior_sorted[0] if prior_sorted else None

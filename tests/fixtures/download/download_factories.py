@@ -19,12 +19,13 @@ Usage:
 """
 
 from pathlib import Path
+from typing import Any
 
 from factory.base import Factory
 from factory.declarations import LazyFunction, Sequence
 
 from download.core import DownloadState, GlobalState
-from download.downloadstate import DownloadType
+from download.types import DownloadType
 
 
 class DownloadStateFactory(Factory):
@@ -57,8 +58,8 @@ class DownloadStateFactory(Factory):
     download_type = DownloadType.NOTSET
 
     # Creator state
-    creator_name = None
-    creator_id = None
+    creator_name: Any = None
+    creator_id: Any = None
     following = False
     subscribed = False
 

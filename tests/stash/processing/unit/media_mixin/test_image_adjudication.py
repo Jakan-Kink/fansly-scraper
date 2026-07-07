@@ -12,12 +12,13 @@ shared scene.
 """
 
 import io
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 import httpx
 import pytest
 import respx
 from loguru import logger as loguru_logger
+from stash_graphql_client import present
 from stash_graphql_client.types import (
     BasicFile,
     GalleryFile,
@@ -26,108 +27,115 @@ from stash_graphql_client.types import (
 )
 from stash_graphql_client.types.unset import is_set
 
-from tests.fixtures import (
+from stash.processing import StashProcessing
+from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.stash import (
     create_graphql_response,
     create_image_dict,
     create_image_file_dict,
+    seed_processor_caches,
+    stash_creator_root,
 )
-from tests.fixtures.metadata.metadata_factories import MediaFactory
-from tests.fixtures.stash import seed_processor_caches, stash_creator_root
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 
 
 _GRAPHQL_URL = "http://localhost:9999/graphql"
+_MAPPED_ROOT = "/stash/library/fansly"
 
 
 class TestImageFilesAllLocal:
-    """Tests for MediaProcessingMixin._image_files_all_local (pure path logic)."""
+    """Tests for MediaProcessingMixin._image_files_all_local (pure path logic).
 
-    def test_all_local_paths_returns_true(self, respx_stash_processor):
-        """Every visual file under the creator root → all-local → True."""
+    One parametrized table over (visual file paths, mapped-override config,
+    expected verdict). ``{root}`` in a path is formatted with the creator root
+    at run time (the root is fixture-dependent); ``None`` paths mean
+    visual_files is left UNSET. The sibling-prefix row appends to the root with
+    NO separator: root ``/dl/anna`` must not claim ``/dl/annabelle/...`` —
+    without a separator-boundary anchor a bare prefix match would treat the
+    sibling's file as local, skipping the foreign-coresident guard. The
+    mapped-override rows set ``stash_override_dldir_w_mapped`` so the root is
+    ``str(mapped_path)`` regardless of base_path.
+    """
+
+    @pytest.mark.parametrize(
+        ("image_id", "visual_paths", "mapped_override", "expected"),
+        [
+            # Every visual file under the creator root → all-local.
+            pytest.param(
+                "3001",
+                ["{root}/test_user/x_id_1.jpg", "{root}/test_user/x_id_2.jpg"],
+                False,
+                True,
+                id="all-local-true",
+            ),
+            # A single co-resident outside the root → not all-local.
+            pytest.param(
+                "3002",
+                ["{root}/test_user/x_id_1.jpg", "/other/scraper/foreign.jpg"],
+                False,
+                False,
+                id="one-foreign-false",
+            ),
+            # Sibling creator sharing a name prefix (rootbelle/...) is foreign.
+            pytest.param(
+                "3006",
+                ["{root}/test_user/x_id_1.jpg", "{root}belle/other_user/x_id_2.jpg"],
+                False,
+                False,
+                id="sibling-prefix-is-foreign-false",
+            ),
+            # Empty visual_files → cannot verify ownership → False (skip).
+            pytest.param("3003", [], False, False, id="empty-visual-files-false"),
+            # UNSET visual_files → cannot verify ownership → False (skip).
+            pytest.param("3004", None, False, False, id="unset-visual-files-false"),
+            # override + mapped_path: under the mapped root → local.
+            pytest.param(
+                "3005",
+                [f"{_MAPPED_ROOT}/test_user/x_id_1.jpg"],
+                True,
+                True,
+                id="mapped-override-local-true",
+            ),
+            # override + mapped_path: a path outside the mapped root → False.
+            pytest.param(
+                "3007",
+                [
+                    f"{_MAPPED_ROOT}/test_user/x_id_1.jpg",
+                    "/some/other/mount/x_id_2.jpg",
+                ],
+                True,
+                False,
+                id="mapped-override-foreign-false",
+            ),
+        ],
+    )
+    def test_image_files_all_local(
+        self,
+        respx_stash_processor: StashProcessing,
+        image_id: str,
+        visual_paths: list[str] | None,
+        mapped_override: bool,
+        expected: bool,
+    ) -> None:
+        """Path-ownership verdict for each visual-file layout."""
+        if mapped_override:
+            respx_stash_processor.config.stash_mapped_path = Path(_MAPPED_ROOT)
+            respx_stash_processor.config.stash_override_dldir_w_mapped = True
+            # Sanity: the helper's root is the mapped path, not the tmp base_path.
+            assert stash_creator_root(respx_stash_processor) == _MAPPED_ROOT
         root = stash_creator_root(respx_stash_processor)
-        image = Image(
-            id="3001",
-            visual_files=[
-                ImageFile(id="1", path=f"{root}/test_user/x_id_1.jpg"),
-                ImageFile(id="2", path=f"{root}/test_user/x_id_2.jpg"),
-            ],
-        )
-        assert respx_stash_processor._image_files_all_local(image) is True
 
-    def test_one_foreign_path_returns_false(self, respx_stash_processor):
-        """A single co-resident outside the root → not all-local → False."""
-        root = stash_creator_root(respx_stash_processor)
-        image = Image(
-            id="3002",
-            visual_files=[
-                ImageFile(id="1", path=f"{root}/test_user/x_id_1.jpg"),
-                ImageFile(id="2", path="/other/scraper/foreign.jpg"),
-            ],
-        )
-        assert respx_stash_processor._image_files_all_local(image) is False
-
-    def test_sibling_prefix_path_is_foreign_returns_false(self, respx_stash_processor):
-        """A sibling creator sharing a name prefix is NOT local.
-
-        Root ``/dl/anna`` must not claim ``/dl/annabelle/...``: without a
-        separator-boundary anchor a bare prefix match treats the sibling's file
-        as local, skipping the foreign-coresident guard. The sibling path is
-        built by appending to the root with NO separator.
-        """
-        root = stash_creator_root(respx_stash_processor)
-        image = Image(
-            id="3006",
-            visual_files=[
-                ImageFile(id="1", path=f"{root}/test_user/x_id_1.jpg"),
-                ImageFile(id="2", path=f"{root}belle/other_user/x_id_2.jpg"),
-            ],
-        )
-        assert respx_stash_processor._image_files_all_local(image) is False
-
-    def test_empty_visual_files_returns_false(self, respx_stash_processor):
-        """Empty visual_files → cannot verify ownership → False (skip)."""
-        image = Image(id="3003", visual_files=[])
-        assert respx_stash_processor._image_files_all_local(image) is False
-
-    def test_unset_visual_files_returns_false(self, respx_stash_processor):
-        """UNSET visual_files → cannot verify ownership → False (skip)."""
-        image = Image(id="3004")  # visual_files defaults to UNSET
-        assert respx_stash_processor._image_files_all_local(image) is False
-
-    def test_mapped_override_local_under_mapped_returns_true(
-        self, respx_stash_processor
-    ):
-        """override + mapped_path: root is the mapped path; under it → True.
-
-        With ``stash_override_dldir_w_mapped`` the root is ``str(mapped_path)``
-        regardless of base_path, so a file path under the mapped root is local.
-        """
-        respx_stash_processor.config.stash_mapped_path = "/stash/library/fansly"
-        respx_stash_processor.config.stash_override_dldir_w_mapped = True
-        # Sanity: the helper's root is the mapped path, not the tmp base_path.
-        assert stash_creator_root(respx_stash_processor) == "/stash/library/fansly"
-
-        image = Image(
-            id="3005",
-            visual_files=[
-                ImageFile(id="1", path="/stash/library/fansly/test_user/x_id_1.jpg"),
-            ],
-        )
-        assert respx_stash_processor._image_files_all_local(image) is True
-
-    def test_mapped_override_foreign_returns_false(self, respx_stash_processor):
-        """override + mapped_path: a path outside the mapped root → False."""
-        respx_stash_processor.config.stash_mapped_path = "/stash/library/fansly"
-        respx_stash_processor.config.stash_override_dldir_w_mapped = True
-
-        image = Image(
-            id="3006",
-            visual_files=[
-                ImageFile(id="1", path="/stash/library/fansly/test_user/x_id_1.jpg"),
-                ImageFile(id="2", path="/some/other/mount/x_id_2.jpg"),
-            ],
-        )
-        assert respx_stash_processor._image_files_all_local(image) is False
+        if visual_paths is None:
+            image = Image(id=image_id)  # visual_files defaults to UNSET
+        else:
+            image = Image(
+                id=image_id,
+                visual_files=[
+                    ImageFile(id=str(i + 1), path=path.format(root=root))
+                    for i, path in enumerate(visual_paths)
+                ],
+            )
+        assert respx_stash_processor._image_files_all_local(image) is expected
 
 
 class TestProcessFileFirstImage:
@@ -175,7 +183,7 @@ class TestProcessFileFirstImage:
 
         media = MediaFactory.build(is_downloaded=True, local_filename="x_id_42.jpg")
         studio = seed_processor_caches(respx_stash_processor, mock_account)
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         try:
             result = await respx_stash_processor._process_file_first(
@@ -233,7 +241,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -267,7 +275,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(gfile.path).name: (media, [mock_item])}
+        index = {PurePath(present(gfile.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -293,7 +301,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(bfile.path).name: (media, [mock_item])}
+        index = {PurePath(present(bfile.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")
@@ -356,7 +364,7 @@ class TestProcessFileFirstImage:
 
         media = MediaFactory.build(is_downloaded=True, local_filename="x_id_42.jpg")
         studio = seed_processor_caches(respx_stash_processor, mock_account)
-        index = {PurePath(stale_file.path).name: (media, [mock_item])}
+        index = {PurePath(present(stale_file.path)).name: (media, [mock_item])}
 
         try:
             result = await respx_stash_processor._process_file_first(
@@ -401,7 +409,7 @@ class TestProcessFileFirstImage:
         original_stash_id = media.stash_id
         studio = seed_processor_caches(respx_stash_processor, mock_account)
 
-        index = {PurePath(our.path).name: (media, [mock_item])}
+        index = {PurePath(present(our.path)).name: (media, [mock_item])}
 
         sink = io.StringIO()
         sink_id = loguru_logger.add(sink, level="ERROR")

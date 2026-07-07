@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import respx
+from pydantic import JsonValue
 
 from api.fansly import FanslyApi
 from api.rate_limiter import RateLimiter
@@ -123,7 +124,9 @@ class TestFanslyApiAdditional:
         )
 
         try:
-            await respx_fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
+            await respx_fansly_api.get_client_account_info(
+                alternate_token="alt_token"
+            )  # Test fixture token
         finally:
             dump_fansly_calls(
                 route.calls, "test_get_client_account_info_with_alternate_token"
@@ -289,14 +292,41 @@ class TestFanslyApiAdditional:
             in request.headers["access-control-request-headers"]
         )
 
+    @pytest.mark.parametrize(
+        ("device_id", "device_id_timestamp", "fetched_device_id"),
+        [
+            pytest.param(None, None, "new_device_id", id="no-device-info"),
+            pytest.param(
+                None,
+                123456789,
+                "fetched_device_id",
+                id="timestamp-without-device-id",
+            ),
+            pytest.param(
+                "custom_device_id",
+                None,
+                "updated_device_id",
+                id="device-id-without-timestamp",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
     @respx.mock
-    async def test_init_without_device_info(self):
-        """No device_id args → device_id stays None; first update_device_id() fetches."""
+    async def test_init_device_id_stays_none_until_lazy_fetch(
+        self,
+        request: pytest.FixtureRequest,
+        device_id: str | None,
+        device_id_timestamp: int | None,
+        fetched_device_id: str,
+    ) -> None:
+        """Partial or absent device info → device_id stays None; first
+        update_device_id() lazily fetches it from the endpoint."""
         api = FanslyApi(
-            token="test_token",  # noqa: S106 # Test fixture token
+            token="test_token",  # Test fixture token
             user_agent="test_user_agent",
             check_key="test_check_key",
+            device_id=device_id,
+            device_id_timestamp=device_id_timestamp,
         )
         respx.options(url__startswith=api.DEVICE_ID_ENDPOINT).mock(
             side_effect=[httpx.Response(200)]
@@ -304,7 +334,7 @@ class TestFanslyApiAdditional:
         device_route = respx.get(api.DEVICE_ID_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
-                    200, json={"success": "true", "response": "new_device_id"}
+                    200, json={"success": "true", "response": fetched_device_id}
                 )
             ]
         )
@@ -315,84 +345,10 @@ class TestFanslyApiAdditional:
         try:
             await api.update_device_id()
         finally:
-            dump_fansly_calls(device_route.calls, "test_update_device_id")
+            dump_fansly_calls(device_route.calls, request.node.name)
 
         assert device_route.called
-        assert api.device_id == "new_device_id"
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_init_without_device_id_but_with_timestamp(self):
-        """timestamp without device_id → device_id stays None until lazy fetch."""
-        custom_timestamp = 123456789
-
-        api = FanslyApi(
-            token="test_token",  # noqa: S106 # Test fixture token
-            user_agent="test_user_agent",
-            check_key="test_check_key",
-            device_id_timestamp=custom_timestamp,
-        )
-        respx.options(url__startswith=api.DEVICE_ID_ENDPOINT).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        device_route = respx.get(api.DEVICE_ID_ENDPOINT).mock(
-            side_effect=[
-                httpx.Response(
-                    200, json={"success": "true", "response": "fetched_device_id"}
-                )
-            ]
-        )
-
-        assert api.device_id is None
-        assert not device_route.called
-
-        try:
-            await api.update_device_id()
-        finally:
-            dump_fansly_calls(
-                device_route.calls,
-                "test_init_without_device_id_but_with_timestamp",
-            )
-
-        assert device_route.called
-        assert api.device_id == "fetched_device_id"
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_init_with_device_id_but_without_timestamp(self):
-        """device_id without timestamp → device_id stays None until lazy fetch."""
-        custom_device_id = "custom_device_id"
-
-        api = FanslyApi(
-            token="test_token",  # noqa: S106 # Test fixture token
-            user_agent="test_user_agent",
-            check_key="test_check_key",
-            device_id=custom_device_id,
-        )
-        respx.options(url__startswith=api.DEVICE_ID_ENDPOINT).mock(
-            side_effect=[httpx.Response(200)]
-        )
-        device_route = respx.get(api.DEVICE_ID_ENDPOINT).mock(
-            side_effect=[
-                httpx.Response(
-                    200, json={"success": "true", "response": "updated_device_id"}
-                )
-            ]
-        )
-
-        assert api.device_id is None
-        assert not device_route.called
-
-        try:
-            await api.update_device_id()
-        finally:
-            dump_fansly_calls(
-                device_route.calls,
-                "test_init_with_device_id_but_without_timestamp",
-            )
-
-        assert device_route.called
-        assert api.device_id == "updated_device_id"
+        assert api.device_id == fetched_device_id
 
 
 class TestValidateJsonResponse:
@@ -438,22 +394,26 @@ class TestConvertIdsToInt:
 
     def test_non_numeric_id_string_unchanged(self):
         """Non-numeric ID string falls back to original value."""
-        data = {"id": "not_a_number", "name": "test"}
+        data: JsonValue = {"id": "not_a_number", "name": "test"}
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, dict)
         assert result["id"] == "not_a_number"
         assert result["name"] == "test"
 
     def test_nested_list_of_dicts(self):
         """Nested list of dicts has IDs converted recursively."""
-        data = [{"id": "123", "parentId": "456"}]
+        data: JsonValue = [{"id": "123", "parentId": "456"}]
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, list)
+        assert isinstance(result[0], dict)
         assert result[0]["id"] == 123
         assert result[0]["parentId"] == 456
 
     def test_ids_list_field(self):
         """Fields ending with 'Ids' have list items converted."""
-        data = {"accountIds": ["111", "222", 333]}
+        data: JsonValue = {"accountIds": ["111", "222", 333]}
         result = FanslyApi.convert_ids_to_int(data)
+        assert isinstance(result, dict)
         assert result["accountIds"] == [111, 222, 333]
 
 
@@ -526,15 +486,17 @@ class TestGetClientUserName:
     """Cover get_client_user_name edge case."""
 
     @pytest.mark.asyncio
-    async def test_empty_username_returns_none(self, respx_fansly_api):
-        """Empty username in API response returns None."""
+    @pytest.mark.parametrize("username_value", ["", None])
+    async def test_falsy_username_returns_none(self, respx_fansly_api, username_value):
+        """Empty or null username returns None. The null case exercises the
+        ``str_or_none`` None-branch; both fall through to the falsy return."""
         route = respx.get(respx_fansly_api.ACCOUNT_ME_ENDPOINT).mock(
             side_effect=[
                 httpx.Response(
                     200,
                     json={
                         "success": "true",
-                        "response": {"account": {"username": ""}},
+                        "response": {"account": {"username": username_value}},
                     },
                 )
             ]
@@ -542,6 +504,6 @@ class TestGetClientUserName:
         try:
             result = await respx_fansly_api.get_client_user_name()
         finally:
-            dump_fansly_calls(route.calls, "test_empty_username_returns_none")
+            dump_fansly_calls(route.calls, "test_falsy_username_returns_none")
 
         assert result is None

@@ -39,6 +39,7 @@ def test_load_yaml_when_yaml_exists(tmp_path: Path) -> None:
 
     # Loaded from YAML, not the ini
     assert isinstance(schema, ConfigSchema)
+    assert isinstance(schema.targeted_creator.usernames, list)
     assert "shouldnotappear" not in schema.targeted_creator.usernames
     # sample.yaml has "replaceme" as the username
     assert "replaceme" in schema.targeted_creator.usernames
@@ -83,6 +84,7 @@ def test_yaml_preferred_over_ini_when_both_present(tmp_path: Path) -> None:
     schema = load_or_migrate(tmp_path)
 
     # Must have loaded from YAML
+    assert isinstance(schema.targeted_creator.usernames, list)
     assert "ini_only_user" not in schema.targeted_creator.usernames
     assert "replaceme" in schema.targeted_creator.usernames
 
@@ -149,6 +151,7 @@ def test_load_or_migrate_triggers_migration_when_only_ini_exists(
     assert len(bak_files) == 1, f"Expected one backup, found: {bak_files}"
 
     assert isinstance(schema, ConfigSchema)
+    assert isinstance(schema.targeted_creator.usernames, list)
     assert "onlyini_user" in schema.targeted_creator.usernames
     assert schema.my_account.authorization_token.get_secret_value() == "tok_onlyini"
 

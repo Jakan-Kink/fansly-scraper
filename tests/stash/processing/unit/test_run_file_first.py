@@ -16,6 +16,7 @@ from pathlib import PurePath
 import httpx
 import pytest
 import respx
+from stash_graphql_client import present
 from stash_graphql_client.types import VideoFile
 
 from metadata import ContentType
@@ -228,7 +229,7 @@ async def test_adjudicate_swept_file_fans_entity_to_all_owners(
     """
     processor = respx_stash_processor
     file = VideoFile(id="500", path="/dl/test_user/x_id_42.mp4")
-    scene = SceneFactory(id="700", title="Test Scene")
+    scene = SceneFactory.build(id="700", title="Test Scene")
     scene.files = [file]
     file.scenes = [scene]  # _owned_scene resolves without a populate
 
@@ -237,13 +238,14 @@ async def test_adjudicate_swept_file_fans_entity_to_all_owners(
     )
     # mock_item is the canonical (earliest) owner; post_b only needs an id.
     post_b = PostFactory.build(id=snowflake_id(), accountId=mock_item.accountId)
-    index = {PurePath(file.path).name: (media, [mock_item, post_b])}
+    file_path = present(file.path)
+    index = {PurePath(file_path).name: (media, [mock_item, post_b])}
 
     processor._account = mock_account
-    processor._performer = PerformerFactory(
+    processor._performer = PerformerFactory.build(
         id="123", name=mock_account.username, scenes=[], images=[], galleries=[]
     )
-    studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+    studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
 
     item_entities: dict = {}
     media_with_id: list = []

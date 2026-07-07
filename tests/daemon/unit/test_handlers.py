@@ -22,6 +22,7 @@ import io
 import logging
 
 import pytest
+from _pytest.mark.structures import ParameterSet
 from loguru import logger as loguru_logger
 
 from api.websocket_protocol import SILENT_SERVICE_EVENTS
@@ -52,7 +53,7 @@ _PPV_CREATOR_ID = snowflake_id()
 _DELETED_MSG_ID = snowflake_id()
 
 
-_HAPPY_PATH_CASES: list[tuple[int, int, dict, WorkItem]] = [
+_HAPPY_PATH_CASES: list[ParameterSet] = [
     # svc=5 type=1 — new message with attachments → DownloadMessagesForGroup
     pytest.param(
         5,
@@ -203,7 +204,7 @@ def test_dispatch_returns_expected_workitem(
 # ---------------------------------------------------------------------------
 
 
-_RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
+_RETURNS_NONE_CASES: list[ParameterSet] = [
     # ── Intentional filters: handler ran but had nothing actionable ──
     pytest.param(
         5,
@@ -381,6 +382,12 @@ _RETURNS_NONE_CASES: list[tuple[int, int, dict]] = [
     pytest.param(
         5,
         1,
+        {"message": {"groupId": [1, 2], "attachments": [{"contentType": 1}]}},
+        id="malformed_non_scalar_group_id",  # list isn't an int-like scalar
+    ),
+    pytest.param(
+        5,
+        1,
         {"message": {"groupId": None, "attachments": [{"contentType": 1}]}},
         id="malformed_null_group_id",
     ),
@@ -529,7 +536,9 @@ def test_typing_announce_silenced_at_ws_layer() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gathering_entry_routes_to_gathering_handler(caplog) -> None:
+def test_gathering_entry_routes_to_gathering_handler(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """An entry in _GATHERING_DESCRIPTIONS dispatches via the gathering path."""
     caplog.set_level(logging.DEBUG)
     _GATHERING_DESCRIPTIONS[(9999, 1)] = "test gathering entry"

@@ -1,4 +1,11 @@
-"""Unit tests for the preview-repair backfill pass."""
+"""Unit tests for the preview-repair backfill pass.
+
+DB-bearing tests share ONE class-scoped database via ``class_entity_store``
+(requested through ``reset_class_store``, which clears the in-memory
+cache/identity map between methods). Rows are namespaced by unique snowflake
+ids and per-test ``tmp_path`` directories, so tests never collide in the
+shared database. Pure-path helpers stay module-level (no DB).
+"""
 
 import pytest
 
@@ -9,96 +16,199 @@ from fileio.preview_repair import (
     build_preview_id_set,
 )
 from metadata import Media
-from tests.fixtures import snowflake_id
 from tests.fixtures.metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
     MediaFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.mark.asyncio
-async def test_build_preview_id_set_collects_account_media_and_bundle(entity_store):
-    """preview_id rows from both AccountMedia and AccountMediaBundle are collected."""
-    store = entity_store
-    acct_id = snowflake_id()
-    preview_id_1 = snowflake_id()
-    preview_id_2 = snowflake_id()
-    media_id_10 = snowflake_id()
-    media_id_30 = snowflake_id()
-    am_id_1 = snowflake_id()
-    am_id_2 = snowflake_id()
-    bundle_id = snowflake_id()
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("preview_repair_db")
+class TestPreviewRepairDb:
+    """build_preview_id_set + _safe_move over ONE shared class DB."""
 
-    await store.save(AccountFactory.build(id=acct_id))
-    # Media rows that serve as previewId FK targets
-    await store.save(MediaFactory.build(id=preview_id_1, accountId=acct_id))
-    await store.save(MediaFactory.build(id=preview_id_2, accountId=acct_id))
-    # Media rows that serve as mediaId FK targets
-    await store.save(MediaFactory.build(id=media_id_10, accountId=acct_id))
-    await store.save(MediaFactory.build(id=media_id_30, accountId=acct_id))
+    async def test_build_preview_id_set_collects_account_media_and_bundle(
+        self, reset_class_store
+    ):
+        """preview_id rows from both AccountMedia and AccountMediaBundle are collected."""
+        store = reset_class_store
+        acct_id = snowflake_id()
+        preview_id_1 = snowflake_id()
+        preview_id_2 = snowflake_id()
+        media_id_10 = snowflake_id()
+        media_id_30 = snowflake_id()
+        am_id_1 = snowflake_id()
+        am_id_2 = snowflake_id()
+        bundle_id = snowflake_id()
 
-    await store.save(
-        AccountMediaFactory.build(
-            id=am_id_1, accountId=acct_id, mediaId=media_id_10, previewId=preview_id_1
+        await store.save(AccountFactory.build(id=acct_id))
+        # Media rows that serve as previewId FK targets
+        await store.save(MediaFactory.build(id=preview_id_1, accountId=acct_id))
+        await store.save(MediaFactory.build(id=preview_id_2, accountId=acct_id))
+        # Media rows that serve as mediaId FK targets
+        await store.save(MediaFactory.build(id=media_id_10, accountId=acct_id))
+        await store.save(MediaFactory.build(id=media_id_30, accountId=acct_id))
+
+        await store.save(
+            AccountMediaFactory.build(
+                id=am_id_1,
+                accountId=acct_id,
+                mediaId=media_id_10,
+                previewId=preview_id_1,
+            )
         )
-    )
-    await store.save(
-        AccountMediaBundleFactory.build(
-            id=bundle_id, accountId=acct_id, previewId=preview_id_2
+        await store.save(
+            AccountMediaBundleFactory.build(
+                id=bundle_id, accountId=acct_id, previewId=preview_id_2
+            )
         )
-    )
-    # Non-preview row — should be excluded
-    await store.save(
-        AccountMediaFactory.build(
-            id=am_id_2, accountId=acct_id, mediaId=media_id_30, previewId=None
+        # Non-preview row — should be excluded
+        await store.save(
+            AccountMediaFactory.build(
+                id=am_id_2, accountId=acct_id, mediaId=media_id_30, previewId=None
+            )
         )
-    )
 
-    ids = await build_preview_id_set(acct_id)
+        ids = await build_preview_id_set(acct_id)
 
-    assert ids == {preview_id_1, preview_id_2}
+        assert ids == {preview_id_1, preview_id_2}
 
+    async def test_build_preview_id_set_scopes_by_account(self, reset_class_store):
+        """Only previewId rows belonging to the requested account are returned."""
+        store = reset_class_store
+        acct_id_a = snowflake_id()
+        acct_id_b = snowflake_id()
+        preview_id_a = snowflake_id()
+        preview_id_b = snowflake_id()
+        media_id_a = snowflake_id()
+        media_id_b = snowflake_id()
 
-@pytest.mark.asyncio
-async def test_build_preview_id_set_scopes_by_account(entity_store):
-    """Only previewId rows belonging to the requested account are returned."""
-    store = entity_store
-    acct_id_a = snowflake_id()
-    acct_id_b = snowflake_id()
-    preview_id_a = snowflake_id()
-    preview_id_b = snowflake_id()
-    media_id_a = snowflake_id()
-    media_id_b = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id_a))
+        await store.save(AccountFactory.build(id=acct_id_b))
+        # Media for account A
+        await store.save(MediaFactory.build(id=preview_id_a, accountId=acct_id_a))
+        await store.save(MediaFactory.build(id=media_id_a, accountId=acct_id_a))
+        # Media for account B
+        await store.save(MediaFactory.build(id=preview_id_b, accountId=acct_id_b))
+        await store.save(MediaFactory.build(id=media_id_b, accountId=acct_id_b))
 
-    await store.save(AccountFactory.build(id=acct_id_a))
-    await store.save(AccountFactory.build(id=acct_id_b))
-    # Media for account A
-    await store.save(MediaFactory.build(id=preview_id_a, accountId=acct_id_a))
-    await store.save(MediaFactory.build(id=media_id_a, accountId=acct_id_a))
-    # Media for account B
-    await store.save(MediaFactory.build(id=preview_id_b, accountId=acct_id_b))
-    await store.save(MediaFactory.build(id=media_id_b, accountId=acct_id_b))
-
-    await store.save(
-        AccountMediaFactory.build(
-            id=snowflake_id(),
-            accountId=acct_id_a,
-            mediaId=media_id_a,
-            previewId=preview_id_a,
+        await store.save(
+            AccountMediaFactory.build(
+                id=snowflake_id(),
+                accountId=acct_id_a,
+                mediaId=media_id_a,
+                previewId=preview_id_a,
+            )
         )
-    )
-    await store.save(
-        AccountMediaFactory.build(
-            id=snowflake_id(),
-            accountId=acct_id_b,
-            mediaId=media_id_b,
-            previewId=preview_id_b,
+        await store.save(
+            AccountMediaFactory.build(
+                id=snowflake_id(),
+                accountId=acct_id_b,
+                mediaId=media_id_b,
+                previewId=preview_id_b,
+            )
         )
-    )
 
-    assert await build_preview_id_set(acct_id_a) == {preview_id_a}
+        assert await build_preview_id_set(acct_id_a) == {preview_id_a}
+
+    async def test_safe_move_renames_and_updates_local_filename(
+        self, reset_class_store, tmp_path
+    ):
+        store = reset_class_store
+        acct_id = snowflake_id()
+        mid = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id))
+        await store.save(
+            MediaFactory.build(id=mid, accountId=acct_id, content_hash="h1")
+        )
+        src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
+        src.parent.mkdir(parents=True)
+        src.write_text("data")
+        target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
+
+        moved = await _safe_move(src, target, media_id=mid)
+
+        assert moved == target
+        assert target.exists()
+        assert not src.exists()
+        refreshed = await store.get(Media, mid)
+        assert refreshed.local_filename == f"new_preview_id_{mid}.jpg"
+
+    async def test_safe_move_identical_unlinks_source(
+        self, reset_class_store, tmp_path
+    ):
+        store = reset_class_store
+        acct_id = snowflake_id()
+        mid = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id))
+        await store.save(MediaFactory.build(id=mid, accountId=acct_id))
+        src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
+        target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
+        src.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True)
+        src.write_bytes(b"identical")
+        target.write_bytes(b"identical")
+
+        moved = await _safe_move(src, target, media_id=mid)
+
+        assert moved is None  # collision resolved, no new path to scan
+        assert not src.exists()  # duplicate source removed
+        assert target.exists()
+
+    async def test_safe_move_identical_reconciles_local_filename(
+        self, reset_class_store, tmp_path
+    ):
+        """Identical-duplicate branch must repoint the record at the survivor.
+
+        The source file is unlinked as a byte-identical duplicate, so its content
+        now lives only at ``target``. The source Media's ``local_filename`` must be
+        updated to the surviving file and persisted; otherwise the DB record is
+        stranded pointing at a deleted file.
+        """
+        store = reset_class_store
+        acct_id = snowflake_id()
+        mid = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id))
+        src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
+        target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
+        src.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True)
+        src.write_bytes(b"identical")
+        target.write_bytes(b"identical")
+        await store.save(
+            MediaFactory.build(id=mid, accountId=acct_id, local_filename=src.name)
+        )
+
+        moved = await _safe_move(src, target, media_id=mid)
+
+        assert moved is None  # collision resolved on disk
+        assert not src.exists()  # source removed as duplicate
+        refreshed = await store.get(Media, mid)
+        assert refreshed.local_filename == target.name  # repointed at survivor
+
+    async def test_safe_move_different_skips_and_keeps_both(
+        self, reset_class_store, tmp_path
+    ):
+        store = reset_class_store
+        acct_id = snowflake_id()
+        mid = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id))
+        await store.save(MediaFactory.build(id=mid, accountId=acct_id))
+        src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
+        target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
+        src.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True)
+        src.write_bytes(b"AAAA")
+        target.write_bytes(b"BBBB")
+
+        moved = await _safe_move(src, target, media_id=mid)
+
+        assert moved is None
+        assert src.exists()  # different data - never clobbered
+        assert target.exists()
 
 
 def test_classify_preview_by_id_set():
@@ -128,66 +238,3 @@ def test_canonical_target_idempotent_when_already_in_previews(tmp_path):
     canonical_name = src.name
     target = _canonical_target(src, canonical_name, is_preview=True, separate=True)
     assert target == src
-
-
-@pytest.mark.asyncio
-async def test_safe_move_renames_and_updates_local_filename(entity_store, tmp_path):
-    store = entity_store
-    acct_id = snowflake_id()
-    mid = snowflake_id()
-    await store.save(AccountFactory.build(id=acct_id))
-    await store.save(MediaFactory.build(id=mid, accountId=acct_id, content_hash="h1"))
-    src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
-    src.parent.mkdir(parents=True)
-    src.write_text("data")
-    target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
-
-    moved = await _safe_move(src, target, media_id=mid)
-
-    assert moved == target
-    assert target.exists()
-    assert not src.exists()
-    refreshed = await store.get(Media, mid)
-    assert refreshed.local_filename == f"new_preview_id_{mid}.jpg"
-
-
-@pytest.mark.asyncio
-async def test_safe_move_identical_unlinks_source(entity_store, tmp_path):
-    store = entity_store
-    acct_id = snowflake_id()
-    mid = snowflake_id()
-    await store.save(AccountFactory.build(id=acct_id))
-    await store.save(MediaFactory.build(id=mid, accountId=acct_id))
-    src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
-    target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
-    src.parent.mkdir(parents=True)
-    target.parent.mkdir(parents=True)
-    src.write_bytes(b"identical")
-    target.write_bytes(b"identical")
-
-    moved = await _safe_move(src, target, media_id=mid)
-
-    assert moved is None  # collision resolved, no new path to scan
-    assert not src.exists()  # duplicate source removed
-    assert target.exists()
-
-
-@pytest.mark.asyncio
-async def test_safe_move_different_skips_and_keeps_both(entity_store, tmp_path):
-    store = entity_store
-    acct_id = snowflake_id()
-    mid = snowflake_id()
-    await store.save(AccountFactory.build(id=acct_id))
-    await store.save(MediaFactory.build(id=mid, accountId=acct_id))
-    src = tmp_path / "Pictures" / f"old_id_{mid}.jpg"
-    target = tmp_path / "Pictures" / "Previews" / f"new_preview_id_{mid}.jpg"
-    src.parent.mkdir(parents=True)
-    target.parent.mkdir(parents=True)
-    src.write_bytes(b"AAAA")
-    target.write_bytes(b"BBBB")
-
-    moved = await _safe_move(src, target, media_id=mid)
-
-    assert moved is None
-    assert src.exists()  # different data - never clobbered
-    assert target.exists()

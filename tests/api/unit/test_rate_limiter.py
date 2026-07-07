@@ -6,27 +6,28 @@ Patches time.sleep to avoid real delays; time.time for deterministic timing.
 
 import asyncio
 import time
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from api.rate_limiter import RateLimiter
+from config import FanslyConfig
+from tests.fixtures.utils import scaled_async_sleep, scaled_sync_sleep
 
 
-def _make_config(**overrides):
-    """Build a stub config with rate limiter defaults."""
-    defaults = {
-        "rate_limiting_enabled": True,
-        "rate_limiting_adaptive": True,
-        "rate_limiting_requests_per_minute": 60,
-        "rate_limiting_burst_size": 10,
-        "rate_limiting_retry_after_seconds": 30,
-        "rate_limiting_backoff_factor": 1.5,
-        "rate_limiting_max_backoff_seconds": 300,
-    }
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+def _make_config(**overrides: bool | int | float) -> FanslyConfig:
+    """Build a real FanslyConfig with rate limiter defaults."""
+    config = FanslyConfig(program_version="0.13.0-test")
+    config.rate_limiting_enabled = True
+    config.rate_limiting_adaptive = True
+    config.rate_limiting_requests_per_minute = 60
+    config.rate_limiting_burst_size = 10
+    config.rate_limiting_retry_after_seconds = 30
+    config.rate_limiting_backoff_factor = 1.5
+    config.rate_limiting_max_backoff_seconds = 300
+    for key, value in overrides.items():
+        setattr(config, key, value)
+    return config
 
 
 class TestRateLimiterInit:
@@ -82,6 +83,39 @@ class TestAdaptiveBackoff:
         rl._apply_adaptive_backoff(200)
         assert rl.consecutive_successes == 0  # reset after reduction
         assert rl.current_backoff_seconds < 45.0
+
+    def test_backoff_reduction_pulls_back_token_freeze(self):
+        """Bug B regression: reducing backoff must also pull back the token freeze.
+
+        On a 429 the bucket is frozen by pushing ``last_refill`` into the future
+        (``last_backoff_time + current_backoff_seconds``); ``_refill_tokens`` then
+        adds nothing while ``now < last_refill``. When later successes *reduce*
+        ``current_backoff_seconds`` (the reduce path, line ~247), the reservation
+        side shrinks (and ``_next_allowed_at`` is clamped, line ~223) but
+        ``last_refill`` is never re-synced — so the freeze outlives the backoff.
+        The reservation side then says "go" while the bucket stays empty, and
+        ``async_wait_for_request`` livelocks in the token loop emitting
+        ``Token wait`` every refill interval (observed in the field as ~45s of spam
+        before a single request fired).
+
+        Invariant: after any downward backoff adjustment, the remaining freeze
+        window must not exceed the current backoff window.
+        """
+        rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0  # floor > 0 → reduce path (not full clear)
+
+        rl._apply_adaptive_backoff(429)  # backoff=30s; last_refill pushed +30s
+        assert rl.last_refill > time.time()  # bucket frozen into the future
+
+        rl._apply_adaptive_backoff(200)  # 1/2 successes
+        rl._apply_adaptive_backoff(200)  # 2/2 → backoff reduced 30s → 20s
+
+        freeze_window = rl.last_refill - rl.last_backoff_time
+        assert freeze_window <= rl.current_backoff_seconds + 0.5, (
+            f"token freeze spans {freeze_window:.1f}s but backoff is only "
+            f"{rl.current_backoff_seconds:.1f}s — last_refill was not pulled back "
+            "when backoff was reduced (Bug B: token-loop livelock)."
+        )
 
     def test_backoff_at_minimum_floor(self):
         """Lines 225-226: backoff at minimum floor after consecutive successes.
@@ -258,7 +292,7 @@ class TestWaitForRequest:
         rl.current_backoff_seconds = 1.0
         rl.last_backoff_time = rl.last_refill  # set to now-ish
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
         assert rl.blocked_requests == 1
@@ -268,7 +302,7 @@ class TestWaitForRequest:
         rl = RateLimiter(_make_config())
         rl.tokens = 0.0
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
         assert rl.blocked_requests == 1
@@ -290,7 +324,7 @@ class TestWaitForRequest:
         rl.learned_floor = 0.01
         rl.last_request_time = rl.last_refill  # recent
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
     @pytest.mark.asyncio
@@ -314,7 +348,7 @@ class TestWaitForRequest:
         assert rl.learned_floor == 0.0
         step = rl.token_refill_interval  # 1.0s for 60 rpm
 
-        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+        with patch("api.rate_limiter.asyncio.sleep", new=scaled_async_sleep):
             await asyncio.gather(*[rl.async_wait_for_request() for _ in range(5)])
 
         # After 5 reservations, cursor should be ~5*step ahead of the start.
@@ -333,7 +367,7 @@ class TestWaitForRequest:
         rl.tokens = 100.0
         rl.last_request_time = time.time()  # ensures floor is applied
 
-        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+        with patch("api.rate_limiter.asyncio.sleep", new=scaled_async_sleep):
             await asyncio.gather(*[rl.async_wait_for_request() for _ in range(3)])
 
         # 3 callers, each spaced by max(floor=2.0, refill=1.0) = 2.0s

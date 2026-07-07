@@ -26,8 +26,8 @@ Pattern match with production code using the executor:
 
 from __future__ import annotations
 
-from collections.abc import Generator
-from typing import Any
+from collections.abc import Callable, Generator, Iterable
+from typing import Any, Literal
 
 
 class SyncExecutor:
@@ -49,11 +49,13 @@ class SyncExecutor:
     def __enter__(self) -> SyncExecutor:
         return self
 
-    def __exit__(self, *_args) -> bool:
+    def __exit__(self, *_args: object) -> Literal[False]:
         return False
 
     @staticmethod
-    def map(func, *iterables) -> Generator[Any, None, None]:
+    def map(
+        func: Callable[..., Any], *iterables: Iterable[Any]
+    ) -> Generator[Any, None, None]:
         """Run ``func`` synchronously over zipped ``iterables``.
 
         Matches ``ThreadPoolExecutor.map``'s signature closely enough for

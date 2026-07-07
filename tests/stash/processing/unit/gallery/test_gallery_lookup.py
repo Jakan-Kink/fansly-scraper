@@ -3,6 +3,11 @@
 These tests mock at the HTTP boundary using respx, allowing real code execution
 through the entire processing pipeline. We verify that data flows correctly from
 database queries to GraphQL API calls.
+
+Each lookup family (_get_gallery_by_stash_id / _title / _code / _url) is
+parametrized over its found / not-found / wrong-* variants. Divergent
+call-counts are encoded as an explicit ``expected_calls`` column — notably the
+url-success branch, which carries an EXTRA galleryUpdate call from the save.
 """
 
 from datetime import UTC, datetime
@@ -10,10 +15,11 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from stash_graphql_client import is_set
 
 from stash.processing import StashProcessing
-from tests.fixtures import (
-    PostFactory,
+from tests.fixtures.metadata import PostFactory
+from tests.fixtures.stash import (
     StudioFactory,
     create_find_galleries_result,
     create_gallery_dict,
@@ -31,25 +37,42 @@ class TestGalleryLookup:
     """Test gallery lookup methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_stash_id when gallery is found."""
+    @pytest.mark.parametrize(
+        ("stash_id", "find_gallery_result", "expect_found", "expected_calls"),
+        [
+            # findGallery returns the gallery → found, 1 call.
+            pytest.param(123, "gallery", True, 1, id="found"),
+            # Post has no stash_id → early return, NO GraphQL call.
+            pytest.param(None, None, False, 0, id="no-stash-id"),
+            # findGallery returns null → not found, 1 call.
+            pytest.param(999, "null", False, 1, id="not-found"),
+        ],
+    )
+    async def test_get_gallery_by_stash_id(
+        self,
+        respx_stash_processor: StashProcessing,
+        request: pytest.FixtureRequest,
+        stash_id: int | None,
+        find_gallery_result: str | None,
+        expect_found: bool,
+        expected_calls: int,
+    ) -> None:
+        """Test _get_gallery_by_stash_id across found/no-id/not-found variants."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
 
-        # Build Post with stash_id set (no DB persistence needed)
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=123)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=stash_id)
 
-        # Set up respx - findGallery returns the gallery
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
+        # An empty side_effect list catches any unexpected call (StopIteration).
+        side_effect: list[httpx.Response] = []
+        if find_gallery_result == "gallery":
+            side_effect = [
                 httpx.Response(
                     200,
                     json={
                         "data": {
                             "findGallery": {
-                                "id": "123",
+                                "id": str(stash_id),
                                 "title": "Test Gallery",
                                 "code": str(post_id),
                             }
@@ -57,153 +80,154 @@ class TestGalleryLookup:
                     },
                 )
             ]
-        )
+        elif find_gallery_result == "null":
+            side_effect = [httpx.Response(200, json={"data": {"findGallery": None}})]
 
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_found")
-
-        # Verify gallery was found
-        assert gallery is not None
-        assert gallery.id == "123"
-        assert gallery.title == "Test Gallery"
-
-        # Verify exactly 1 call
-        assert len(graphql_route.calls) == 1
-
-        # Verify request contains findGallery with correct id
-        assert_op_with_vars(graphql_route.calls[0], "findGallery", id="123")
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id_no_stash_id(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_stash_id when post has no stash_id."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post without stash_id
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=None)
-
-        # Set up respx - expect NO calls for post without stash_id
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[]  # Empty list catches any unexpected call
+            side_effect=side_effect
         )
 
         try:
             gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
         finally:
-            dump_graphql_calls(
-                graphql_route.calls, "get_gallery_by_stash_id_no_stash_id"
-            )
+            dump_graphql_calls(graphql_route.calls, request.node.name)
 
-        # Verify no gallery returned
-        assert gallery is None
+        assert len(graphql_route.calls) == expected_calls
 
-        # Verify no GraphQL calls made
-        assert len(graphql_route.calls) == 0
+        if expect_found:
+            assert gallery is not None
+            assert gallery.id == str(stash_id)
+            assert gallery.title == "Test Gallery"
+        else:
+            assert gallery is None
+
+        if expected_calls:
+            # Request contains findGallery with the post's stash_id.
+            assert_op_with_vars(graphql_route.calls[0], "findGallery", id=str(stash_id))
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id_not_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_stash_id when gallery not found in Stash."""
+    @pytest.mark.parametrize(
+        (
+            "gallery_id",
+            "resp_date",
+            "resp_studio",
+            "studio_arg_id",
+            "expect_found",
+            "expected_calls",
+        ),
+        [
+            # Matching title, date, and studio → found (count check + fetch).
+            pytest.param(
+                "200",
+                "2024-04-01",
+                ("123", "Test Studio"),
+                "123",
+                True,
+                2,
+                id="found",
+            ),
+            # findGalleries returns empty → not found after the count check.
+            pytest.param(None, None, None, "124", False, 1, id="not-found"),
+            # Right title/studio but wrong date → rejected.
+            pytest.param(
+                "201",
+                "2024-04-02",
+                ("125", "Test Studio"),
+                "125",
+                False,
+                2,
+                id="wrong-date",
+            ),
+            # Right title/date but wrong studio → rejected.
+            pytest.param(
+                "202",
+                "2024-04-01",
+                ("9001", "Wrong Studio"),
+                "126",
+                False,
+                2,
+                id="wrong-studio",
+            ),
+            # No studio parameter → any studio matches.
+            pytest.param(
+                "203",
+                "2024-04-01",
+                ("9002", "Any Studio"),
+                None,
+                True,
+                2,
+                id="no-studio-matches-any",
+            ),
+        ],
+    )
+    async def test_get_gallery_by_title(
+        self,
+        respx_stash_processor: StashProcessing,
+        request: pytest.FixtureRequest,
+        gallery_id: str | None,
+        resp_date: str | None,
+        resp_studio: tuple[str, str] | None,
+        studio_arg_id: str | None,
+        expect_found: bool,
+        expected_calls: int,
+    ) -> None:
+        """Test _get_gallery_by_title match/reject variants (date/studio checks)."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
 
-        # Build Post with stash_id
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=999)
-
-        # Set up respx - findGallery returns null
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={"data": {"findGallery": None}},
-                )
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_stash_id_not_found")
-
-        # Verify no gallery returned
-        assert gallery is None
-
-        # Verify call was made
-        assert len(graphql_route.calls) == 1
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_title_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_title when matching gallery found."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post with specific date
+        # Build Post with specific date (2024-04-01 is the matching date).
         post_obj = PostFactory.build(
             id=post_id,
             accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Create real studio using factory
-        studio = StudioFactory.build(id="123", name="Test Studio")
+        studio = (
+            StudioFactory.build(id=studio_arg_id, name="Test Studio")
+            if studio_arg_id is not None
+            else None
+        )
 
-        # Set up respx - findGalleries returns matching gallery (needs 2 responses for find())
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: Count check (per_page=1)
+        if gallery_id is None:
+            # findGalleries returns empty on the count check.
+            side_effect = [
                 httpx.Response(
                     200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="200",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "123",
-                                        "name": "Test Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: Fetch results (per_page=1)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="200",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "123",
-                                        "name": "Test Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
+                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
+                )
             ]
+        else:
+            assert resp_studio is not None
+
+            # find() needs 2 responses: count check + fetch results.
+            def _find_response() -> httpx.Response:
+                return httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id=gallery_id,
+                                    title="Test Title",
+                                    code=None,
+                                    date=resp_date,
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": resp_studio[0],
+                                        "name": resp_studio[1],
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                )
+
+            side_effect = [_find_response(), _find_response()]
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=side_effect
         )
 
         try:
@@ -211,18 +235,19 @@ class TestGalleryLookup:
                 post_obj, "Test Title", studio
             )
         finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_found")
+            dump_graphql_calls(graphql_route.calls, request.node.name)
 
-        # Verify gallery was found
-        assert gallery is not None
-        assert gallery.id == "200"
-        assert gallery.title == "Test Title"
-        assert post_obj.stash_id == 200  # Should update item's stash_id as int
+        assert len(graphql_route.calls) == expected_calls
 
-        # Verify 2 calls (count check + fetch results)
-        assert len(graphql_route.calls) == 2
+        if expect_found:
+            assert gallery is not None
+            assert gallery.id == gallery_id
+            assert gallery.title == "Test Title"
+            assert post_obj.stash_id == int(gallery_id)  # updated as int
+        else:
+            assert gallery is None
 
-        # Verify first request contains findGalleries with title filter
+        # First request is findGalleries with the title filter.
         assert_op_with_vars(
             graphql_route.calls[0],
             "findGalleries",
@@ -231,311 +256,46 @@ class TestGalleryLookup:
         )
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_title_not_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_title when no matching gallery found."""
+    @pytest.mark.parametrize(
+        ("gallery_id", "resp_code", "expect_found"),
+        [
+            # Gallery code matches the post id → found.
+            pytest.param("300", "match", True, id="found"),
+            # findGalleries returns empty → not found.
+            pytest.param(None, None, False, id="not-found"),
+            # Gallery returned but with a different code → rejected.
+            pytest.param("301", "54321", False, id="wrong-code"),
+        ],
+    )
+    async def test_get_gallery_by_code(
+        self,
+        respx_stash_processor: StashProcessing,
+        request: pytest.FixtureRequest,
+        gallery_id: str | None,
+        resp_code: str | None,
+        expect_found: bool,
+    ) -> None:
+        """Test _get_gallery_by_code found/not-found/wrong-code variants."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
 
-        # Build Post
-        post_obj = PostFactory.build(
-            id=post_id,
-            accountId=acct_id,
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        studio = StudioFactory.build(id="124", name="Test Studio")
-
-        # Set up respx - findGalleries returns empty
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
-                )
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_title(
-                post_obj, "Test Title", studio
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_not_found")
-
-        # Verify no gallery returned
-        assert gallery is None
-
-        # Verify call was made
-        assert len(graphql_route.calls) == 1
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_title_wrong_date(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_title rejects gallery with wrong date."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(
-            id=post_id,
-            accountId=acct_id,
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        studio = StudioFactory.build(id="125", name="Test Studio")
-
-        # Set up respx - returns gallery with wrong date (needs 2 responses for find())
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: Count check
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="201",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-02",  # Wrong date
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "125",
-                                        "name": "Test Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: Fetch results
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="201",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-02",  # Wrong date
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "125",
-                                        "name": "Test Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_title(
-                post_obj, "Test Title", studio
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_wrong_date")
-
-        # Verify no match (wrong date)
-        assert gallery is None
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_title_wrong_studio(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_title rejects gallery with wrong studio."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(
-            id=post_id,
-            accountId=acct_id,
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        studio = StudioFactory.build(id="126", name="Test Studio")
-
-        # Set up respx - returns gallery with wrong studio (needs 2 responses for find())
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: Count check
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="202",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "9001",
-                                        "name": "Wrong Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: Fetch results
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="202",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "9001",
-                                        "name": "Wrong Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_title(
-                post_obj, "Test Title", studio
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_wrong_studio")
-
-        # Verify no match (wrong studio)
-        assert gallery is None
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_title_no_studio(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_title with no studio parameter matches any studio."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(
-            id=post_id,
-            accountId=acct_id,
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        # Set up respx - returns gallery with any studio (needs 2 responses for find())
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: Count check
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="203",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "9002",
-                                        "name": "Any Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: Fetch results
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="203",
-                                    title="Test Title",
-                                    code=None,
-                                    date="2024-04-01",
-                                    studio={
-                                        "__typename": "Studio",
-                                        "id": "9002",
-                                        "name": "Any Studio",
-                                    },
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-            ]
-        )
-
-        try:
-            # Call without studio parameter
-            gallery = await respx_stash_processor._get_gallery_by_title(
-                post_obj, "Test Title", None
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_title_no_studio")
-
-        # Verify gallery matches (no studio check)
-        assert gallery is not None
-        assert gallery.id == "203"
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_code_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_code when matching gallery found."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
         post_obj = PostFactory.build(id=post_id, accountId=acct_id)
 
-        # Set up respx - findGalleries returns matching gallery (find_one needs 1 response)
+        if gallery_id is None:
+            galleries_result = {"galleries": [], "count": 0}
+        else:
+            code = str(post_id) if resp_code == "match" else resp_code
+            galleries_result = create_find_galleries_result(
+                count=1,
+                galleries=[create_gallery_dict(id=gallery_id, title=None, code=code)],
+            )
+
+        # find_one needs 1 response for every variant.
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="300",
-                                    title=None,
-                                    code=str(post_id),
-                                )
-                            ],
-                        ),
-                    ),
+                    json=create_graphql_response("findGalleries", galleries_result),
                 )
             ]
         )
@@ -543,18 +303,19 @@ class TestGalleryLookup:
         try:
             gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
         finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_found")
+            dump_graphql_calls(graphql_route.calls, request.node.name)
 
-        # Verify gallery was found
-        assert gallery is not None
-        assert gallery.id == "300"
-        assert gallery.code == str(post_id)
-        assert post_obj.stash_id == 300  # Should update item's stash_id
-
-        # Verify exactly 1 call
         assert len(graphql_route.calls) == 1
 
-        # Verify request contains findGalleries with code filter
+        if expect_found:
+            assert gallery is not None
+            assert gallery.id == gallery_id
+            assert gallery.code == str(post_id)
+            assert post_obj.stash_id == int(gallery_id)  # updated as int
+        else:
+            assert gallery is None
+
+        # Request contains findGalleries with the code filter.
         assert_op_with_vars(
             graphql_route.calls[0],
             "findGalleries",
@@ -563,50 +324,50 @@ class TestGalleryLookup:
         )
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_code_not_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_code when no matching gallery found."""
+    @pytest.mark.parametrize(
+        ("gallery_id", "url_kind", "expect_found", "expected_calls"),
+        [
+            # URL matches → found; save fires an EXTRA galleryUpdate call
+            # (count check + fetch + save = 3).
+            pytest.param("400", "match", True, 3, id="found-extra-save-call"),
+            # findGalleries returns empty on the count check → 1 call.
+            pytest.param(None, None, False, 1, id="not-found"),
+            # Gallery returned but URL doesn't match → rejected after fetch (2).
+            pytest.param("401", "wrong", False, 2, id="wrong-url"),
+        ],
+    )
+    async def test_get_gallery_by_url(
+        self,
+        respx_stash_processor: StashProcessing,
+        request: pytest.FixtureRequest,
+        gallery_id: str | None,
+        url_kind: str | None,
+        expect_found: bool,
+        expected_calls: int,
+    ) -> None:
+        """Test _get_gallery_by_url found/not-found/wrong-url variants."""
         post_id = snowflake_id()
         acct_id = snowflake_id()
 
-        # Build Post
         post_obj = PostFactory.build(id=post_id, accountId=acct_id)
 
-        # Set up respx - findGalleries returns empty
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
+        test_url = f"https://test.com/post/{post_id}"
+
+        if gallery_id is None:
+            side_effect = [
                 httpx.Response(
                     200,
                     json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
                 )
             ]
-        )
+        else:
+            resp_urls = (
+                [test_url] if url_kind == "match" else ["https://test.com/post/54321"]
+            )
 
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_not_found")
-
-        # Verify no gallery returned
-        assert gallery is None
-        assert len(graphql_route.calls) == 1
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_code_wrong_code(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_code rejects gallery with wrong code."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
-
-        # Set up respx - returns gallery with different code (find_one needs 1 response)
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
+            # find() needs 2 responses: count check + fetch results.
+            def _find_response() -> httpx.Response:
+                return httpx.Response(
                     200,
                     json=create_graphql_response(
                         "findGalleries",
@@ -614,92 +375,36 @@ class TestGalleryLookup:
                             count=1,
                             galleries=[
                                 create_gallery_dict(
-                                    id="301",
+                                    id=gallery_id,
                                     title=None,
-                                    code="54321",  # Wrong code (expected post_id)
+                                    code="" if url_kind == "match" else None,
+                                    urls=resp_urls,
                                 )
                             ],
                         ),
                     ),
                 )
-            ]
-        )
 
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_code_wrong_code")
+            side_effect = [_find_response(), _find_response()]
+            if url_kind == "match":
+                # Call 2: galleryUpdate (from gallery.save() setting the code).
+                side_effect.append(
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "galleryUpdate",
+                            create_gallery_dict(
+                                id=gallery_id,
+                                title=None,
+                                code=str(post_id),
+                                urls=resp_urls,
+                            ),
+                        ),
+                    )
+                )
 
-        # Verify no match (wrong code)
-        assert gallery is None
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_url_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_url when matching gallery found."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
-
-        test_url = f"https://test.com/post/{post_id}"
-
-        # Set up respx - findGalleries returns matching gallery (find() needs 2 responses)
-        # Then galleryUpdate for save
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: findGalleries count check
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="400",
-                                    title=None,
-                                    code="",
-                                    urls=[test_url],
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: findGalleries fetch results
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="400",
-                                    title=None,
-                                    code="",
-                                    urls=[test_url],
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 2: galleryUpdate (from gallery.save())
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "galleryUpdate",
-                        create_gallery_dict(
-                            id="400",
-                            title=None,
-                            code=str(post_id),
-                            urls=[test_url],
-                        ),
-                    ),
-                ),
-            ]
+            side_effect=side_effect
         )
 
         try:
@@ -707,123 +412,25 @@ class TestGalleryLookup:
                 post_obj, test_url
             )
         finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_found")
+            dump_graphql_calls(graphql_route.calls, request.node.name)
 
-        # Verify gallery was found
-        assert gallery is not None
-        assert gallery.id == "400"
-        assert test_url in gallery.urls
-        assert post_obj.stash_id == 400  # Should update item's stash_id
+        assert len(graphql_route.calls) == expected_calls
 
-        # Verify 3 calls (count check + fetch + save)
-        assert len(graphql_route.calls) == 3
+        if expect_found:
+            assert gallery is not None
+            assert gallery.id == gallery_id
+            assert is_set(gallery.urls)
+            assert test_url in gallery.urls
+            assert post_obj.stash_id == int(gallery_id)  # updated as int
+            # The EXTRA third call is the galleryUpdate from the save.
+            assert_op(graphql_route.calls[2], "galleryUpdate")
+        else:
+            assert gallery is None
 
-        # Verify first request is findGalleries count check with url filter
+        # First request is the findGalleries count check with the url filter.
         assert_op_with_vars(
             graphql_route.calls[0],
             "findGalleries",
             gallery_filter__url__value=test_url,
             gallery_filter__url__modifier="INCLUDES",
         )
-
-        # Verify third request is galleryUpdate (calls 1 is fetch results)
-        assert_op(graphql_route.calls[2], "galleryUpdate")
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_url_not_found(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_url when no matching gallery found."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
-
-        test_url = f"https://test.com/post/{post_id}"
-
-        # Set up respx - findGalleries returns empty
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
-                )
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_url(
-                post_obj, test_url
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_not_found")
-
-        # Verify no gallery returned
-        assert gallery is None
-        assert len(graphql_route.calls) == 1
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_url_wrong_url(
-        self, respx_stash_processor: StashProcessing
-    ):
-        """Test _get_gallery_by_url rejects gallery with wrong URL."""
-        post_id = snowflake_id()
-        acct_id = snowflake_id()
-
-        # Build Post
-        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
-
-        test_url = f"https://test.com/post/{post_id}"
-
-        # Set up respx - returns gallery with different URL (find() needs 2 responses)
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # Call 0: findGalleries count check
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="401",
-                                    title=None,
-                                    code=None,
-                                    urls=["https://test.com/post/54321"],  # Wrong URL
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-                # Call 1: findGalleries fetch results
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findGalleries",
-                        create_find_galleries_result(
-                            count=1,
-                            galleries=[
-                                create_gallery_dict(
-                                    id="401",
-                                    title=None,
-                                    code=None,
-                                    urls=["https://test.com/post/54321"],  # Wrong URL
-                                )
-                            ],
-                        ),
-                    ),
-                ),
-            ]
-        )
-
-        try:
-            gallery = await respx_stash_processor._get_gallery_by_url(
-                post_obj, test_url
-            )
-        finally:
-            dump_graphql_calls(graphql_route.calls, "get_gallery_by_url_wrong_url")
-
-        # Verify no match (wrong URL)
-        assert gallery is None

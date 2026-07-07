@@ -7,18 +7,20 @@ calls, we use respx at the HTTP boundary.
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import pytest
 import respx
+from faker import Faker
+from stash_graphql_client import is_set
 
 from metadata import Account, ContentType, PostMention
 from stash.processing import StashProcessing
-from tests.fixtures import (
-    AttachmentFactory,
+from tests.fixtures.metadata import AttachmentFactory, PostFactory
+from tests.fixtures.stash import (
     GalleryFactory,
     PerformerFactory,
-    PostFactory,
     StudioFactory,
     create_find_galleries_result,
     create_find_gallery_result,
@@ -42,7 +44,7 @@ class TestGalleryCreation:
     async def test_create_new_gallery(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _create_new_gallery method creates gallery with correct metadata."""
         post = PostFactory.build(
             id=snowflake_id(),
@@ -64,8 +66,8 @@ class TestGalleryCreation:
     async def test_get_gallery_metadata(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _get_gallery_metadata method extracts correct metadata."""
         expected_username = faker.user_name()
         account_id = snowflake_id()
@@ -92,8 +94,8 @@ class TestGalleryCreation:
     async def test_setup_gallery_performers(
         self,
         respx_stash_processor: StashProcessing,
-        faker,
-    ):
+        faker: Faker,
+    ) -> None:
         """Test _setup_gallery_performers adds main and mentioned performers."""
         post_id = snowflake_id()
         mention = PostMention(
@@ -146,6 +148,7 @@ class TestGalleryCreation:
         finally:
             dump_graphql_calls(graphql_route.calls, "test_setup_gallery_performers")
 
+        assert is_set(gallery.performers)
         assert len(gallery.performers) == 2
         assert gallery.performers[0] == main_performer
 
@@ -158,7 +161,7 @@ class TestGalleryCreation:
     async def test_setup_gallery_performers_no_mentions(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _setup_gallery_performers with no mentions only adds main performer."""
         post = PostFactory.build(
             id=snowflake_id(),
@@ -187,6 +190,7 @@ class TestGalleryCreation:
                 graphql_route.calls, "test_setup_gallery_performers_no_mentions"
             )
 
+        assert is_set(gallery.performers)
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
@@ -201,7 +205,7 @@ class TestGalleryCreation:
     async def test_setup_gallery_performers_mention_not_found(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test _setup_gallery_performers when mentioned performer not found in Stash."""
         post_id = snowflake_id()
         mention = PostMention(
@@ -245,6 +249,7 @@ class TestGalleryCreation:
             )
 
         # Only main performer when mention not found
+        assert is_set(gallery.performers)
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
@@ -264,7 +269,7 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_stash_id(
         self,
         respx_stash_processor: StashProcessing,
-    ):
+    ) -> None:
         """Test when gallery is found by stash_id (post has stash_id set).
 
         Builds its own post with FRESH ids: stash_id must be set at
@@ -341,8 +346,8 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_code(
         self,
         respx_stash_processor: StashProcessing,
-        gallery_orchestration_setup,
-    ):
+        gallery_orchestration_setup: dict[str, Any],
+    ) -> None:
         """Test when gallery is found by code (first lookup for post without stash_id)."""
         data = gallery_orchestration_setup
         post_id = str(data["post"].id)
@@ -440,8 +445,8 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_title(
         self,
         respx_stash_processor: StashProcessing,
-        gallery_orchestration_setup,
-    ):
+        gallery_orchestration_setup: dict[str, Any],
+    ) -> None:
         """Test when gallery is found by title (code fails, title succeeds)."""
         data = gallery_orchestration_setup
         post_id = str(data["post"].id)
@@ -533,8 +538,8 @@ class TestGalleryOrchestration:
     async def test_gallery_found_by_url(
         self,
         respx_stash_processor: StashProcessing,
-        gallery_orchestration_setup,
-    ):
+        gallery_orchestration_setup: dict[str, Any],
+    ) -> None:
         """Test when gallery is found by URL (code + title fail, url succeeds)."""
         data = gallery_orchestration_setup
         post_id = str(data["post"].id)
@@ -645,8 +650,8 @@ class TestGalleryOrchestration:
     async def test_gallery_created_when_not_found(
         self,
         respx_stash_processor: StashProcessing,
-        gallery_orchestration_setup,
-    ):
+        gallery_orchestration_setup: dict[str, Any],
+    ) -> None:
         """Test when no gallery found (all lookups fail, create new)."""
         data = gallery_orchestration_setup
         post_id = str(data["post"].id)

@@ -33,7 +33,7 @@ Usage:
         result = await respx_fansly_api.get_media_collections()
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -44,6 +44,7 @@ import respx
 from loguru import logger
 
 from api.fansly import FanslyApi
+from config import FanslyConfig
 
 from .fake_websocket import fake_websocket_session
 
@@ -177,8 +178,8 @@ def fansly_api_factory():
         check_key: str = "test_check_key",
         device_id: str = "test_device_id",
         device_id_timestamp: int | None = None,
-        on_device_updated=None,
-    ):
+        on_device_updated: Callable[[], Any] | None = None,
+    ) -> FanslyApi:
         """Create a FanslyApi instance with specified parameters."""
         if device_id_timestamp is None:
             device_id_timestamp = int(datetime.now(UTC).timestamp() * 1000)
@@ -264,8 +265,8 @@ def _mount_apiv3_bootstrap_routes() -> None:
 
 @pytest_asyncio.fixture
 async def respx_fansly_api(
-    mock_config,
-    no_display,
+    mock_config: FanslyConfig,
+    no_display: None,
 ) -> AsyncGenerator[FanslyApi, None]:
     """Get a bootstrapped FanslyApi via FanslyConfig.setup_api().
 
@@ -380,7 +381,9 @@ async def respx_ivs_cdn() -> AsyncGenerator[httpx.AsyncClient, None]:
 # ───────────────────────────────────────────────────────────────────────
 
 
-def dump_fansly_calls(calls, label: str = "Fansly API calls") -> None:
+def dump_fansly_calls(
+    calls: Sequence[respx.models.Call], label: str = "Fansly API calls"
+) -> None:
     """Log request/response details for each Fansly API call.
 
     Works with respx route.calls or respx.calls. Use in try/finally blocks

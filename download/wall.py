@@ -2,12 +2,14 @@
 
 import traceback
 from asyncio import sleep
+from collections.abc import Sequence
 from typing import Any
 
 from httpx import Response
 
 from config import FanslyConfig
 from errors import ApiError, DuplicatePageError
+from helpers.common import expect_dict, expect_list
 from helpers.rich_progress import get_progress_manager
 from helpers.timer import timing_jitter
 from metadata import Wall, process_wall_posts
@@ -66,7 +68,7 @@ async def process_wall_data(
 async def process_wall_media(
     config: FanslyConfig,
     state: DownloadState,
-    media_ids: list[str],
+    media_ids: Sequence[int | str],
 ) -> bool:
     """Process wall media — fetch info and download accessible items.
 
@@ -98,7 +100,7 @@ async def download_wall(
     store = get_store()
 
     # Get wall name from database
-    wall = await store.get(Wall, wall_id)
+    wall = await store.get(Wall, int(wall_id))
     wall_name = wall.name if wall and wall.name else None
     wall_info = f"'{wall_name}' ({wall_id})" if wall_name else wall_id
 
@@ -173,6 +175,8 @@ async def download_wall(
 
             if wall_response.status_code == 200:
                 wall_data = config.get_api().get_json_response_contents(wall_response)
+                if not isinstance(wall_data, dict):
+                    raise TypeError("Fansly API: expected a wall object response")
 
                 await process_wall_data(
                     config,
@@ -228,10 +232,11 @@ async def download_wall(
                     await sleep(timing_jitter(2, 4))
 
                     # Get last post ID for next page
-                    before_cursor = wall_data["posts"][-1]["id"]
+                    page_posts = expect_list(wall_data["posts"], "wall posts")
+                    before_cursor = str(expect_dict(page_posts[-1], "post")["id"])
 
                     # If we got fewer than 15 posts, we've reached the end
-                    if len(wall_data["posts"]) < 15:
+                    if len(page_posts) < 15:
                         break
 
                 except IndexError:
@@ -257,7 +262,6 @@ async def download_wall(
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            e._handled = True
             break  # Break out of the loop to stop processing this wall
 
         except Exception:

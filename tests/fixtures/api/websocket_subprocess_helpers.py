@@ -29,7 +29,7 @@ async def _hang_until_cancelled() -> None:
 
 def make_proxy(**overrides: Any) -> FanslyWebSocket:
     """Build a FanslyWebSocket with sensible test defaults."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "token": "test_token",
         "user_agent": "TestAgent/1.0",
         "cookies": {"sess": "abc"},

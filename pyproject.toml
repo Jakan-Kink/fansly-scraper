@@ -45,7 +45,7 @@ sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<0.31.0"
+asyncpg = ">=0.30.0,<0.32.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
@@ -218,6 +218,7 @@ max-complexity = 14
     "PLR0913", # too many arguments
     "S101",    # use of assert
     "S105",    # test fixtures use hardcoded test values
+    "S106",    # test fixtures pass hardcoded test values as kwargs
     "ANN001",  # missing type annotation for function argument
     "ANN002",  # missing type annotation for *args
     "ANN003",  # missing type annotations for **kwargs in test helpers
@@ -402,10 +403,10 @@ python_version = "3.12"
 plugins = ["sqlalchemy.ext.mypy.plugin"]
 # Exclude directories from type checking
 exclude = [
-    "tests/",
     "venv_test/",
     "alembic/versions/",
     "scripts/",
+    "db_init_scratch.py",
 ]
 
 # Keep these basic checks
@@ -438,6 +439,15 @@ ignore_errors = true
 # Skip scripts completely
 [[tool.mypy.overrides]]
 module = "scripts.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+follow_imports = "skip"
+ignore_errors = true
+
+# Skip the one-off db bootstrap script (PR-supplied, not production code)
+[[tool.mypy.overrides]]
+module = "db_init_scratch"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 check_untyped_defs = false

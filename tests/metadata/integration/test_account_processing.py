@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from pydantic import JsonValue
 
 from api.fansly import FanslyApi
+from helpers.common import JsonDict
 from metadata import (
     Account,
     AccountMedia,
@@ -61,7 +63,7 @@ async def test_process_account_from_timeline(entity_store, mock_config, timeline
 async def test_update_optimization_integration(entity_store, mock_config):
     """Integration test for update optimization — processing same data twice."""
     account_id = snowflake_id()
-    account_data = {
+    account_data: JsonDict = {
         "id": account_id,
         "username": "test_optimization",
         "displayName": "Test User",
@@ -90,7 +92,9 @@ async def test_update_optimization_integration(entity_store, mock_config):
 
     # Update some values
     account_data["displayName"] = "Updated Name"
-    account_data["timelineStats"]["imageCount"] = 15
+    timeline_stats = account_data["timelineStats"]
+    assert isinstance(timeline_stats, dict)
+    timeline_stats["imageCount"] = 15
     await process_account_data(mock_config, account_data)
 
     # Verify only changed values were updated
@@ -111,19 +115,29 @@ async def test_process_account_media_bundles(entity_store, mock_config, timeline
     # Convert string IDs to int (mimics what API layer does via convert_ids_to_int)
 
     response = FanslyApi.convert_ids_to_int(copy.deepcopy(timeline_data["response"]))
+    assert isinstance(response, dict)
 
-    account_data = response["accounts"][0]
+    accounts = response["accounts"]
+    assert isinstance(accounts, list)
+    account_data = accounts[0]
+    assert isinstance(account_data, dict)
     bundles_data = response["accountMediaBundles"]
+    assert isinstance(bundles_data, list)
 
     # Create the account first
     await process_account_data(mock_config, account_data)
 
     account_id = account_data["id"]
+    assert isinstance(account_id, int)
 
     # Pre-create Media + AccountMedia records for all bundle items so that
     # _process_single_bundle can resolve them from cache (no API backfill needed).
     for bundle in bundles_data:
-        for am_id in bundle.get("accountMediaIds", []):
+        assert isinstance(bundle, dict)
+        am_ids = bundle.get("accountMediaIds", [])
+        assert isinstance(am_ids, list)
+        for am_id in am_ids:
+            assert isinstance(am_id, int)
             media_id = snowflake_id()
             existing = await entity_store.get(AccountMedia, am_id)
             if not existing:
@@ -144,10 +158,13 @@ async def test_process_account_media_bundles(entity_store, mock_config, timeline
 
     # Verify bundles were created with all media items
     for bundle_data in bundles_data:
+        assert isinstance(bundle_data, dict)
         bundle_id = bundle_data["id"]
         bundle = await entity_store.get(AccountMediaBundle, bundle_id)
         assert bundle is not None
-        expected_count = len(bundle_data.get("accountMediaIds", []))
+        media_ids = bundle_data.get("accountMediaIds", [])
+        assert isinstance(media_ids, list)
+        expected_count = len(media_ids)
         assert len(bundle.accountMedia) == expected_count
 
 
@@ -168,7 +185,7 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
     bundle_id = snowflake_id()
 
     # 7 accountMedia items — first 5 "present" in response, last 2 "truncated"
-    am_ids = [snowflake_id() for _ in range(7)]
+    am_ids: list[JsonValue] = [snowflake_id() for _ in range(7)]
     media_ids = [snowflake_id() for _ in range(7)]
 
     # Create prerequisite account
@@ -182,8 +199,10 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
     # Pre-cache only the first 5 AccountMedia (simulates what process_media_info
     # would have done from the response's truncated accountMedia array)
     for i in range(5):
+        am_id = am_ids[i]
+        assert isinstance(am_id, int)
         am = AccountMedia(
-            id=am_ids[i],
+            id=am_id,
             accountId=account_id,
             mediaId=media_ids[i],
             createdAt=datetime.now(UTC),
@@ -236,7 +255,7 @@ async def test_bundle_truncation_backfill(entity_store, config_wired):
 
     # Bundle dict as it comes from the API — all 7 IDs listed,
     # but only the first 5 are in the identity map cache
-    bundle_data = [
+    bundle_data: list[JsonValue] = [
         {
             "id": bundle_id,
             "accountId": account_id,

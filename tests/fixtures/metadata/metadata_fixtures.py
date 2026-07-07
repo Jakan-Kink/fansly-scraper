@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
+from helpers.common import JsonDict
 from metadata import ContentType
 from metadata.models import Account, FanslyObject, Media
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -458,7 +459,11 @@ def store_with_account():
             self._cache.pop((cls, eid), None)
 
     store = FakeStore()
-    FanslyObject._store = store
+    # The sole deliberate type:ignore in tests/fixtures. FakeStore is a no-DB-pool
+    # in-memory cache double for sync-path tests, so it cannot be a real
+    # PostgresEntityStore and no in-contract value expresses "no-pool store".
+    # One-time exception, not a pattern.
+    FanslyObject._store = store  # type: ignore[assignment]  # intentional no-pool store double
 
     acct_id = snowflake_id()
     account = Account(id=acct_id, username="sync_test_user")
@@ -489,7 +494,7 @@ def media_items():
 
 
 @pytest.fixture(scope="session")
-def group_data(test_data_dir: str):
+def group_data(test_data_dir: str) -> JsonDict:
     """Load group messages test data."""
     json_file = Path(test_data_dir) / "messages-group.json"
     if not json_file.exists():

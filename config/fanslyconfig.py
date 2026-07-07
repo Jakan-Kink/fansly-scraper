@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, SecretStr
 from stash_graphql_client import StashClient, StashContext
@@ -49,8 +49,8 @@ class FanslyConfig:
     # The getters will ensure they're not None when accessed
     _api: FanslyApi | None = None
     _database: Database | None = None
-    _stash: Any = None  # StashContext | None
-    _rate_limiter_display: Any = None  # RateLimiterDisplay | None
+    _stash: StashContext | None = None
+    _rate_limiter_display: RateLimiterDisplay | None = None
 
     # Command line flags
     use_following: bool = False
@@ -149,7 +149,7 @@ class FanslyConfig:
     pg_host: str = "localhost"
     pg_port: int = 5432
     pg_database: str = "fansly_metadata"
-    pg_user: str = "fansly_user"
+    pg_user: str | None = "fansly_user"
     pg_password: str | None = None  # Prefer using FANSLY_PG_PASSWORD env var
 
     # PostgreSQL SSL/TLS settings
@@ -217,14 +217,12 @@ class FanslyConfig:
     # Loaded from schema.monitoring.livestream_manifest_poll_interval_seconds.
     monitoring_livestream_manifest_poll_interval_seconds: int = 3
 
-    # StashContext
-    # Widened to dict[str, Any] so port:int coexists with the string-valued keys.
-    # StashContext accepts a port:int, so we don't need to stringify it.
-    stash_context_conn: dict[str, Any] | None = None
+    # StashContext connection: string-valued scheme/host/apikey + int port.
+    stash_context_conn: dict[str, str | int] | None = None
     stash_mapped_path: Path | None = None
     stash_override_dldir_w_mapped: bool = False
     stash_require_stash_only_mode: bool = False
-    stash_enable_scene_split: bool | str = False
+    stash_enable_scene_split: bool | Literal["dry-run"] = False
     stash_scan_settle_s: float = 3.5
 
     # Logging
@@ -271,7 +269,7 @@ class FanslyConfig:
 
                 # Empty token when invalid/missing; the real unscrambled token
                 # otherwise.
-                api_token = token if self.token_is_valid() else ""
+                api_token = (token or "") if self.token_is_valid() else ""
 
                 from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
 
@@ -497,14 +495,16 @@ class FanslyConfig:
         Raises:
             RuntimeError: If no connection data available
         """
-        if self._stash is None:
-            if self.stash_context_conn is None:
-                raise RuntimeError("No StashContext connection data available.")
+        if self._stash is not None:
+            return self._stash
 
-            self._stash = StashContext(conn=self.stash_context_conn)
-            self._save_config()
+        if self.stash_context_conn is None:
+            raise RuntimeError("No StashContext connection data available.")
 
-        return self._stash
+        stash = StashContext(conn=self.stash_context_conn)
+        self._stash = stash
+        self._save_config()
+        return stash
 
     def get_stash_api(self) -> StashClient:
         """Get Stash API client.
@@ -542,10 +542,10 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     if config.stash_context_conn is not None:
         conn = config.stash_context_conn
         stash_section = StashContextSection(
-            scheme=conn.get("scheme", "http"),
-            host=conn.get("host", "localhost"),
+            scheme=str(conn.get("scheme", "http")),
+            host=str(conn.get("host", "localhost")),
             port=int(conn.get("port", 9999)),
-            apikey=conn.get("apikey", ""),
+            apikey=str(conn.get("apikey", "")),
             mapped_path=str(config.stash_mapped_path)
             if config.stash_mapped_path is not None
             else None,
@@ -564,7 +564,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     # ``_ephemeral_overrides`` (CLI flags don't pin themselves into YAML).
     # This is what lets ``model_dump(exclude_unset=True)`` in the dump
     # path stay honest across save round-trips.
-    def _maybe_set(section: BaseModel, name: str, value: Any) -> None:
+    def _maybe_set(section: BaseModel, name: str, value: object) -> None:
         if name in config._ephemeral_overrides:
             return
         current = getattr(section, name, None)

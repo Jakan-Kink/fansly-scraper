@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from helpers.common import JsonDict, expect_dict, expect_int, expect_list
 from textio import json_output
 
 from .account import process_account_data, process_media_bundles_data
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
 
 async def _process_single_message(
-    message_data: dict,
+    message_data: JsonDict,
 ) -> Message | None:
     """Process a single message's data and return the message instance."""
     store = get_store()
@@ -43,7 +44,7 @@ async def _process_single_message(
 async def process_messages_metadata(
     config: FanslyConfig,
     _state: DownloadState,
-    data: dict[str, Any] | list[dict[str, Any]],
+    data: JsonDict | list[JsonDict],
 ) -> None:
     """Process message metadata and store in the database.
 
@@ -52,22 +53,21 @@ async def process_messages_metadata(
     store.save() persists Message + attachments via _sync_associations.
     """
 
-    if isinstance(data, list):
-        data = {"messages": data}
+    payload: JsonDict = {"messages": list(data)} if isinstance(data, list) else data
 
-    data = copy.deepcopy(data)
-    messages = data.get("messages", [])
+    payload = copy.deepcopy(payload)
+    messages = expect_list(payload.get("messages") or [], "messages")
 
     # Process media bundles
-    await process_media_bundles_data(config, data)
+    await process_media_bundles_data(config, payload)
 
     # Process messages — attachments handled by model_validate + _sync_associations
-    for message_data in messages:
-        await _process_single_message(message_data)
+    for raw_message in messages:
+        await _process_single_message(expect_dict(raw_message, "message"))
 
 
 async def _process_single_group(
-    group_data: dict,
+    group_data: JsonDict,
     source: str,
 ) -> Group | None:
     """Process a single group dict with standard field names (id, createdBy).
@@ -92,7 +92,7 @@ async def _process_single_group(
     await log_missing_relationship(
         table_name="groups",
         field_name="createdBy",
-        missing_id=creator_id,
+        missing_id=expect_int(creator_id, "createdBy"),
         referenced_table="accounts",
         context={"groupId": group_id, "source": source},
     )
@@ -101,7 +101,7 @@ async def _process_single_group(
         message_exists = await log_missing_relationship(
             table_name="groups",
             field_name="lastMessageId",
-            missing_id=group_data["lastMessageId"],
+            missing_id=expect_int(group_data["lastMessageId"], "lastMessageId"),
             referenced_table="messages",
             context={"groupId": group_id, "source": source},
         )
@@ -110,7 +110,8 @@ async def _process_single_group(
 
     # Strip users — raw API format [{"userId": ...}] can't be validated
     # as list[Account]. Resolve separately after model_validate.
-    users_data = group_data.pop("users", [])
+    users_raw = group_data.pop("users", None)
+    users_data = expect_list(users_raw, "users") if users_raw else []
 
     group = Group.model_validate(group_data)
     await store.save(group)
@@ -122,7 +123,7 @@ async def _process_single_group(
             user_id = user.get("userId") if isinstance(user, dict) else user
             if not user_id:
                 continue
-            user_id = int(user_id) if isinstance(user_id, str) else user_id
+            user_id = expect_int(user_id, "userId")
             account = store.get_from_cache(Account, user_id)
             if account:
                 user_objs.append(account)
@@ -136,7 +137,7 @@ async def _process_single_group(
 async def process_groups_response(
     config: FanslyConfig,
     state: DownloadState,
-    response: dict,
+    response: JsonDict,
 ) -> None:
     """Process group messaging response data.
 
@@ -150,17 +151,22 @@ async def process_groups_response(
     response = copy.deepcopy(response)
 
     # Process accounts first — must be in identity map for group user resolution
-    aggregation_data = response.get("aggregationData", {})
-    for account in aggregation_data.get("accounts", []):
+    aggregation_data = expect_dict(
+        response.get("aggregationData") or {}, "aggregationData"
+    )
+    for raw_account in expect_list(aggregation_data.get("accounts") or [], "accounts"):
+        account = expect_dict(raw_account, "account")
         await process_account_data(config, data=account, state=state)
 
     # Process conversation summaries from data[] → normalize via Conversation
-    for data_group in response.get("data", []):
+    for raw_data_group in expect_list(response.get("data") or [], "data"):
+        data_group = expect_dict(raw_data_group, "conversation")
         conv = Conversation.model_validate(data_group)
         await _process_single_group(conv.to_group_dict(), "data_groups")
 
     # Process full group objects from aggregation data (already standard names)
-    for group_data in aggregation_data.get("groups", []):
+    for raw_group in expect_list(aggregation_data.get("groups") or [], "groups"):
+        group_data = expect_dict(raw_group, "group")
         await _process_single_group(group_data, "aggregation_groups")
 
     print_missing_relationships_summary()

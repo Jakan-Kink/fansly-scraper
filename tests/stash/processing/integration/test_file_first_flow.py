@@ -20,6 +20,7 @@ Scene-split is left disabled (default); owned-image stamping + gallery
 composition satisfy the bar.
 """
 
+import functools
 from datetime import UTC, datetime
 from pathlib import PurePath
 
@@ -223,7 +224,7 @@ async def test_run_file_first_stamps_and_composes_galleries(
         linked_entity_total = 0
         for gid in set(created_galleries):
             linked_entity_total += await poll_until(
-                lambda gid=gid: _count_gallery_links(gid),
+                functools.partial(_count_gallery_links, gid),
                 lambda n: n > 0,
             )
 
