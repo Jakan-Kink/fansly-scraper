@@ -319,12 +319,12 @@ class StashProcessingBase(StashProcessingProtocol):
             debug_print({"status": "background_task_cancelled"})
             raise
         except Exception as e:
-            logger.exception(
-                f"Background task failed: {e}",
-                traceback=True,
-                exc_info=e,
-                stack_info=True,
-            )
+            # Static message + exc_info=e (sibling convention, e.g.
+            # file_first.py:109). An f-string here interpolates exceptions whose
+            # repr contains literal braces (e.g. "[{'message': 'boom'}]"), which
+            # loguru then feeds to str.format(), raising KeyError and masking the
+            # real failure.
+            logger.exception("Background task failed", exc_info=e)
             debug_print(
                 {
                     "error": f"background_task_failed: {e}",

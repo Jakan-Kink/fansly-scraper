@@ -220,209 +220,268 @@ class TestRateLimiterDisplayDirectMethods:
 
     # ── _cleanup (lines 173-180) ────────────────────────────────────
 
-    def test_cleanup_no_active_tasks_is_noop(self):
-        """No active tasks → _cleanup makes zero progress calls."""
+    @pytest.mark.parametrize(
+        ("backoff_active", "tokens_active", "expected_removes"),
+        [
+            pytest.param(False, False, [], id="no-active-tasks-noop"),
+            pytest.param(
+                True,
+                False,
+                [("remove", "rate_limit_backoff")],
+                id="only-backoff-removes-just-backoff",
+            ),
+            pytest.param(
+                False,
+                True,
+                [("remove", "rate_limit_tokens")],
+                id="only-tokens-removes-just-tokens",
+            ),
+            pytest.param(
+                True,
+                True,
+                [
+                    ("remove", "rate_limit_backoff"),
+                    ("remove", "rate_limit_tokens"),
+                ],
+                id="both-active-removes-both",
+            ),
+        ],
+    )
+    def test_cleanup_truth_table(
+        self,
+        backoff_active: bool,
+        tokens_active: bool,
+        expected_removes: list[tuple[str, str]],
+    ) -> None:
+        """Lines 173-180: each active flag drives exactly one remove; both reset."""
         display = self._make_display()
+        display._backoff_active = backoff_active
+        display._tokens_active = tokens_active
         progress = _StubProgress()
 
         display._cleanup(progress)
 
-        assert progress.calls == []
-        assert display._backoff_active is False
-        assert display._tokens_active is False
-
-    def test_cleanup_only_backoff_active_removes_just_backoff(self):
-        """Lines 175-177: _backoff_active=True → remove backoff task only."""
-        display = self._make_display()
-        display._backoff_active = True
-        progress = _StubProgress()
-
-        display._cleanup(progress)
-
-        assert progress.calls == [("remove", "rate_limit_backoff")]
-        assert display._backoff_active is False
-        assert display._tokens_active is False
-
-    def test_cleanup_only_tokens_active_removes_just_tokens(self):
-        """Lines 178-180: _tokens_active=True → remove token task only."""
-        display = self._make_display()
-        display._tokens_active = True
-        progress = _StubProgress()
-
-        display._cleanup(progress)
-
-        assert progress.calls == [("remove", "rate_limit_tokens")]
-        assert display._tokens_active is False
-
-    def test_cleanup_both_active_removes_both(self):
-        """Lines 175-180: both flags True → both tasks removed, both flags reset."""
-        display = self._make_display()
-        display._backoff_active = True
-        display._tokens_active = True
-        progress = _StubProgress()
-
-        display._cleanup(progress)
-
-        assert ("remove", "rate_limit_backoff") in progress.calls
-        assert ("remove", "rate_limit_tokens") in progress.calls
+        for expected in expected_removes:
+            assert expected in progress.calls
+        assert len(progress.calls) == len(expected_removes)
         assert display._backoff_active is False
         assert display._tokens_active is False
 
     # ── _update_backoff (lines 112-141) ─────────────────────────────
 
-    def test_update_backoff_first_entry_adds_and_updates(self):
-        """Lines 123-130: first time in backoff → add_task + set _backoff_active.
-        Lines 132-138: also issues an update_task on the same call.
-        """
+    @pytest.mark.parametrize(
+        (
+            "preset_active",
+            "stats",
+            "expected_ops",
+            "expected_active_after",
+            "expected_add_total",
+            "expected_completed",
+            "expected_update_total",
+        ),
+        [
+            pytest.param(
+                False,
+                _stats(
+                    is_in_backoff=True,
+                    current_backoff_seconds=10,
+                    backoff_remaining=4,
+                ),
+                ["add", "update"],
+                True,
+                10,
+                # Update sets completed = total - remaining = 10 - 4 = 6.
+                6.0,
+                None,
+                id="first-entry-adds-and-updates",
+            ),
+            pytest.param(
+                True,
+                _stats(
+                    is_in_backoff=True,
+                    current_backoff_seconds=20,
+                    backoff_remaining=5,
+                ),
+                # Lines 123-130 false branch: already active → only update, no add.
+                ["update"],
+                True,
+                None,
+                None,
+                None,
+                id="already-active-only-updates",
+            ),
+            pytest.param(
+                False,
+                _stats(
+                    is_in_backoff=True,
+                    current_backoff_seconds=0,
+                    backoff_remaining=0,
+                ),
+                ["add", "update"],
+                True,
+                # Line 119: max(total, 0.1) floor — add gets int(0.1) == 0,
+                # update carries the float floor 0.1.
+                0,
+                None,
+                0.1,
+                id="minimum-total-floor",
+            ),
+            pytest.param(
+                True,
+                _stats(is_in_backoff=False),
+                # Lines 139-141: backoff ended while active → remove task.
+                ["remove"],
+                False,
+                None,
+                None,
+                None,
+                id="ended-removes-task",
+            ),
+            pytest.param(
+                False,
+                _stats(is_in_backoff=False),
+                # Lines 118 + 139 false: not in backoff and never was → no calls.
+                [],
+                False,
+                None,
+                None,
+                None,
+                id="not-active-no-change",
+            ),
+        ],
+    )
+    def test_update_backoff_state_machine(
+        self,
+        preset_active: bool,
+        stats: dict[str, bool | float],
+        expected_ops: list[str],
+        expected_active_after: bool,
+        expected_add_total: int | None,
+        expected_completed: float | None,
+        expected_update_total: float | None,
+    ) -> None:
+        """Lines 112-141: add on first entry, update while active, remove on end."""
         display = self._make_display()
+        display._backoff_active = preset_active
         progress = _StubProgress()
-        stats = _stats(
-            is_in_backoff=True,
-            current_backoff_seconds=10,
-            backoff_remaining=4,
-        )
 
         display._update_backoff(progress, stats)
 
-        # First call adds the task and immediately updates.
         ops = [c[0] for c in progress.calls]
-        assert ops == ["add", "update"]
-        add_kwargs = progress.calls[0][1]
-        assert add_kwargs["name"] == "rate_limit_backoff"
-        assert add_kwargs["total"] == 10
-        # Update sets completed = total - remaining = 10 - 4 = 6.
-        update_kwargs = progress.calls[1][2]
-        assert update_kwargs["completed"] == pytest.approx(6.0)
-        assert display._backoff_active is True
-
-    def test_update_backoff_already_active_only_updates(self):
-        """Lines 123-130 false branch: _backoff_active already True → no add_task."""
-        display = self._make_display()
-        display._backoff_active = True
-        progress = _StubProgress()
-        stats = _stats(
-            is_in_backoff=True,
-            current_backoff_seconds=20,
-            backoff_remaining=5,
-        )
-
-        display._update_backoff(progress, stats)
-
-        # Only update fires; no add.
-        ops = [c[0] for c in progress.calls]
-        assert ops == ["update"]
-
-    def test_update_backoff_minimum_total_floor(self):
-        """Line 119: max(total, 0.1) — current_backoff_seconds=0 floors at 0.1."""
-        display = self._make_display()
-        progress = _StubProgress()
-        stats = _stats(
-            is_in_backoff=True,
-            current_backoff_seconds=0,
-            backoff_remaining=0,
-        )
-
-        display._update_backoff(progress, stats)
-
-        add_kwargs = progress.calls[0][1]
-        # int(0.1) == 0 — but the stored total in update is the float floor.
-        update_kwargs = progress.calls[1][2]
-        assert update_kwargs["total"] == pytest.approx(0.1)
-        assert add_kwargs["total"] == 0  # int(0.1)
-
-    def test_update_backoff_ended_removes_task(self):
-        """Lines 139-141: not in backoff but _backoff_active=True → remove task."""
-        display = self._make_display()
-        display._backoff_active = True
-        progress = _StubProgress()
-        stats = _stats(is_in_backoff=False)
-
-        display._update_backoff(progress, stats)
-
-        assert progress.calls == [("remove", "rate_limit_backoff")]
-        assert display._backoff_active is False
-
-    def test_update_backoff_not_active_no_change(self):
-        """Lines 118 + 139 false: not in backoff and never was → no calls."""
-        display = self._make_display()
-        progress = _StubProgress()
-        stats = _stats(is_in_backoff=False)
-
-        display._update_backoff(progress, stats)
-
-        assert progress.calls == []
-        assert display._backoff_active is False
+        assert ops == expected_ops
+        assert display._backoff_active is expected_active_after
+        if "add" in ops:
+            add_kwargs = progress.calls[0][1]
+            assert add_kwargs["name"] == "rate_limit_backoff"
+            assert add_kwargs["total"] == expected_add_total
+        if "remove" in ops:
+            assert progress.calls == [("remove", "rate_limit_backoff")]
+        if expected_completed is not None:
+            update_kwargs = progress.calls[1][2]
+            assert update_kwargs["completed"] == pytest.approx(expected_completed)
+        if expected_update_total is not None:
+            update_kwargs = progress.calls[1][2]
+            assert update_kwargs["total"] == pytest.approx(expected_update_total)
 
     # ── _update_tokens (lines 143-171) ──────────────────────────────
 
-    def test_update_tokens_high_utilization_adds_and_updates(self):
-        """Lines 154-168: utilization >=80 + burst_size>0 → add task and update."""
+    @pytest.mark.parametrize(
+        (
+            "preset_active",
+            "stats",
+            "expected_ops",
+            "expected_active_after",
+            "expected_add_total",
+            "expected_completed",
+        ),
+        [
+            pytest.param(
+                False,
+                _stats(
+                    utilization_percent=85,
+                    burst_size=100,
+                    available_tokens=15,
+                ),
+                # Lines 154-168: utilization >=80 + burst_size>0 → add and update.
+                ["add", "update"],
+                True,
+                100,
+                # completed = min(available, burst_size) = min(15, 100) = 15
+                15.0,
+                id="high-utilization-adds-and-updates",
+            ),
+            pytest.param(
+                True,
+                _stats(
+                    utilization_percent=90,
+                    burst_size=50,
+                    available_tokens=5,
+                ),
+                # Lines 154 false branch: already active → no add_task.
+                ["update"],
+                True,
+                None,
+                None,
+                id="already-active-only-updates",
+            ),
+            pytest.param(
+                True,
+                _stats(
+                    utilization_percent=50,
+                    burst_size=100,
+                    available_tokens=50,
+                ),
+                # Lines 169-171: utilization <80 but active → remove task.
+                ["remove"],
+                False,
+                None,
+                None,
+                id="below-threshold-removes-when-active",
+            ),
+            pytest.param(
+                False,
+                _stats(
+                    utilization_percent=99,
+                    burst_size=0,
+                    available_tokens=0,
+                ),
+                # Line 153: burst_size=0 means no token bucket → don't show task.
+                [],
+                False,
+                None,
+                None,
+                id="zero-burst-size-no-action",
+            ),
+        ],
+    )
+    def test_update_tokens_state_machine(
+        self,
+        preset_active: bool,
+        stats: dict[str, bool | float],
+        expected_ops: list[str],
+        expected_active_after: bool,
+        expected_add_total: int | None,
+        expected_completed: float | None,
+    ) -> None:
+        """Lines 143-171: add above threshold, update while active, remove below."""
         display = self._make_display()
+        display._tokens_active = preset_active
         progress = _StubProgress()
-        stats = _stats(
-            utilization_percent=85,
-            burst_size=100,
-            available_tokens=15,
-        )
 
         display._update_tokens(progress, stats)
 
         ops = [c[0] for c in progress.calls]
-        assert ops == ["add", "update"]
-        add_kwargs = progress.calls[0][1]
-        assert add_kwargs["name"] == "rate_limit_tokens"
-        assert add_kwargs["total"] == 100
-        update_kwargs = progress.calls[1][2]
-        # completed = min(available, burst_size) = min(15, 100) = 15
-        assert update_kwargs["completed"] == pytest.approx(15.0)
-        assert display._tokens_active is True
-
-    def test_update_tokens_already_active_only_updates(self):
-        """Lines 154 false branch: already active → no add_task."""
-        display = self._make_display()
-        display._tokens_active = True
-        progress = _StubProgress()
-        stats = _stats(
-            utilization_percent=90,
-            burst_size=50,
-            available_tokens=5,
-        )
-
-        display._update_tokens(progress, stats)
-
-        ops = [c[0] for c in progress.calls]
-        assert ops == ["update"]
-
-    def test_update_tokens_below_threshold_removes_when_active(self):
-        """Lines 169-171: utilization <80 but _tokens_active → remove task."""
-        display = self._make_display()
-        display._tokens_active = True
-        progress = _StubProgress()
-        stats = _stats(
-            utilization_percent=50,
-            burst_size=100,
-            available_tokens=50,
-        )
-
-        display._update_tokens(progress, stats)
-
-        assert progress.calls == [("remove", "rate_limit_tokens")]
-        assert display._tokens_active is False
-
-    def test_update_tokens_zero_burst_size_no_action(self):
-        """Line 153: burst_size=0 means no token bucket → don't show task."""
-        display = self._make_display()
-        progress = _StubProgress()
-        stats = _stats(
-            utilization_percent=99,
-            burst_size=0,
-            available_tokens=0,
-        )
-
-        display._update_tokens(progress, stats)
-
-        assert progress.calls == []
-        assert display._tokens_active is False
+        assert ops == expected_ops
+        assert display._tokens_active is expected_active_after
+        if "add" in ops:
+            add_kwargs = progress.calls[0][1]
+            assert add_kwargs["name"] == "rate_limit_tokens"
+            assert add_kwargs["total"] == expected_add_total
+        if "remove" in ops:
+            assert progress.calls == [("remove", "rate_limit_tokens")]
+        if expected_completed is not None:
+            update_kwargs = progress.calls[1][2]
+            assert update_kwargs["completed"] == pytest.approx(expected_completed)
 
     # ── _update (lines 101-110) ────────────────────────────────────
 

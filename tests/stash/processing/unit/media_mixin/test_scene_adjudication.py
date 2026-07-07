@@ -233,18 +233,28 @@ class TestStampMetadata:
         assert input_vars["studio_id"] == respx_stash_processor._studio.id
 
     @pytest.mark.asyncio
-    async def test_stamp_metadata_skips_organized(
-        self, respx_stash_processor, mock_item, mock_account, mock_scene
+    @pytest.mark.parametrize(
+        ("attr", "value"),
+        [
+            # Organized scene short-circuits the method.
+            pytest.param("organized", True, id="organized-short-circuits"),
+            # mock_item.createdAt is 2024-04-01; stored date is earlier, so the
+            # item is later → skip to preserve the earliest date.
+            pytest.param("date", "2024-03-01", id="stored-date-earlier-item-later"),
+        ],
+    )
+    async def test_stamp_metadata_early_returns(
+        self, respx_stash_processor, mock_item, mock_account, mock_scene, attr, value
     ):
-        """Organized scene short-circuits the method; metadata left untouched.
+        """Early-return guards short-circuit the stamp; metadata left untouched.
 
-        The early-return path makes zero GraphQL calls (no respx route needed),
+        Both early-return paths make zero GraphQL calls (no respx route needed),
         mirroring the proven test_update_stash_metadata_already_organized idiom.
         We assert in-memory non-mutation rather than save()-then-no-update, since
-        the test's own ``organized=True`` setup would itself dirty the object.
+        the test's own scene setup would itself dirty the object.
         """
         media = MediaFactory.build(is_downloaded=True)
-        mock_scene.organized = True
+        setattr(mock_scene, attr, value)
         original_title = mock_scene.title
         original_code = getattr(mock_scene, "code", None)
         original_details = getattr(mock_scene, "details", None)
@@ -253,31 +263,7 @@ class TestStampMetadata:
             mock_scene, media, mock_item, mock_account
         )
 
-        assert mock_scene.title == original_title
-        assert getattr(mock_scene, "code", None) == original_code
-        assert getattr(mock_scene, "details", None) == original_details
-
-    @pytest.mark.asyncio
-    async def test_stamp_metadata_skips_later_date(
-        self, respx_stash_processor, mock_item, mock_account, mock_scene
-    ):
-        """Stored date earlier than item → item is later → skip to preserve earliest.
-
-        Early-return path: no GraphQL fires, so no respx route is needed. Assert
-        in-memory non-mutation (the test's own ``date`` setup would dirty save()).
-        """
-        media = MediaFactory.build(is_downloaded=True)
-        # mock_item.createdAt is 2024-04-01; stored date is earlier, so item is later.
-        mock_scene.date = "2024-03-01"
-        original_title = mock_scene.title
-        original_code = getattr(mock_scene, "code", None)
-        original_details = getattr(mock_scene, "details", None)
-
-        await respx_stash_processor._stamp_metadata(
-            mock_scene, media, mock_item, mock_account
-        )
-
-        assert mock_scene.date == "2024-03-01"
+        assert getattr(mock_scene, attr) == value
         assert mock_scene.title == original_title
         assert getattr(mock_scene, "code", None) == original_code
         assert getattr(mock_scene, "details", None) == original_details
@@ -972,33 +958,27 @@ class TestSceneCreationGuard:
     worker state under ``-n8``.
     """
 
-    def test_guard_enables_creation_when_true(self, respx_stash_processor):
-        """Flag is True → guard sets __create_input_type__ to SceneCreateInput."""
-        respx_stash_processor.config.stash_enable_scene_split = True
+    @pytest.mark.parametrize(
+        ("set_flag", "config_value", "expected_create_input"),
+        [
+            # Flag is True → guard sets __create_input_type__ to SceneCreateInput.
+            pytest.param(True, True, SceneCreateInput, id="true-enables-creation"),
+            # Flag is False → guard leaves creation blocked (attr stays None).
+            pytest.param(True, False, None, id="false-leaves-blocked"),
+            # Flag is "dry-run" → guard leaves creation blocked (attr stays None).
+            pytest.param(True, "dry-run", None, id="dry-run-leaves-blocked"),
+            # Default (unset) flag → guard is a no-op (default-False path).
+            pytest.param(False, None, None, id="default-config-noop"),
+        ],
+    )
+    def test_guard_configures_create_input(
+        self, respx_stash_processor, set_flag, config_value, expected_create_input
+    ):
+        """3-way stash_enable_scene_split dispatch (+ default) on the guard."""
+        if set_flag:
+            respx_stash_processor.config.stash_enable_scene_split = config_value
         assert getattr(Scene, "__create_input_type__", None) is None
 
         respx_stash_processor._configure_scene_creation_guard()
 
-        assert Scene.__create_input_type__ is SceneCreateInput
-
-    def test_guard_leaves_unset_when_false(self, respx_stash_processor):
-        """Flag is False → guard leaves creation blocked (attr stays None)."""
-        respx_stash_processor.config.stash_enable_scene_split = False
-
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
-
-    def test_guard_leaves_unset_when_dry_run(self, respx_stash_processor):
-        """Flag is "dry-run" → guard leaves creation blocked (attr stays None)."""
-        respx_stash_processor.config.stash_enable_scene_split = "dry-run"
-
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
-
-    def test_guard_default_config_is_noop(self, respx_stash_processor):
-        """Default (unset) flag → guard is a no-op (default-False path)."""
-        respx_stash_processor._configure_scene_creation_guard()
-
-        assert getattr(Scene, "__create_input_type__", None) is None
+        assert getattr(Scene, "__create_input_type__", None) is expected_create_input

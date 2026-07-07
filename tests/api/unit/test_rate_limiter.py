@@ -6,12 +6,13 @@ Patches time.sleep to avoid real delays; time.time for deterministic timing.
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from api.rate_limiter import RateLimiter
 from config import FanslyConfig
+from tests.fixtures.utils import scaled_async_sleep, scaled_sync_sleep
 
 
 def _make_config(**overrides: bool | int | float) -> FanslyConfig:
@@ -291,7 +292,7 @@ class TestWaitForRequest:
         rl.current_backoff_seconds = 1.0
         rl.last_backoff_time = rl.last_refill  # set to now-ish
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
         assert rl.blocked_requests == 1
@@ -301,7 +302,7 @@ class TestWaitForRequest:
         rl = RateLimiter(_make_config())
         rl.tokens = 0.0
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
         assert rl.blocked_requests == 1
@@ -323,7 +324,7 @@ class TestWaitForRequest:
         rl.learned_floor = 0.01
         rl.last_request_time = rl.last_refill  # recent
 
-        with patch("api.rate_limiter.time.sleep"):
+        with patch("api.rate_limiter.time.sleep", scaled_sync_sleep):
             rl.wait_for_request()
 
     @pytest.mark.asyncio
@@ -347,7 +348,7 @@ class TestWaitForRequest:
         assert rl.learned_floor == 0.0
         step = rl.token_refill_interval  # 1.0s for 60 rpm
 
-        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+        with patch("api.rate_limiter.asyncio.sleep", new=scaled_async_sleep):
             await asyncio.gather(*[rl.async_wait_for_request() for _ in range(5)])
 
         # After 5 reservations, cursor should be ~5*step ahead of the start.
@@ -366,7 +367,7 @@ class TestWaitForRequest:
         rl.tokens = 100.0
         rl.last_request_time = time.time()  # ensures floor is applied
 
-        with patch("api.rate_limiter.asyncio.sleep", new=AsyncMock()):
+        with patch("api.rate_limiter.asyncio.sleep", new=scaled_async_sleep):
             await asyncio.gather(*[rl.async_wait_for_request() for _ in range(3)])
 
         # 3 callers, each spaced by max(floor=2.0, refill=1.0) = 2.0s

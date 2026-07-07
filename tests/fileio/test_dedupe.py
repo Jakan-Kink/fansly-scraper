@@ -94,13 +94,12 @@ async def test_safe_rglob(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_calculate_file_hash(tmp_path):
+async def test_calculate_file_hash(tmp_path, valid_mp4_file):
     """Test calculate_file_hash function."""
     image_file = create_test_image(tmp_path, "test.jpg")
-    video_file = create_test_file(tmp_path, "test.mp4", b"video content")
     text_file = create_test_file(tmp_path, "test.txt", b"text content")
 
-    # Test image hash calculation
+    # Test image hash calculation (imagehash.phash is an edge leaf -> patched)
     with patch("imagehash.phash", return_value="image_hash"):
         result, hash_value, debug_info = calculate_file_hash((image_file, "image/jpeg"))
         assert result == image_file
@@ -108,13 +107,16 @@ async def test_calculate_file_hash(tmp_path):
         assert debug_info["hash_type"] == "image"
         assert debug_info["hash_success"] is True
 
-    # Test video hash calculation
-    with patch("fileio.dedupe.get_hash_for_other_content", return_value="video_hash"):
-        result, hash_value, debug_info = calculate_file_hash((video_file, "video/mp4"))
-        assert result == video_file
-        assert hash_value == "video_hash"
-        assert debug_info["hash_type"] == "video/audio"
-        assert debug_info["hash_success"] is True
+    # Test video hash calculation through the REAL hashing pipeline: a real MP4
+    # runs through get_hash_for_other_content -> hash_mp4file -> hashlib and
+    # yields a real 32-char hex MD5 digest (no internal stub).
+    result, hash_value, debug_info = calculate_file_hash((valid_mp4_file, "video/mp4"))
+    assert result == valid_mp4_file
+    assert hash_value is not None
+    assert len(hash_value) == 32
+    assert all(c in "0123456789abcdef" for c in hash_value)
+    assert debug_info["hash_type"] == "video/audio"
+    assert debug_info["hash_success"] is True
 
     # Test unsupported mimetype
     result, hash_value, debug_info = calculate_file_hash((text_file, "text/plain"))
@@ -1162,13 +1164,17 @@ class TestCalculateHashForFileEdge:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_video_hash(self, tmp_path):
-        """Lines 900-901: video mimetype → get_hash_for_other_content."""
+    async def test_video_hash(self, valid_mp4_file):
+        """Lines 900-901: video mimetype → real get_hash_for_other_content.
 
-        file_path = create_test_file(tmp_path, "test.mp4", b"x" * 1024)
-        with patch("fileio.fnmanip.hash_mp4file", return_value="vidhash"):
-            result = await _calculate_hash_for_file(file_path, "video/mp4")
-        assert result == "vidhash"
+        Previously stubbed the internal ``hash_mp4file`` collaborator; now a
+        real MP4 runs the full get_hash_for_other_content -> hash_mp4file ->
+        hashlib pipeline and yields a real 32-char hex MD5 digest.
+        """
+        result = await _calculate_hash_for_file(valid_mp4_file, "video/mp4")
+        assert result is not None
+        assert len(result) == 32
+        assert all(c in "0123456789abcdef" for c in result)
 
 
 class TestMigrateFullPathsEdge:

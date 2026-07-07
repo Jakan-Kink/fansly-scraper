@@ -11,12 +11,11 @@ Key Principles:
 - Return data in the format that gql.Client.execute() returns
 
 Usage:
-    import respx
     import httpx
+    import respx
     from tests.fixtures.stash import create_graphql_response, create_find_tags_result
 
-    @respx.mock
-    async def test_find_tags(tag_mixin):
+    async def test_find_tags(respx_stash_processor):
         # Create response data
         tags_data = create_find_tags_result(count=1, tags=[
             {"id": "123", "name": "test", "aliases": [], "parents": [], "children": []}
@@ -33,9 +32,8 @@ Usage:
             ]
         )
 
-        # Initialize client and test
-        await tag_mixin.context.get_client()
-        result = await tag_mixin.context.client.find_tags(tag_filter={"name": {"value": "test"}})
+        client = respx_stash_processor.context.client
+        result = await client.find_tags(tag_filter={"name": {"value": "test"}})
         assert result.count == 1
 """
 

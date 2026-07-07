@@ -13,6 +13,7 @@ import argparse
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from pydantic import SecretStr
 
 from config.args import (
@@ -453,102 +454,70 @@ def test_cli_baseline_takes_precedence_over_yaml(
 # ---------------------------------------------------------------------------
 
 
-def test_yaml_daemon_mode_survives_into_config(
-    config_dir: Path, fresh_config: FanslyConfig
+@pytest.mark.parametrize(
+    (
+        "yaml_daemon",
+        "yaml_interactive",
+        "post_load_interactive",
+        "cli_daemon",
+        "expected_daemon",
+        "expected_interactive",
+    ),
+    [
+        pytest.param(True, None, None, False, True, None, id="yaml_true_survives"),
+        pytest.param(None, None, None, False, False, None, id="absent_defaults_false"),
+        pytest.param(
+            False, None, None, True, True, None, id="cli_overrides_yaml_false"
+        ),
+        pytest.param(
+            True, True, False, False, True, False, id="yaml_daemon_forces_interactive"
+        ),
+        pytest.param(
+            False, True, True, True, True, False, id="cli_daemon_forces_interactive"
+        ),
+    ],
+)
+def test_daemon_mode_yaml_and_cli_bridge(
+    config_dir: Path,
+    fresh_config: FanslyConfig,
+    yaml_daemon: bool | None,
+    yaml_interactive: bool | None,
+    post_load_interactive: bool | None,
+    cli_daemon: bool,
+    expected_daemon: bool,
+    expected_interactive: bool | None,
 ) -> None:
-    """monitoring.daemon_mode: true in config.yaml populates config.daemon_mode."""
+    """monitoring.daemon_mode bridge: YAML value populates config.daemon_mode
+    (absent → False), CLI -d overrides YAML false, and daemon mode from either
+    source forces config.interactive to False."""
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
     assert schema.monitoring is not None
-    schema.monitoring.daemon_mode = True
+    if yaml_daemon is not None:
+        schema.monitoring.daemon_mode = yaml_daemon
+    if yaml_interactive is not None:
+        schema.options.interactive = yaml_interactive
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
 
-    assert fresh_config.daemon_mode is True
+    # Post-load state reflects the YAML before any CLI overlay.
+    assert fresh_config.daemon_mode is bool(yaml_daemon)
+    if post_load_interactive is not None:
+        assert fresh_config.interactive is post_load_interactive
 
+    if cli_daemon:
+        # Simulate CLI -d / --daemon processing
+        cli_args = argparse.Namespace(
+            full_pass=False, monitor_since=None, daemon_mode=True
+        )
+        result = _handle_monitoring_settings(cli_args, fresh_config)
+        assert result is True
 
-def test_yaml_daemon_mode_false_is_default(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """monitoring.daemon_mode absent from YAML leaves config.daemon_mode False."""
-    yaml_path = config_dir / "config.yaml"
-
-    schema = ConfigSchema()
-    # daemon_mode defaults to False; do not set it explicitly
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-
-    assert fresh_config.daemon_mode is False
-
-
-# ---------------------------------------------------------------------------
-# 13. daemon_mode: CLI -d overrides YAML monitoring.daemon_mode: false
-# ---------------------------------------------------------------------------
-
-
-def test_cli_daemon_flag_overrides_yaml_false(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """CLI -d sets config.daemon_mode=True even when YAML has daemon_mode: false."""
-    yaml_path = config_dir / "config.yaml"
-
-    schema = ConfigSchema()
-    assert schema.monitoring is not None
-    schema.monitoring.daemon_mode = False
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-    assert fresh_config.daemon_mode is False  # YAML value loaded
-
-    # Simulate CLI -d / --daemon processing
-    cli_args = argparse.Namespace(full_pass=False, monitor_since=None, daemon_mode=True)
-    result = _handle_monitoring_settings(cli_args, fresh_config)
-
-    assert result is True
-    assert fresh_config.daemon_mode is True
-
-
-def test_yaml_daemon_mode_forces_interactive_false(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """monitoring.daemon_mode: true in YAML forces config.interactive to False."""
-    yaml_path = config_dir / "config.yaml"
-
-    schema = ConfigSchema()
-    assert schema.monitoring is not None
-    schema.monitoring.daemon_mode = True
-    schema.options.interactive = True
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-
-    assert fresh_config.daemon_mode is True
-    assert fresh_config.interactive is False
-
-
-def test_cli_daemon_flag_forces_interactive_false(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """CLI --daemon forces config.interactive=False regardless of YAML."""
-    yaml_path = config_dir / "config.yaml"
-
-    schema = ConfigSchema()
-    assert schema.monitoring is not None
-    schema.monitoring.daemon_mode = False
-    schema.options.interactive = True
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-    assert fresh_config.interactive is True  # YAML value loaded
-
-    cli_args = argparse.Namespace(full_pass=False, monitor_since=None, daemon_mode=True)
-    _handle_monitoring_settings(cli_args, fresh_config)
-
-    assert fresh_config.daemon_mode is True
-    assert fresh_config.interactive is False
+    assert fresh_config.daemon_mode is expected_daemon
+    if expected_interactive is not None:
+        assert fresh_config.interactive is expected_interactive
 
 
 # ---------------------------------------------------------------------------
@@ -799,149 +768,165 @@ def test_legacy_yaml_with_options_debug_loads_cleanly(
     assert fresh_config.trace is False
 
 
-def test_negative_bool_cli_flags_do_not_persist(
-    config_dir: Path, fresh_config: FanslyConfig
+@pytest.mark.parametrize(
+    (
+        "yaml_fields",
+        "handler",
+        "args_overrides",
+        "post_load_expected",
+        "runtime_expected",
+        "persisted_expected",
+    ),
+    [
+        pytest.param(
+            # User's authored YAML has all the user-friendly defaults turned on;
+            # a CI-flavoured invocation flips many things off for the session.
+            {
+                "options.interactive": True,
+                "options.prompt_on_exit": True,
+                "options.use_folder_suffix": True,
+                "options.download_media_previews": True,
+                "options.show_downloads": True,
+                "options.show_skipped_downloads": True,
+                "options.open_folder_when_finished": True,
+                "options.separate_messages": True,
+                "options.separate_timeline": True,
+            },
+            "boolean",
+            {
+                "non_interactive": True,
+                "no_prompt_on_exit": True,
+                "no_folder_suffix": True,
+                "no_media_previews": True,
+                "hide_downloads": True,
+                "hide_skipped_downloads": True,
+                "no_open_folder": True,
+                "no_separate_messages": True,
+                "no_separate_timeline": True,
+            },
+            {},
+            {
+                "interactive": False,
+                "prompt_on_exit": False,
+                "use_folder_suffix": False,
+                "download_media_previews": False,
+                "show_downloads": False,
+                "show_skipped_downloads": False,
+                "open_folder_when_finished": False,
+                "separate_messages": False,
+                "separate_timeline": False,
+            },
+            {
+                "options.interactive": True,
+                "options.prompt_on_exit": True,
+                "options.use_folder_suffix": True,
+                "options.download_media_previews": True,
+                "options.show_downloads": True,
+                "options.show_skipped_downloads": True,
+                "options.open_folder_when_finished": True,
+                "options.separate_messages": True,
+                "options.separate_timeline": True,
+            },
+            id="negative_bool_flags",
+        ),
+        pytest.param(
+            {
+                "options.separate_previews": False,
+                "options.use_duplicate_threshold": False,
+                "options.use_pagination_duplication": False,
+            },
+            "boolean",
+            {
+                "separate_previews": True,
+                "use_duplicate_threshold": True,
+                "use_pagination_duplication": True,
+            },
+            {},
+            {
+                "separate_previews": True,
+                "use_duplicate_threshold": True,
+                "use_pagination_duplication": True,
+            },
+            {
+                "options.separate_previews": False,
+                "options.use_duplicate_threshold": False,
+                "options.use_pagination_duplication": False,
+            },
+            id="positive_bool_flags",
+        ),
+        pytest.param(
+            {"targeted_creator.use_following": False},
+            "user",
+            {"use_following": True},
+            {},
+            {"use_following": True},
+            {"targeted_creator.use_following": False},
+            id="use_following_flag",
+        ),
+        pytest.param(
+            # CLI -u must target a subset for this run only; YAML's full list
+            # stays as the persisted authoritative set.
+            {"targeted_creator.usernames": ["alice", "bobby", "carol"]},
+            "user",
+            {"use_following": False, "users": ["alice"]},
+            {"user_names": {"alice", "bobby", "carol"}},
+            {"user_names": {"alice"}},
+            {"targeted_creator.usernames": ["alice", "bobby", "carol"]},
+            id="user_names_list",
+        ),
+    ],
+)
+def test_bool_and_user_cli_flags_do_not_persist(
+    config_dir: Path,
+    fresh_config: FanslyConfig,
+    yaml_fields: dict[str, object],
+    handler: str,
+    args_overrides: dict[str, object],
+    post_load_expected: dict[str, object],
+    runtime_expected: dict[str, object],
+    persisted_expected: dict[str, object],
 ) -> None:
-    """``--non-interactive``, ``-npox``, ``--no-previews`` etc. are per-run.
-
-    All negative-bool CLI flags flip a YAML-persisted positive setting to
-    False for the session. None should mutate the YAML default.
-    """
+    """Per-run CLI flags (negative bools, positive bools, ``-uf``, ``-u``) flip
+    runtime state for the session only; the YAML-persisted defaults survive a
+    subsequent ``_save_config`` untouched."""
     yaml_path = config_dir / "config.yaml"
     schema = ConfigSchema()
-    # User's authored YAML has all the user-friendly defaults turned on.
-    schema.options.interactive = True
-    schema.options.prompt_on_exit = True
-    schema.options.use_folder_suffix = True
-    schema.options.download_media_previews = True
-    schema.options.show_downloads = True
-    schema.options.show_skipped_downloads = True
-    schema.options.open_folder_when_finished = True
-    schema.options.separate_messages = True
-    schema.options.separate_timeline = True
+    for dotted, value in yaml_fields.items():
+        section, field = dotted.split(".")
+        setattr(getattr(schema, section), field, value)
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
+    for attr, want in post_load_expected.items():
+        assert getattr(fresh_config, attr) == want, attr
 
-    # Simulate a CI-flavoured invocation that flips many things off.
-    _handle_boolean_settings(
-        _full_args_namespace(
-            non_interactive=True,
-            no_prompt_on_exit=True,
-            no_folder_suffix=True,
-            no_media_previews=True,
-            hide_downloads=True,
-            hide_skipped_downloads=True,
-            no_open_folder=True,
-            no_separate_messages=True,
-            no_separate_timeline=True,
-        ),
-        fresh_config,
-    )
+    ns = _full_args_namespace(**args_overrides)
+    if handler == "user":
+        _handle_user_settings(ns, fresh_config)
+    else:
+        _handle_boolean_settings(ns, fresh_config)
 
-    # (1) Runtime reflects the CI overlay this session.
-    assert fresh_config.interactive is False
-    assert fresh_config.prompt_on_exit is False
-    assert fresh_config.use_folder_suffix is False
-    assert fresh_config.download_media_previews is False
-    assert fresh_config.show_downloads is False
-    assert fresh_config.show_skipped_downloads is False
-    assert fresh_config.open_folder_when_finished is False
-    assert fresh_config.separate_messages is False
-    assert fresh_config.separate_timeline is False
+    # (1) Runtime reflects the CLI overlay this session.
+    for attr, want in runtime_expected.items():
+        got = getattr(fresh_config, attr)
+        if isinstance(want, bool):
+            assert got is want, attr
+        else:
+            assert got == want, attr
 
     # (2) YAML still has every original value — re-read from disk.
     fresh_config._save_config()
     reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.options.interactive is True
-    assert reloaded.options.prompt_on_exit is True
-    assert reloaded.options.use_folder_suffix is True
-    assert reloaded.options.download_media_previews is True
-    assert reloaded.options.show_downloads is True
-    assert reloaded.options.show_skipped_downloads is True
-    assert reloaded.options.open_folder_when_finished is True
-    assert reloaded.options.separate_messages is True
-    assert reloaded.options.separate_timeline is True
-
-
-def test_positive_bool_cli_flags_do_not_persist(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """``--separate-previews``, ``--use-duplicate-threshold``,
-    ``--use-pagination-duplication`` flip per-run; YAML defaults survive."""
-    yaml_path = config_dir / "config.yaml"
-    schema = ConfigSchema()
-    schema.options.separate_previews = False
-    schema.options.use_duplicate_threshold = False
-    schema.options.use_pagination_duplication = False
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-
-    _handle_boolean_settings(
-        _full_args_namespace(
-            separate_previews=True,
-            use_duplicate_threshold=True,
-            use_pagination_duplication=True,
-        ),
-        fresh_config,
-    )
-
-    assert fresh_config.separate_previews is True
-    assert fresh_config.use_duplicate_threshold is True
-    assert fresh_config.use_pagination_duplication is True
-
-    fresh_config._save_config()
-    reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.options.separate_previews is False
-    assert reloaded.options.use_duplicate_threshold is False
-    assert reloaded.options.use_pagination_duplication is False
-
-
-def test_use_following_cli_does_not_persist(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """``-uf`` enables following-mode for the session; YAML stays False."""
-    yaml_path = config_dir / "config.yaml"
-    schema = ConfigSchema()
-    schema.targeted_creator.use_following = False
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-
-    _handle_user_settings(_full_args_namespace(use_following=True), fresh_config)
-    assert fresh_config.use_following is True
-
-    fresh_config._save_config()
-    reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.targeted_creator.use_following is False
-
-
-def test_user_names_cli_does_not_overwrite_yaml_list(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """``-u alice`` targets alice this run; YAML's full creator list stays."""
-    yaml_path = config_dir / "config.yaml"
-    schema = ConfigSchema()
-    schema.targeted_creator.usernames = ["alice", "bobby", "carol"]
-    schema.dump_yaml(yaml_path)
-
-    load_config(fresh_config)
-    assert fresh_config.user_names == {"alice", "bobby", "carol"}
-
-    _handle_user_settings(
-        _full_args_namespace(use_following=False, users=["alice"]),
-        fresh_config,
-    )
-    assert fresh_config.user_names == {"alice"}
-
-    fresh_config._save_config()
-    reloaded = ConfigSchema.load_yaml(yaml_path)
-    assert reloaded.targeted_creator.usernames is not None
-    assert sorted(reloaded.targeted_creator.usernames) == ["alice", "bobby", "carol"], (
-        "CLI -u must target a subset for this run only; YAML's full list stays "
-        "as the persisted authoritative set"
-    )
+    for dotted, want in persisted_expected.items():
+        section, field = dotted.split(".")
+        got = getattr(getattr(reloaded, section), field)
+        if isinstance(want, bool):
+            assert got is want, dotted
+        elif isinstance(want, list):
+            assert got is not None, dotted
+            assert sorted(got) == want, dotted
+        else:
+            assert got == want, dotted
 
 
 def test_uf_protects_user_names_from_refresh_following_overwrite(

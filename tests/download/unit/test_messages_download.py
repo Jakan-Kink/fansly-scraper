@@ -34,6 +34,7 @@ from download.types import DownloadType
 from metadata import Account, Message
 from metadata.models import get_store
 from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -215,7 +216,7 @@ async def test_download_messages_success_full_real_pipeline(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -384,7 +385,7 @@ async def test_download_messages_message_page_non_200_logs_and_returns(
     state.creator_id = creator_id
     state.creator_name = f"mfail_{creator_id}"
 
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -443,7 +444,7 @@ async def test_download_messages_for_group_with_creator_info_preset(
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -574,7 +575,7 @@ async def test_download_messages_for_group_infers_creator_from_group_users(
     state = DownloadState()
     assert state.creator_id is None
 
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
     _noop_download = AsyncMock(return_value=None)
     monkeypatch.setattr("download.common.download_media", _noop_download)
     monkeypatch.setattr("download.media.download_media", _noop_download)
@@ -647,7 +648,7 @@ async def test_download_messages_for_group_infers_creator_id_but_no_account_cach
     assert state.creator_id is None
     assert state.creator_name is None
 
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -811,7 +812,7 @@ async def test_download_messages_skipped_downloads_summary(
 
     monkeypatch.setattr("download.common.download_media", _count_as_duplicate)
     monkeypatch.setattr("download.media.download_media", _count_as_duplicate)
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
 
     async def _noop(_):
         return None
@@ -912,13 +913,13 @@ async def test_loop_breaks_on_duplicate_page_when_messages_already_cached(
     async def _noop(_):
         return None
 
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
     # asyncio.sleep(5) inside check_page_duplicates — patch out so the test
     # doesn't pay the rate-limit cushion delay.
-    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.asyncio.sleep", scaled_async_sleep)
 
     try:
         await download_messages(config, state)
@@ -1011,11 +1012,11 @@ async def test_loop_bypasses_dedup_when_access_changed(
     async def _noop(_):
         return None
 
-    monkeypatch.setattr("download.messages.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.messages.sleep", scaled_async_sleep)
     monkeypatch.setattr("download.common.input_enter_continue", _noop)
     monkeypatch.setattr("download.messages.input_enter_continue", _noop)
     monkeypatch.setattr("download.media.input_enter_continue", _noop)
-    monkeypatch.setattr("download.common.asyncio.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("download.common.asyncio.sleep", scaled_async_sleep)
 
     try:
         await download_messages(config, state)

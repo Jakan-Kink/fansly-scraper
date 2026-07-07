@@ -232,6 +232,8 @@ def test_multiple_handlers(log_setup):
 # ── Models: Snowflake, identity, stubs, enums, timestamps ────────────────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("helpers_models")
 class TestModelBehaviors:
     def test_snowflake_validation(self):
         with pytest.raises(Exception):
@@ -262,9 +264,8 @@ class TestModelBehaviors:
         assert hash(h) == hash(id(h))  # Unsaved → identity hash
         assert hash(a1) == hash((type(a1).__name__, a1.id))
 
-    @pytest.mark.asyncio
-    async def test_create_stub(self, entity_store):
-        """create_stub with fresh entity_store ensures clean identity map."""
+    async def test_create_stub(self, reset_class_store):
+        """create_stub with fresh store ensures clean identity map."""
         stub = Post.create_stub(snowflake_id(), accountId=snowflake_id())
         assert stub._is_new is True
         assert stub.id is not None
@@ -374,7 +375,6 @@ class TestModelBehaviors:
         assert m.width == 1920
         assert m.duration == 60.0
 
-    @pytest.mark.asyncio
     async def test_save_without_store(self):
         orig = FanslyObject._store
         try:
@@ -384,10 +384,9 @@ class TestModelBehaviors:
         finally:
             FanslyObject._store = orig
 
-    @pytest.mark.asyncio
-    async def test_save_clean_object_noop(self, entity_store):
+    async def test_save_clean_object_noop(self, class_entity_store):
         a = Account(id=snowflake_id(), username="clean")
-        await entity_store.save(a)
+        await class_entity_store.save(a)
         a.mark_clean()
         a._is_new = False
         await a.save()  # No-op, should not error
@@ -475,8 +474,14 @@ class TestTimestampAndCoercion:
 # ── _process_nested_cache_lookups all branches ─────────────────────────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("helpers_nested_cache")
 class TestProcessNestedCacheLookups:
-    """Covers lines 666, 700, 722, 731-672, 734, 746, 753."""
+    """Covers lines 666, 700, 722, 731-672, 734, 746, 753.
+
+    Cache-resolution tests share ONE class-scoped DB and request
+    ``reset_class_store`` for a clean identity map per method.
+    """
 
     def test_store_is_none_returns_data_unchanged(self):
         orig_store = FanslyObject._store
@@ -488,8 +493,7 @@ class TestProcessNestedCacheLookups:
         finally:
             FanslyObject._store = orig_store
 
-    @pytest.mark.asyncio
-    async def test_relationship_value_none_skipped(self, entity_store):
+    async def test_relationship_value_none_skipped(self, reset_class_store):
         aid = snowflake_id()
         data = {
             "id": aid,
@@ -501,17 +505,17 @@ class TestProcessNestedCacheLookups:
         assert acct.avatar is None
         assert acct.banner is None
 
-    @pytest.mark.asyncio
-    async def test_list_items_int_cached_and_not_int_or_dict(self, entity_store):
+    async def test_list_items_int_cached_and_not_int_or_dict(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         acct = Account(id=aid, username="list_test")
-        await entity_store.save(acct)
+        await store.save(acct)
 
         cached_variant = Media(id=snowflake_id(), accountId=aid)
-        await entity_store.save(cached_variant)
+        await store.save(cached_variant)
 
         preresolved = Media(id=snowflake_id(), accountId=aid)
-        await entity_store.save(preresolved)
+        await store.save(preresolved)
 
         data = {
             "id": snowflake_id(),
@@ -525,11 +529,11 @@ class TestProcessNestedCacheLookups:
         assert cached_variant in result["variants"]
         assert preresolved in result["variants"]
 
-    @pytest.mark.asyncio
-    async def test_scalar_int_cached_with_alias(self, entity_store):
+    async def test_scalar_int_cached_with_alias(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         acct = Account(id=aid, username="alias_test")
-        await entity_store.save(acct)
+        await store.save(acct)
 
         uncached_id = snowflake_id()
         data = {"id": snowflake_id(), "accountId": aid, "account": uncached_id}
@@ -540,11 +544,11 @@ class TestProcessNestedCacheLookups:
         result2 = Media._process_nested_cache_lookups(data2)
         assert result2["account"] is acct
 
-    @pytest.mark.asyncio
-    async def test_scalar_dict_with_id_cached_and_not_cached(self, entity_store):
+    async def test_scalar_dict_with_id_cached_and_not_cached(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         cached_acct = Account(id=aid, username="cached_dict_test")
-        await entity_store.save(cached_acct)
+        await store.save(cached_acct)
 
         data = {
             "id": snowflake_id(),
@@ -564,8 +568,7 @@ class TestProcessNestedCacheLookups:
         assert isinstance(result2["account"], dict)
         assert result2["account"]["id"] == uncached_id
 
-    @pytest.mark.asyncio
-    async def test_scalar_dict_without_id_enriched(self, entity_store):
+    async def test_scalar_dict_without_id_enriched(self, reset_class_store):
         aid = snowflake_id()
         data = {
             "id": aid,
@@ -576,11 +579,11 @@ class TestProcessNestedCacheLookups:
         assert isinstance(result["timelineStats"], dict)
         assert result["timelineStats"]["imageCount"] == 42
 
-    @pytest.mark.asyncio
-    async def test_belongs_to_fk_column_cache_resolution(self, entity_store):
+    async def test_belongs_to_fk_column_cache_resolution(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         acct = Account(id=aid, username="fk_resolve_test")
-        await entity_store.save(acct)
+        await store.save(acct)
 
         data_cached = {"id": snowflake_id(), "accountId": aid}
         result = Media._process_nested_cache_lookups(data_cached)
@@ -591,11 +594,11 @@ class TestProcessNestedCacheLookups:
         result2 = Media._process_nested_cache_lookups(data_uncached)
         assert "account" not in result2
 
-    @pytest.mark.asyncio
-    async def test_alias_key_removal_for_list(self, entity_store):
+    async def test_alias_key_removal_for_list(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         acct = Account(id=aid, username="alias_list")
-        await entity_store.save(acct)
+        await store.save(acct)
 
         mention_id = snowflake_id()
         data = {
@@ -614,8 +617,9 @@ class TestProcessNestedCacheLookups:
         assert "mentions" in result
         assert "accountMentions" not in result
 
-    @pytest.mark.asyncio
-    async def test_scalar_alias_removal_all_paths(self, entity_store):
+    async def test_scalar_alias_removal_all_paths(self, reset_class_store):
+        store = reset_class_store
+
         class _AliasedParent(FanslyObject):
             __table_name__: ClassVar[str] = ""
             __tracked_fields__ = set()
@@ -637,7 +641,7 @@ class TestProcessNestedCacheLookups:
 
         aid = snowflake_id()
         acct = Account(id=aid, username="alias_scalar")
-        await entity_store.save(acct)
+        await store.save(acct)
 
         data_int_cached = {"id": snowflake_id(), "altRelated": aid}
         result1 = _AliasedParent._process_nested_cache_lookups(data_int_cached)
@@ -664,6 +668,8 @@ class TestProcessNestedCacheLookups:
 # ── to_db_dict, save, _get_id, mark_dirty, update_fields, normalize ────
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("helpers_serialization")
 class TestSerializationAndHelpers:
     def test_mark_dirty_clears_snapshot(self):
         a = Account(id=snowflake_id(), username="mark_dirty")
@@ -697,8 +703,7 @@ class TestSerializationAndHelpers:
         db2 = att.to_db_dict()
         assert db2["pos"] == 42
 
-    @pytest.mark.asyncio
-    async def test_save_calls_store_and_marks_clean(self, entity_store):
+    async def test_save_calls_store_and_marks_clean(self, class_entity_store):
         a = Account(id=snowflake_id(), username="save_test")
         a._is_new = True
         await a.save()
@@ -725,15 +730,16 @@ class TestSerializationAndHelpers:
         result = FanslyObject.normalize_cdn_url(12345)  # type: ignore[arg-type]  # non-str input tests passthrough
         assert result == 12345  # type: ignore[comparison-overlap]  # non-str passthrough returns the int
 
-    def test_get_from_cache_by_type_name_unknown(self, entity_store):
-        result = get_from_cache_by_type_name(entity_store, "NonExistentType", 123)
+    def test_get_from_cache_by_type_name_unknown(self, reset_class_store):
+        result = get_from_cache_by_type_name(reset_class_store, "NonExistentType", 123)
         assert result is None
 
-    def test_get_from_cache_by_type_name_known(self, entity_store):
+    def test_get_from_cache_by_type_name_known(self, reset_class_store):
+        store = reset_class_store
         aid = snowflake_id()
         acct = Account(id=aid, username="registry_test")
-        entity_store.cache_instance(acct)
-        result = get_from_cache_by_type_name(entity_store, "Account", aid)
+        store.cache_instance(acct)
+        result = get_from_cache_by_type_name(store, "Account", aid)
         assert result is acct
 
 

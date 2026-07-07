@@ -63,6 +63,7 @@ from tests.fixtures.api import (
     open_error_av_segment,
     zero_duration_av_segment,
 )
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -161,67 +162,64 @@ class TestGetAuthenticatedPlaybackUrl:
         )
 
     @pytest.mark.asyncio
-    async def test_api_error_falls_back_to_channel_url(
-        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
+    @pytest.mark.parametrize(
+        ("response_kind", "label"),
+        [
+            pytest.param(
+                "invalid-json",
+                "get_auth_url_bad_json",
+                id="api-error-invalid-json",
+            ),
+            pytest.param(
+                "no-playback-url",
+                "get_auth_url_no_playback",
+                id="no-auth-url-in-response",
+            ),
+            pytest.param(
+                "non-dict-response",
+                "get_auth_list_response",
+                id="non-dict-list-response",
+            ),
+        ],
+    )
+    async def test_falls_back_to_channel_url(
+        self,
+        respx_fansly_api: FanslyApi,
+        config_wired: FanslyConfig,
+        response_kind: str,
+        label: str,
     ) -> None:
-        """Invalid JSON from the streaming-channel endpoint → except arm
-        (301-307) → fallback to channel.playbackUrl (310)."""
+        """One Response axis, three fallback arms → channel.playbackUrl.
+
+        - ``api-error-invalid-json``: invalid JSON from the streaming-channel
+          endpoint → except arm (301-307) → fallback (310).
+        - ``no-auth-url-in-response``: well-formed response with no playbackUrl
+          anywhere — ``master_url=""`` makes stream.playbackUrl falsy and there
+          is no top-level playbackUrl, so auth_url stays None → the 299->310
+          fallback arm.
+        - ``non-dict-list-response``: response contents that are not a dict (a
+          list) → the isinstance guard's False arm → fallback.
+        """
         creator_id = snowflake_id()
         channel = self._channel(creator_id)
+        if response_kind == "invalid-json":
+            response = httpx.Response(200, text="<<not json>>")
+        elif response_kind == "no-playback-url":
+            payload = build_streaming_channel_response(
+                creator_id=creator_id, master_url=""
+            )
+            response = httpx.Response(200, json=payload)
+        else:
+            response = httpx.Response(200, json={"success": True, "response": []})
         route = respx.get(
             f"https://apiv3.fansly.com/api/v1/streaming/channel/{creator_id}"
-        ).mock(side_effect=[httpx.Response(200, text="<<not json>>")])
+        ).mock(side_effect=[response])
         try:
             result = await _get_authenticated_playback_url(
                 config_wired, creator_id, channel
             )
         finally:
-            dump_fansly_calls(route.calls, "get_auth_url_bad_json")
-
-        assert result == channel.playbackUrl
-
-    @pytest.mark.asyncio
-    async def test_no_auth_url_in_response_falls_back(
-        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
-    ) -> None:
-        """A well-formed response with no playbackUrl anywhere → the 299->310
-        arm → fallback to channel.playbackUrl."""
-        creator_id = snowflake_id()
-        channel = self._channel(creator_id)
-        # master_url="" → stream.playbackUrl is falsy and there is no top-level
-        # playbackUrl, so auth_url stays None → the 299->310 fallback arm.
-        payload = build_streaming_channel_response(creator_id=creator_id, master_url="")
-        route = respx.get(
-            f"https://apiv3.fansly.com/api/v1/streaming/channel/{creator_id}"
-        ).mock(side_effect=[httpx.Response(200, json=payload)])
-        try:
-            result = await _get_authenticated_playback_url(
-                config_wired, creator_id, channel
-            )
-        finally:
-            dump_fansly_calls(route.calls, "get_auth_url_no_playback")
-
-        assert result == channel.playbackUrl
-
-    @pytest.mark.asyncio
-    async def test_non_dict_response_falls_back(
-        self, respx_fansly_api: FanslyApi, config_wired: FanslyConfig
-    ) -> None:
-        """Response contents that are not a dict (a list) → the isinstance
-        guard's False arm → fallback to channel.playbackUrl."""
-        creator_id = snowflake_id()
-        channel = self._channel(creator_id)
-        route = respx.get(
-            f"https://apiv3.fansly.com/api/v1/streaming/channel/{creator_id}"
-        ).mock(
-            side_effect=[httpx.Response(200, json={"success": True, "response": []})]
-        )
-        try:
-            result = await _get_authenticated_playback_url(
-                config_wired, creator_id, channel
-            )
-        finally:
-            dump_fansly_calls(route.calls, "get_auth_list_response")
+            dump_fansly_calls(route.calls, label)
 
         assert result == channel.playbackUrl
 
@@ -763,10 +761,6 @@ class TestSalvageOrphanSegments:
         assert stop.is_set()
 
 
-async def _anoop(*_a: object, **_k: object) -> None:
-    """An async no-op (stand-in for asyncio.sleep / _chat_ws_loop)."""
-
-
 async def _await_forever(*_a: object, **_k: object) -> None:
     """Block until cancelled — a chat loop the recorder's finally must cancel."""
     await asyncio.Event().wait()
@@ -848,7 +842,7 @@ class TestRecordStream:
         """3 attempts: auth-None retry → variant-None retry → no-segments."""
         self._setup(config_wired, tmp_path)
         cid = snowflake_id()
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url",
             _seq([None, "auth", "auth"]),
@@ -873,7 +867,7 @@ class TestRecordStream:
         cid = snowflake_id()
         seg = tmp_path / "segment_000000.ts"
         seg.write_bytes(b"ts")
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _seq(["a", "a"])
         )
@@ -913,7 +907,7 @@ class TestRecordStream:
             (temp_dir / "chat.jsonl").write_text('{"m":1}\n', encoding="utf-8")
             return ([seg], [6.0])
 
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr("download.livestream._chat_ws_loop", _await_forever)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _seq(["a"])
@@ -970,7 +964,7 @@ class TestRecordStream:
         cid = snowflake_id()
         seg = tmp_path / "segment_000000.ts"
         seg.write_bytes(b"ts")
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _always("a")
         )
@@ -995,7 +989,7 @@ class TestRecordStream:
         """auth None on every attempt → the last-attempt no-sleep arm (142->144)."""
         self._setup(config_wired, tmp_path)
         cid = snowflake_id()
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _always(None)
         )
@@ -1013,7 +1007,7 @@ class TestRecordStream:
         """variant None on every attempt → the last-attempt no-sleep arm (156->158)."""
         self._setup(config_wired, tmp_path)
         cid = snowflake_id()
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _always("a")
         )
@@ -1034,7 +1028,7 @@ class TestRecordStream:
         cid = snowflake_id()
         seg = tmp_path / "segment_000000.ts"
         seg.write_bytes(b"ts")
-        monkeypatch.setattr("download.livestream.asyncio.sleep", _anoop)
+        monkeypatch.setattr("download.livestream.asyncio.sleep", scaled_async_sleep)
         monkeypatch.setattr(
             "download.livestream._get_authenticated_playback_url", _always("a")
         )

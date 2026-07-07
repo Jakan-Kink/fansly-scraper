@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from metadata.models import MediaStory
+from metadata.models import Account, AccountMedia, Media, MediaStory
 from metadata.story import process_media_stories
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -59,27 +59,21 @@ class TestProcessMediaStories:
     """Lines 24-76: process_media_stories happy + early-return + missing-accountId."""
 
     @pytest.mark.asyncio
-    async def test_empty_media_stories_returns_empty_list(self, config, entity_store):
-        """Line 50: mediaStories empty → return [] without doing anything."""
-        result = await process_media_stories(config, {"mediaStories": []})
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_no_media_stories_key_returns_empty_list(self, config, entity_store):
-        """Line 48-50: missing mediaStories key → .get default to [] → return []."""
-        result = await process_media_stories(config, {})
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_story_without_account_id_emits_json_output_and_skips(
+    async def test_early_returns_and_missing_account_id_walk(
         self, config, entity_store, caplog
     ):
-        """Lines 64-70: story_dict without accountId → json_output + continue.
+        """One walk through the guard arcs, then the missing-accountId skip.
 
-        Asserts via caplog (json_output routes through loguru's json_logger,
-        bridged to stdlib via pytest-loguru).
+        - Lines 48-50: missing mediaStories key → ``.get`` default to [] → return [].
+        - Line 50: mediaStories explicitly empty → return [] without doing anything.
+        - Lines 64-70: story_dict without accountId → json_output + continue
+          (asserted via caplog — json_output routes through loguru's json_logger,
+          bridged to stdlib via pytest-loguru).
         """
-        from metadata.models import Account, AccountMedia, Media
+        # Early return 1: missing mediaStories key.
+        assert await process_media_stories(config, {}) == []
+        # Early return 2: mediaStories present but empty.
+        assert await process_media_stories(config, {"mediaStories": []}) == []
 
         caplog.set_level(logging.INFO)
         bad_id = snowflake_id()

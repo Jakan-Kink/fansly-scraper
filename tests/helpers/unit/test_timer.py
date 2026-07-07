@@ -11,27 +11,25 @@ from helpers.timer import Timer, TimerError, timing_jitter
 class TestTimingJitter:
     """Tests for the timing_jitter function."""
 
-    def test_timing_jitter_returns_float(self):
-        """Test timing_jitter returns a float."""
-        result = timing_jitter(0.5, 1.5)
-        assert isinstance(result, float)
+    @pytest.mark.parametrize(
+        ("min_val", "max_val"),
+        [
+            pytest.param(0.5, 1.5, id="fractional-range"),
+            pytest.param(1.0, 2.0, id="unit-range"),
+            pytest.param(-2.0, -1.0, id="negative-range"),
+            pytest.param(5.0, 5.0, id="zero-width-range-exact-value"),
+        ],
+    )
+    def test_timing_jitter_type_and_range(self, min_val, max_val):
+        """timing_jitter returns a float within [min_val, max_val].
 
-    def test_timing_jitter_within_range(self):
-        """Test timing_jitter returns value within specified range."""
-        min_val, max_val = 1.0, 2.0
+        100 samples per row (from the original within-range test). The
+        zero-width row implies the original ``result == 5.0`` assertion.
+        """
         for _ in range(100):
             result = timing_jitter(min_val, max_val)
+            assert isinstance(result, float)
             assert min_val <= result <= max_val
-
-    def test_timing_jitter_negative_range(self):
-        """Test timing_jitter with negative range."""
-        result = timing_jitter(-2.0, -1.0)
-        assert -2.0 <= result <= -1.0
-
-    def test_timing_jitter_zero_range(self):
-        """Test timing_jitter with same min and max."""
-        result = timing_jitter(5.0, 5.0)
-        assert result == 5.0
 
 
 class TestTimerError:
@@ -127,20 +125,17 @@ class TestTimer:
         result = slow_function()
         assert result == "done"
 
-    def test_timer_format_time_seconds(self):
-        """Test _format_time with seconds only."""
-        result = Timer._format_time(45.0)
-        assert result == "45s"
-
-    def test_timer_format_time_minutes(self):
-        """Test _format_time with minutes and seconds."""
-        result = Timer._format_time(125.0)  # 2m 5s
-        assert result == "2m 5s"
-
-    def test_timer_format_time_hours(self):
-        """Test _format_time with hours, minutes, and seconds."""
-        result = Timer._format_time(3665.0)  # 1h 1m 5s
-        assert result == "1h 1m 5s"
+    @pytest.mark.parametrize(
+        ("elapsed", "expected"),
+        [
+            pytest.param(45.0, "45s", id="seconds-only"),
+            pytest.param(125.0, "2m 5s", id="minutes-and-seconds"),
+            pytest.param(3665.0, "1h 1m 5s", id="hours-minutes-seconds"),
+        ],
+    )
+    def test_timer_format_time(self, elapsed, expected):
+        """_format_time picks the seconds/minutes/hours branch by magnitude."""
+        assert Timer._format_time(elapsed) == expected
 
     def test_get_elapsed_time_str_with_name(self):
         """Test get_elapsed_time_str with named timer."""
@@ -160,14 +155,27 @@ class TestTimer:
         assert elapsed_str == "0s"
 
     def test_get_average_time_str(self):
-        """Test get_average_time_str."""
+        """Average with recorded data, then the not-in-dict fallback (line 133).
+
+        One walk replacing three tests: the 0.01s-sleep variant's ``"s" in``
+        assertion is subsumed by the 1s-sleep assertions here; deleting the
+        name from the dict afterwards exercises the "0s" fallback branch.
+        """
         Timer.timers.clear()
         timer = Timer(name="average_test")
         timer.start()
-        time.sleep(0.01)
+        time.sleep(1.0)  # Need at least 1 second since int(elapsed) rounds down
         timer.stop()
-        avg_str = timer.get_average_time_str()
-        assert "s" in avg_str
+
+        result = timer.get_average_time_str()
+        # Should be at least "1s" since we slept for 1 second
+        assert result != "0s"
+        # Should be a formatted time string with seconds
+        assert "s" in result
+
+        # Remove from timers dict to test the edge case (line 133)
+        del Timer.timers["average_test"]
+        assert timer.get_average_time_str() == "0s"
 
     def test_get_all_timers_str(self):
         """Test get_all_timers_str class method."""
@@ -212,27 +220,3 @@ class TestTimer:
         timer = Timer(name="init_test")
         assert "init_test" in Timer.timers
         assert Timer.timers["init_test"] == 0
-
-    def test_get_average_time_str_no_timer(self):
-        """Test get_average_time_str returns '0s' when timer not in dict (line 133)."""
-        Timer.timers.clear()
-        timer = Timer(name="test_timer")
-        # Remove from timers dict to test the edge case
-        del Timer.timers["test_timer"]
-
-        result = timer.get_average_time_str()
-        assert result == "0s"
-
-    def test_get_average_time_str_with_timer(self):
-        """Test get_average_time_str with actual timer data."""
-        Timer.timers.clear()
-        timer = Timer(name="avg_test")
-        timer.start()
-        time.sleep(1.0)  # Need at least 1 second since int(elapsed) rounds down
-        timer.stop()
-
-        result = timer.get_average_time_str()
-        # Should be at least "1s" since we slept for 1 second
-        assert result != "0s"
-        # Should be a formatted time string with seconds
-        assert "s" in result

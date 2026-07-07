@@ -23,7 +23,7 @@ from tests.fixtures.api.fake_websocket import FakeSocket
 
 def _make_ws(*, enable_logging=False, on_unauthorized=None, on_rate_limited=None):
     return FanslyWebSocket(
-        token="test_token",  # noqa: S106
+        token="test_token",
         user_agent="TestAgent/1.0",
         cookies={"sess": "abc"},
         enable_logging=enable_logging,
@@ -71,7 +71,7 @@ class TestMessageHelpers:
         assert ws._create_cookie_header() == "sess=abc"
 
     def test_create_cookie_header_empty(self):
-        ws = FanslyWebSocket(token="t", user_agent="ua")  # noqa: S106
+        ws = FanslyWebSocket(token="t", user_agent="ua")
         assert ws._create_cookie_header() == ""
 
     def test_create_ssl_context(self):
@@ -276,44 +276,44 @@ class TestErrorEvent:
     """Lines 212-240: _handle_error_event — 401, 429, unknown codes."""
 
     @pytest.mark.asyncio
-    async def test_401_sync_callback(self):
-        """401 with sync on_unauthorized callback."""
+    @pytest.mark.parametrize(
+        ("code", "callback_kind", "expect_disconnect", "expect_fired"),
+        [
+            pytest.param(401, "sync", True, True, id="401-sync-callback"),
+            pytest.param(401, "async", True, True, id="401-async-callback"),
+            pytest.param(401, "none", True, False, id="401-no-callback"),
+            pytest.param(429, "sync", False, True, id="429-sync-callback"),
+            pytest.param(429, "async", False, True, id="429-async-callback"),
+            pytest.param(429, "none", False, False, id="429-no-callback"),
+        ],
+    )
+    async def test_handle_error_event(
+        self, code, callback_kind, expect_disconnect, expect_fired
+    ):
+        """401 disconnects and fires on_unauthorized; 429 stays connected and
+        fires on_rate_limited; sync/async/missing callbacks all handled."""
         called = []
-        ws = _make_ws(on_unauthorized=lambda: called.append("unauth"))
+
+        def _sync_cb():
+            called.append("fired")
+
+        async def _async_cb():
+            called.append("fired")
+
+        callback = {"sync": _sync_cb, "async": _async_cb, "none": None}[callback_kind]
+        kwargs = (
+            {"on_unauthorized": callback}
+            if code == 401
+            else {"on_rate_limited": callback}
+        )
+        ws = _make_ws(**kwargs)
         ws.connected = True
         ws.session_id = "s"
 
-        await ws._handle_error_event({"code": 401})
-        assert called == ["unauth"]
-        assert ws.connected is False
+        await ws._handle_error_event({"code": code})
 
-    @pytest.mark.asyncio
-    async def test_429_async_callback(self):
-        """429 with async on_rate_limited callback."""
-        called = []
-
-        async def on_rate():
-            called.append("rate")
-
-        ws = _make_ws(on_rate_limited=on_rate)
-
-        await ws._handle_error_event({"code": 429})
-        assert called == ["rate"]
-
-    @pytest.mark.asyncio
-    async def test_429_no_callback(self):
-        """429 without callback → just logs."""
-        ws = _make_ws()
-        await ws._handle_error_event({"code": 429})
-
-    @pytest.mark.asyncio
-    async def test_401_no_callback(self):
-        """401 without callback → disconnects but no crash."""
-        ws = _make_ws()
-        ws.connected = True
-        ws.session_id = "s"
-        await ws._handle_error_event({"code": 401})
-        assert ws.connected is False
+        assert called == (["fired"] if expect_fired else [])
+        assert ws.connected is (not expect_disconnect)
 
 
 class TestConnectDisconnect:
@@ -578,60 +578,47 @@ class TestListenLoop:
         assert timeout_count[0] >= 2
 
     @pytest.mark.asyncio
-    async def test_listen_loop_websocket_error(self):
-        """WebSocket error in listen → connected=False (lines 519-522)."""
+    @pytest.mark.parametrize(
+        ("make_exc", "forbid_error_log"),
+        [
+            pytest.param(
+                lambda: ConnectionClosed(Close(1006, "gone"), None),
+                False,
+                id="websocket-error",
+            ),
+            pytest.param(lambda: RuntimeError("boom"), False, id="unexpected-error"),
+            pytest.param(
+                lambda: ConnectionClosedOK(Close(1000, "OK"), Close(1000, "OK")),
+                True,
+                id="connection-closed-ok",
+            ),
+        ],
+    )
+    async def test_listen_loop_recv_raises(self, caplog, make_exc, forbid_error_log):
+        """recv raising exits the loop with connected=False (lines 519-528).
 
-        ws = _make_ws()
-        ws.connected = True
-
-        class ErrorSocket(FakeSocket):
-            async def recv(self):
-                raise ConnectionClosed(Close(1006, "gone"), None)
-
-        ws.websocket = ErrorSocket()
-        await ws._listen_loop()
-        assert ws.connected is False
-
-    @pytest.mark.asyncio
-    async def test_listen_loop_unexpected_error(self):
-        """Unexpected error in listen → connected=False (lines 526-528)."""
-        ws = _make_ws()
-        ws.connected = True
-
-        class BrokenSocket(FakeSocket):
-            async def recv(self):
-                raise RuntimeError("boom")
-
-        ws.websocket = BrokenSocket()
-        await ws._listen_loop()
-        assert ws.connected is False
-
-    @pytest.mark.asyncio
-    async def test_listen_loop_connection_closed_ok_logs_debug_not_error(self, caplog):
-        """Phase 2: ConnectionClosedOK (code 1000) does NOT produce an ERROR log.
-
-        An intentional WS close (code 1000) must not pollute logs with
-        the old false-error "WebSocket error in listen loop" message.
-        The loop must exit cleanly with connected=False.
+        Covers the WebSocketException branch (ConnectionClosed), the generic
+        Exception branch (RuntimeError), and the Phase 2 regression guard:
+        an intentional close (ConnectionClosedOK, code 1000) must NOT produce
+        the old false-error "WebSocket error in listen loop" ERROR log.
         """
-        import logging
-
         caplog.set_level(logging.WARNING)
         ws = _make_ws()
         ws.connected = True
 
-        class CleanCloseSocket(FakeSocket):
+        class RaisingSocket(FakeSocket):
             async def recv(self):
-                raise ConnectionClosedOK(Close(1000, "OK"), Close(1000, "OK"))
+                raise make_exc()
 
-        ws.websocket = CleanCloseSocket()
+        ws.websocket = RaisingSocket()
         await ws._listen_loop()
 
         assert ws.connected is False
-        # The old bug: ConnectionClosedOK was logged at ERROR with the generic
-        # "WebSocket error in listen loop" message. Verify that message is absent.
-        error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-        assert not any("WebSocket error in listen loop" in m for m in error_msgs)
+        if forbid_error_log:
+            error_msgs = [
+                r.getMessage() for r in caplog.records if r.levelname == "ERROR"
+            ]
+            assert not any("WebSocket error in listen loop" in m for m in error_msgs)
 
 
 class TestMaintainConnection:
@@ -1096,24 +1083,42 @@ class TestWaveSixCoverage:
 
     @pytest.mark.asyncio
     async def test_maintain_connection_logs_lost_then_reconnects(self, caplog):
-        """Lines 1083-1085: _listen_loop returned without stop_event → log + disconnect."""
+        """Real _listen_loop returns (connection lost) → warning + real disconnect.
+
+        No method-replacement: the REAL ``_listen_loop``, ``_maintain_connection``
+        and ``disconnect`` all run. The transport ``FakeSocket`` is the only edge —
+        its ``recv`` raises ``ConnectionClosedOK`` immediately (as the real
+        ``websockets`` client does when the peer closes), so the real
+        ``_listen_loop`` takes its ``WebSocketException`` branch, sets
+        ``connected = False`` and returns. Back in ``_maintain_connection`` the
+        ``stop_event`` is unset, so it logs "WebSocket connection lost" and calls
+        the real ``disconnect``. The loop is bounded by pre-setting
+        ``_reconnect_attempts`` to ``_max_reconnect_attempts``: the next iteration
+        finds the connection down and hits the max-attempts break. Mirrors the
+        real ``ws_connect``/``FakeSocket`` transport-edge pattern used elsewhere
+        in this file.
+        """
         caplog.set_level(logging.WARNING)
+
+        class _PeerClosedSocket(FakeSocket):
+            """recv immediately reports the peer closed — natural listen-loop exit."""
+
+            async def recv(self) -> str:
+                raise ConnectionClosedOK(Close(1000, "OK"), Close(1000, "OK"))
+
         ws = _make_ws()
         ws.connected = True
-        ws.websocket = FakeSocket()
-        # Already past max attempts to break out cleanly on next iteration.
+        ws.websocket = _PeerClosedSocket()
+        # Already at max attempts: after the lost-connection disconnect, the next
+        # maintain iteration hits the max-attempts break and exits cleanly.
         ws._reconnect_attempts = ws._max_reconnect_attempts
 
-        async def _listen_returns_immediately():
-            return None  # simulates connection lost without stop_event
-
-        async def _disconnect_marker():
-            ws._stop_event.set()  # break out of maintain_connection
-
-        ws._listen_loop = _listen_returns_immediately  # type: ignore[method-assign]
-        ws.disconnect = _disconnect_marker  # type: ignore[method-assign]
-
-        await ws._maintain_connection()
+        await asyncio.wait_for(ws._maintain_connection(), timeout=5.0)
 
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         assert any("WebSocket connection lost" in m for m in warnings)
+        # Real _listen_loop's WebSocketException branch already flipped
+        # connected → False; the real disconnect then takes its "not connected"
+        # early-return branch (also a real code path). Either way the loop
+        # exited via the max-attempts break, not a hang.
+        assert ws.connected is False

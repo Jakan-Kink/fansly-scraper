@@ -126,8 +126,7 @@ async def test_message_attachment_ordering(entity_store):
     ]
 
 
-@pytest.mark.asyncio
-async def test_attachment_content_resolution(entity_store):
+def test_attachment_content_resolution():
     """Test content type helper properties on attachments."""
     post_id = snowflake_id()
     content_id1 = snowflake_id()
@@ -163,8 +162,7 @@ async def test_attachment_content_resolution(entity_store):
     assert att_story.is_account_media_bundle is False
 
 
-@pytest.mark.asyncio
-async def test_attachment_exclusivity(entity_store):
+def test_attachment_exclusivity():
     """Test that an attachment can have postId or messageId, but not both.
 
     The DB has a CHECK constraint, but at the Pydantic level both fields are
@@ -189,8 +187,7 @@ async def test_attachment_exclusivity(entity_store):
     assert att.messageId == msg_id
 
 
-@pytest.mark.asyncio
-async def test_invalid_content_type_raises(entity_store):
+def test_invalid_content_type_raises():
     """Test that invalid contentType values raise ValidationError.
 
     In the SA ORM world, Attachment.process_attachment() silently skipped invalid types.

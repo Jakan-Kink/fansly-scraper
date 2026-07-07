@@ -66,7 +66,7 @@ from metadata import (
 )
 from metadata.models import get_store
 from metadata.subscriptions import _access_changed_accounts
-from tests.fixtures.daemon import RecordingSimulator
+from tests.fixtures.daemon import RecordingSimulator, async_noop_spy
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MessageFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -74,6 +74,156 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 def _logged(caplog: pytest.LogCaptureFixture, level: str) -> list[str]:
     """Return loguru messages at the given stdlib levelname."""
     return [r.getMessage() for r in caplog.records if r.levelname == level]
+
+
+# Rows: (item_cls, handler). Every creator-scoped handler shares the same
+# guard: _resolve_creator_name returns None → "skipping <WorkItem> - unknown
+# creator" warning + early return.
+_UNKNOWN_CREATOR_CASES = [
+    pytest.param(FullCreatorDownload, _handle_full_creator_item, id="full-creator"),
+    pytest.param(RedownloadCreatorMedia, _handle_redownload_item, id="redownload"),
+    pytest.param(CheckCreatorAccess, _handle_check_access_item, id="check-access"),
+    pytest.param(DownloadStoriesOnly, _handle_stories_only_item, id="stories-only"),
+]
+
+# Rows: (username, make_item, handler, ok_targets, raise_target,
+# error_template). Every handler shares the same exception arm: the download
+# step raises → ERROR log + re-raise. ``ok_targets`` are daemon.runner
+# bindings patched to succeed before ``raise_target`` is patched to raise;
+# ``username=None`` means no Account row is needed (group-scoped handler).
+_DOWNLOAD_EXC_CASES = [
+    pytest.param(
+        None,
+        lambda _cid: DownloadMessagesForGroup(group_id=999),
+        _handle_messages_item,
+        (),
+        "download_messages_for_group",
+        "download_messages_for_group failed for group 999",
+        id="messages",
+    ),
+    pytest.param(
+        "full_creator",
+        lambda cid: FullCreatorDownload(creator_id=cid),
+        _handle_full_creator_item,
+        (),
+        "get_creator_account_info",
+        "FullCreatorDownload failed for full_creator",
+        id="full-creator",
+    ),
+    pytest.param(
+        "ppv_err",
+        lambda cid: RedownloadCreatorMedia(creator_id=cid),
+        _handle_redownload_item,
+        (),
+        "get_creator_account_info",
+        "RedownloadCreatorMedia failed for ppv_err",
+        id="redownload",
+    ),
+    pytest.param(
+        "check_err",
+        lambda cid: CheckCreatorAccess(creator_id=cid),
+        _handle_check_access_item,
+        (),
+        "get_creator_account_info",
+        "CheckCreatorAccess failed for check_err",
+        id="check-access",
+    ),
+    pytest.param(
+        "story_err",
+        lambda cid: DownloadStoriesOnly(creator_id=cid),
+        _handle_stories_only_item,
+        ("get_creator_account_info",),
+        "download_stories",
+        "DownloadStoriesOnly failed for story_err",
+        id="stories-only",
+    ),
+    pytest.param(
+        "tl_err",
+        lambda cid: DownloadTimelineOnly(creator_id=cid),
+        _handle_timeline_only_item,
+        ("get_creator_account_info",),
+        "download_timeline",
+        "timeline-only download failed for {creator_id}",
+        id="timeline-only",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Shared handler branches — unknown-creator guard + exception re-raise arm,
+# parametrized over the _handle_*_item variants (was one copy per class).
+# ---------------------------------------------------------------------------
+
+
+class TestHandlerSharedBranches:
+    """Branches with the same shape in every _handle_*_item, poked once each."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("item_cls", "handler"), _UNKNOWN_CREATOR_CASES)
+    async def test_unknown_creator_logs_warning_and_returns(
+        self, config, entity_store, caplog, item_cls, handler
+    ):
+        """_resolve_creator_name returns None → warning + early return."""
+        caplog.set_level(logging.WARNING)
+
+        item = item_cls(creator_id=snowflake_id())
+        # Account NOT saved → resolve returns None.
+        await handler(config, item)
+
+        warnings = _logged(caplog, "WARNING")
+        assert any(
+            f"skipping {item_cls.__name__} - unknown creator" in m for m in warnings
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        (
+            "username",
+            "make_item",
+            "handler",
+            "ok_targets",
+            "raise_target",
+            "error_template",
+        ),
+        _DOWNLOAD_EXC_CASES,
+    )
+    async def test_download_exception_re_raised_with_error_log(
+        self,
+        config,
+        entity_store,
+        monkeypatch,
+        caplog,
+        username,
+        make_item,
+        handler,
+        ok_targets,
+        raise_target,
+        error_template,
+    ):
+        """The download step raises → ERROR log + re-raise."""
+        caplog.set_level(logging.ERROR)
+        creator_id = snowflake_id()
+        if username is not None:
+            await entity_store.save(
+                AccountFactory.build(id=creator_id, username=username)
+            )
+
+        async def _ok(*_a, **_k):
+            return None
+
+        async def _raises(*_a, **_k):
+            raise RuntimeError("handler boom")
+
+        for target in ok_targets:
+            monkeypatch.setattr(f"daemon.runner.{target}", _ok)
+        monkeypatch.setattr(f"daemon.runner.{raise_target}", _raises)
+
+        with pytest.raises(RuntimeError, match="handler boom"):
+            await handler(config, make_item(creator_id))
+
+        errors = _logged(caplog, "ERROR")
+        expected = error_template.format(creator_id=creator_id)
+        assert any(expected in m for m in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -94,17 +244,23 @@ class TestHandleMessagesItem:
         account = AccountFactory.build(id=sender_id, username="dm_sender")
         await entity_store.save(account)
 
-        captured: list[tuple] = []
-
-        async def _fake_download(_config, state, group_id):
-            captured.append((state.creator_name, state.creator_id, group_id))
-
-        monkeypatch.setattr("daemon.runner.download_messages_for_group", _fake_download)
+        # Boundary double: download_messages_for_group is the heavy download
+        # ENTRYPOINT, not the subject here. Spy on the dispatch to assert the
+        # resolved state + group_id it is handed. Its own coverage lives in the
+        # dedicated respx+DB tests.
+        spy = async_noop_spy()
+        monkeypatch.setattr("daemon.runner.download_messages_for_group", spy)
 
         item = DownloadMessagesForGroup(group_id=200, sender_id=sender_id)
         await _handle_messages_item(config, item)
 
-        assert captured == [("dm_sender", sender_id, 200)]
+        assert spy.await_count == 1
+        _config_arg, state_arg, group_id_arg = spy.call_args.args
+        assert (state_arg.creator_name, state_arg.creator_id, group_id_arg) == (
+            "dm_sender",
+            sender_id,
+            200,
+        )
         info = _logged(caplog, "INFO")
         assert any(
             "downloading messages for group 200" in m and f"sender={sender_id}" in m
@@ -118,37 +274,19 @@ class TestHandleMessagesItem:
         """sender_id=None → state.creator_name stays None, no resolve call."""
         caplog.set_level(logging.INFO)
 
-        captured: list[tuple] = []
-
-        async def _fake_download(_config, state, group_id):
-            captured.append((state.creator_name, state.creator_id, group_id))
-
-        monkeypatch.setattr("daemon.runner.download_messages_for_group", _fake_download)
+        # Boundary double — assert on the dispatched state/group_id args.
+        spy = async_noop_spy()
+        monkeypatch.setattr("daemon.runner.download_messages_for_group", spy)
 
         item = DownloadMessagesForGroup(group_id=300, sender_id=None)
         await _handle_messages_item(config, item)
 
-        assert captured == [(None, None, 300)]
-
-    @pytest.mark.asyncio
-    async def test_download_exception_re_raised_with_error_log(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """Lines 239-245: download_messages_for_group raises → ERROR log + re-raise."""
-        caplog.set_level(logging.ERROR)
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("dm download boom")
-
-        monkeypatch.setattr("daemon.runner.download_messages_for_group", _raises)
-
-        item = DownloadMessagesForGroup(group_id=999)
-        with pytest.raises(RuntimeError, match="dm download boom"):
-            await _handle_messages_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any(
-            "download_messages_for_group failed for group 999" in m for m in errors
+        assert spy.await_count == 1
+        _config_arg, state_arg, group_id_arg = spy.call_args.args
+        assert (state_arg.creator_name, state_arg.creator_id, group_id_arg) == (
+            None,
+            None,
+            300,
         )
 
     @pytest.mark.asyncio
@@ -162,17 +300,14 @@ class TestHandleMessagesItem:
         config.user_names = {"someone_else"}
         sender_id = snowflake_id()  # no Account saved → _is_creator_in_scope False
 
-        called: list[int] = []
-
-        async def _fake_download(_config, _state, group_id):
-            called.append(group_id)
-
-        monkeypatch.setattr("daemon.runner.download_messages_for_group", _fake_download)
+        # Boundary double — assert the dispatch is skipped entirely.
+        spy = async_noop_spy()
+        monkeypatch.setattr("daemon.runner.download_messages_for_group", spy)
 
         item = DownloadMessagesForGroup(group_id=400, sender_id=sender_id)
         await _handle_messages_item(config, item)
 
-        assert called == []
+        assert spy.await_count == 0
         debug = _logged(caplog, "DEBUG")
         assert any("out of scope" in m and str(sender_id) in m for m in debug)
 
@@ -183,46 +318,8 @@ class TestHandleMessagesItem:
 
 
 class TestHandleFullCreatorItemBranches:
-    """Lines 262-266 + 282-288: unknown-creator + exception branches."""
-
-    @pytest.mark.asyncio
-    async def test_unknown_creator_logs_warning_and_returns(
-        self, config, entity_store, caplog
-    ):
-        """Lines 262-266: _resolve_creator_name returns None → warning + return."""
-        caplog.set_level(logging.WARNING)
-
-        item = FullCreatorDownload(creator_id=snowflake_id())
-        # Account NOT saved → resolve returns None.
-        await _handle_full_creator_item(config, item)
-
-        warnings = _logged(caplog, "WARNING")
-        assert any(
-            "skipping FullCreatorDownload - unknown creator" in m for m in warnings
-        )
-
-    @pytest.mark.asyncio
-    async def test_download_exception_re_raised(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """Lines 282-288: any download_X raises → ERROR log + re-raise."""
-        caplog.set_level(logging.ERROR)
-        creator_id = snowflake_id()
-        account = AccountFactory.build(id=creator_id, username="full_creator")
-        await entity_store.save(account)
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("full creator boom")
-
-        # First call (get_creator_account_info) raises — covers the exception path.
-        monkeypatch.setattr("daemon.runner.get_creator_account_info", _raises)
-
-        item = FullCreatorDownload(creator_id=creator_id)
-        with pytest.raises(RuntimeError, match="full creator boom"):
-            await _handle_full_creator_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any("FullCreatorDownload failed for full_creator" in m for m in errors)
+    """Lines 319-323: out-of-scope guard (shared branches live in
+    TestHandlerSharedBranches)."""
 
     @pytest.mark.asyncio
     async def test_out_of_scope_creator_skipped(
@@ -252,20 +349,8 @@ class TestHandleFullCreatorItemBranches:
 
 
 class TestHandleRedownloadItem:
-    """Lines 291-325: PPV re-download handler — happy + unknown + exception."""
-
-    @pytest.mark.asyncio
-    async def test_unknown_creator_logs_warning(self, config, entity_store, caplog):
-        """Lines 304-309: unknown creator → warning + return."""
-        caplog.set_level(logging.WARNING)
-
-        item = RedownloadCreatorMedia(creator_id=snowflake_id())
-        await _handle_redownload_item(config, item)
-
-        warnings = _logged(caplog, "WARNING")
-        assert any(
-            "skipping RedownloadCreatorMedia - unknown creator" in m for m in warnings
-        )
+    """Lines 291-325: PPV re-download handler — happy + targeted paths
+    (unknown-creator + exception arms live in TestHandlerSharedBranches)."""
 
     @pytest.mark.asyncio
     async def test_happy_path_calls_three_downloads(
@@ -302,28 +387,6 @@ class TestHandleRedownloadItem:
         ]
         info = _logged(caplog, "INFO")
         assert any("PPV re-download for ppv_creator" in m for m in info)
-
-    @pytest.mark.asyncio
-    async def test_download_exception_re_raised(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """Lines 319-325: any download raises → ERROR log + re-raise."""
-        caplog.set_level(logging.ERROR)
-        creator_id = snowflake_id()
-        account = AccountFactory.build(id=creator_id, username="ppv_err")
-        await entity_store.save(account)
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("ppv boom")
-
-        monkeypatch.setattr("daemon.runner.get_creator_account_info", _raises)
-
-        item = RedownloadCreatorMedia(creator_id=creator_id)
-        with pytest.raises(RuntimeError, match="ppv boom"):
-            await _handle_redownload_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any("RedownloadCreatorMedia failed for ppv_err" in m for m in errors)
 
     @pytest.mark.asyncio
     async def test_targeted_ppv_shortcut(
@@ -441,20 +504,8 @@ class TestHandleRedownloadItem:
 
 
 class TestHandleCheckAccessItem:
-    """Lines 328-359: new-follow access check handler."""
-
-    @pytest.mark.asyncio
-    async def test_unknown_creator_logs_warning(self, config, entity_store, caplog):
-        """Lines 340-345: unknown creator → warning + return."""
-        caplog.set_level(logging.WARNING)
-
-        item = CheckCreatorAccess(creator_id=snowflake_id())
-        await _handle_check_access_item(config, item)
-
-        warnings = _logged(caplog, "WARNING")
-        assert any(
-            "skipping CheckCreatorAccess - unknown creator" in m for m in warnings
-        )
+    """Lines 328-359: new-follow access check handler — happy path
+    (unknown-creator + exception arms live in TestHandlerSharedBranches)."""
 
     @pytest.mark.asyncio
     async def test_happy_path_calls_account_info_only(
@@ -480,112 +531,10 @@ class TestHandleCheckAccessItem:
         info = _logged(caplog, "INFO")
         assert any("checking access for follower_check" in m for m in info)
 
-    @pytest.mark.asyncio
-    async def test_account_info_exception_re_raised(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """Lines 353-359: get_creator_account_info raises → ERROR + re-raise."""
-        caplog.set_level(logging.ERROR)
-        creator_id = snowflake_id()
-        account = AccountFactory.build(id=creator_id, username="check_err")
-        await entity_store.save(account)
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("check boom")
-
-        monkeypatch.setattr("daemon.runner.get_creator_account_info", _raises)
-
-        item = CheckCreatorAccess(creator_id=creator_id)
-        with pytest.raises(RuntimeError, match="check boom"):
-            await _handle_check_access_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any("CheckCreatorAccess failed for check_err" in m for m in errors)
-
 
 # ---------------------------------------------------------------------------
-# _handle_stories_only_item — gaps (lines 376-380, 391-397)
+# _handle_timeline_only_item — stats-cache flag reset
 # ---------------------------------------------------------------------------
-
-
-class TestHandleStoriesOnlyItemBranches:
-    """Lines 374-397: stories-only handler unknown + exception branches."""
-
-    @pytest.mark.asyncio
-    async def test_unknown_creator_logs_warning(self, config, entity_store, caplog):
-        """Lines 376-380: unknown creator → warning + return."""
-        caplog.set_level(logging.WARNING)
-
-        item = DownloadStoriesOnly(creator_id=snowflake_id())
-        await _handle_stories_only_item(config, item)
-
-        warnings = _logged(caplog, "WARNING")
-        assert any(
-            "skipping DownloadStoriesOnly - unknown creator" in m for m in warnings
-        )
-
-    @pytest.mark.asyncio
-    async def test_download_exception_re_raised(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """Lines 391-397: download_stories raises → ERROR + re-raise."""
-        caplog.set_level(logging.ERROR)
-        creator_id = snowflake_id()
-        account = AccountFactory.build(id=creator_id, username="story_err")
-        await entity_store.save(account)
-
-        async def _info_ok(*_a, **_k):
-            return None
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("stories boom")
-
-        monkeypatch.setattr("daemon.runner.get_creator_account_info", _info_ok)
-        monkeypatch.setattr("daemon.runner.download_stories", _raises)
-
-        item = DownloadStoriesOnly(creator_id=creator_id)
-        with pytest.raises(RuntimeError, match="stories boom"):
-            await _handle_stories_only_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any("DownloadStoriesOnly failed for story_err" in m for m in errors)
-
-
-# ---------------------------------------------------------------------------
-# _handle_timeline_only_item — gap (lines 429-435 exception)
-# ---------------------------------------------------------------------------
-
-
-class TestHandleTimelineOnlyItemException:
-    """Lines 429-435: timeline-only handler exception branch."""
-
-    @pytest.mark.asyncio
-    async def test_download_exception_re_raised(
-        self, config, entity_store, monkeypatch, caplog
-    ):
-        """download_timeline raises → ERROR log + re-raise."""
-        caplog.set_level(logging.ERROR)
-        creator_id = snowflake_id()
-        account = AccountFactory.build(id=creator_id, username="tl_err")
-        await entity_store.save(account)
-
-        async def _info_ok(*_a, **_k):
-            return None
-
-        async def _raises(*_a, **_k):
-            raise RuntimeError("timeline boom")
-
-        monkeypatch.setattr("daemon.runner.get_creator_account_info", _info_ok)
-        monkeypatch.setattr("daemon.runner.download_timeline", _raises)
-
-        item = DownloadTimelineOnly(creator_id=creator_id)
-        with pytest.raises(RuntimeError, match="timeline boom"):
-            await _handle_timeline_only_item(config, item)
-
-        errors = _logged(caplog, "ERROR")
-        assert any(
-            f"timeline-only download failed for {creator_id}" in m for m in errors
-        )
 
 
 class TestHandleTimelineOnlyItemBypassesStatsShortcut:
@@ -1257,12 +1206,12 @@ class TestOnServiceEventBranchEdges:
         non-int inner type (1287->1308), non-15 synthetic service (1291->1308),
         and a non-dict subscription under svc=15 (1293->1308)."""
         _sim, _queue, _budget, handler = self._make_handler()
-        applied: list = []
-
-        async def _apply(payload):
-            applied.append(payload)
-
-        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", _apply)
+        # Boundary double: apply_subscription_ws_event is the guarded sink; the
+        # subject is the runner's guard arms, so spy on it and assert it is
+        # never reached (its own behaviour is covered in metadata.subscriptions
+        # tests).
+        spy = async_noop_spy()
+        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", spy)
 
         for notification in (
             "not-a-dict",
@@ -1277,7 +1226,7 @@ class TestOnServiceEventBranchEdges:
                 }
             )
 
-        assert applied == []
+        assert spy.await_count == 0
 
     @pytest.mark.asyncio
     async def test_notification_apply_exception_logged(self, monkeypatch, caplog):
@@ -1311,12 +1260,10 @@ class TestOnServiceEventBranchEdges:
         """(15, 5) with no subscription dict skips the apply side-effect and
         proceeds to the dispatcher (line 1310->1319)."""
         _sim, _queue, _budget, handler = self._make_handler()
-        applied: list = []
-
-        async def _apply(payload):
-            applied.append(payload)
-
-        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", _apply)
+        # Boundary double: spy on the sink to assert the missing-subscription
+        # guard skips the apply side-effect before the dispatcher runs.
+        spy = async_noop_spy()
+        monkeypatch.setattr("daemon.runner.apply_subscription_ws_event", spy)
 
         await handler({"serviceId": 15, "event": json.dumps({"type": 5})})
-        assert applied == []
+        assert spy.await_count == 0

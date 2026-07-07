@@ -17,6 +17,7 @@ import pytest
 import respx
 from stash_graphql_client import StashContext
 
+from config import FanslyConfig
 from daemon.runner import _daemon_stash_context, _run_incremental_stash
 from download.core import DownloadState
 from metadata import ContentType
@@ -49,77 +50,29 @@ def _finished_job() -> dict:
     }
 
 
-class TestLocalPathSeam:
-    """media.local_path (download-time transient) reaches the incremental index."""
-
-    @pytest.mark.asyncio
-    async def test_local_path_survives_onto_indexed_media(
-        self, entity_store, respx_stash_processor
-    ):
-        """The media in the built index is the live object carrying local_path.
-
-        The incremental pass derives its scan paths from ``media.local_path`` on
-        the index media. Those objects come from the identity map the download
-        just populated, so the transient path must be present (not lost to a
-        fresh DB load). Without this, the scan would target nothing.
-        """
-        acct_id = snowflake_id()
-        account = AccountFactory.build(id=acct_id, username="test_user")
-        await entity_store.save(account)
-
-        media = MediaFactory.build(
-            id=snowflake_id(),
-            accountId=acct_id,
-            mimetype="video/mp4",
-            type=2,
-            is_downloaded=True,
-            local_filename="clip_id_42.mp4",
-        )
-        media.local_path = "/dl/test_user/Videos/clip_id_42.mp4"
-        await entity_store.save(media)
-
-        account_media = AccountMediaFactory.build(
-            id=snowflake_id(), accountId=acct_id, mediaId=media.id
-        )
-        await entity_store.save(account_media)
-
-        post = PostFactory.build(id=snowflake_id(), accountId=acct_id)
-        post.attachments = [
-            AttachmentFactory.build(
-                postId=post.id,
-                contentId=account_media.id,
-                contentType=ContentType.ACCOUNT_MEDIA,
-                pos=0,
-            )
-        ]
-
-        index = await respx_stash_processor._build_media_index([post])
-
-        leaf = PurePath(media.local_filename).name
-        indexed_media, _owners = index[leaf]
-        assert indexed_media is media  # same identity-map object
-        assert indexed_media.local_path == "/dl/test_user/Videos/clip_id_42.mp4"
-
-
 class TestIncrementalStashGating:
     """daemon._run_incremental_stash short-circuits before constructing Stash."""
 
+    @pytest.mark.parametrize(
+        "creator_name",
+        ["someone", None],
+        ids=["stash_inactive", "creator_unresolved"],
+    )
     @pytest.mark.asyncio
-    async def test_noop_when_stash_inactive(self, config):
-        """No Stash config -> clean no-op (the guard returns before from_config).
+    async def test_noop_gating(
+        self,
+        config: FanslyConfig,
+        creator_name: str | None,
+    ) -> None:
+        """Both gates -> clean no-op (the guard returns before from_config).
 
-        from_config would raise without a Stash context, so a clean return is
-        proof the gate fired first.
+        stash_inactive: no Stash config; from_config would raise without a
+        Stash context, so a clean return is proof the gate fired first.
+        creator_unresolved: creator_name None -> no-op; cannot resolve account.
         """
         config.stash_context_conn = None
         assert config.stash_active is False
-        await _run_incremental_stash(config, DownloadState(creator_name="someone"))
-
-    @pytest.mark.asyncio
-    async def test_noop_when_creator_unresolved(self, config):
-        """Unresolved creator (creator_name None) -> no-op; cannot resolve account."""
-        config.stash_context_conn = None
-        await _run_incremental_stash(config, DownloadState(creator_name=None))
+        await _run_incremental_stash(config, DownloadState(creator_name=creator_name))
 
     @pytest.mark.asyncio
     async def test_active_path_runs_real_processor_without_closing_client(
@@ -195,26 +148,26 @@ class TestIncrementalStashGating:
         assert respx_stash_processor.context._client is not None
 
 
-class TestOverrideMatchesByBasename:
-    """Regression guard: under override_dldir_w_mapped the per-media lookup must
-    match by basename, never by a converted path.
+class TestLocalPathSeamAndOverrideLookup:
+    """One seeded graph covers two standalone incremental-pass guards.
 
-    Under override the Stash library is reorganized, so local paths do not
-    correspond to Stash paths and get_stash_path collapses to the bare mapped
-    root. A path-based find_one would degrade to ``path=<mapped root>`` — the
-    whole managed area, not one file (the too-wide gate). This pins the lookup
-    filter to ``basename`` so a future edit back to ``path=`` is caught.
+    Seam: ``media.local_path`` (download-time transient) reaches the
+    incremental index — the media in the built index is the live identity-map
+    object carrying ``local_path``; without it the scan would target nothing.
+
+    Override regression guard: under ``override_dldir_w_mapped`` the Stash
+    library is reorganized, so local paths do not correspond to Stash paths and
+    get_stash_path collapses to the bare mapped root. A path-based find_one
+    would degrade to ``path=<mapped root>`` — the whole managed area, not one
+    file (the too-wide gate). This pins the lookup filter to ``basename`` so a
+    future edit back to ``path=`` is caught.
     """
 
     @pytest.mark.asyncio
-    async def test_incremental_lookup_uses_basename_not_mapped_root_path(
+    async def test_local_path_survives_and_lookup_uses_basename_not_path(
         self, respx_stash_processor, entity_store
     ):
         processor = respx_stash_processor
-        processor.config.stash_scan_settle_s = 0.0
-        # Override on: get_stash_path() now collapses any file path to the root.
-        processor.config.stash_override_dldir_w_mapped = True
-        processor.config.stash_mapped_path = Path("/stash/lib")
 
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="ovr_user")
@@ -246,6 +199,20 @@ class TestOverrideMatchesByBasename:
                 pos=0,
             )
         ]
+
+        # === Seam: the built index carries the live identity-map media (and
+        # its transient local_path), under default (non-override) config. ===
+        index = await processor._build_media_index([post])
+        index_leaf = PurePath(media.local_filename).name
+        indexed_media, _owners = index[index_leaf]
+        assert indexed_media is media  # same identity-map object
+        assert indexed_media.local_path == f"/dl/ovr_user/Videos/{leaf}"
+
+        # === Override regression guard: lookup by basename, never by path. ===
+        processor.config.stash_scan_settle_s = 0.0
+        # Override on: get_stash_path() now collapses any file path to the root.
+        processor.config.stash_override_dldir_w_mapped = True
+        processor.config.stash_mapped_path = Path("/stash/lib")
 
         performer = PerformerFactory(id="123", name="ovr_user", scenes=[], images=[])
         studio = StudioFactory(id="200", name="ovr_user (Fansly)")

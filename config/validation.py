@@ -386,7 +386,11 @@ async def validate_adjust_check_key(config: FanslyConfig) -> None:
 
             return
 
-        textio_logger.warning("Web retrieval of check key failed!")
+        # pragma: no cover — defensive: guess_check_key always returns a key
+        # (every failure path falls back to its hardcoded default), so this
+        # warning is unreachable today; kept as a guard against future changes
+        # to the guess_check_key contract.
+        textio_logger.warning("Web retrieval of check key failed!")  # pragma: no cover
 
     textio_logger.warning(
         f"Make sure, checking the main.js sources of the Fansly homepage, "

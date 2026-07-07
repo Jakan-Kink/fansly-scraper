@@ -33,6 +33,7 @@ from errors import EXIT_SUCCESS, SOME_USERS_FAILED, ConfigError
 from fansly_downloader_ng import main
 from stash import StashProcessing as _RealStashProcessing
 from tests.fixtures.api import dump_fansly_calls, fansly_json, run_main_and_cleanup
+from tests.fixtures.utils import scaled_async_sleep
 from textio import print_info
 
 
@@ -613,7 +614,7 @@ async def test_main_cancels_stash_task_that_exceeds_timeout(
     async def _fast_sleep(duration, *args, **kwargs):
         if duration == 1:
             # Only the stash-polling sleep uses an exact integer 1.
-            return await real_sleep(0)
+            return await scaled_async_sleep(0)
         return await real_sleep(duration, *args, **kwargs)
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
@@ -1051,7 +1052,7 @@ async def test_main_stash_cancellation_grace_wait_exception(
 
     async def _fast_sleep(duration, *args, **kwargs):
         if duration == 1:
-            return await real_sleep(0)
+            return await scaled_async_sleep(0)
         return await real_sleep(duration, *args, **kwargs)
 
     async def _raise_on_grace_wait(*args, **kwargs):
@@ -1344,7 +1345,7 @@ async def test_main_stash_task_completes_early_in_polling_loop(
 
     async def _fast_sleep(duration, *args, **kwargs):
         if duration == 1:
-            return await real_sleep(0)
+            return await scaled_async_sleep(0)
         return await real_sleep(duration, *args, **kwargs)
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
@@ -1658,7 +1659,7 @@ async def test_main_stash_timeout_cancel_loop_skips_done_tasks(
 
     async def _fast_sleep(duration, *args, **kwargs):
         if duration == 1:
-            return await real_sleep(0)
+            return await scaled_async_sleep(0)
         return await real_sleep(duration, *args, **kwargs)
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)

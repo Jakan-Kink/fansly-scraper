@@ -205,10 +205,12 @@ class TestInverseSyncEnhancements:
         assert "posts" not in changed
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("fk_relationship_sync_deep")
 class TestFKRelationshipSyncDeep:
-    @pytest.mark.asyncio
-    async def test_setattr_and_add_remove(self, entity_store):
+    async def test_setattr_and_add_remove(self, reset_class_store):
         """FK↔relationship sync + _add_to/_remove_from_relationship."""
+        entity_store = reset_class_store
         acct1 = Account(id=snowflake_id(), username="sync1")
         acct2 = Account(id=snowflake_id(), username="sync2")
         await entity_store.save(acct1)
@@ -251,8 +253,7 @@ class TestFKRelationshipSyncDeep:
         object.__setattr__(post, "hashtags", None)
         await post._remove_from_relationship("hashtags", h)
 
-    @pytest.mark.asyncio
-    async def test_sync_inverse_edge_branches(self, entity_store):
+    async def test_sync_inverse_edge_branches(self, reset_class_store):
         """Cover remaining branch exits in _sync_inverse_relationship and _add_to_inverse.
 
         823→exit: scalar sync where new_value is None → skips elif
@@ -260,6 +261,7 @@ class TestFKRelationshipSyncDeep:
         883→exit: _remove_from_relationship where meta has no inverse_query_field
         889→exit: _remove_from_relationship where current is NOT the related_obj
         """
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="edge_br")
         await entity_store.save(acct)
         assert isinstance(acct.id, int)
@@ -300,10 +302,10 @@ class TestFKRelationshipSyncDeep:
         # Neither branch fires → falls through (889→exit)
         assert media1.account is acct  # Unchanged
 
-    @pytest.mark.asyncio
-    async def test_sync_inverse_list_loop_back(self, entity_store):
+    async def test_sync_inverse_list_loop_back(self, reset_class_store):
         """821→820: Ensure the loop-back branch in _sync_inverse_relationship
         is exercised by passing 3+ items (coverage.py sometimes misses 2-item loops)."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="loop")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -319,17 +321,19 @@ class TestFKRelationshipSyncDeep:
         assert post in h3.posts
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("fk_setattr_inverse_sync")
 class TestSetAttrAndInverseSync:
     """Covers 812 (FK=None→clear relationship), 821→820 (list inverse iteration),
     823-824 (_add_to_inverse for list items), 835 (inverse_meta not is_list → return),
     837→exit (self not in current check), 840→exit (snapshot update),
     843 (scalar inverse set)."""
 
-    @pytest.mark.asyncio
-    async def test_fk_set_to_none_clears_relationship(self, entity_store):
+    async def test_fk_set_to_none_clears_relationship(self, reset_class_store):
         """Line 812: setting FK scalar to None when store exists → clears relationship.
         Path 2 in __setattr__: name in __fk_to_rel__, value is None.
         Uses Post.inReplyTo (nullable FK) → Post.replyTo (belongs_to relationship)."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="fk_none")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -346,12 +350,12 @@ class TestSetAttrAndInverseSync:
         reply.inReplyTo = None
         assert reply.replyTo is None
 
-    @pytest.mark.asyncio
-    async def test_list_inverse_sync_and_snapshot_update(self, entity_store):
+    async def test_list_inverse_sync_and_snapshot_update(self, reset_class_store):
         """Lines 821→820, 823-824, 837→exit, 840→exit:
         Setting a list relationship triggers _sync_inverse_relationship,
         which iterates list items, calls _add_to_inverse, checks 'self not in current',
         appends, and updates the inverse object's snapshot."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="inv_sync")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -374,11 +378,11 @@ class TestSetAttrAndInverseSync:
         # No duplicates
         assert h1.posts.count(post) == 1
 
-    @pytest.mark.asyncio
-    async def test_list_inverse_sync_with_snapshot_update(self, entity_store):
+    async def test_list_inverse_sync_with_snapshot_update(self, reset_class_store):
         """Lines 819-822, 840→exit:
         _sync_inverse_relationship iterates list items (820 loop, 821 isinstance),
         calls _add_to_inverse per item (822). Snapshot updated (840→exit)."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="snap_inv")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -400,8 +404,7 @@ class TestSetAttrAndInverseSync:
         assert post in h2.posts
         assert "posts" in h1._snapshot
 
-    @pytest.mark.asyncio
-    async def test_scalar_inverse_sync_via_setattr(self, entity_store):
+    async def test_scalar_inverse_sync_via_setattr(self, reset_class_store):
         """Lines 823-824: _sync_inverse_relationship for scalar (non-list) relationship
         with inverse_query_field set. No current belongs_to has inverse_query_field,
         so we use test-only subclasses."""
@@ -449,10 +452,10 @@ class TestSetAttrAndInverseSync:
         # owner.items should now contain item via _add_to_inverse
         assert item in owner.items
 
-    @pytest.mark.asyncio
-    async def test_scalar_inverse_via_add_to_inverse(self, entity_store):
+    async def test_scalar_inverse_via_add_to_inverse(self, reset_class_store):
         """Line 843: _add_to_inverse where current value is non-list, non-None.
         Sets the inverse field to self via object.__setattr__."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="scalar_inv")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -468,10 +471,10 @@ class TestSetAttrAndInverseSync:
         # _add_to_inverse cross-wires account to a Media; the type mismatch is the point.
         assert story.account is media2  # type: ignore[comparison-overlap]
 
-    @pytest.mark.asyncio
-    async def test_add_to_inverse_initializes_none_list(self, entity_store):
+    async def test_add_to_inverse_initializes_none_list(self, reset_class_store):
         """Lines 830-833: _add_to_inverse when current is None but inverse_meta.is_list=True
         → lazily initializes an empty list, then appends self."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="lazy_init")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -487,8 +490,7 @@ class TestSetAttrAndInverseSync:
         assert isinstance(h.posts, list)
         assert post in h.posts
 
-    @pytest.mark.asyncio
-    async def test_add_to_inverse_no_inverse_meta_returns(self, entity_store):
+    async def test_add_to_inverse_no_inverse_meta_returns(self, reset_class_store):
         """Line 835: _add_to_inverse where inverse field has no __relationships__ entry
         and current is None → returns early without doing anything."""
         acct = Account(id=snowflake_id(), username="no_meta")
@@ -502,15 +504,17 @@ class TestSetAttrAndInverseSync:
         assert acct.nonexistent_field is None  # type: ignore[attr-defined]  # field injected via object.__setattr__
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("fk_relationship_mutation_deep")
 class TestRelationshipMutationDeepPaths:
     """Covers 857-858 (init None→list), 861→exit (already in list),
     881→exit (remove from list with inverse), 885-886 (inverse is self → set None),
     887→exit (scalar remove)."""
 
-    @pytest.mark.asyncio
-    async def test_add_initializes_none_list(self, entity_store):
+    async def test_add_initializes_none_list(self, reset_class_store):
         """Lines 857-859: _add_to_relationship when current is None and meta.is_list
         → initializes to [], setattr, re-reads Pydantic's copy, then appends."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="add_init")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -523,9 +527,9 @@ class TestRelationshipMutationDeepPaths:
         assert isinstance(post.hashtags, list)
         assert h in post.hashtags
 
-    @pytest.mark.asyncio
-    async def test_add_duplicate_noop(self, entity_store):
+    async def test_add_duplicate_noop(self, reset_class_store):
         """Line 861→exit: adding same object twice → second add is no-op."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="dup_add")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -536,11 +540,11 @@ class TestRelationshipMutationDeepPaths:
         await post._add_to_relationship("hashtags", h)
         assert post.hashtags.count(h) == 1
 
-    @pytest.mark.asyncio
-    async def test_remove_from_list_with_inverse_list_cleanup(self, entity_store):
+    async def test_remove_from_list_with_inverse_list_cleanup(self, reset_class_store):
         """Lines 881-884: remove from list where inverse is also a list → removes self
         from inverse list too. Covers 883→exit (inverse_query_field is set),
         884 (isinstance list and self in inverse → remove)."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="rem_inv")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)
@@ -554,8 +558,7 @@ class TestRelationshipMutationDeepPaths:
         assert h not in post.hashtags
         assert post not in h.posts  # Inverse list cleaned up (line 884)
 
-    @pytest.mark.asyncio
-    async def test_remove_from_list_inverse_is_scalar_self(self, entity_store):
+    async def test_remove_from_list_inverse_is_scalar_self(self, reset_class_store):
         """Lines 887-888: remove from list where inverse is scalar (== self) → set None.
 
         No current model has list↔scalar inverse, so we define test-only
@@ -621,9 +624,9 @@ class TestRelationshipMutationDeepPaths:
         # child2.parent unchanged — it pointed to other_parent, not parent2
         assert child2.parent is other_parent
 
-    @pytest.mark.asyncio
-    async def test_remove_scalar_relationship(self, entity_store):
+    async def test_remove_scalar_relationship(self, reset_class_store):
         """Line 889→exit: remove scalar relationship where current IS the related_obj."""
+        entity_store = reset_class_store
         acct = Account(id=snowflake_id(), username="rem_scalar")
         assert isinstance(acct.id, int)
         await entity_store.save(acct)

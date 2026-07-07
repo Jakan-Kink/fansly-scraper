@@ -7,7 +7,6 @@ import logging
 import time
 import tomllib
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -49,6 +48,7 @@ from fansly_downloader_ng import (
 )
 from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 from textio import print_error, print_info
 
@@ -463,108 +463,76 @@ async def test_safe_cleanup_database_already_done_branch(config_with_database, c
     ), f"Expected skip-log, got: {info_messages}"
 
 
-async def test_safe_cleanup_database_timeout_falls_back_to_close_sync(
-    config_with_database, caplog, monkeypatch
-):
-    """_safe_cleanup_database falls back to close_sync on cleanup TimeoutError.
-
-    Covers lines 124-129: ``except TimeoutError`` branch in the inner try.
-    """
+@pytest.mark.parametrize(
+    ("cleanup_exc", "sync_exc", "expected_snippets"),
+    [
+        pytest.param(
+            TimeoutError("simulated cleanup timeout"),
+            None,
+            ["Database cleanup timed out"],
+            # Covers lines 124-129: ``except TimeoutError`` branch in the
+            # inner try — falls back to close_sync.
+            id="timeout-falls-back-to-close-sync",
+        ),
+        pytest.param(
+            TimeoutError("simulated cleanup timeout"),
+            RuntimeError("forced close boom"),
+            ["Forced cleanup also failed", "forced close boom"],
+            # Covers lines 126-129: inner try/except around ``close_sync()``
+            # — both primary cleanup AND forced fallback fail; both log.
+            id="timeout-forced-cleanup-also-fails",
+        ),
+        pytest.param(
+            RuntimeError("detailed-error boom"),
+            None,
+            ["Detailed error during database cleanup"],
+            # Covers lines 130-135: ``except Exception as detail_e`` branch.
+            id="generic-exception-falls-back",
+        ),
+        pytest.param(
+            RuntimeError("detailed-error boom"),
+            RuntimeError("sync close also boom"),
+            ["Sync cleanup also failed", "sync close also boom"],
+            # Covers lines 132-135: inner try/except around ``close_sync()``
+            # in the detailed-exception branch.
+            id="generic-exception-sync-fallback-fails",
+        ),
+    ],
+)
+async def test_safe_cleanup_database_failure_fallback_matrix(
+    config_with_database: FanslyConfig,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    cleanup_exc: Exception,
+    sync_exc: Exception | None,
+    expected_snippets: list[str],
+) -> None:
+    """_safe_cleanup_database failure fallbacks — cleanup raises
+    (TimeoutError or generic), optionally close_sync raises too; the expected
+    error is logged and nothing propagates."""
     caplog.set_level(logging.ERROR)
     config = config_with_database
 
-    async def _hang_cleanup():
-        raise TimeoutError("simulated cleanup timeout")
+    async def _raise_cleanup() -> None:
+        raise cleanup_exc
 
-    monkeypatch.setattr(config._database, "cleanup", _hang_cleanup)
+    monkeypatch.setattr(config._database, "cleanup", _raise_cleanup)
 
-    await _safe_cleanup_database(config)
+    if sync_exc is not None:
 
-    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any("Database cleanup timed out" in m for m in error_messages), (
-        f"Expected timeout-error log, got: {error_messages}"
-    )
+        def _raise_sync() -> None:
+            raise sync_exc
 
-
-async def test_safe_cleanup_database_timeout_forced_cleanup_also_fails(
-    config_with_database, caplog, monkeypatch
-):
-    """_safe_cleanup_database logs both failures when close_sync also raises.
-
-    Covers lines 126-129: the inner try/except around ``close_sync()`` —
-    both primary cleanup AND forced fallback fail; both errors log.
-    """
-    caplog.set_level(logging.ERROR)
-    config = config_with_database
-
-    async def _hang_cleanup():
-        raise TimeoutError("simulated cleanup timeout")
-
-    def _raise_sync():
-        raise RuntimeError("forced close boom")
-
-    monkeypatch.setattr(config._database, "cleanup", _hang_cleanup)
-    monkeypatch.setattr(config._database, "close_sync", _raise_sync)
+        monkeypatch.setattr(config._database, "close_sync", _raise_sync)
 
     await _safe_cleanup_database(config)  # Must not raise.
 
     error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert any(
-        "Forced cleanup also failed" in m and "forced close boom" in m
-        for m in error_messages
-    ), f"Expected 'Forced cleanup also failed' log, got: {error_messages}"
-
-
-async def test_safe_cleanup_database_generic_exception_falls_back(
-    config_with_database, caplog, monkeypatch
-):
-    """_safe_cleanup_database falls back on non-timeout exceptions.
-
-    Covers lines 130-135: ``except Exception as detail_e`` branch.
-    """
-    caplog.set_level(logging.ERROR)
-    config = config_with_database
-
-    async def _raise_boom():
-        raise RuntimeError("detailed-error boom")
-
-    monkeypatch.setattr(config._database, "cleanup", _raise_boom)
-
-    await _safe_cleanup_database(config)
-
-    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any("Detailed error during database cleanup" in m for m in error_messages), (
-        f"Expected detailed-error log, got: {error_messages}"
+        all(snippet in m for snippet in expected_snippets) for m in error_messages
+    ), (
+        f"Expected one ERROR log containing all of {expected_snippets}, got: {error_messages}"
     )
-
-
-async def test_safe_cleanup_database_generic_exception_sync_fallback_fails(
-    config_with_database, caplog, monkeypatch
-):
-    """_safe_cleanup_database logs both when close_sync also raises.
-
-    Covers lines 132-135: inner try/except around ``close_sync()`` in the
-    detailed-exception branch.
-    """
-    caplog.set_level(logging.ERROR)
-    config = config_with_database
-
-    async def _raise_boom():
-        raise RuntimeError("detailed-error boom")
-
-    def _raise_sync():
-        raise RuntimeError("sync close also boom")
-
-    monkeypatch.setattr(config._database, "cleanup", _raise_boom)
-    monkeypatch.setattr(config._database, "close_sync", _raise_sync)
-
-    await _safe_cleanup_database(config)  # Must not raise.
-
-    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any(
-        "Sync cleanup also failed" in m and "sync close also boom" in m
-        for m in error_messages
-    ), f"Expected 'Sync cleanup also failed' log, got: {error_messages}"
 
 
 async def test_safe_cleanup_database_outer_exception_is_caught(
@@ -1461,9 +1429,7 @@ async def test_load_client_account_into_db_persists_real_account(
             )
         ]
     )
-    monkeypatch.setattr(
-        "fansly_downloader_ng.asyncio.sleep", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("fansly_downloader_ng.asyncio.sleep", scaled_async_sleep)
 
     state = DownloadState()
     try:

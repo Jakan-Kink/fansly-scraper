@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import socket
 import sys
 import time
 import warnings
@@ -24,6 +25,20 @@ from stash_graphql_client.types import Scene, SceneCreateInput
 
 from errors import StashCleanupWarning
 from helpers.common import JsonDict
+
+
+def skip_if_stash_unavailable(host: str = "localhost", port: int = 9999) -> None:
+    """Skip the requesting test when the Docker Stash server is unreachable.
+
+    Mirrors the PostgreSQL skip in ``uuid_test_db_factory``: real-server Stash
+    fixtures must SKIP (not ERROR at setup) when the ``stash`` container is
+    down. Call this before the first real ``stash_context.get_client()``.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            pass
+    except OSError as exc:
+        pytest.skip(f"Stash server not available at {host}:{port}: {exc}")
 
 
 def _mock_capability_response() -> httpx.Response:
@@ -302,6 +317,7 @@ __all__ = [
     "dump_graphql_calls",
     "enable_scene_creation",
     "respx_stash_client",
+    "skip_if_stash_unavailable",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
@@ -364,6 +380,7 @@ async def stash_client(
     Yields:
         StashClient: An initialized client for Stash API interactions
     """
+    skip_if_stash_unavailable()
     client: StashClient = await stash_context.get_client()
     yield client
     # Ensure we explicitly clean up after each test

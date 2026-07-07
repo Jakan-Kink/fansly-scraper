@@ -1,333 +1,291 @@
-"""Integration tests for the m3u8 module.
+"""Integration tests for the m3u8 module — real segment download + real mux.
+
+These tests drive ``download_m3u8`` through its tier-3 segment-download path
+end-to-end with NO behavior-replacing mocks:
+
+- **Segments are real MPEG-TS bytes** (``make_synthetic_ivs_segment`` —
+  genuine H.264-High + AAC, the shape of a real IVS/CloudFront segment),
+  served via ``respx`` so they land on **real disk** under ``tmp_path``.
+- **Muxing is real PyAV** (``_mux_segments_with_pyav`` runs unmocked); the
+  happy-path test reopens the output with ``av.open`` and asserts a real MP4
+  carrying video + audio — mirroring
+  ``tests/download/integration/test_livestream_recorder.py``.
+- **Missing-segment + both-mux-fail branches use the real filesystem**: a
+  respx 404 leaves that ``.ts`` genuinely absent (real ``Path.exists`` drives
+  the error path); deliberately-unmuxable bytes make both real mux tiers fail.
+
+The only patches retained are **cascade-steering spies** on the tier-1/tier-2
+direct-download wrappers (``_try_direct_download_pyav`` /
+``_try_direct_download_ffmpeg`` → ``False``) so the cascade reaches tier 3.
+They replace no observable shape — each has its own real-leaf unit suite in
+``tests/download/unit/test_m3u8.py`` (``TestDirectDownloadPyAV`` /
+``TestDirectDownloadFFmpeg``). They are NOT fake muxers.
 
 Fixtures used:
 - ``m3u8_mock_config`` (tests.fixtures.download.m3u8_fixtures) — MagicMock
-  wrapping a real FanslyApi for respx HTTP interception.
+  wrapping a real FanslyApi for respx HTTP interception at the edge.
 - ``tmp_path`` (pytest built-in) — per-test temporary directory.
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import av
 import httpx
 import pytest
 import respx
 
 from download.m3u8 import download_m3u8, fetch_m3u8_segment_playlist
 from errors import M3U8Error
-from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.api import (
+    build_variant_playlist,
+    dump_fansly_calls,
+    make_synthetic_ivs_segment,
+)
+
+
+# VOD endlist playlist served directly at video.m3u8 (no variant re-fetch):
+# fetch_m3u8_segment_playlist returns it as-is when is_endlist + type == vod.
+_SEGMENT_PLAYLIST = (
+    build_variant_playlist(
+        media_sequence=0,
+        segment_uris=["segment1.ts", "segment2.ts"],
+        endlist=True,
+    )
+    + "#EXT-X-PLAYLIST-TYPE:VOD\n"
+)
+
+_M3U8_URL = "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
 
 
 class TestM3U8Integration:
-    """Integration tests for the m3u8 module."""
+    """Integration tests for the m3u8 module (tier-3 real-pipeline)."""
 
     @respx.mock
-    @patch("download.m3u8._mux_segments_with_ffmpeg")
-    @patch("download.m3u8._mux_segments_with_pyav")
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
-    def test_full_m3u8_download_workflow(
+    def test_full_segment_download_real_pyav_mux_workflow(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        mock_pyav_mux,
-        mock_ffmpeg_mux,
         m3u8_mock_config,
         tmp_path,
     ):
-        """Test the full M3U8 download workflow with segment download fallback."""
-        config = m3u8_mock_config
+        """End-to-end tier-3: real .ts segments → real PyAV mux → real MP4.
 
-        # Both direct downloads fail (forces segment download)
+        Drives the full segment-download path with NO fake muxer. Two genuine
+        H.264-High + AAC MPEG-TS segments are served via respx onto real disk;
+        the real ``_try_segment_download`` downloads them and the real
+        ``_mux_segments_with_pyav`` produces a real MP4 which we reopen with
+        ``av.open`` (mirroring ``test_livestream_recorder.py``). Also asserts
+        ``created_at`` is applied to the real output via ``os.utime`` — folding
+        in the former ``test_m3u8_with_timestamp_setting`` (which previously
+        patched ``Path.exists``/``Path.stat``/``open``/``os.utime`` wholesale).
+
+        Cascade-steering spies force tiers 1+2 to fail so the cascade reaches
+        tier 3; they replace no shape (see module docstring).
+        """
+        config = m3u8_mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
 
-        # PyAV mux succeeds
-        mock_pyav_mux.return_value = True
+        created_at = 1633046400  # 2021-10-01 — set as mtime on the real MP4.
+        segment1 = make_synthetic_ivs_segment(seed=1)
+        segment2 = make_synthetic_ivs_segment(seed=2)
 
-        # First response - master playlist
-        master_playlist = """#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=640x360
-video_360.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720
-video_720.m3u8
-#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080
-video_1080.m3u8"""
-
-        # Second response - segment playlist
-        segment_playlist = """#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-segment1.ts
-#EXTINF:8.0,
-segment2.ts
-#EXT-X-ENDLIST"""
-
-        # Segment content - just some dummy data
-        segment_content = b"DUMMY_TS_SEGMENT_DATA"
-
-        # Expected GET counts:
-        #   master playlist  2x (variant selection + tier-3 segment-flow re-fetch)
-        #   1080p variant    1x
-        #   segment1.ts      1x
-        #   segment2.ts      1x
-        # No OPTIONS preflights — m3u8 calls pass add_fansly_headers=False,
-        # which gates off CORS preflight at api/fansly.py.
-        # `url__startswith` is used because get_with_ngsw appends
-        # ?ngsw-bypass=true to the URL before sending.
+        # `url__startswith` for CDN — get_with_ngsw appends ?ngsw-bypass=true.
         options_route = respx.options(url__startswith="https://example.com/").mock(
-            side_effect=[httpx.Response(200)] * 5
+            side_effect=[httpx.Response(200)] * 8
         )
-        master_route = respx.get(url__startswith="https://example.com/video.m3u8").mock(
-            side_effect=[httpx.Response(200, text=master_playlist)] * 2
-        )
-        variant_route = respx.get(
-            url__startswith="https://example.com/video_1080.m3u8"
-        ).mock(side_effect=[httpx.Response(200, text=segment_playlist)])
+        playlist_route = respx.get(
+            url__startswith="https://example.com/video.m3u8"
+        ).mock(side_effect=[httpx.Response(200, text=_SEGMENT_PLAYLIST)])
         seg1_route = respx.get(url__startswith="https://example.com/segment1.ts").mock(
-            side_effect=[httpx.Response(200, content=segment_content)]
+            side_effect=[httpx.Response(200, content=segment1)]
         )
         seg2_route = respx.get(url__startswith="https://example.com/segment2.ts").mock(
-            side_effect=[httpx.Response(200, content=segment_content)]
+            side_effect=[httpx.Response(200, content=segment2)]
         )
 
-        # Real tmp_path-based directory (replaces PathMock + mock_open that were
-        # here previously). download_m3u8 writes the muxed output file via the
-        # mocked _mux_segments_with_pyav; segments are written to real disk.
         save_path = tmp_path / "video.ts"
-        save_path.parent.mkdir(exist_ok=True)
-
-        # Simulate the mux succeeding by having it write a placeholder output.
-        # The 4 wrapper patches above (`_try_direct_download_pyav`,
-        # `_try_direct_download_ffmpeg`, `_mux_segments_with_pyav`,
-        # `_mux_segments_with_ffmpeg`) are legitimate for this integration test
-        # because each wrapper has dedicated unit-test coverage elsewhere:
-        #   - `_try_direct_download_ffmpeg` → TestDirectDownloadFFmpeg
-        #     (tests/download/unit/test_m3u8.py:412)
-        #   - `_try_direct_download_pyav` → TestDirectDownloadPyAV
-        #     (tests/download/unit/test_m3u8.py:528)
-        #   - `_mux_segments_with_pyav` / `_mux_segments_with_ffmpeg`
-        #     → TestSegmentDownload (tests/download/unit/test_m3u8.py:623)
-        # This test verifies the orchestration (tier1→tier2→tier3 cascade with
-        # tier3's mux path succeeding); the wrappers' internal behavior is
-        # covered by the above dedicated unit tests.
-        def _fake_mux_write(segments, output_path, *args, **kwargs):
-            Path(output_path).write_bytes(b"MUXED_MP4_OUTPUT")
-            return True
-
-        mock_pyav_mux.side_effect = _fake_mux_write
 
         try:
             result = download_m3u8(
                 config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                m3u8_url=_M3U8_URL,
                 save_path=save_path,
+                created_at=created_at,
             )
         finally:
             dump_fansly_calls(
-                master_route.calls
-                + variant_route.calls
-                + seg1_route.calls
-                + seg2_route.calls,
-                "test_full_m3u8_download_workflow",
+                playlist_route.calls + seg1_route.calls + seg2_route.calls,
+                "test_full_segment_download_real_pyav_mux_workflow",
             )
 
-        # Functional assertions
+        # Output is the real MP4 produced by real PyAV muxing.
         assert result == save_path.parent / "video.mp4"
-        assert result.exists(), "Muxed output file should exist on disk"
-        assert result.read_bytes() == b"MUXED_MP4_OUTPUT"
+        assert result.exists(), "Muxed output MP4 should exist on real disk"
+        assert result.stat().st_size > 0
 
-        # Exact call counts for each route
-        assert len(master_route.calls) == 2, (
-            f"Master playlist fetched twice (variant selection + tier-3 "
-            f"segment flow re-fetch), got {len(master_route.calls)}"
-        )
-        assert len(variant_route.calls) == 1, (
-            f"1080p variant playlist should be fetched once, "
-            f"got {len(variant_route.calls)}"
-        )
-        assert len(seg1_route.calls) == 1
-        assert len(seg2_route.calls) == 1
-        # m3u8 calls pass add_fansly_headers=False — CORS preflight is
-        # gated off at api/fansly.py for CORS-simple requests.
-        assert len(options_route.calls) == 0
+        # Reopen with real PyAV: must carry video + audio and preserve the
+        # source's H.264 High profile (the add_stream_from_template extradata
+        # copy — a dropped copy would yield Constrained Baseline / fail open).
+        muxed = av.open(str(result))
+        try:
+            assert muxed.streams.video, "muxed MP4 has no video stream"
+            assert muxed.streams.audio, "muxed MP4 has no audio stream"
+            assert muxed.streams.video[0].profile == "High", (
+                f"High profile not preserved: {muxed.streams.video[0].profile}"
+            )
+            # The muxed video decodes to real frames. ``_mux_segments_with_pyav``
+            # does naive per-segment packet copy without DTS rebasing (unlike the
+            # livestream ``_mux_ivs_segments`` PID-router), so a reopened demux
+            # yields the first segment's GOP (~30 frames) — proof the real mux
+            # produced a decodable stream, not an empty/corrupt container.
+            video_frames = sum(
+                1 for pkt in muxed.demux(muxed.streams.video[0]) if pkt.size
+            )
+            assert video_frames >= 30, (
+                f"expected a decodable muxed stream, got {video_frames} frames"
+            )
+        finally:
+            muxed.close()
 
-        # Verify the fallback cascade ran as designed
+        # created_at applied to the real file via os.utime (real mtime write).
+        assert int(result.stat().st_mtime) == created_at
+
+        # Exact call counts — playlist once (VOD endlist, no re-fetch),
+        # each segment once.
+        assert playlist_route.call_count == 1
+        assert seg1_route.call_count == 1
+        assert seg2_route.call_count == 1
+        # m3u8 calls pass add_fansly_headers=False — CORS preflight is gated
+        # off at api/fansly.py for CORS-simple requests.
+        assert options_route.call_count == 0
+
+        # The cascade ran tier1 → tier2 → tier3 as designed.
         mock_pyav_direct.assert_called_once()
         mock_ffmpeg_direct.assert_called_once()
-        mock_pyav_mux.assert_called_once()
-        mock_ffmpeg_mux.assert_not_called()  # PyAV mux succeeded
-
-        # Verify segment content written to disk (segments are fetched then
-        # passed to mux, which wrote the fake MUXED output above).
-        for seg_route in (seg1_route, seg2_route):
-            assert seg_route.calls[0].response.content == segment_content
 
     @respx.mock
-    @patch("download.m3u8._mux_segments_with_ffmpeg")
-    @patch("download.m3u8._mux_segments_with_pyav")
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
-    def test_m3u8_download_with_error_handling(
+    def test_missing_segment_raises_via_real_filesystem(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        mock_pyav_mux,
-        mock_ffmpeg_mux,
         m3u8_mock_config,
         tmp_path,
     ):
-        """Test M3U8 download with error handling for missing segments."""
-        config = m3u8_mock_config
+        """A respx 404 leaves that ``.ts`` absent → real ``Path.exists`` fires.
 
+        No ``Path.exists``/``open`` patching: segment2 is served 404 so it is
+        genuinely never written to disk, and production's real missing-segment
+        check (``[f for f in segment_files if not f.exists()]``) raises.
+        """
+        config = m3u8_mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
 
-        # Segment playlist with segment links
-        segment_playlist = """#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-segment1.ts
-#EXTINF:8.0,
-segment2.ts
-#EXT-X-ENDLIST"""
+        segment1 = make_synthetic_ivs_segment(seed=1)
 
-        segment_content = b"DUMMY_TS_SEGMENT_DATA"
-
-        respx.options(url__regex=r"https://example\.com/.*").mock(
-            # CORS preflight fires once per unique GET URL; pad for multiple calls.
-            side_effect=[httpx.Response(200)] * 10
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 8
         )
-        respx.get("https://example.com/video.m3u8").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, text=segment_playlist)] * 5
+        playlist_route = respx.get(
+            url__startswith="https://example.com/video.m3u8"
+        ).mock(side_effect=[httpx.Response(200, text=_SEGMENT_PLAYLIST)])
+        seg1_route = respx.get(url__startswith="https://example.com/segment1.ts").mock(
+            side_effect=[httpx.Response(200, content=segment1)]
         )
-        respx.get("https://example.com/segment1.ts").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, content=segment_content)] * 5
-        )
-        respx.get("https://example.com/segment2.ts").mock(
+        seg2_route = respx.get(url__startswith="https://example.com/segment2.ts").mock(
             side_effect=[httpx.Response(404, text="Not Found")]
         )
 
         save_path = tmp_path / "video.ts"
-        save_path.parent.mkdir(exist_ok=True)
-
-        def exists_side_effect(*args, **kwargs):
-            if args:
-                path_obj = args[0]
-                if hasattr(path_obj, "name") and path_obj.name.endswith(".ts"):
-                    return False
-            return True
-
-        exists_mock = MagicMock()
-        exists_mock.side_effect = exists_side_effect
 
         try:
-            with (
-                patch("pathlib.Path.exists", exists_mock),
-                patch("builtins.open", create=True),
-                pytest.raises(M3U8Error) as excinfo,
-            ):
+            with pytest.raises(M3U8Error) as excinfo:
                 download_m3u8(
                     config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    m3u8_url=_M3U8_URL,
                     save_path=save_path,
                 )
         finally:
-            dump_fansly_calls(respx.calls, "test_m3u8_download_with_error_handling")
+            dump_fansly_calls(
+                playlist_route.calls + seg1_route.calls + seg2_route.calls,
+                "test_missing_segment_raises_via_real_filesystem",
+            )
 
-        assert "Failed to download HLS video" in str(excinfo.value)
+        # M3U8Error propagates untouched (download_m3u8 re-raises M3U8Error).
+        assert "Stream segments failed to download" in str(excinfo.value)
+        assert "segment2.ts" in str(excinfo.value)
         mock_pyav_direct.assert_called_once()
         mock_ffmpeg_direct.assert_called_once()
 
     @respx.mock
-    @patch("download.m3u8._mux_segments_with_ffmpeg")
-    @patch("download.m3u8._mux_segments_with_pyav")
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
-    def test_m3u8_download_both_mux_fail(
+    def test_both_mux_tiers_fail_on_unmuxable_segments(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        mock_pyav_mux,
-        mock_ffmpeg_mux,
         m3u8_mock_config,
         tmp_path,
     ):
-        """Test M3U8 download when both PyAV and FFmpeg muxing fail."""
-        config = m3u8_mock_config
+        """Deliberately-unmuxable bytes → real PyAV AND real ffmpeg mux fail.
 
+        No muxer patching: segments are non-TS garbage that libav cannot open,
+        so real ``_mux_segments_with_pyav`` skips 100% of segments (> 25% abort
+        threshold → False) and real ``_mux_segments_with_ffmpeg`` concat also
+        fails. Production then raises the both-mux-failed M3U8Error.
+        """
+        config = m3u8_mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
-        mock_pyav_mux.return_value = False
-        mock_ffmpeg_mux.return_value = False
 
-        segment_playlist = """#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-segment1.ts
-#EXTINF:8.0,
-segment2.ts
-#EXT-X-ENDLIST"""
+        garbage = b"NOT A REAL MPEG-TS SEGMENT" * 64
 
-        segment_content = b"DUMMY_TS_SEGMENT_DATA"
-
-        respx.options(url__regex=r"https://example\.com/.*").mock(
-            # CORS preflight fires once per unique GET URL; pad for multiple calls.
-            side_effect=[httpx.Response(200)] * 10
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 8
         )
-        respx.get("https://example.com/video.m3u8").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, text=segment_playlist)] * 5
+        playlist_route = respx.get(
+            url__startswith="https://example.com/video.m3u8"
+        ).mock(side_effect=[httpx.Response(200, text=_SEGMENT_PLAYLIST)])
+        seg1_route = respx.get(url__startswith="https://example.com/segment1.ts").mock(
+            side_effect=[httpx.Response(200, content=garbage)]
         )
-        respx.get("https://example.com/segment1.ts").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, content=segment_content)] * 5
-        )
-        respx.get("https://example.com/segment2.ts").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, content=segment_content)] * 5
+        seg2_route = respx.get(url__startswith="https://example.com/segment2.ts").mock(
+            side_effect=[httpx.Response(200, content=garbage)]
         )
 
         save_path = tmp_path / "video.ts"
-        save_path.parent.mkdir(exist_ok=True)
 
         try:
-            with (
-                patch("pathlib.Path.exists", return_value=True),
-                patch("builtins.open", create=True),
-                pytest.raises(M3U8Error) as excinfo,
-            ):
+            with pytest.raises(M3U8Error) as excinfo:
                 download_m3u8(
                     config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    m3u8_url=_M3U8_URL,
                     save_path=save_path,
                 )
         finally:
-            dump_fansly_calls(respx.calls, "test_m3u8_download_both_mux_fail")
+            dump_fansly_calls(
+                playlist_route.calls + seg1_route.calls + seg2_route.calls,
+                "test_both_mux_tiers_fail_on_unmuxable_segments",
+            )
 
         assert "Both PyAV and FFmpeg muxing failed" in str(excinfo.value)
-        mock_pyav_mux.assert_called_once()
-        mock_ffmpeg_mux.assert_called_once()
+        mock_pyav_direct.assert_called_once()
+        mock_ffmpeg_direct.assert_called_once()
 
     @respx.mock
     def test_m3u8_error_propagation(self, m3u8_mock_config):
-        """Test proper error propagation when API returns an error."""
+        """Proper error propagation when the playlist fetch returns non-200."""
         config = m3u8_mock_config
 
-        respx.options(url__regex=r"https://example\.com/.*").mock(
-            # CORS preflight fires once per unique GET URL; pad for multiple calls.
-            side_effect=[httpx.Response(200)] * 10
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 4
         )
-        respx.get("https://example.com/video.m3u8").mock(
+        get_route = respx.get(url__startswith="https://example.com/video.m3u8").mock(
             side_effect=[httpx.Response(403, text="Forbidden")]
         )
 
@@ -335,121 +293,10 @@ segment2.ts
             with pytest.raises(M3U8Error) as excinfo:
                 fetch_m3u8_segment_playlist(
                     config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                    m3u8_url=_M3U8_URL,
                 )
         finally:
-            dump_fansly_calls(respx.calls, "test_m3u8_error_propagation")
+            dump_fansly_calls(get_route.calls, "test_m3u8_error_propagation")
 
         assert "Failed downloading M3U8 playlist" in str(excinfo.value)
         assert "403" in str(excinfo.value)
-
-    @respx.mock
-    @patch("download.m3u8._mux_segments_with_ffmpeg")
-    @patch("download.m3u8._mux_segments_with_pyav")
-    @patch("download.m3u8._try_direct_download_ffmpeg")
-    @patch("download.m3u8._try_direct_download_pyav")
-    def test_m3u8_with_timestamp_setting(
-        self,
-        mock_pyav_direct,
-        mock_ffmpeg_direct,
-        mock_pyav_mux,
-        mock_ffmpeg_mux,
-        m3u8_mock_config,
-        tmp_path,
-    ):
-        """Test M3U8 download with timestamp setting."""
-        config = m3u8_mock_config
-
-        mock_pyav_direct.return_value = False
-        mock_ffmpeg_direct.return_value = False
-        mock_pyav_mux.return_value = True
-
-        segment_playlist = """#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-TARGETDURATION:10
-#EXTINF:10.0,
-segment1.ts
-#EXTINF:8.0,
-segment2.ts
-#EXT-X-ENDLIST"""
-
-        segment_content = b"DUMMY_TS_SEGMENT_DATA"
-
-        respx.options(url__regex=r"https://example\.com/.*").mock(
-            # CORS preflight fires once per unique GET URL; pad for multiple calls.
-            side_effect=[httpx.Response(200)] * 10
-        )
-        respx.get("https://example.com/video.m3u8").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, text=segment_playlist)] * 5
-        )
-        respx.get("https://example.com/segment1.ts").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, content=segment_content)] * 5
-        )
-        respx.get("https://example.com/segment2.ts").mock(
-            # Padded — 3-tier download strategy may call multiple times.
-            side_effect=[httpx.Response(200, content=segment_content)] * 5
-        )
-
-        created_at = 1633046400  # October 1, 2021
-
-        save_path = tmp_path / "video.ts"
-        save_path.parent.mkdir(exist_ok=True)
-
-        mock_stat = MagicMock()
-        mock_stat.st_size = 1024
-        mock_stat.st_mode = 33188
-        try:
-            with (
-                patch("pathlib.Path.exists", return_value=True),
-                patch("pathlib.Path.stat", return_value=mock_stat),
-                patch("builtins.open", create=True),
-                patch("os.utime") as mock_utime,
-            ):
-                result = download_m3u8(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                    save_path=save_path,
-                    created_at=created_at,
-                )
-        finally:
-            dump_fansly_calls(respx.calls, "test_m3u8_with_timestamp_setting")
-
-        assert result == save_path.parent / "video.mp4"
-        mock_pyav_mux.assert_called_once()
-
-        mock_utime.assert_called_once_with(
-            save_path.parent / "video.mp4", (created_at, created_at)
-        )
-
-    @patch("download.m3u8._try_direct_download_pyav")
-    @patch("download.m3u8._try_direct_download_ffmpeg")
-    @patch("download.m3u8._try_segment_download")
-    def test_m3u8_pyav_direct_success(
-        self,
-        mock_segment_download,
-        mock_ffmpeg_direct,
-        mock_pyav_direct,
-        m3u8_mock_config,
-        tmp_path,
-    ):
-        """Test M3U8 download when PyAV direct download succeeds (fastest path)."""
-        config = m3u8_mock_config
-
-        mock_pyav_direct.return_value = True
-
-        save_path = tmp_path / "video.ts"
-        save_path.parent.mkdir(exist_ok=True)
-
-        result = download_m3u8(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-            save_path=save_path,
-        )
-
-        assert result == save_path.parent / "video.mp4"
-        mock_pyav_direct.assert_called_once()
-        mock_ffmpeg_direct.assert_not_called()
-        mock_segment_download.assert_not_called()

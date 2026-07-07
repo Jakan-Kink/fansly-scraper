@@ -36,36 +36,38 @@ class TestGetIdFromFilename:
 class TestNormalizeFilename:
     """Tests for the normalize_filename function."""
 
+    @pytest.mark.parametrize(
+        "db_match",
+        [True, False],
+        ids=["database_match", "no_database_match"],
+    )
     @pytest.mark.asyncio
-    async def test_normalize_filename_with_database_match(self, entity_store, config):
-        """Test normalize_filename with database match using real database."""
+    async def test_normalize_filename_database_lookup(
+        self, entity_store, config, db_match
+    ):
+        """Test normalize_filename with and without a database match.
+
+        With a match, the Media row's createdAt (15:30 UTC) drives the rename.
+        Without a match, if config is provided, the function converts local
+        time (assumed EST/EDT) to UTC — which yields the same 15-30_UTC name
+        for a 10-30 EST timestamp.
+        """
         store = entity_store
 
-        acct_id = snowflake_id()
         media_id = snowflake_id()
 
-        account = Account(id=acct_id, username="test_user")
-        await store.save(account)
+        if db_match:
+            acct_id = snowflake_id()
+            account = Account(id=acct_id, username="test_user")
+            await store.save(account)
 
-        media = Media(
-            id=media_id,
-            accountId=acct_id,
-            createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
-        )
-        await store.save(media)
+            media = Media(
+                id=media_id,
+                accountId=acct_id,
+                createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+            )
+            await store.save(media)
 
-        filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
-        result = await normalize_filename(filename, config=config)
-        assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
-
-    @pytest.mark.asyncio
-    async def test_normalize_filename_no_database_match(self, entity_store, config):
-        """Test normalize_filename without database match.
-
-        Even without database match, if config is provided, the function
-        converts local time (assumed EST/EDT) to UTC.
-        """
-        media_id = snowflake_id()
         filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)
         assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
@@ -97,90 +99,103 @@ class TestNormalizeFilename:
             result = await normalize_filename(filename, config=config)
             assert result == filename
 
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "2023-01-01_at_12-30.jpg",
+            "random_file_without_id.mp4",
+            "",
+            "not_a_timestamp_id_12345.jpg",
+            "2023-01-01_at_12-30_hash_abc123_id_123456.jpg",
+            "2023-01-01_at_12-30_hash1_abc123_id_123456.jpg",
+            "2023-01-01_at_12-30_hash2_abc123_id_123456.jpg",
+            "2023-13-45_at_99-99_id_12345.jpg",
+        ],
+        ids=[
+            "no_id_with_timestamp",
+            "no_id_random",
+            "empty",
+            "malformed_timestamp",
+            "hash_pattern",
+            "hash1_pattern",
+            "hash2_pattern",
+            "invalid_date_format",
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_normalize_filename_no_id(self, entity_store, config):
-        """Test normalize_filename without ID pattern."""
-        filename = "2023-01-01_at_12-30.jpg"
-        assert await normalize_filename(filename, config=config) == filename
+    async def test_normalize_filename_unmodifiable_no_db(self, filename):
+        """Inputs that short-circuit before any DB lookup are returned as-is.
 
-        filename = "random_file_without_id.mp4"
-        assert await normalize_filename(filename, config=config) == filename
+        These shapes hit early returns (hash pattern, no id_ marker, no
+        timestamp match, or a ValueError from an invalid date) before any use
+        of ``config``, so no config object and no UUID database is needed.
+        """
+        assert await normalize_filename(filename, config=None) == filename
 
-        filename = ""
-        assert await normalize_filename(filename, config=config) == filename
-
+    @pytest.mark.parametrize(
+        "filename",
+        ["2023-01-01_at_10-30_EST_id_99999.jpg"],
+        ids=["timezone_no_db_match"],
+    )
     @pytest.mark.asyncio
-    async def test_normalize_filename_malformed_timestamp(self, entity_store, config):
-        """Test normalize_filename with malformed timestamp."""
-        filename = "not_a_timestamp_id_12345.jpg"
-        result = await normalize_filename(filename, config=config)
-        assert result == filename
-
-    @pytest.mark.asyncio
-    async def test_normalize_filename_hash_pattern(self, entity_store, config):
-        """Test normalize_filename with hash patterns."""
-        filename = "2023-01-01_at_12-30_hash_abc123_id_123456.jpg"
-        assert await normalize_filename(filename, config=config) == filename
-
-        filename = "2023-01-01_at_12-30_hash1_abc123_id_123456.jpg"
-        assert await normalize_filename(filename, config=config) == filename
-
-        filename = "2023-01-01_at_12-30_hash2_abc123_id_123456.jpg"
-        assert await normalize_filename(filename, config=config) == filename
-
-    @pytest.mark.asyncio
-    async def test_normalize_filename_invalid_date_format(self, entity_store, config):
-        """Test normalize_filename with invalid date format."""
-        filename = "2023-13-45_at_99-99_id_12345.jpg"
-        result = await normalize_filename(filename, config=config)
-        assert result == filename
-
-    @pytest.mark.asyncio
-    async def test_normalize_filename_with_timezone_no_db_match(
-        self, entity_store, config
+    async def test_normalize_filename_unmodifiable_db_miss(
+        self, entity_store, config, filename
     ):
-        """Test normalize_filename with timezone but no database match."""
-        filename = "2023-01-01_at_10-30_EST_id_99999.jpg"
-        result = await normalize_filename(filename, config=config)
-        assert result == filename
+        """A non-UTC timezone with an id reaches the DB lookup but finds no row.
 
+        This shape passes id/timestamp parsing and queries store.get(Media,
+        99999); with no matching row the filename is returned unchanged. It
+        genuinely needs the database fixture.
+        """
+        assert await normalize_filename(filename, config=config) == filename
+
+    @pytest.mark.parametrize(
+        ("name_template", "membership", "expected_template"),
+        [
+            (
+                "2026-01-02_at_03-04_UTC_id_{mid}.jpg",
+                "member",
+                "2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg",
+            ),
+            (
+                "2026-01-02_at_03-04_UTC_id_{mid}.jpg",
+                "other",
+                "2026-01-02_at_03-04_UTC_id_{mid}.jpg",
+            ),
+            (
+                "2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg",
+                "member",
+                "2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg",
+            ),
+            (
+                "anything_hash2_deadbeef.jpg",
+                "member",
+                "anything_hash2_deadbeef.jpg",
+            ),
+        ],
+        ids=[
+            "rewrites_id_to_preview_for_known_preview",
+            "leaves_non_preview_untouched",
+            "leaves_already_preview_untouched",
+            "skips_hash_pattern",
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_normalize_rewrites_id_to_preview_for_known_preview(self, config):
-        """A preview id (per preview_ids) gets the preview_ marker.
+    async def test_normalize_preview_marker_membership(
+        self, name_template, membership, expected_template
+    ):
+        """preview_ids membership branches of normalize_filename.
 
         Bug-era preview files are saved with an already-UTC name and the plain
-        `id_` marker; correction is membership-driven (no DB lookup needed on
-        this path).
+        `id_` marker; correction is membership-driven. A member id gets the
+        preview_ marker; a non-member id and an already-preview name are left
+        unchanged (no double prefix); hash-pattern filenames short-circuit
+        before the membership check. All four shapes hit early returns (hash
+        pattern or the already-UTC return) before any config/DB use, so no
+        config object and no UUID database is needed.
         """
         mid = snowflake_id()
-        name = f"2026-01-02_at_03-04_UTC_id_{mid}.jpg"
-        result = await normalize_filename(name, config=config, preview_ids={mid})
-        assert result == f"2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg"
-
-    @pytest.mark.asyncio
-    async def test_normalize_leaves_non_preview_untouched(self, entity_store, config):
-        """A file whose id is not in preview_ids is left unchanged."""
-        mid = snowflake_id()
-        other = snowflake_id()
-        name = f"2026-01-02_at_03-04_UTC_id_{mid}.jpg"
-        result = await normalize_filename(name, config=config, preview_ids={other})
-        assert result == name
-
-    @pytest.mark.asyncio
-    async def test_normalize_leaves_already_preview_untouched(
-        self, entity_store, config
-    ):
-        """A file already carrying preview_ marker is not double-prefixed."""
-        mid = snowflake_id()
-        name = f"2026-01-02_at_03-04_UTC_preview_id_{mid}.jpg"
-        result = await normalize_filename(name, config=config, preview_ids={mid})
-        assert result == name
-
-    @pytest.mark.asyncio
-    async def test_normalize_preview_skips_hash_pattern(self, entity_store, config):
-        """Hash-pattern filenames are returned unchanged even with preview_ids."""
-        name = "anything_hash2_deadbeef.jpg"
-        result = await normalize_filename(
-            name, config=config, preview_ids={snowflake_id()}
-        )
-        assert result == name
+        preview_ids = {mid} if membership == "member" else {snowflake_id()}
+        name = name_template.format(mid=mid)
+        result = await normalize_filename(name, config=None, preview_ids=preview_ids)
+        assert result == expected_template.format(mid=mid)

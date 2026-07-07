@@ -1,7 +1,8 @@
 """Unit tests for browser configuration utilities."""
 
-import os
+import json
 import sqlite3
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -106,102 +107,111 @@ def test_get_browser_config_paths_linux(mock_expanduser, mock_platform):
     assert any("Brave" in path for path in paths)
 
 
-@patch("os.walk")
-async def test_get_token_from_firefox_profile_no_storage(mock_walk):
-    """Test getting token from Firefox profile when no storage folder exists."""
-    mock_walk.return_value = [
-        ("/path/to/firefox/profile", ["other"], ["file.txt"]),
-    ]
+def _write_firefox_store(sqlite_path: Path, token: str | None) -> None:
+    """Build a real Firefox-style webappsstore.sqlite at ``sqlite_path``.
 
-    result = await get_token_from_firefox_profile("/path/to/firefox/profile")
+    Mirrors the on-disk shape the production reader (``get_token_from_firefox_db``)
+    walks: every table is scanned, each row's column 0 is the storage key and
+    column 5 is the JSON-encoded value as UTF-8 bytes. The reader pulls
+    ``json.loads(row[5])["token"]`` when ``row[0] == "session_active_session"``.
+
+    When ``token`` is None, only an unrelated key is written so the real reader
+    returns None for that DB.
+    """
+    conn = sqlite3.connect(str(sqlite_path))
+    try:
+        conn.execute(
+            "CREATE TABLE webappsstore2 "
+            "(scope TEXT, c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT, value BLOB)"
+        )
+        if token is not None:
+            value = json.dumps({"token": token}).encode("utf-8")
+            conn.execute(
+                "INSERT INTO webappsstore2 VALUES (?, ?, ?, ?, ?, ?)",
+                ("session_active_session", None, None, None, None, value),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO webappsstore2 VALUES (?, ?, ?, ?, ?, ?)",
+                ("unrelated_key", None, None, None, None, b'{"data":"x"}'),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def test_get_token_from_firefox_profile_no_storage(tmp_path):
+    """No ``storage`` folder anywhere in the profile tree → None.
+
+    Real filesystem walk over a real profile dir; the production ``os.walk``
+    never matches the ``"storage" in root`` predicate, so no sqlite read runs.
+    """
+    profile = tmp_path / "profile"
+    (profile / "other").mkdir(parents=True)
+    (profile / "other" / "file.txt").write_text("not a db")
+
+    result = await get_token_from_firefox_profile(str(profile))
     assert result is None
 
 
-@patch("os.walk")
-@patch("os.path.join")
-@patch("config.browser.get_token_from_firefox_db", new_callable=AsyncMock)
-async def test_get_token_from_firefox_profile_with_token(
-    mock_get_token, mock_join, mock_walk
+async def test_get_token_from_firefox_profile_deeply_nested_storage(tmp_path):
+    """Token in a deeply nested ``storage`` dir is found via the real sqlite read.
+
+    Builds a real ``webappsstore.sqlite`` under ``root/folder1/storage`` and
+    lets the real ``os.walk`` + real ``get_token_from_firefox_db`` + real
+    ``sqlite3`` edge resolve the token end-to-end (covers the profile-loop
+    token-found return at browser.py:47-48).
+    """
+    storage = tmp_path / "root" / "folder1" / "storage" / "subdir"
+    storage.mkdir(parents=True)
+    _write_firefox_store(storage / "webappsstore.sqlite", "deep-token")
+
+    result = await get_token_from_firefox_profile(str(tmp_path / "root"))
+    assert result == "deep-token"
+
+
+async def test_get_token_from_firefox_profile_multiple_storage_first_match_wins(
+    tmp_path,
 ):
-    """Test getting token from Firefox profile when token exists."""
-    mock_walk.return_value = [
-        ("/path/to/firefox/profile/storage", [], ["webappsstore.sqlite"]),
-    ]
-    mock_join.return_value = "/path/to/firefox/profile/storage/webappsstore.sqlite"
-    mock_get_token.return_value = "test-token"
+    """Multiple ``storage`` dirs: search stops at the first DB carrying a token.
 
-    result = await get_token_from_firefox_profile("/path/to/firefox/profile")
-    assert result == "test-token"
-    mock_get_token.assert_called_once_with(
-        "/path/to/firefox/profile/storage/webappsstore.sqlite"
-    )
+    Two real storage dirs each hold a real sqlite DB; only one has the session
+    row. The real reader returns that token and short-circuits the walk.
+    """
+    s1 = tmp_path / "storage1"
+    s2 = tmp_path / "storage2"
+    s1.mkdir()
+    s2.mkdir()
+    _write_firefox_store(s1 / "webappsstore.sqlite", "tokenA")
+    _write_firefox_store(s2 / "webappsstore.sqlite", None)
 
-
-async def test_get_token_from_firefox_profile_deep_storage():
-    """Test getting token from Firefox profile with deeply nested storage folder."""
-    mock_walk_results = [
-        ("/root", ["folder1"], []),
-        ("/root/folder1", ["storage"], []),
-        ("/root/folder1/storage", ["subdir"], ["webappsstore.sqlite"]),
-    ]
-
-    with patch("os.walk") as mock_walk:
-        mock_walk.return_value = iter(mock_walk_results)
-        with (
-            patch("os.path.join", side_effect=os.path.join),
-            patch(
-                "config.browser.get_token_from_firefox_db",
-                new_callable=AsyncMock,
-                return_value="test-token",
-            ) as mock_get_token,
-        ):
-            result = await get_token_from_firefox_profile("/root")
-
-            assert result == "test-token"
-            mock_get_token.assert_called_once()
-            assert mock_walk.call_count == 1
+    result = await get_token_from_firefox_profile(str(tmp_path))
+    assert result == "tokenA"
 
 
-async def test_get_token_from_firefox_profile_multiple_storage():
-    """Test getting token from Firefox profile with multiple storage folders."""
-    with patch("os.walk") as mock_walk:
-        mock_walk.return_value = [
-            ("/root/storage1", [], ["webappsstore.sqlite"]),
-            ("/root/storage2", [], ["webappsstore.sqlite"]),
-        ]
+async def test_get_token_from_firefox_profile_no_sqlite_in_storage(tmp_path):
+    """``storage`` exists but holds no ``.sqlite`` files → None (no read attempted)."""
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    (storage / "other.txt").write_text("x")
+    (storage / "data.json").write_text("{}")
 
-        def mock_get_token(path):
-            return "test-token" if "storage1" in path else None
-
-        with (
-            patch("os.path.join", side_effect=os.path.join),
-            patch(
-                "config.browser.get_token_from_firefox_db",
-                new_callable=AsyncMock,
-                side_effect=mock_get_token,
-            ) as mock_get_token,
-        ):
-            result = await get_token_from_firefox_profile("/root")
-
-            assert result == "test-token"
-            # Should stop searching after finding token
-            assert mock_get_token.call_count == 1
+    result = await get_token_from_firefox_profile(str(tmp_path))
+    assert result is None
 
 
-async def test_get_token_from_firefox_profile_no_sqlite():
-    """Test getting token from Firefox profile with no SQLite files."""
-    with patch("os.walk") as mock_walk:
-        mock_walk.return_value = [
-            ("/root/storage", [], ["other.txt", "data.json"]),
-        ]
+async def test_get_token_from_firefox_profile_storage_db_without_session(tmp_path):
+    """``storage`` sqlite exists but lacks the session row → None.
 
-        with patch(
-            "config.browser.get_token_from_firefox_db", new_callable=AsyncMock
-        ) as mock_get_token:
-            result = await get_token_from_firefox_profile("/root")
+    Exercises the real reader returning None (no ``session_active_session``
+    key) so the profile loop falls through to its final ``return None``.
+    """
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    _write_firefox_store(storage / "webappsstore.sqlite", None)
 
-            assert result is None
-            mock_get_token.assert_not_called()
+    result = await get_token_from_firefox_profile(str(tmp_path))
+    assert result is None
 
 
 @patch("sqlite3.connect")
@@ -338,39 +348,45 @@ async def test_get_token_from_firefox_db_generic_exception(mock_connect):
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-def test_close_browser_by_name_windows(mock_process_iter, mock_platform):
+def test_close_browser_by_name_windows(
+    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
+):
     """Test closing browser on Windows."""
     mock_platform.return_value = "Windows"
     mock_process = MagicMock()
     mock_process.info = {"name": "msedge.exe"}
     mock_process_iter.return_value = [mock_process]
 
-    with patch("config.browser.sleep") as mock_sleep:
-        close_browser_by_name("Microsoft Edge")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    close_browser_by_name("Microsoft Edge")
 
     mock_process.terminate.assert_called_once()
-    mock_sleep.assert_called_once_with(3)
+    assert scaled_sync_sleep_recording.calls == [3]
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-def test_close_browser_by_name_unix(mock_process_iter, mock_platform):
+def test_close_browser_by_name_unix(
+    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
+):
     """Test closing browser on Unix-like systems."""
     mock_platform.return_value = "Darwin"
     mock_process = MagicMock()
     mock_process.info = {"name": "firefox"}
     mock_process_iter.return_value = [mock_process]
 
-    with patch("config.browser.sleep") as mock_sleep:
-        close_browser_by_name("Firefox")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    close_browser_by_name("Firefox")
 
     mock_process.kill.assert_called_once()
-    mock_sleep.assert_called_once_with(3)
+    assert scaled_sync_sleep_recording.calls == [3]
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-def test_close_browser_by_name_opera_gx(mock_process_iter, mock_platform):
+def test_close_browser_by_name_opera_gx(
+    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
+):
     """Test closing Opera GX browser (special case where process name differs)."""
     mock_platform.return_value = "Windows"
     mock_process = MagicMock()
@@ -378,24 +394,26 @@ def test_close_browser_by_name_opera_gx(mock_process_iter, mock_platform):
     mock_process_iter.return_value = [mock_process]
 
     # Production code expects "Opera Gx" with lowercase x
-    with patch("config.browser.sleep") as mock_sleep:
-        close_browser_by_name("Opera Gx")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    close_browser_by_name("Opera Gx")
 
     mock_process.terminate.assert_called_once()
-    mock_sleep.assert_called_once_with(3)
+    assert scaled_sync_sleep_recording.calls == [3]
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-def test_close_browser_by_name_no_process(mock_process_iter, mock_platform):
+def test_close_browser_by_name_no_process(
+    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
+):
     """Test when no matching browser process is found."""
     mock_platform.return_value = "Windows"
     mock_process_iter.return_value = []  # No processes found
 
-    with patch("config.browser.sleep") as mock_sleep:
-        close_browser_by_name("Firefox")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    close_browser_by_name("Firefox")
 
-    mock_sleep.assert_not_called()
+    assert scaled_sync_sleep_recording.calls == []
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")

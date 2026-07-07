@@ -8,44 +8,38 @@ from config.modes import DownloadMode
 class TestDownloadMode:
     """Tests for the DownloadMode enum."""
 
-    def test_enum_values(self):
-        """Test the enum values are correctly defined."""
-        assert DownloadMode.NOTSET == "NOTSET"
-        assert DownloadMode.COLLECTION == "COLLECTION"
-        assert DownloadMode.MESSAGES == "MESSAGES"
-        assert DownloadMode.NORMAL == "NORMAL"
-        assert DownloadMode.SINGLE == "SINGLE"
-        assert DownloadMode.TIMELINE == "TIMELINE"
-        assert DownloadMode.WALL == "WALL"
-        assert DownloadMode.STASH_ONLY == "STASH_ONLY"
+    @pytest.mark.parametrize(
+        ("member", "value"),
+        [
+            pytest.param(DownloadMode.NOTSET, "NOTSET", id="NOTSET"),
+            pytest.param(DownloadMode.COLLECTION, "COLLECTION", id="COLLECTION"),
+            pytest.param(DownloadMode.MESSAGES, "MESSAGES", id="MESSAGES"),
+            pytest.param(DownloadMode.NORMAL, "NORMAL", id="NORMAL"),
+            pytest.param(DownloadMode.SINGLE, "SINGLE", id="SINGLE"),
+            pytest.param(DownloadMode.STORIES, "STORIES", id="STORIES"),
+            pytest.param(DownloadMode.TIMELINE, "TIMELINE", id="TIMELINE"),
+            pytest.param(DownloadMode.WALL, "WALL", id="WALL"),
+            pytest.param(DownloadMode.STASH_ONLY, "STASH_ONLY", id="STASH_ONLY"),
+        ],
+    )
+    def test_member_value_repr_and_instantiation(
+        self, member: DownloadMode, value: str
+    ) -> None:
+        """Each member equals its uppercase value, str() returns it, and
+        instantiation from exact / lower / capitalized case resolves to the
+        member (case-insensitive lookup via the _missing_ method)."""
+        assert member == value
+        assert str(member) == value
+        assert DownloadMode(value) == member
+        assert DownloadMode(value.lower()) == member
+        assert DownloadMode(value.capitalize()) == member
 
-    def test_case_insensitive_comparison(self):
-        """Test case-insensitive comparison of enum values."""
-        # Test with case-insensitive comparisons using the _missing_ method
-        assert DownloadMode("normal") == DownloadMode.NORMAL
-        assert DownloadMode("NORMAL") == DownloadMode.NORMAL
-
+    def test_case_sensitive_comparison_and_invalid_value(self) -> None:
+        """Direct string comparison stays case-sensitive; unknown value raises."""
         # Direct string comparison is case-sensitive
         assert DownloadMode.NORMAL != "normal"  # type: ignore[comparison-overlap]  # intentionally compares against a different-case literal to pin case-sensitivity
         assert DownloadMode.NORMAL == "NORMAL"
 
-    def test_instantiation_with_string(self):
-        """Test creating enum instance from string."""
-        assert DownloadMode("normal") == DownloadMode.NORMAL
-        assert DownloadMode("NORMAL") == DownloadMode.NORMAL
-        assert DownloadMode("Normal") == DownloadMode.NORMAL
-
         # Test with invalid value
         with pytest.raises(ValueError, match="invalid_mode"):
             DownloadMode("invalid_mode")
-
-    def test_string_representation(self):
-        """Test string representation of enum values."""
-        assert str(DownloadMode.NORMAL) == "NORMAL"
-        assert str(DownloadMode.COLLECTION) == "COLLECTION"
-        assert str(DownloadMode.MESSAGES) == "MESSAGES"
-        assert str(DownloadMode.SINGLE) == "SINGLE"
-        assert str(DownloadMode.TIMELINE) == "TIMELINE"
-        assert str(DownloadMode.WALL) == "WALL"
-        assert str(DownloadMode.STASH_ONLY) == "STASH_ONLY"
-        assert str(DownloadMode.NOTSET) == "NOTSET"

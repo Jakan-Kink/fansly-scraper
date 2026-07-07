@@ -90,10 +90,39 @@ def _before_validator(model: type[BaseModel], name: str) -> Callable[..., Any]:
 class TestModelValidators:
     """``mode="before"`` validator guard branches, invoked via their raw func."""
 
-    def test_pinnedpost_coerce_non_dict_passthrough(self):
-        """Branch 1119->1127: non-dict data is returned unchanged."""
-        coerce = _before_validator(PinnedPost, "_coerce_fields")
-        assert coerce("not-a-dict") == "not-a-dict"
+    @pytest.mark.parametrize(
+        ("model", "validator", "data"),
+        [
+            pytest.param(
+                PinnedPost,
+                "_coerce_fields",
+                "not-a-dict",
+                id="pinnedpost_coerce_fields",
+            ),
+            pytest.param(
+                Subscription,
+                "_stringify_id_fields",
+                "nope",
+                id="subscription_stringify_id_fields",
+            ),
+            pytest.param(
+                Account,
+                "_coerce_embedded_subscription",
+                42,
+                id="account_coerce_embedded_subscription",
+            ),
+        ],
+    )
+    def test_before_validator_non_dict_passthrough(
+        self, model: type[BaseModel], validator: str, data: Any
+    ) -> None:
+        """Branches 1119->1127 / line 2079 / line 2255: non-dict data passes through.
+
+        Each ``mode="before"`` validator opens with an ``isinstance(data, dict)``
+        guard; non-dict input must be returned unchanged for pydantic to raise
+        its own validation error downstream.
+        """
+        assert _before_validator(model, validator)(data) == data
 
     def test_pinnedpost_coerce_stringified_pos(self):
         """Line 1123: a non-int ``pos`` is coerced to int."""
@@ -110,16 +139,6 @@ class TestModelValidators:
         out = _before_validator(MonitorState, "_set_id_from_pk")({"lastRunAt": 1})
         assert "id" not in out
 
-    def test_subscription_stringify_non_dict_passthrough(self):
-        """Line 2079: non-dict data is returned unchanged."""
-        out = _before_validator(Subscription, "_stringify_id_fields")("nope")
-        assert out == "nope"
-
-    def test_account_embedded_subscription_non_dict_passthrough(self):
-        """Line 2255: non-dict data is returned unchanged."""
-        out = _before_validator(Account, "_coerce_embedded_subscription")(42)
-        assert out == 42
-
     def test_account_embedded_subscription_non_list_subscriptions(self):
         """Branch 2261: a non-list ``subscriptions`` short-circuits the merge."""
         data = {"subscription": {"id": 1}, "subscriptions": "notalist"}
@@ -131,19 +150,23 @@ class TestResolveContent:
     """Attachment.resolve_content dispatch on contentType."""
 
     @pytest.mark.asyncio
-    async def test_resolve_account_media(self):
-        """Line 1689: contentType ACCOUNT_MEDIA → resolves via ``.media``."""
-        att = AttachmentFactory.build(contentType=ContentType.ACCOUNT_MEDIA)
-        assert await att.resolve_content() is None  # no store → property yields None
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            pytest.param(ContentType.ACCOUNT_MEDIA, id="account_media_via_media"),
+            pytest.param(
+                ContentType.ACCOUNT_MEDIA_BUNDLE,
+                id="account_media_bundle_via_bundle",
+            ),
+            pytest.param(ContentType.STORY, id="other_contenttype_falls_through"),
+        ],
+    )
+    async def test_resolve_content_dispatch(self, content_type: ContentType) -> None:
+        """Lines 1689/1691/1694: dispatch on contentType.
 
-    @pytest.mark.asyncio
-    async def test_resolve_account_media_bundle(self):
-        """Line 1691: contentType ACCOUNT_MEDIA_BUNDLE → resolves via ``.bundle``."""
-        att = AttachmentFactory.build(contentType=ContentType.ACCOUNT_MEDIA_BUNDLE)
-        assert await att.resolve_content() is None
-
-    @pytest.mark.asyncio
-    async def test_resolve_other_contenttype_returns_none(self):
-        """Line 1694: a non-media/non-post contentType falls through to None."""
-        att = AttachmentFactory.build(contentType=ContentType.STORY)
+        ACCOUNT_MEDIA resolves via ``.media``, ACCOUNT_MEDIA_BUNDLE via
+        ``.bundle``, and any other non-post contentType falls through — all
+        yield None here because the attachment has no store.
+        """
+        att = AttachmentFactory.build(contentType=content_type)
         assert await att.resolve_content() is None

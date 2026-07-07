@@ -90,7 +90,7 @@ class TestProxyInit:
     """Lines 316-340: constructor stores all args and seeds runtime fields."""
 
     def test_minimal_construction(self):
-        proxy = FanslyWebSocket(token="tok", user_agent="ua")  # noqa: S106
+        proxy = FanslyWebSocket(token="tok", user_agent="ua")
         assert proxy.token == "tok"
         assert proxy.user_agent == "ua"
         assert proxy.cookies == {}
@@ -101,7 +101,7 @@ class TestProxyInit:
         assert proxy.http_client is None
 
     def test_runtime_state_defaults(self):
-        proxy = FanslyWebSocket(token="t", user_agent="u")  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u")
         assert proxy.connected is False
         assert proxy.session_id is None
         assert proxy.websocket_session_id is None
@@ -115,7 +115,7 @@ class TestProxyInit:
 
     def test_cookies_dict_is_copied(self):
         original = {"k": "v"}
-        proxy = FanslyWebSocket(token="t", user_agent="u", cookies=original)  # noqa: S106
+        proxy = FanslyWebSocket(token="t", user_agent="u", cookies=original)
         assert proxy.cookies == {"k": "v"}
         assert proxy.cookies is not original
 
@@ -124,7 +124,7 @@ class TestProxyInit:
         cb2 = MagicMock()
         client = MagicMock(name="httpx_client")
         proxy = FanslyWebSocket(
-            token="tk",  # noqa: S106
+            token="tk",
             user_agent="UA",
             cookies={"a": "1"},
             enable_logging=True,
@@ -242,29 +242,37 @@ class TestAbsorbSetCookie:
         proxy._absorb_set_cookie({"name": "session", "value": "xyz"})
         assert proxy.cookies["session"] == "xyz"
 
-    def test_writes_to_http_client_jar_when_present(self):
+    @pytest.mark.parametrize(
+        ("payload", "expected_set_args"),
+        [
+            pytest.param(
+                {
+                    "name": "session",
+                    "value": "xyz",
+                    "domain": "fansly.com",
+                    "path": "/",
+                },
+                ("session", "xyz"),
+                id="explicit-domain-and-path",
+            ),
+            pytest.param(
+                {"name": "n", "value": "v"},
+                ("n", "v"),
+                id="missing-domain-path-uses-defaults",
+            ),
+        ],
+    )
+    def test_writes_to_http_client_jar_when_present(
+        self,
+        payload: dict[str, str],
+        expected_set_args: tuple[str, str],
+    ) -> None:
         proxy = make_proxy()
         client = MagicMock(name="httpx_client")
         proxy.http_client = client
-        proxy._absorb_set_cookie(
-            {
-                "name": "session",
-                "value": "xyz",
-                "domain": "fansly.com",
-                "path": "/",
-            }
-        )
+        proxy._absorb_set_cookie(payload)
         client.cookies.set.assert_called_once_with(
-            "session", "xyz", domain="fansly.com", path="/"
-        )
-
-    def test_uses_default_domain_and_path_when_missing(self):
-        proxy = make_proxy()
-        client = MagicMock(name="httpx_client")
-        proxy.http_client = client
-        proxy._absorb_set_cookie({"name": "n", "value": "v"})
-        client.cookies.set.assert_called_once_with(
-            "n", "v", domain="fansly.com", path="/"
+            *expected_set_args, domain="fansly.com", path="/"
         )
 
 
@@ -274,22 +282,41 @@ class TestAbsorbSetCookie:
 class TestSnapshotCookies:
     """Lines 547-550: dict copy when no client; jar items when client present."""
 
-    def test_returns_copy_of_cookies_when_no_http_client(self):
-        proxy = make_proxy(cookies={"a": "1", "b": "2"})
+    @pytest.mark.parametrize(
+        ("cookies", "jar", "expected"),
+        [
+            pytest.param(
+                {"a": "1", "b": "2"},
+                None,
+                {"a": "1", "b": "2"},
+                id="no-http-client-copies-dict",
+            ),
+            pytest.param(
+                {},
+                [("x", "1"), ("y", "2")],
+                {"x": "1", "y": "2"},
+                id="http-client-extracts-from-jar",
+            ),
+        ],
+    )
+    def test_snapshot_cookies(
+        self,
+        cookies: dict[str, str],
+        jar: list[tuple[str, str]] | None,
+        expected: dict[str, str],
+    ) -> None:
+        proxy = make_proxy(cookies=cookies)
+        if jar is not None:
+            client = MagicMock(name="httpx_client")
+            client.cookies.jar = [
+                SimpleNamespace(name=name, value=value) for name, value in jar
+            ]
+            proxy.http_client = client
         snap = proxy._snapshot_cookies()
-        assert snap == {"a": "1", "b": "2"}
+        assert snap == expected
+        # The snapshot is a fresh dict — mutating it never leaks back.
         snap["c"] = "3"
         assert "c" not in proxy.cookies
-
-    def test_extracts_from_http_client_jar(self):
-        proxy = make_proxy()
-        client = MagicMock(name="httpx_client")
-        client.cookies.jar = [
-            SimpleNamespace(name="x", value="1"),
-            SimpleNamespace(name="y", value="2"),
-        ]
-        proxy.http_client = client
-        assert proxy._snapshot_cookies() == {"x": "1", "y": "2"}
 
 
 # ── _send_cmd ──────────────────────────────────────────────────────────
@@ -332,27 +359,35 @@ class TestSendCmd:
 class TestDispatchEvent:
     """Lines 505-512: handler lookup + sync vs async dispatch."""
 
-    async def test_no_handler_registered_is_noop(self):
+    @pytest.mark.parametrize(
+        ("handler_kind", "event_type", "payload", "expected_seen"),
+        [
+            # No handler registered → noop, must not raise.
+            pytest.param("none", 99, {"any": "data"}, [], id="no-handler-noop"),
+            pytest.param("sync", 1, "payload", ["payload"], id="sync-invoked"),
+            pytest.param("async", 1, {"x": 1}, [{"x": 1}], id="async-awaited"),
+        ],
+    )
+    async def test_dispatch_event(
+        self,
+        handler_kind: str,
+        event_type: int,
+        payload: JsonValue,
+        expected_seen: list[JsonValue],
+    ) -> None:
         proxy = make_proxy()
-        await proxy._dispatch_event(99, {"any": "data"})  # must not raise
+        seen: list[JsonValue] = []
 
-    async def test_sync_handler_invoked(self):
-        proxy = make_proxy()
-        called: list[JsonValue] = []
-        proxy._event_handlers[1] = called.append
-        await proxy._dispatch_event(1, "payload")
-        assert called == ["payload"]
-
-    async def test_async_handler_awaited(self):
-        proxy = make_proxy()
-        seen = []
-
-        async def handler(data):
+        async def async_handler(data: JsonValue) -> None:
             seen.append(data)
 
-        proxy._event_handlers[1] = handler
-        await proxy._dispatch_event(1, {"x": 1})
-        assert seen == [{"x": 1}]
+        if handler_kind == "sync":
+            proxy._event_handlers[1] = seen.append
+        elif handler_kind == "async":
+            proxy._event_handlers[1] = async_handler
+
+        await proxy._dispatch_event(event_type, payload)
+        assert seen == expected_seen
 
 
 # ── _dispatch_callback ─────────────────────────────────────────────────
@@ -361,25 +396,32 @@ class TestDispatchEvent:
 class TestDispatchCallback:
     """Lines 514-520: sync vs async callback dispatch; None is noop."""
 
-    async def test_none_callback_is_noop(self):
+    @pytest.mark.parametrize(
+        ("callback_kind", "expected_seen"),
+        [
+            # None callback → noop, must not raise.
+            pytest.param("none", [], id="none-noop"),
+            pytest.param("sync", ["yes"], id="sync-invoked"),
+            pytest.param("async", ["yes"], id="async-awaited"),
+        ],
+    )
+    async def test_dispatch_callback(
+        self,
+        callback_kind: str,
+        expected_seen: list[str],
+    ) -> None:
         proxy = make_proxy()
-        await proxy._dispatch_callback(None)  # must not raise
+        seen: list[str] = []
 
-    async def test_sync_callback_invoked(self):
-        proxy = make_proxy()
-        called = []
-        await proxy._dispatch_callback(lambda: called.append("yes"))
-        assert called == ["yes"]
-
-    async def test_async_callback_awaited(self):
-        proxy = make_proxy()
-        seen = []
-
-        async def cb():
+        def sync_cb() -> None:
             seen.append("yes")
 
-        await proxy._dispatch_callback(cb)
-        assert seen == ["yes"]
+        async def async_cb() -> None:
+            seen.append("yes")
+
+        callback = {"none": None, "sync": sync_cb, "async": async_cb}[callback_kind]
+        await proxy._dispatch_callback(callback)
+        assert seen == expected_seen
 
 
 # ── send_message ───────────────────────────────────────────────────────

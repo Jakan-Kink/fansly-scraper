@@ -18,43 +18,30 @@ class TestCreateEntityStore:
     """Tests for Database.create_entity_store() — pool creation + preload."""
 
     @pytest.mark.asyncio
-    async def test_creates_store(self, config):
-        """create_entity_store should return a working PostgresEntityStore."""
+    async def test_store_lifecycle(self, config):
+        """Walk the full create_entity_store lifecycle on a single DB:
+
+        create → returns PostgresEntityStore with pool set, idempotent on
+        re-call, exposed via the entity_store property, and functional for
+        save/get round-trips.
+        """
         db = Database(config, skip_migrations=True)
         table_metadata.create_all(db._sync_engine)
         try:
+            # create_entity_store returns a working store + sets the pool
             store = await db.create_entity_store()
             assert isinstance(store, PostgresEntityStore)
             assert db._asyncpg_pool is not None
-        finally:
-            FanslyObject._store = None
-            if db._asyncpg_pool:
-                await db._asyncpg_pool.close()
-            db.close_sync()
 
-    @pytest.mark.asyncio
-    async def test_idempotent(self, config):
-        """Calling create_entity_store twice should return the same instance."""
-        db = Database(config, skip_migrations=True)
-        table_metadata.create_all(db._sync_engine)
-        try:
-            store1 = await db.create_entity_store()
+            # Idempotent: a second call returns the same instance
             store2 = await db.create_entity_store()
-            assert store1 is store2
-        finally:
-            FanslyObject._store = None
-            if db._asyncpg_pool:
-                await db._asyncpg_pool.close()
-            db.close_sync()
+            assert store2 is store
 
-    @pytest.mark.asyncio
-    async def test_store_is_functional(self, config):
-        """The created store should support save/get operations."""
-        db = Database(config, skip_migrations=True)
-        table_metadata.create_all(db._sync_engine)
-        try:
-            store = await db.create_entity_store()
+            # entity_store property returns that same store
+            assert db.entity_store is store
+            assert isinstance(db.entity_store, PostgresEntityStore)
 
+            # Store is functional: save + get round-trips
             account = Account(id=snowflake_id(), username="lifecycle_test")
             await store.save(account)
             assert isinstance(account.id, int)
@@ -77,48 +64,23 @@ class TestEntityStoreProperty:
         with pytest.raises(RuntimeError, match="EntityStore not initialized"):
             _ = db.entity_store
 
-    @pytest.mark.asyncio
-    async def test_returns_store_after_init(self, config):
-        """After create_entity_store, property should return the store."""
-        db = Database(config, skip_migrations=True)
-        table_metadata.create_all(db._sync_engine)
-        try:
-            await db.create_entity_store()
-            store = db.entity_store
-            assert isinstance(store, PostgresEntityStore)
-        finally:
-            FanslyObject._store = None
-            if db._asyncpg_pool:
-                await db._asyncpg_pool.close()
-            db.close_sync()
-
 
 class TestCleanup:
     """Tests for Database.cleanup() — async teardown."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_closes_pool(self, config):
-        """cleanup should close the asyncpg pool and entity store."""
+    async def test_cleanup_closes_pool_and_is_idempotent(self, config):
+        """cleanup closes the pool/store and a second call is a safe no-op."""
         db = Database(config, skip_migrations=True)
         table_metadata.create_all(db._sync_engine)
         await db.create_entity_store()
 
         await db.cleanup()
-
         assert db._cleanup_done.is_set()
-        FanslyObject._store = None
 
-    @pytest.mark.asyncio
-    async def test_cleanup_is_idempotent(self, config):
-        """Calling cleanup twice should not error."""
-        db = Database(config, skip_migrations=True)
-        table_metadata.create_all(db._sync_engine)
-        await db.create_entity_store()
-
-        await db.cleanup()
         await db.cleanup()  # Second call should be a no-op
-
         assert db._cleanup_done.is_set()
+
         FanslyObject._store = None
 
     @pytest.mark.asyncio

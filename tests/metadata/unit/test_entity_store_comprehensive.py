@@ -760,13 +760,6 @@ class TestEntityStoreEdgeCases:
                 await db._asyncpg_pool.close()
             db.close_sync()
 
-    @pytest.mark.asyncio
-    async def test_ensure_junction_fk_targets_unknown_table(self, entity_store):
-        """_ensure_junction_fk_targets with unknown table → early return (line 952)."""
-        await entity_store._ensure_junction_fk_targets(
-            "nonexistent_table_xyz", [{"col": 1}], "owner_fk"
-        )
-
     def test_parse_lookup_unknown_operator(self):
         """_parse_lookup with unknown operator returns (full_key, 'exact')."""
 
@@ -881,109 +874,6 @@ class TestEntityStoreEdgeCases:
             db.close_sync()
 
     @pytest.mark.asyncio
-    async def test_bulk_upsert_skips_empty_table_data(self, entity_store):
-        """bulk_upsert/bulk_upsert_records skip items with no matching columns (lines 1155, 1180)."""
-        # Item with only non-matching keys → table_data is empty → continue
-        await entity_store.bulk_upsert(
-            Account,
-            [
-                {"id": snowflake_id(), "username": "valid_item"},
-                {"nonexistent_column": "should_be_skipped"},
-            ],
-        )
-        await entity_store.bulk_upsert_records(
-            "stub_tracker",
-            [
-                {
-                    "table_name": "test",
-                    "record_id": snowflake_id(),
-                    "created_at": datetime.now(UTC),
-                },
-                {"fake_col": "skipped"},
-            ],
-        )
-
-    @pytest.mark.asyncio
-    async def test_ensure_junction_fk_targets_creates_stubs(self, entity_store):
-        """_ensure_junction_fk_targets creates Post stubs for pinned_posts FK refs.
-
-        When saving an Account with pinnedPosts referencing Posts not in the DB,
-        the entity store introspects pinned_posts FK constraints, discovers
-        postId → posts.id, and calls Post.create_stub() to satisfy the FK.
-        Covers lines 965-994 (_ensure_junction_fk_targets full path).
-        """
-
-        acct = Account(id=snowflake_id(), username="stub_test_acct")
-        await entity_store.save(acct)
-
-        # Create pinned post referencing a Post that doesn't exist yet
-        missing_post_id = snowflake_id()
-        assert isinstance(acct.id, int)
-        pp = PinnedPost(
-            postId=missing_post_id,
-            accountId=acct.id,
-            pos=0,
-            createdAt=datetime.now(UTC),
-        )
-        acct.pinnedPosts = [pp]
-
-        # Save the account — _sync_assoc_tables will call _ensure_junction_fk_targets
-        # which should create a Post stub for missing_post_id
-        await entity_store.save(acct)
-
-        # Verify the stub was created
-        stub = await entity_store.get(Post, missing_post_id)
-        assert stub is not None
-        assert stub.accountId == acct.id  # accountId from PinnedPost context
-
-    @pytest.mark.asyncio
-    async def test_ensure_junction_fk_target_exists_in_db_not_cache(self, entity_store):
-        """_ensure_junction_fk_targets skips when target exists in DB but not cache (line 981).
-
-        Insert a Post via raw SQL (bypasses cache), then save Account with
-        pinnedPosts referencing it. _ensure_junction_fk_targets finds it
-        in DB via _fetch_one_by_id → continue (no stub needed).
-        """
-
-        acct = Account(id=snowflake_id(), username="fk_exists_test")
-        await entity_store.save(acct)
-
-        # Insert Post via raw SQL — in DB but NOT in entity_store cache
-        existing_post_id = snowflake_id()
-        pool = await entity_store._get_pool()
-        await pool.execute(
-            'INSERT INTO posts (id, "accountId", "fypFlag") VALUES ($1, $2, $3)',
-            existing_post_id,
-            acct.id,
-            0,
-        )
-        # Evict from cache if somehow cached
-        entity_store.invalidate(Post, existing_post_id)
-
-        assert isinstance(acct.id, int)
-        pp = PinnedPost(
-            postId=existing_post_id,
-            accountId=acct.id,
-            pos=0,
-            createdAt=datetime.now(UTC),
-        )
-        acct.pinnedPosts = [pp]
-        await entity_store.save(acct)
-
-        # Verify no stub was created — the existing Post was found in DB
-        found = await entity_store.get(Post, existing_post_id)
-        assert found is not None
-
-    @pytest.mark.asyncio
-    async def test_fetch_all_associations_no_assoc_def(self, entity_store):
-        """_fetch_all_associations skips relationships with no assoc_table def (line 1277)."""
-        # This is called during preload and normally works. We need a model
-        # whose assoc_table isn't in metadata.tables. Since all current models
-        # have valid assoc tables, we test that the method completes without error.
-        result = await entity_store._fetch_all_associations(Account)
-        assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
     async def test_toctou_thread_pool_race(self, config):
         """Two concurrent _get_pool calls in a worker thread — second finds pool
         already created by first (lines 306-307 TOCTOU double-check)."""
@@ -1034,35 +924,6 @@ class TestEntityStoreEdgeCases:
                 await db._asyncpg_pool.close()
             db.close_sync()
 
-    @pytest.mark.asyncio
-    async def test_insert_row_empty_table_data(self, entity_store):
-        """_insert_row with no matching columns → early return (line 701)."""
-        acct = Account(id=snowflake_id(), username="insert_empty_test")
-        # Use object.__setattr__ to bypass Pydantic validation
-        object.__setattr__(acct, "to_db_dict", lambda: {"fake_column": "fake_value"})
-        acct._is_new = True
-        await entity_store._insert_row(acct)  # Should return early, no INSERT
-
-    @pytest.mark.asyncio
-    async def test_update_no_changes(self, entity_store):
-        """_update with no changed fields → early return (line 734)."""
-        acct = Account(id=snowflake_id(), username="update_noop")
-        await entity_store.save(acct)
-        acct.mark_clean()
-        # No changes → _update returns early
-        await entity_store._update(acct)
-
-    @pytest.mark.asyncio
-    async def test_cache_instance_none_id(self, entity_store):
-        """cache_instance with obj.id=None → skip (line 378→exit)."""
-        h = Hashtag(value="no_id_cache")
-        assert h.id is None
-        entity_store.cache_instance(h)  # Should skip, no error
-
-    def test_is_fully_loaded_return(self, entity_store):
-        """is_fully_loaded returns bool (line 382)."""
-        assert entity_store.is_fully_loaded(Account) in (True, False)
-
     def test_filter_skips_other_types(self, entity_store, test_account, test_media):
         """filter iterates cache with multiple types — skips non-matching (line 399)."""
         # entity_store has Account AND Media cached from fixtures
@@ -1071,27 +932,6 @@ class TestEntityStoreEdgeCases:
         )
         assert len(results) == 1
         assert results[0].id == test_account.id
-
-    @pytest.mark.asyncio
-    async def test_assoc_sync_scalar_rid_none(self, entity_store):
-        """_sync_assoc_tables scalar path where _get_id(related) is None (830→838).
-
-        Set account.avatar to an object with id=None — _get_id returns None,
-        so the junction INSERT is skipped but DELETE still runs.
-        """
-        acct = Account(id=snowflake_id(), username="rid_none_test")
-        await entity_store.save(acct)
-
-        # Set avatar to a Media with id=None (unsaved) — triggers avatar dirty
-        assert isinstance(acct.id, int)
-        unsaved_media = Media(id=snowflake_id(), accountId=acct.id)
-        acct.avatar = unsaved_media
-        await entity_store.save(acct)
-
-        # Now set avatar to something with id=None
-        object.__setattr__(unsaved_media, "id", None)
-        acct.avatar = unsaved_media  # Triggers dirty, _get_id will return None
-        await entity_store.save(acct)
 
     @pytest.mark.asyncio
     async def test_assoc_sync_non_list_related(self, entity_store, test_account):
@@ -1223,3 +1063,183 @@ class TestEntityStoreEdgeCases:
         data = {"id": snowflake_id(), "accountId": snowflake_id(), "mediaId": 12345}
         result = PostgresEntityStore._prepare_row_data(Media, data)
         assert result.get("locations") == 12345
+
+
+# ── Shared-DB edge cases ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("entity_store_edge_shared")
+class TestEntityStoreEdgeCasesShared:
+    """Edge-case store tests that only namespace their DB writes by unique
+    snowflake ids — no global count / empty-DB / cross-method state assertions.
+
+    They share ONE class-scoped database (``class_entity_store``), which also
+    registers ``FanslyObject._store`` for the whole class so ``get_store()``,
+    the identity map, and ``create_stub`` all resolve to the shared store. This
+    class deliberately excludes the state-dependent global-query test, the
+    ``config``-based tests (which build + tear down their own store and reset
+    the global mid-run), and the ``test_account``/``test_media``-dependent
+    tests (whose fixtures are pinned to the function-scoped ``entity_store``).
+    """
+
+    async def test_ensure_junction_fk_targets_unknown_table(self, class_entity_store):
+        """_ensure_junction_fk_targets with unknown table → early return (line 952)."""
+        store = class_entity_store
+        await store._ensure_junction_fk_targets(
+            "nonexistent_table_xyz", [{"col": 1}], "owner_fk"
+        )
+
+    async def test_bulk_upsert_skips_empty_table_data(self, class_entity_store):
+        """bulk_upsert/bulk_upsert_records skip items with no matching columns (lines 1155, 1180)."""
+        store = class_entity_store
+        # Item with only non-matching keys → table_data is empty → continue
+        await store.bulk_upsert(
+            Account,
+            [
+                {"id": snowflake_id(), "username": "valid_item"},
+                {"nonexistent_column": "should_be_skipped"},
+            ],
+        )
+        await store.bulk_upsert_records(
+            "stub_tracker",
+            [
+                {
+                    "table_name": "test",
+                    "record_id": snowflake_id(),
+                    "created_at": datetime.now(UTC),
+                },
+                {"fake_col": "skipped"},
+            ],
+        )
+
+    async def test_ensure_junction_fk_targets_creates_stubs(self, class_entity_store):
+        """_ensure_junction_fk_targets creates Post stubs for pinned_posts FK refs.
+
+        When saving an Account with pinnedPosts referencing Posts not in the DB,
+        the entity store introspects pinned_posts FK constraints, discovers
+        postId → posts.id, and calls Post.create_stub() to satisfy the FK.
+        Covers lines 965-994 (_ensure_junction_fk_targets full path).
+        """
+        store = class_entity_store
+        acct = Account(id=snowflake_id(), username="stub_test_acct")
+        await store.save(acct)
+
+        # Create pinned post referencing a Post that doesn't exist yet
+        missing_post_id = snowflake_id()
+        assert isinstance(acct.id, int)
+        pp = PinnedPost(
+            postId=missing_post_id,
+            accountId=acct.id,
+            pos=0,
+            createdAt=datetime.now(UTC),
+        )
+        acct.pinnedPosts = [pp]
+
+        # Save the account — _sync_assoc_tables will call _ensure_junction_fk_targets
+        # which should create a Post stub for missing_post_id
+        await store.save(acct)
+
+        # Verify the stub was created
+        stub = await store.get(Post, missing_post_id)
+        assert stub is not None
+        assert stub.accountId == acct.id  # accountId from PinnedPost context
+
+    async def test_ensure_junction_fk_target_exists_in_db_not_cache(
+        self, class_entity_store
+    ):
+        """_ensure_junction_fk_targets skips when target exists in DB but not cache (line 981).
+
+        Insert a Post via raw SQL (bypasses cache), then save Account with
+        pinnedPosts referencing it. _ensure_junction_fk_targets finds it
+        in DB via _fetch_one_by_id → continue (no stub needed).
+        """
+        store = class_entity_store
+        acct = Account(id=snowflake_id(), username="fk_exists_test")
+        await store.save(acct)
+
+        # Insert Post via raw SQL — in DB but NOT in store cache
+        existing_post_id = snowflake_id()
+        pool = await store._get_pool()
+        await pool.execute(
+            'INSERT INTO posts (id, "accountId", "fypFlag") VALUES ($1, $2, $3)',
+            existing_post_id,
+            acct.id,
+            0,
+        )
+        # Evict from cache if somehow cached
+        store.invalidate(Post, existing_post_id)
+
+        assert isinstance(acct.id, int)
+        pp = PinnedPost(
+            postId=existing_post_id,
+            accountId=acct.id,
+            pos=0,
+            createdAt=datetime.now(UTC),
+        )
+        acct.pinnedPosts = [pp]
+        await store.save(acct)
+
+        # Verify no stub was created — the existing Post was found in DB
+        found = await store.get(Post, existing_post_id)
+        assert found is not None
+
+    async def test_fetch_all_associations_no_assoc_def(self, class_entity_store):
+        """_fetch_all_associations skips relationships with no assoc_table def (line 1277)."""
+        store = class_entity_store
+        # This is called during preload and normally works. We need a model
+        # whose assoc_table isn't in metadata.tables. Since all current models
+        # have valid assoc tables, we test that the method completes without error.
+        result = await store._fetch_all_associations(Account)
+        assert isinstance(result, dict)
+
+    async def test_insert_row_empty_table_data(self, class_entity_store):
+        """_insert_row with no matching columns → early return (line 701)."""
+        store = class_entity_store
+        acct = Account(id=snowflake_id(), username="insert_empty_test")
+        # Use object.__setattr__ to bypass Pydantic validation
+        object.__setattr__(acct, "to_db_dict", lambda: {"fake_column": "fake_value"})
+        acct._is_new = True
+        await store._insert_row(acct)  # Should return early, no INSERT
+
+    async def test_update_no_changes(self, class_entity_store):
+        """_update with no changed fields → early return (line 734)."""
+        store = class_entity_store
+        acct = Account(id=snowflake_id(), username="update_noop")
+        await store.save(acct)
+        acct.mark_clean()
+        # No changes → _update returns early
+        await store._update(acct)
+
+    async def test_cache_instance_none_id(self, class_entity_store):
+        """cache_instance with obj.id=None → skip (line 378→exit)."""
+        store = class_entity_store
+        h = Hashtag(value="no_id_cache")
+        assert h.id is None
+        store.cache_instance(h)  # Should skip, no error
+
+    def test_is_fully_loaded_return(self, class_entity_store):
+        """is_fully_loaded returns bool (line 382)."""
+        store = class_entity_store
+        assert store.is_fully_loaded(Account) in (True, False)
+
+    async def test_assoc_sync_scalar_rid_none(self, class_entity_store):
+        """_sync_assoc_tables scalar path where _get_id(related) is None (830→838).
+
+        Set account.avatar to an object with id=None — _get_id returns None,
+        so the junction INSERT is skipped but DELETE still runs.
+        """
+        store = class_entity_store
+        acct = Account(id=snowflake_id(), username="rid_none_test")
+        await store.save(acct)
+
+        # Set avatar to a Media with id=None (unsaved) — triggers avatar dirty
+        assert isinstance(acct.id, int)
+        unsaved_media = Media(id=snowflake_id(), accountId=acct.id)
+        acct.avatar = unsaved_media
+        await store.save(acct)
+
+        # Now set avatar to something with id=None
+        object.__setattr__(unsaved_media, "id", None)
+        acct.avatar = unsaved_media  # Triggers dirty, _get_id will return None
+        await store.save(acct)

@@ -289,30 +289,31 @@ class TestUsernameFormatValidator:
 # ---------------------------------------------------------------------------
 
 
-def test_download_mode_case_insensitive_lower(tmp_path: Path) -> None:
-    """download_mode accepts lowercase 'normal' from YAML."""
-    yaml_content = "options:\n  download_mode: normal\n"
-    cfg_path = tmp_path / "dm.yaml"
-    cfg_path.write_text(yaml_content, encoding="utf-8")
-
-    schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.options.download_mode == DownloadMode.NORMAL
-
-
-def test_download_mode_case_insensitive_mixed(tmp_path: Path) -> None:
-    """download_mode accepts mixed-case 'Timeline'."""
-    yaml_content = "options:\n  download_mode: Timeline\n"
-    cfg_path = tmp_path / "dm2.yaml"
-    cfg_path.write_text(yaml_content, encoding="utf-8")
-
-    schema = ConfigSchema.load_yaml(cfg_path)
-    assert schema.options.download_mode == DownloadMode.TIMELINE
-
-
-def test_download_mode_case_insensitive_upper() -> None:
-    """OptionsSection accepts uppercase directly via model_validate."""
-    section = OptionsSection.model_validate({"download_mode": "MESSAGES"})
-    assert section.download_mode == DownloadMode.MESSAGES
+@pytest.mark.parametrize(
+    ("raw", "expected", "via_yaml"),
+    [
+        pytest.param("normal", DownloadMode.NORMAL, True, id="lower_via_yaml"),
+        pytest.param("Timeline", DownloadMode.TIMELINE, True, id="mixed_via_yaml"),
+        pytest.param("MESSAGES", DownloadMode.MESSAGES, False, id="upper_direct"),
+    ],
+)
+def test_download_mode_case_insensitive(
+    raw: str,
+    expected: DownloadMode,
+    via_yaml: bool,
+    tmp_path: Path,
+) -> None:
+    """download_mode accepts any casing — via YAML load or direct model_validate."""
+    if via_yaml:
+        cfg_path = tmp_path / "dm.yaml"
+        cfg_path.write_text(
+            f"options:\n  download_mode: {raw}\n",
+            encoding="utf-8",
+        )
+        section = ConfigSchema.load_yaml(cfg_path).options
+    else:
+        section = OptionsSection.model_validate({"download_mode": raw})
+    assert section.download_mode == expected
 
 
 # ---------------------------------------------------------------------------
@@ -392,40 +393,47 @@ def test_download_mode_rejects_invalid_string() -> None:
         OptionsSection(download_mode="bogus_mode")  # type: ignore[arg-type]
 
 
-def test_retired_field_separate_metadata_silently_dropped() -> None:
+@pytest.mark.parametrize(
+    ("payload", "retired_key", "expected_mode"),
+    [
+        pytest.param(
+            {"separate_metadata": False, "download_mode": "NORMAL"},
+            "separate_metadata",
+            DownloadMode.NORMAL,
+            id="separate_metadata_false",
+        ),
+        pytest.param(
+            {"separate_metadata": True},
+            "separate_metadata",
+            None,
+            id="separate_metadata_true_value",
+        ),
+        pytest.param(
+            {"metadata_handling": "Advanced", "download_mode": "NORMAL"},
+            "metadata_handling",
+            DownloadMode.NORMAL,
+            id="metadata_handling",
+        ),
+    ],
+)
+def test_retired_field_silently_dropped(
+    payload: dict[str, object],
+    retired_key: str,
+    expected_mode: DownloadMode | None,
+) -> None:
     """Old config.yaml files with removed keys load cleanly.
 
-    separate_metadata was removed (legacy SQLite-era flag that was no-op
-    under Postgres). An upgrade from an older version must not fail
-    validation just because the file still carries the key — the
-    _drop_retired_fields validator strips it before extra="forbid"
-    runs. Re-add any future removed fields to _DROPPED_FIELDS.
+    separate_metadata (legacy SQLite-era flag, no-op under Postgres) and
+    metadata_handling were removed. An upgrade from an older version must
+    not fail validation just because the file still carries the key — the
+    _drop_retired_fields validator strips it before extra="forbid" runs,
+    regardless of the retired field's value. Re-add any future removed
+    fields to _DROPPED_FIELDS.
     """
-    section = OptionsSection.model_validate(
-        {"separate_metadata": False, "download_mode": "NORMAL"}
-    )
-    assert not hasattr(section, "separate_metadata")
-    assert section.download_mode == DownloadMode.NORMAL
-
-
-def test_retired_field_survives_true_value() -> None:
-    """The value of the retired field is irrelevant — it's dropped either way."""
-    section = OptionsSection.model_validate({"separate_metadata": True})
-    assert not hasattr(section, "separate_metadata")
-
-
-def test_retired_field_metadata_handling_silently_dropped() -> None:
-    """metadata_handling was removed — no runtime code branches on it.
-
-    Legacy YAML/INI files carry ``metadata_handling: Advanced`` everywhere;
-    the _drop_retired_fields validator strips the key before extra="forbid"
-    rejects it.
-    """
-    section = OptionsSection.model_validate(
-        {"metadata_handling": "Advanced", "download_mode": "NORMAL"}
-    )
-    assert not hasattr(section, "metadata_handling")
-    assert section.download_mode == DownloadMode.NORMAL
+    section = OptionsSection.model_validate(payload)
+    assert not hasattr(section, retired_key)
+    if expected_mode is not None:
+        assert section.download_mode == expected_mode
 
 
 def test_unknown_non_retired_field_still_rejected() -> None:
@@ -562,17 +570,38 @@ def test_dump_yaml_string(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_monitoring_session_baseline_default_is_none() -> None:
-    """MonitoringSection.session_baseline defaults to None."""
-    section = MonitoringSection()
-    assert section.session_baseline is None
-
-
-def test_monitoring_session_baseline_default_via_schema() -> None:
-    """ConfigSchema().monitoring.session_baseline is None by default."""
-    schema = ConfigSchema()
-    assert schema.monitoring is not None
-    assert schema.monitoring.session_baseline is None
+@pytest.mark.parametrize(
+    "via_schema",
+    [pytest.param(False, id="direct"), pytest.param(True, id="via_schema")],
+)
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        pytest.param("session_baseline", None, id="session_baseline"),
+        pytest.param(
+            "unrecoverable_error_timeout_seconds",
+            3600,
+            id="unrecoverable_timeout",
+        ),
+    ],
+)
+def test_monitoring_defaults(
+    attr: str,
+    expected: int | None,
+    via_schema: bool,
+) -> None:
+    """Monitoring defaults hold on MonitoringSection() and via ConfigSchema()."""
+    if via_schema:
+        schema = ConfigSchema()
+        assert schema.monitoring is not None
+        section = schema.monitoring
+    else:
+        section = MonitoringSection()
+    value = getattr(section, attr)
+    if expected is None:
+        assert value is None
+    else:
+        assert value == expected
 
 
 def test_monitoring_session_baseline_round_trip(tmp_path: Path) -> None:
@@ -622,19 +651,6 @@ def test_monitoring_section_none_session_baseline_round_trip(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 # Test 13: MonitoringSection.unrecoverable_error_timeout_seconds — default and round-trip
 # ---------------------------------------------------------------------------
-
-
-def test_monitoring_unrecoverable_error_timeout_default() -> None:
-    """MonitoringSection.unrecoverable_error_timeout_seconds defaults to 3600."""
-    section = MonitoringSection()
-    assert section.unrecoverable_error_timeout_seconds == 3600
-
-
-def test_monitoring_unrecoverable_error_timeout_default_via_schema() -> None:
-    """ConfigSchema().monitoring.unrecoverable_error_timeout_seconds is 3600 by default."""
-    schema = ConfigSchema()
-    assert schema.monitoring is not None
-    assert schema.monitoring.unrecoverable_error_timeout_seconds == 3600
 
 
 def test_monitoring_unrecoverable_error_timeout_round_trip(tmp_path: Path) -> None:

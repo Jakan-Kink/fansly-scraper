@@ -7,6 +7,8 @@ control elapsed time without sleeping.
 
 from collections.abc import Callable
 
+import pytest
+
 from daemon.simulator import ActivitySimulator
 
 
@@ -50,108 +52,51 @@ class TestInitialState:
 
 
 # ---------------------------------------------------------------------------
-# 2. tick() transitions active → idle after active_duration seconds elapse
+# 2-4. tick() drives the full active → idle → hidden → active cycle
 # ---------------------------------------------------------------------------
 
 
-class TestTickActiveToIdle:
-    def test_active_to_idle_after_duration(self):
-        """tick() returns 'idle' and updates state when active_duration elapses."""
+class TestTickTransitions:
+    def test_full_cycle_with_boundaries(self):
+        """One deep pass through the whole state machine.
+
+        Covers: no-transition mid-active-window, active→idle ('idle'),
+        idle→hidden ('hidden', with a 120 s idle window so the idle
+        duration is genuinely respected), and hidden→active which must
+        return the 'unhide' sentinel — NOT 'active'.
+        """
         clock = make_clock(0.0)
         sim = ActivitySimulator(
             active_min=1,  # 60 s active window
-            idle_min=1,
-            hidden_min=1,
+            idle_min=2,  # 120 s idle window
+            hidden_min=1,  # 60 s hidden window
             now=lambda: clock[0],
             jitter=fixed_jitter(0.0),
         )
+        assert sim.state == "active"
+
+        # Halfway through the active window — no transition yet
+        clock[0] = 30.0
+        assert sim.tick() is None
         assert sim.state == "active"
 
         # Advance just past the 60-second active_duration
         clock[0] = 61.0
         result = sim.tick()
-
         assert result == "idle"
         assert sim.state == "idle"
-
-    def test_tick_returns_none_before_active_duration(self):
-        """tick() returns None while still within the active window."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-        clock[0] = 30.0  # halfway through active window
-        assert sim.tick() is None
-        assert sim.state == "active"
-
-
-# ---------------------------------------------------------------------------
-# 3. tick() transitions idle → hidden after idle_duration
-# ---------------------------------------------------------------------------
-
-
-class TestTickIdleToHidden:
-    def test_idle_to_hidden_after_duration(self):
-        """tick() returns 'hidden' and updates state when idle_duration elapses."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,  # 60 s
-            idle_min=2,  # 120 s
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-
-        # Drive active → idle
-        clock[0] = 61.0
-        assert sim.tick() == "idle"
-
-        # Capture when idle was entered
         idle_entered = clock[0]
 
         # Advance past idle_duration (120 s) from when idle was entered
         clock[0] = idle_entered + 121.0
         result = sim.tick()
-
         assert result == "hidden"
         assert sim.state == "hidden"
-
-
-# ---------------------------------------------------------------------------
-# 4. tick() transitions hidden → active and returns "unhide"
-# ---------------------------------------------------------------------------
-
-
-class TestTickHiddenToActive:
-    def test_hidden_to_active_returns_unhide(self):
-        """tick() returns the sentinel 'unhide' when hidden_duration elapses."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,  # 60 s hidden window
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-
-        # active → idle
-        clock[0] = 61.0
-        assert sim.tick() == "idle"
-        idle_entered = clock[0]
-
-        # idle → hidden
-        clock[0] = idle_entered + 61.0
-        assert sim.tick() == "hidden"
         hidden_entered = clock[0]
 
         # hidden → active (expect "unhide" sentinel, NOT "active")
         clock[0] = hidden_entered + 61.0
         result = sim.tick()
-
         assert result == "unhide"
         assert sim.state == "active"
 
@@ -352,57 +297,36 @@ class TestOnNewContentReturnsBool:
 
 
 class TestTimelineInterval:
-    def test_timeline_interval_active_zero_jitter(self):
-        """Active timeline_interval = 180 + jitter(0,10). With jitter=0 → exactly 180."""
-        clock = make_clock()
-        sim = ActivitySimulator(
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-        assert sim.state == "active"
-        assert sim.timeline_interval == 180.0
-
-    def test_timeline_interval_active_max_jitter(self):
-        """With jitter always returning 10, active timeline_interval = 190."""
-        clock = make_clock()
-        sim = ActivitySimulator(
-            now=lambda: clock[0],
-            jitter=fixed_jitter(10.0),
-        )
-        assert sim.timeline_interval == 190.0
-
-    def test_timeline_interval_idle_zero_jitter(self):
-        """Idle timeline_interval = 600 + jitter(0,10). With jitter=0 → exactly 600."""
+    @pytest.mark.parametrize(
+        ("transitions", "jitter_value", "expected_state", "expected_interval"),
+        [
+            pytest.param(0, 0.0, "active", 180.0, id="active-zero-jitter-180"),
+            pytest.param(0, 10.0, "active", 190.0, id="active-max-jitter-190"),
+            pytest.param(1, 0.0, "idle", 600.0, id="idle-zero-jitter-600"),
+            pytest.param(2, 0.0, "hidden", 0, id="hidden-always-zero"),
+        ],
+    )
+    def test_timeline_interval(
+        self,
+        transitions: int,
+        jitter_value: float,
+        expected_state: str,
+        expected_interval: float,
+    ) -> None:
+        """timeline_interval = base + jitter in active/idle; always 0 in hidden."""
         clock = make_clock(0.0)
         sim = ActivitySimulator(
             active_min=1,
             idle_min=1,
             hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
+            now=_clock_reader(clock),
+            jitter=fixed_jitter(jitter_value),
         )
-        clock[0] = 61.0
-        sim.tick()  # → idle
-        assert sim.state == "idle"
-        assert sim.timeline_interval == 600.0
-
-    def test_timeline_interval_hidden_is_zero(self):
-        """Hidden timeline_interval is always 0 (no polling)."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-        clock[0] = 61.0
-        sim.tick()  # → idle
-        idle_at = clock[0]
-        clock[0] = idle_at + 61.0
-        sim.tick()  # → hidden
-        assert sim.state == "hidden"
-        assert sim.timeline_interval == 0
+        for _ in range(transitions):
+            clock[0] += 61.0
+            sim.tick()
+        assert sim.state == expected_state
+        assert sim.timeline_interval == expected_interval
 
 
 # ---------------------------------------------------------------------------
@@ -411,84 +335,38 @@ class TestTimelineInterval:
 
 
 class TestStoryInterval:
-    def test_story_interval_active(self):
-        """Active story_interval is 30 + jitter. With jitter=0.0 -> exactly 30."""
-        clock = make_clock()
-        sim = ActivitySimulator(now=lambda: clock[0], jitter=fixed_jitter(0.0))
-        assert sim.story_interval == 30
-
-    def test_story_interval_idle(self):
-        """Idle story_interval is 300 + jitter. With jitter=0.0 -> exactly 300."""
+    @pytest.mark.parametrize(
+        ("transitions", "jitter_value", "expected_state", "expected_interval"),
+        [
+            pytest.param(0, 0.0, "active", 30, id="active-zero-jitter-30"),
+            pytest.param(1, 0.0, "idle", 300, id="idle-zero-jitter-300"),
+            pytest.param(2, 0.0, "hidden", 0, id="hidden-zero-jitter-0"),
+            pytest.param(0, 1.0, "active", 31.0, id="active-jitter-1.0-31.0"),
+            pytest.param(1, 1.5, "idle", 301.5, id="idle-jitter-1.5-301.5"),
+            pytest.param(2, 99.0, "hidden", 0.0, id="hidden-ignores-jitter-0.0"),
+        ],
+    )
+    def test_story_interval(
+        self,
+        transitions: int,
+        jitter_value: float,
+        expected_state: str,
+        expected_interval: float,
+    ) -> None:
+        """story_interval = base + jitter in active/idle; always 0 in hidden."""
         clock = make_clock(0.0)
         sim = ActivitySimulator(
             active_min=1,
             idle_min=1,
             hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
+            now=_clock_reader(clock),
+            jitter=fixed_jitter(jitter_value),
         )
-        clock[0] = 61.0
-        sim.tick()
-        assert sim.state == "idle"
-        assert sim.story_interval == 300
-
-    def test_story_interval_hidden(self):
-        """Hidden story_interval is 0 (no jitter, no polling)."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-        clock[0] = 61.0
-        sim.tick()
-        idle_at = clock[0]
-        clock[0] = idle_at + 61.0
-        sim.tick()
-        assert sim.state == "hidden"
-        assert sim.story_interval == 0
-
-    def test_story_interval_active_with_jitter(self):
-        """Active story_interval = 30 + injected jitter. jitter=1.0 -> 31.0."""
-        clock = make_clock()
-        sim = ActivitySimulator(now=lambda: clock[0], jitter=fixed_jitter(1.0))
-        assert sim.state == "active"
-        assert sim.story_interval == 31.0
-
-    def test_story_interval_idle_with_jitter(self):
-        """Idle story_interval = 300 + injected jitter. jitter=1.5 -> 301.5."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(1.5),
-        )
-        clock[0] = 61.0
-        sim.tick()
-        assert sim.state == "idle"
-        assert sim.story_interval == 301.5
-
-    def test_story_interval_hidden_no_jitter(self):
-        """Hidden story_interval is always 0 regardless of jitter value."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(99.0),
-        )
-        clock[0] = 61.0
-        sim.tick()
-        idle_at = clock[0]
-        clock[0] = idle_at + 61.0
-        sim.tick()
-        assert sim.state == "hidden"
-        assert sim.story_interval == 0.0
+        for _ in range(transitions):
+            clock[0] += 61.0
+            sim.tick()
+        assert sim.state == expected_state
+        assert sim.story_interval == expected_interval
 
 
 # ---------------------------------------------------------------------------
@@ -497,44 +375,34 @@ class TestStoryInterval:
 
 
 class TestShouldPoll:
-    def test_should_poll_active(self):
-        """should_poll is True in active state."""
-        clock = make_clock()
-        sim = ActivitySimulator(now=lambda: clock[0], jitter=fixed_jitter(0.0))
-        assert sim.should_poll is True
-
-    def test_should_poll_idle(self):
-        """should_poll is True in idle state."""
+    @pytest.mark.parametrize(
+        ("transitions", "expected_state", "expected_poll"),
+        [
+            pytest.param(0, "active", True, id="active-polls"),
+            pytest.param(1, "idle", True, id="idle-polls"),
+            pytest.param(2, "hidden", False, id="hidden-does-not-poll"),
+        ],
+    )
+    def test_should_poll(
+        self,
+        transitions: int,
+        expected_state: str,
+        expected_poll: bool,
+    ) -> None:
+        """should_poll is True in active/idle, False in hidden."""
         clock = make_clock(0.0)
         sim = ActivitySimulator(
             active_min=1,
             idle_min=1,
             hidden_min=1,
-            now=lambda: clock[0],
+            now=_clock_reader(clock),
             jitter=fixed_jitter(0.0),
         )
-        clock[0] = 61.0
-        sim.tick()
-        assert sim.state == "idle"
-        assert sim.should_poll is True
-
-    def test_should_poll_hidden(self):
-        """should_poll is False in hidden state."""
-        clock = make_clock(0.0)
-        sim = ActivitySimulator(
-            active_min=1,
-            idle_min=1,
-            hidden_min=1,
-            now=lambda: clock[0],
-            jitter=fixed_jitter(0.0),
-        )
-        clock[0] = 61.0
-        sim.tick()
-        idle_at = clock[0]
-        clock[0] = idle_at + 61.0
-        sim.tick()
-        assert sim.state == "hidden"
-        assert sim.should_poll is False
+        for _ in range(transitions):
+            clock[0] += 61.0
+            sim.tick()
+        assert sim.state == expected_state
+        assert sim.should_poll is expected_poll
 
 
 # ---------------------------------------------------------------------------

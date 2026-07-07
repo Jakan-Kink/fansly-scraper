@@ -1,10 +1,16 @@
 """Unit tests for daemon.polling — poll_home_timeline and poll_story_states.
 
-Each polling function is tested with a real EntityStore (via the entity_store
-fixture) and a real FanslyApi wired into mock_config._api via the
-``respx_fansly_api`` fixture.  RESPX intercepts at the HTTP boundary through
-that fixture (which owns the respx mock context and the blanket OPTIONS
-preflight route), so tests register only their per-call GET routes.
+Each polling function is tested with a real EntityStore and a real FanslyApi
+wired into mock_config._api via the ``respx_fansly_api`` fixture.  RESPX
+intercepts at the HTTP boundary through that fixture (which owns the respx
+mock context and the blanket OPTIONS preflight route), so tests register only
+their per-call GET routes.
+
+Both classes share ONE class-scoped database each via ``class_entity_store``
+(requested through ``reset_class_store``, which clears the in-memory
+cache/identity map between methods — the known-post detection is cache-only,
+so the reset keeps it per-test). Every test creates its own Account /
+MonitorState keyed by a unique snowflake creator id.
 
 Test inventory
 --------------
@@ -15,26 +21,23 @@ poll_home_timeline
   4. Multiple new posts from same creator — ID deduplicated (set semantics), both posts in posts_by_creator
   5. Empty posts array from API — (set(), {}) returned
   6. API raises HTTPError — (set(), {}) returned, warning logged
-  7. Return shape is tuple[set[int], dict[int, list[dict]]]
-  8. posts_by_creator groups posts by accountId correctly
-  9. Creator with only known posts appears in posts_by_creator but not new_creator_ids
- 10. Empty response body returns (set(), {})
- 11. API failure returns (set(), {})
+  7. Generic (non-HTTPError) exception — (set(), {}) returned, warning logged
 
 poll_story_states
- 12.  First run (no rows) — hasActiveStories=True → ID returned, row created True
- 13.  Prior False → now True — ID returned, row updated True
- 14.  Prior True → still True — NOT returned, row unchanged
- 15.  Prior True → now False — NOT returned, row updated False
- 16.  First run, hasActiveStories=False — NOT returned, row created False
- 17.  API raises — empty list returned
- 18.  hasActiveStories=False, storyCount=2 — treated as active (flip detected)
- 19.  hasActiveStories=True, storyCount=0 — treated as active (existing behaviour)
- 20.  hasActiveStories=False, storyCount=0 — NOT active
+  8.  Truth table (one parametrized test, 8 rows) over
+      (prior_state: None|True|False, hasActiveStories, storyCount) →
+      (creator returned?, MonitorState row value): first-run active/inactive,
+      prior False→True, prior True→True, prior True→False,
+      storyCount>0 fallback, hasActiveStories-alone, both-signals-inactive
+  9.  API raises — empty list returned
+ 10.  Generic exception — empty list, warning logged
+ 11.  Non-list response shape — empty list, warning logged
+ 12.  store.save raises mid-loop — creator still returned, warning logged
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import httpx
@@ -42,9 +45,13 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
+from config.fanslyconfig import FanslyConfig
 from daemon.polling import poll_home_timeline, poll_story_states
+from metadata.entity_store import PostgresEntityStore
 from metadata.models import Account, MonitorState, Post
+from metadata.models import get_store as real_get_store
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
+from tests.fixtures.metadata.metadata_factories import AccountFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -83,17 +90,11 @@ def _make_story_state_dict(
     }
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-# `saved_account` and `mock_config` come from the canonical fixtures
-# (tests/fixtures/metadata/metadata_fixtures.py and tests/fixtures/core/
-# config_fixtures.py respectively) via the wildcard import in tests/conftest.py.
-# `respx_fansly_api` bootstraps a real FanslyApi and wires mock_config._api,
-# providing the respx mock context + blanket OPTIONS route. Per Cat L policy:
-# don't redefine here.
+async def _make_saved_account(store: PostgresEntityStore) -> int:
+    """Persist a fresh Account with a unique snowflake id, returning the id."""
+    account_id = snowflake_id()
+    await store.save(AccountFactory.build(id=account_id))
+    return account_id
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +102,10 @@ def _make_story_state_dict(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("daemon_polling_home")
 class TestPollHomeTimeline:
-    """Tests for daemon.polling.poll_home_timeline.
+    """Tests for daemon.polling.poll_home_timeline over ONE shared class DB.
 
     Return shape: tuple[set[int], dict[int, list[dict]]]
       - new_creator_ids: creators with at least one post absent from the cache
@@ -110,12 +113,11 @@ class TestPollHomeTimeline:
         (includes creators whose posts are all already cached)
     """
 
-    @pytest.mark.asyncio
     async def test_fresh_cache_returns_all_creator_ids(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """Fresh cache — new_creator_ids contains creator, posts_by_creator populated."""
-        creator_id = saved_account.id
+        creator_id = await _make_saved_account(reset_class_store)
         post_id = snowflake_id()
         post_dict = _make_post_dict(post_id, creator_id)
 
@@ -142,9 +144,8 @@ class TestPollHomeTimeline:
         assert len(posts_by_creator[creator_id]) == 1
         assert posts_by_creator[creator_id][0]["id"] == post_id
 
-    @pytest.mark.asyncio
     async def test_all_posts_cached_new_ids_empty_posts_by_creator_populated(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """All posts already cached — new_creator_ids empty but posts_by_creator
         still contains the creator and their posts.
@@ -153,7 +154,7 @@ class TestPollHomeTimeline:
         timeline page, even those with no new posts. The runner uses it to
         pass prefetched posts to should_process_creator without re-fetching.
         """
-        creator_id = saved_account.id
+        creator_id = await _make_saved_account(reset_class_store)
         post_id = snowflake_id()
 
         # Seed cache: save the post so get_from_cache finds it
@@ -164,7 +165,7 @@ class TestPollHomeTimeline:
             fypFlags=0,
             createdAt=datetime.now(UTC),
         )
-        await entity_store.save(post)
+        await reset_class_store.save(post)
 
         route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
             side_effect=[
@@ -189,12 +190,11 @@ class TestPollHomeTimeline:
         assert creator_id in posts_by_creator
         assert len(posts_by_creator[creator_id]) == 1
 
-    @pytest.mark.asyncio
     async def test_mixed_posts_returns_only_new_creators_in_new_ids(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """Mixed known + unknown posts — only new creator in new_ids, both in posts_by_creator."""
-        creator_id = saved_account.id
+        creator_id = await _make_saved_account(reset_class_store)
 
         # A second creator
         creator_id2 = snowflake_id()
@@ -204,7 +204,7 @@ class TestPollHomeTimeline:
             displayName="Creator 2",
             createdAt=datetime.now(UTC),
         )
-        await entity_store.save(acc2)
+        await reset_class_store.save(acc2)
 
         known_post_id = snowflake_id()
         new_post_id = snowflake_id()
@@ -217,7 +217,7 @@ class TestPollHomeTimeline:
             fypFlags=0,
             createdAt=datetime.now(UTC),
         )
-        await entity_store.save(known_post)
+        await reset_class_store.save(known_post)
 
         route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
             side_effect=[
@@ -249,13 +249,12 @@ class TestPollHomeTimeline:
         assert creator_id in posts_by_creator
         assert creator_id2 in posts_by_creator
 
-    @pytest.mark.asyncio
     async def test_multiple_new_posts_same_creator_deduplicates(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """Multiple new posts from same creator — ID appears once in new_ids,
         both posts appear in posts_by_creator."""
-        creator_id = saved_account.id
+        creator_id = await _make_saved_account(reset_class_store)
         post_id1 = snowflake_id()
         post_id2 = snowflake_id()
 
@@ -289,9 +288,8 @@ class TestPollHomeTimeline:
         returned_ids = {p["id"] for p in posts_by_creator[creator_id]}
         assert returned_ids == {post_id1, post_id2}
 
-    @pytest.mark.asyncio
     async def test_empty_posts_array_returns_empty_tuple(
-        self, respx_fansly_api, mock_config, entity_store
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """API returns empty posts array — (set(), {}) returned."""
         route = respx.get(url__startswith=HOME_TIMELINE_URL).mock(
@@ -311,9 +309,8 @@ class TestPollHomeTimeline:
         assert new_ids == set()
         assert posts_by_creator == {}
 
-    @pytest.mark.asyncio
     async def test_api_http_error_returns_empty_tuple(
-        self, respx_fansly_api, mock_config, entity_store
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """API raises ConnectError (HTTPError subclass) — returns (set(), {}).
 
@@ -340,22 +337,121 @@ class TestPollHomeTimeline:
         assert new_ids == set()
         assert posts_by_creator == {}
 
+    async def test_generic_exception_returns_empty_tuple(
+        self, respx_fansly_api, mock_config, reset_class_store, monkeypatch, caplog
+    ):
+        """Lines 64-68: non-HTTPError exception → log warning + return empty."""
+        caplog.set_level(logging.WARNING)
+
+        api = mock_config.get_api()
+
+        def _raises():
+            raise RuntimeError("simulated non-http failure")
+
+        monkeypatch.setattr(api, "get_home_timeline", _raises)
+
+        new_ids, posts_by_creator = await poll_home_timeline(mock_config)
+
+        assert new_ids == set()
+        assert posts_by_creator == {}
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "unexpected error fetching home timeline" in m
+            and "simulated non-http failure" in m
+            for m in warnings
+        )
+
 
 # ---------------------------------------------------------------------------
 # poll_story_states
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("daemon_polling_stories")
 class TestPollStoryStates:
-    """Tests for daemon.polling.poll_story_states."""
+    """Tests for daemon.polling.poll_story_states over ONE shared class DB."""
 
-    @pytest.mark.asyncio
-    async def test_first_run_active_story_returns_creator_and_creates_row(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """First run, no MonitorState row — hasActiveStories=True → ID returned,
-        row created with lastHasActiveStories=True."""
-        creator_id = saved_account.id
+    @pytest.mark.parametrize(
+        (
+            "prior_state",
+            "has_active",
+            "story_count",
+            "expect_returned",
+            "expect_row_state",
+        ),
+        [
+            pytest.param(
+                None, True, 0, True, True, id="first-run-active-creates-row-true"
+            ),
+            pytest.param(
+                False, True, 0, True, True, id="prior-false-now-true-updates-row"
+            ),
+            pytest.param(
+                True, True, 0, False, True, id="prior-true-still-true-no-flip"
+            ),
+            pytest.param(
+                True, False, 0, False, False, id="prior-true-now-false-updates-row"
+            ),
+            pytest.param(
+                None, False, 0, False, False, id="first-run-inactive-creates-row-false"
+            ),
+            pytest.param(
+                False,
+                False,
+                2,
+                True,
+                True,
+                id="story-count-nonzero-treated-active-flip",
+            ),
+            pytest.param(
+                False,
+                True,
+                0,
+                True,
+                True,
+                id="has-active-true-count-zero-still-active",
+            ),
+            pytest.param(
+                False,
+                False,
+                0,
+                False,
+                False,
+                id="both-signals-inactive-not-returned",
+            ),
+        ],
+    )
+    async def test_story_state_truth_table(
+        self,
+        respx_fansly_api: FanslyApi,
+        mock_config: FanslyConfig,
+        reset_class_store: PostgresEntityStore,
+        request: pytest.FixtureRequest,
+        prior_state: bool | None,
+        has_active: bool,
+        story_count: int,
+        expect_returned: bool,
+        expect_row_state: bool,
+    ) -> None:
+        """Truth table over (prior MonitorState, hasActiveStories, storyCount).
+
+        A creator is returned only on an inactive→active flip (no prior row
+        counts as inactive). ``storyCount > 0`` is treated as active even when
+        ``hasActiveStories`` is False; ``hasActiveStories=True`` alone is
+        sufficient when ``storyCount == 0``. The MonitorState row is
+        created/updated to the observed active state either way.
+        """
+        creator_id = await _make_saved_account(reset_class_store)
+
+        if prior_state is not None:
+            await reset_class_store.save(
+                MonitorState(
+                    creatorId=creator_id,
+                    lastHasActiveStories=prior_state,
+                )
+            )
 
         route = respx.get(url__startswith=STORY_STATES_URL).mock(
             side_effect=[
@@ -364,7 +460,11 @@ class TestPollStoryStates:
                     json={
                         "success": True,
                         "response": [
-                            _make_story_state_dict(creator_id, has_active=True)
+                            _make_story_state_dict(
+                                creator_id,
+                                has_active=has_active,
+                                story_count=story_count,
+                            )
                         ],
                     },
                 )
@@ -374,163 +474,20 @@ class TestPollStoryStates:
         try:
             result = await poll_story_states(mock_config)
         finally:
-            dump_fansly_calls(route.calls, "first_run_active")
+            dump_fansly_calls(route.calls, request.node.name)
 
-        assert creator_id in result
+        if expect_returned:
+            assert creator_id in result
+        else:
+            assert creator_id not in result
+            assert result == []
 
-        # Verify MonitorState row was created with True
-        saved_state = await entity_store.get(MonitorState, creator_id)
-        assert saved_state is not None
-        assert saved_state.lastHasActiveStories is True
+        row = await reset_class_store.get(MonitorState, creator_id)
+        assert row is not None
+        assert row.lastHasActiveStories is expect_row_state
 
-    @pytest.mark.asyncio
-    async def test_prior_false_now_true_returns_creator_updates_row(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """Prior False → now True — ID returned, row updated to True."""
-        creator_id = saved_account.id
-
-        # Seed: prior state is False
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=False,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(creator_id, has_active=True)
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "prior_false_now_true")
-
-        assert creator_id in result
-
-        updated = await entity_store.get(MonitorState, creator_id)
-        assert updated is not None
-        assert updated.lastHasActiveStories is True
-
-    @pytest.mark.asyncio
-    async def test_prior_true_still_true_not_returned(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """Prior True → still True — NOT returned (no flip), row stays True."""
-        creator_id = saved_account.id
-
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=True,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(creator_id, has_active=True)
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "prior_true_still_true")
-
-        assert creator_id not in result
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_prior_true_now_false_not_returned_row_updated(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """Prior True → now False — NOT returned, row updated to False."""
-        creator_id = saved_account.id
-
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=True,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(creator_id, has_active=False)
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "prior_true_now_false")
-
-        assert creator_id not in result
-
-        updated = await entity_store.get(MonitorState, creator_id)
-        assert updated is not None
-        assert updated.lastHasActiveStories is False
-
-    @pytest.mark.asyncio
-    async def test_first_run_inactive_not_returned_row_created_false(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """First run, hasActiveStories=False — NOT returned, row created with False."""
-        creator_id = saved_account.id
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(creator_id, has_active=False)
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "first_run_inactive")
-
-        assert creator_id not in result
-        assert result == []
-
-        saved_state = await entity_store.get(MonitorState, creator_id)
-        assert saved_state is not None
-        assert saved_state.lastHasActiveStories is False
-
-    @pytest.mark.asyncio
     async def test_api_http_error_returns_empty_list(
-        self, respx_fansly_api, mock_config, entity_store
+        self, respx_fansly_api, mock_config, reset_class_store
     ):
         """API raises ConnectError (HTTPError subclass) — returns empty list.
 
@@ -556,183 +513,24 @@ class TestPollStoryStates:
 
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_story_count_nonzero_treated_as_active_flip_detected(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """hasActiveStories=False, storyCount=2 — storyCount fallback triggers
-        active detection. Prior state is False (inactive), so flip is detected
-        and creator ID returned."""
-        creator_id = saved_account.id
+    # -----------------------------------------------------------------------
+    # Edge coverage — generic exception, malformed response shape, save errors
+    # -----------------------------------------------------------------------
 
-        # Seed prior state as inactive
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=False,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(
-                                creator_id, has_active=False, story_count=2
-                            )
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "story_count_nonzero_flip")
-
-        assert creator_id in result
-
-        updated = await entity_store.get(MonitorState, creator_id)
-        assert updated is not None
-        assert updated.lastHasActiveStories is True
-
-    @pytest.mark.asyncio
-    async def test_has_active_stories_true_story_count_zero_still_active(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """hasActiveStories=True, storyCount=0 — hasActiveStories alone is
-        sufficient; existing behaviour preserved. Prior state is False, so flip
-        is detected and creator ID returned."""
-        creator_id = saved_account.id
-
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=False,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(
-                                creator_id, has_active=True, story_count=0
-                            )
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "has_active_true_count_zero")
-
-        assert creator_id in result
-
-    @pytest.mark.asyncio
-    async def test_has_active_false_story_count_zero_not_active(
-        self, respx_fansly_api, mock_config, entity_store, saved_account
-    ):
-        """hasActiveStories=False, storyCount=0 — neither signal active; creator
-        is NOT returned regardless of prior state."""
-        creator_id = saved_account.id
-
-        prior_state = MonitorState(
-            creatorId=creator_id,
-            lastHasActiveStories=False,
-        )
-        await entity_store.save(prior_state)
-
-        route = respx.get(url__startswith=STORY_STATES_URL).mock(
-            side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "success": True,
-                        "response": [
-                            _make_story_state_dict(
-                                creator_id, has_active=False, story_count=0
-                            )
-                        ],
-                    },
-                )
-            ]
-        )
-
-        try:
-            result = await poll_story_states(mock_config)
-        finally:
-            dump_fansly_calls(route.calls, "both_signals_inactive")
-
-        assert creator_id not in result
-        assert result == []
-
-
-# ---------------------------------------------------------------------------
-# Edge coverage — generic exception, malformed response shape, save errors
-# ---------------------------------------------------------------------------
-
-
-class TestPollHomeTimelineGenericException:
-    """Lines 64-68: catch-all Exception path (non-HTTPError) returns (set(), {})."""
-
-    @pytest.mark.asyncio
-    async def test_generic_exception_returns_empty_tuple(
-        self, config_wired, entity_store, monkeypatch, caplog
-    ):
-        """When the API client raises a non-HTTPError exception, log warning + return empty."""
-        import logging as _logging
-
-        caplog.set_level(_logging.WARNING)
-
-        api = config_wired.get_api()
-
-        def _raises():
-            raise RuntimeError("simulated non-http failure")
-
-        monkeypatch.setattr(api, "get_home_timeline", _raises)
-
-        new_ids, posts_by_creator = await poll_home_timeline(config_wired)
-
-        assert new_ids == set()
-        assert posts_by_creator == {}
-
-        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-        assert any(
-            "unexpected error fetching home timeline" in m
-            and "simulated non-http failure" in m
-            for m in warnings
-        )
-
-
-class TestPollStoryStatesEdges:
-    """Lines 111-122 + 156-162: generic exception, non-list response, save error."""
-
-    @pytest.mark.asyncio
     async def test_generic_exception_returns_empty_list(
-        self, config_wired, entity_store, monkeypatch, caplog
+        self, respx_fansly_api, mock_config, reset_class_store, monkeypatch, caplog
     ):
         """Lines 111-115: non-HTTPError exception → log + return []."""
-        import logging as _logging
+        caplog.set_level(logging.WARNING)
 
-        caplog.set_level(_logging.WARNING)
-
-        api = config_wired.get_api()
+        api = mock_config.get_api()
 
         def _raises():
             raise RuntimeError("simulated story API failure")
 
         monkeypatch.setattr(api, "get_story_states_following", _raises)
 
-        result = await poll_story_states(config_wired)
+        result = await poll_story_states(mock_config)
 
         assert result == []
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
@@ -742,14 +540,11 @@ class TestPollStoryStatesEdges:
             for m in warnings
         )
 
-    @pytest.mark.asyncio
     async def test_non_list_response_returns_empty_with_warning(
-        self, respx_fansly_api, mock_config, entity_store, caplog
+        self, respx_fansly_api, mock_config, reset_class_store, caplog
     ):
         """Lines 117-122: response is not a list → log warning + return []."""
-        import logging as _logging
-
-        caplog.set_level(_logging.WARNING)
+        caplog.set_level(logging.WARNING)
 
         route = respx.get(url__startswith=STORY_STATES_URL).mock(
             side_effect=[
@@ -772,19 +567,14 @@ class TestPollStoryStatesEdges:
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         assert any("unexpected story states response shape" in m for m in warnings)
 
-    @pytest.mark.asyncio
     async def test_save_exception_inside_loop_logged_and_skipped(
-        self, respx_fansly_api, mock_config, entity_store, monkeypatch, caplog
+        self, respx_fansly_api, mock_config, reset_class_store, monkeypatch, caplog
     ):
         """Lines 156-162: store.save raises mid-loop → log warning + creator NOT returned."""
-        import logging as _logging
-
-        caplog.set_level(_logging.WARNING)
+        caplog.set_level(logging.WARNING)
         creator_id = snowflake_id()
 
         # Patch get_store to return a wrapper whose save raises for MonitorState.
-        from metadata.models import get_store as real_get_store
-
         real_store = real_get_store()
 
         class _SaveFails:

@@ -67,6 +67,7 @@ from tests.fixtures.api import (
     mount_empty_creator_pipeline,
     mount_empty_following_route,
 )
+from tests.fixtures.utils import scaled_async_sleep
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -727,7 +728,7 @@ class TestHandleTimelineOnlyItem:
 
         # Patch only the leaf timing/IO calls — same pattern as
         # tests/download/unit/test_timeline_download.py.
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -810,7 +811,7 @@ class TestHandleTimelineOnlyItem:
             url__startswith=FanslyApi.MESSAGING_GROUPS_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"response": []})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1287,10 +1288,8 @@ class TestFollowingRefresh:
 
         # The handler also calls mark_creator_processed which touches
         # the entity_store — no patch needed; uses the real DB.
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr(
-            "download.account.asyncio.sleep", AsyncMock(return_value=None)
-        )
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.account.asyncio.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1347,7 +1346,7 @@ class TestFollowingRefresh:
         mount_client_account_me_route(client_id)
         following_route = mount_empty_following_route(client_id)
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1413,10 +1412,8 @@ class TestFollowingRefresh:
         mount_client_account_me_route(client_id)
         following_route = mount_empty_following_route(client_id)
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr(
-            "download.account.asyncio.sleep", AsyncMock(return_value=None)
-        )
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.account.asyncio.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1573,7 +1570,7 @@ class TestMarkViewedFalse:
             url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None
@@ -1822,8 +1819,8 @@ class TestMarkViewedFalse:
             url__startswith=FanslyApi.MEDIA_STORY_VIEW_ENDPOINT
         ).mock(side_effect=[httpx.Response(200, json={"storyId": "0"})])
 
-        monkeypatch.setattr("download.timeline.sleep", AsyncMock(return_value=None))
-        monkeypatch.setattr("download.wall.sleep", AsyncMock(return_value=None))
+        monkeypatch.setattr("download.timeline.sleep", scaled_async_sleep)
+        monkeypatch.setattr("download.wall.sleep", scaled_async_sleep)
 
         async def _noop(_):
             return None

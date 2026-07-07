@@ -113,121 +113,75 @@ async def test_process_message_attachments(
             assert len(message.attachments) == len(attachments)
 
 
-@pytest.mark.asyncio
-async def test_process_message_media_variants(
-    entity_store, mock_config, conversation_data
-):
-    """Test processing messages with media variants like HLS/DASH streams."""
-    response = FanslyApi.convert_ids_to_int(
-        copy.deepcopy(conversation_data["response"])
-    )
-    assert isinstance(response, dict)
-    messages = response.get("messages", [])
-    assert isinstance(messages, list)
-    media_items = response.get("accountMedia", [])
-    assert isinstance(media_items, list)
-    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
+@pytest.mark.xdist_group("message_processing")
+class TestMessageMediaIngestion:
+    """Single-ingest message-processing checks (shared mutable DB)."""
 
-    # Set up accounts
-    await setup_accounts_and_groups(conversation_data, message_dicts)
+    @pytest.mark.asyncio
+    async def test_process_message_media_full(
+        self, entity_store, mock_config, conversation_data
+    ):
+        """Ingest conversation_data once, then assert variants, bundles, flags.
 
-    # Process messages
-    await process_messages_metadata(
-        mock_config, DownloadState(), {"messages": messages}
-    )
+        Runs the shared message-processing prologue (messages + accountMedia +
+        bundles) a single time via the production message-processing entry
+        points, then verifies three facets in sequence: media variants
+        (HLS/DASH), AccountMediaBundle records, and AccountMedia access flags.
+        """
+        response = FanslyApi.convert_ids_to_int(
+            copy.deepcopy(conversation_data["response"])
+        )
+        assert isinstance(response, dict)
+        messages = response.get("messages", [])
+        assert isinstance(messages, list)
+        media_items = response.get("accountMedia", [])
+        assert isinstance(media_items, list)
+        bundles = response.get("accountMediaBundles", [])
+        assert isinstance(bundles, list)
+        message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
 
-    # Process accountMedia to create Media + variant records
-    if media_items:
-        await process_media_info(mock_config, {"batch": media_items})
+        # Set up accounts and groups
+        await setup_accounts_and_groups(conversation_data, message_dicts)
 
-    # Verify media with variants were processed
-    for media_data in media_items:
-        assert isinstance(media_data, dict)
-        media_obj = media_data.get("media", {})
-        assert isinstance(media_obj, dict)
-        if media_obj.get("variants"):
-            media_id = media_obj["id"]
-            media = await entity_store.get(Media, media_id)
-            assert media is not None
-            # Variants are stored as nested objects on the Media model
-            if media.variants:
-                assert len(media.variants) > 0
+        # Process messages via production message-processing entry point
+        await process_messages_metadata(mock_config, DownloadState(), response)
 
+        # Process accountMedia to create Media + variant + AccountMedia records
+        if media_items:
+            await process_media_info(mock_config, {"batch": media_items})
 
-@pytest.mark.asyncio
-async def test_process_message_media_bundles(
-    entity_store, mock_config, conversation_data
-):
-    """Test processing messages with media bundles."""
-    response = FanslyApi.convert_ids_to_int(
-        copy.deepcopy(conversation_data["response"])
-    )
-    assert isinstance(response, dict)
-    messages = response.get("messages", [])
-    assert isinstance(messages, list)
-    bundles = response.get("accountMediaBundles", [])
-    assert isinstance(bundles, list)
+        # Process bundles
+        await process_media_bundles_data(mock_config, response)
 
-    if not bundles:
-        pytest.skip("No media bundles found in test data")
+        # Facet 1: media with HLS/DASH variants
+        for media_data in media_items:
+            assert isinstance(media_data, dict)
+            media_obj = media_data.get("media", {})
+            assert isinstance(media_obj, dict)
+            if media_obj.get("variants"):
+                media_id = media_obj["id"]
+                media = await entity_store.get(Media, media_id)
+                assert media is not None
+                # Variants are stored as nested objects on the Media model
+                if media.variants:
+                    assert len(media.variants) > 0
 
-    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
+        # Facet 2: media bundles. The original bundles test skipped the whole
+        # test when no bundles were present; converted to an inline conditional
+        # so the variant/permission facets still run regardless.
+        if bundles:
+            for bundle_data in bundles:
+                assert isinstance(bundle_data, dict)
+                bundle = await entity_store.get(AccountMediaBundle, bundle_data["id"])
+                assert bundle is not None
 
-    # Set up accounts and groups
-    await setup_accounts_and_groups(conversation_data, message_dicts)
-
-    # Process messages first
-    await process_messages_metadata(mock_config, DownloadState(), response)
-
-    # Process accountMedia to create Media + AccountMedia records
-    account_media = response.get("accountMedia", [])
-    assert isinstance(account_media, list)
-    if account_media:
-        await process_media_info(mock_config, {"batch": account_media})
-
-    # Process bundles
-    await process_media_bundles_data(mock_config, response)
-
-    # Verify bundles were created
-
-    for bundle_data in bundles:
-        assert isinstance(bundle_data, dict)
-        bundle = await entity_store.get(AccountMediaBundle, bundle_data["id"])
-        assert bundle is not None
-
-
-@pytest.mark.asyncio
-async def test_process_message_permissions(
-    entity_store, mock_config, conversation_data
-):
-    """Test processing message media permissions."""
-    response = FanslyApi.convert_ids_to_int(
-        copy.deepcopy(conversation_data["response"])
-    )
-    assert isinstance(response, dict)
-    messages = response.get("messages", [])
-    assert isinstance(messages, list)
-    media_items = response.get("accountMedia", [])
-    assert isinstance(media_items, list)
-
-    if not media_items:
-        pytest.skip("No media items found in test data")
-
-    message_dicts: list[dict] = [m for m in messages if isinstance(m, dict)]
-
-    # Set up accounts and groups
-    await setup_accounts_and_groups(conversation_data, message_dicts)
-
-    # Process messages
-    await process_messages_metadata(mock_config, DownloadState(), response)
-
-    # Process accountMedia
-    await process_media_info(mock_config, {"batch": media_items})
-
-    # Verify AccountMedia records were created with access flags
-    for media_data in media_items:
-        assert isinstance(media_data, dict)
-        am = await entity_store.get(AccountMedia, media_data["id"])
-        assert am is not None
-        if "access" in media_data:
-            assert am.access == media_data["access"]
+        # Facet 3: AccountMedia records created with access flags. The original
+        # permissions test skipped the whole test when no media items were
+        # present; converted to an inline conditional.
+        if media_items:
+            for media_data in media_items:
+                assert isinstance(media_data, dict)
+                am = await entity_store.get(AccountMedia, media_data["id"])
+                assert am is not None
+                if "access" in media_data:
+                    assert am.access == media_data["access"]

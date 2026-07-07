@@ -39,7 +39,10 @@ from tests.fixtures.metadata.metadata_factories import (
     AccountMediaFactory,
     MediaFactory,
 )
-from tests.fixtures.stash.stash_api_fixtures import _mock_capability_response
+from tests.fixtures.stash.stash_api_fixtures import (
+    _mock_capability_response,
+    skip_if_stash_unavailable,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -213,7 +216,9 @@ async def real_stash_processor(config, test_database_sync, stash_context, test_s
     config._database = test_database_sync
     config._stash = stash_context
 
-    # Initialize the client (will make REAL HTTP calls)
+    # Initialize the client (will make REAL HTTP calls); skip when the
+    # Docker Stash server is down instead of erroring at setup.
+    skip_if_stash_unavailable()
     client = await stash_context.get_client()
 
     # Query the Stash server's library path for a real base_path

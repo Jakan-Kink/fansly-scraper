@@ -97,60 +97,53 @@ class TestDashboardLifecycle:
 class TestDashboardState:
     """set_simulator_state / set_ws_state update the status line correctly."""
 
+    @pytest.mark.parametrize(
+        ("state", "label", "style"),
+        [
+            pytest.param("active", "ACTIVE", "bold green", id="active-green"),
+            pytest.param("idle", "IDLE", "bold yellow", id="idle-yellow"),
+            pytest.param("hidden", "HIDDEN", "dim", id="hidden-dim"),
+            pytest.param(
+                "quantum_superposition",
+                "QUANTUM_SUPERPOSITION",
+                "bold red",
+                id="unknown-falls-back-to-red",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_simulator_state_active_shows_green(self, progress_manager):
-        dashboard = DaemonDashboard(progress=progress_manager)
-        async with dashboard:
-            dashboard.set_simulator_state("active")
-            rendered = dashboard._format_status_line()
-        assert "ACTIVE" in rendered
-        assert "bold green" in rendered
+    async def test_simulator_state_styles(
+        self, progress_manager: ProgressManager, state: str, label: str, style: str
+    ) -> None:
+        """Each simulator state renders its label in the expected style.
 
-    @pytest.mark.asyncio
-    async def test_simulator_state_idle_shows_yellow(self, progress_manager):
+        The unknown-state row verifies the bold-red fallback — a regression
+        signal for unexpected states.
+        """
         dashboard = DaemonDashboard(progress=progress_manager)
         async with dashboard:
-            dashboard.set_simulator_state("idle")
+            dashboard.set_simulator_state(state)
             rendered = dashboard._format_status_line()
-        assert "IDLE" in rendered
-        assert "bold yellow" in rendered
+        assert label in rendered
+        assert style in rendered
 
+    @pytest.mark.parametrize(
+        ("connected", "label", "style"),
+        [
+            pytest.param(True, "connected", "[green]", id="connected-green"),
+            pytest.param(False, "disconnected", "[red]", id="disconnected-red"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_simulator_state_hidden_shows_dim(self, progress_manager):
+    async def test_ws_state_styles(
+        self, progress_manager: ProgressManager, connected: bool, label: str, style: str
+    ) -> None:
         dashboard = DaemonDashboard(progress=progress_manager)
         async with dashboard:
-            dashboard.set_simulator_state("hidden")
+            dashboard.set_ws_state(connected=connected)
             rendered = dashboard._format_status_line()
-        assert "HIDDEN" in rendered
-        assert "dim" in rendered
-
-    @pytest.mark.asyncio
-    async def test_unknown_state_falls_back_to_red(self, progress_manager):
-        """An unexpected state is shown in bold red — a regression signal."""
-        dashboard = DaemonDashboard(progress=progress_manager)
-        async with dashboard:
-            dashboard.set_simulator_state("quantum_superposition")
-            rendered = dashboard._format_status_line()
-        assert "QUANTUM_SUPERPOSITION" in rendered
-        assert "bold red" in rendered
-
-    @pytest.mark.asyncio
-    async def test_ws_connected_shows_green(self, progress_manager):
-        dashboard = DaemonDashboard(progress=progress_manager)
-        async with dashboard:
-            dashboard.set_ws_state(connected=True)
-            rendered = dashboard._format_status_line()
-        assert "connected" in rendered
-        assert "[green]" in rendered
-
-    @pytest.mark.asyncio
-    async def test_ws_disconnected_shows_red(self, progress_manager):
-        dashboard = DaemonDashboard(progress=progress_manager)
-        async with dashboard:
-            dashboard.set_ws_state(connected=False)
-            rendered = dashboard._format_status_line()
-        assert "disconnected" in rendered
-        assert "[red]" in rendered
+        assert label in rendered
+        assert style in rendered
 
 
 # ---------------------------------------------------------------------------

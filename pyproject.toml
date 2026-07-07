@@ -45,7 +45,7 @@ sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<0.31.0"
+asyncpg = ">=0.30.0,<0.32.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
@@ -217,6 +217,7 @@ max-complexity = 14
     "PLR0913", # too many arguments
     "S101",    # use of assert
     "S105",    # test fixtures use hardcoded test values
+    "S106",    # test fixtures pass hardcoded test values as kwargs
     "ANN001",  # missing type annotation for function argument
     "ANN002",  # missing type annotation for *args
     "ANN003",  # missing type annotations for **kwargs in test helpers

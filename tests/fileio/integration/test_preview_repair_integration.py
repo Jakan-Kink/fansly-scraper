@@ -123,9 +123,9 @@ async def test_repair_idempotent_second_run_is_noop(entity_store, config, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_repair_noop_when_flag_disabled(entity_store, config, tmp_path):
+async def test_repair_noop_when_flag_disabled(fresh_config, tmp_path):
     """repair_previews falsy -> immediate return, file untouched."""
-    config.repair_previews = False
+    fresh_config.repair_previews = False
     bug = tmp_path / "creator" / f"2026-01-02_at_03-04_UTC_id_{snowflake_id()}.jpg"
     bug.parent.mkdir(parents=True)
     bug.write_text("x")
@@ -133,20 +133,20 @@ async def test_repair_noop_when_flag_disabled(entity_store, config, tmp_path):
         creator_id=snowflake_id(), download_path=bug.parent
     )
 
-    await repair_preview_folder_items(config, state)
+    await repair_preview_folder_items(fresh_config, state)
 
     assert bug.exists()  # untouched
 
 
 @pytest.mark.asyncio
-async def test_repair_noop_when_no_creator_id(entity_store, config, tmp_path):
+async def test_repair_noop_when_no_creator_id(fresh_config, tmp_path):
     """creator_id None -> immediate return (no walk)."""
-    config.repair_previews = True
+    fresh_config.repair_previews = True
     bug = tmp_path / f"2026-01-02_at_03-04_UTC_id_{snowflake_id()}.jpg"
     bug.write_text("x")
     state = DownloadStateFactory.build(creator_id=None, download_path=tmp_path)
 
-    await repair_preview_folder_items(config, state)
+    await repair_preview_folder_items(fresh_config, state)
 
     assert bug.exists()  # untouched
 

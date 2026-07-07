@@ -9,209 +9,184 @@ from metadata import Account, Group, Message, process_groups_response
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-@pytest.mark.asyncio
-async def test_group_creation(entity_store):
-    """Test basic group creation."""
-    store = entity_store
+@pytest.mark.xdist_group("msg_group_basics")
+class TestGroupMessageBasics:
+    """Group/Message creation and relationship on a shared store."""
 
-    account_id = snowflake_id()
-    group_id = snowflake_id()
+    @pytest.mark.asyncio
+    async def test_group_message_basics(self, entity_store):
+        """Group creation, message creation, and their relationship in sequence."""
+        store = entity_store
 
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
+        account_id = snowflake_id()
+        msg_id = snowflake_id()
+        group_id = snowflake_id()
+        rel_group_id = snowflake_id()
 
-    group = Group(id=group_id, createdBy=account_id)
-    await store.save(group)
+        account = Account(id=account_id, username="test_user")
+        await store.save(account)
 
-    saved = await store.get(Group, group_id)
-    assert saved is not None
-    assert saved.id == group_id
-    assert saved.createdBy == account_id
-    assert saved.lastMessageId is None
+        # Message creation: createdBy/senderId, content defaults.
+        message = Message(
+            id=msg_id,
+            senderId=account_id,
+            content="test",
+            createdAt=datetime.now(UTC),
+        )
+        await store.save(message)
 
+        saved_msg = await store.get(Message, msg_id)
+        assert saved_msg is not None
+        assert saved_msg.id == msg_id
+        assert saved_msg.senderId == account_id
+        assert saved_msg.content == "test"
 
-@pytest.mark.asyncio
-async def test_message_creation(entity_store):
-    """Test basic message creation."""
-    store = entity_store
+        # Group creation: createdBy set, lastMessageId defaults to None.
+        group = Group(id=group_id, createdBy=account_id)
+        await store.save(group)
 
-    account_id = snowflake_id()
-    msg_id = snowflake_id()
+        saved_group = await store.get(Group, group_id)
+        assert saved_group is not None
+        assert saved_group.id == group_id
+        assert saved_group.createdBy == account_id
+        assert saved_group.lastMessageId is None
 
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
+        # Group/Message relationship: lastMessageId references the saved message.
+        rel_group = Group(id=rel_group_id, createdBy=account_id, lastMessageId=msg_id)
+        await store.save(rel_group)
 
-    message = Message(
-        id=msg_id, senderId=account_id, content="test", createdAt=datetime.now(UTC)
-    )
-    await store.save(message)
-
-    saved = await store.get(Message, msg_id)
-    assert saved is not None
-    assert saved.id == msg_id
-    assert saved.senderId == account_id
-    assert saved.content == "test"
-
-
-@pytest.mark.asyncio
-async def test_group_message_relationship(entity_store):
-    """Test relationship between groups and messages."""
-    store = entity_store
-
-    account_id = snowflake_id()
-    msg_id = snowflake_id()
-    group_id = snowflake_id()
-
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    message = Message(
-        id=msg_id, senderId=account_id, content="test", createdAt=datetime.now(UTC)
-    )
-    await store.save(message)
-
-    group = Group(id=group_id, createdBy=account_id, lastMessageId=msg_id)
-    await store.save(group)
-
-    saved = await store.get(Group, group_id)
-    assert saved is not None
-    assert saved.lastMessageId == msg_id
+        saved_rel = await store.get(Group, rel_group_id)
+        assert saved_rel is not None
+        assert saved_rel.lastMessageId == msg_id
 
 
-@pytest.mark.asyncio
-async def test_process_groups_response_basic(entity_store, config, download_state):
-    """Test basic group response processing.
+@pytest.mark.xdist_group("msg_group_process")
+class TestProcessGroupsResponse:
+    """process_groups_response over data-source, users, and repeated payloads."""
 
-    process_groups_response uses get_store() internally, wired via entity_store.
-    """
-    store = entity_store
+    @pytest.mark.asyncio
+    async def test_process_groups_response(self, entity_store, config, download_state):
+        """Strip, junction, FK, and idempotency facets in sequence.
 
-    account_id1 = snowflake_id()
-    account_id2 = snowflake_id()
-    group_id = snowflake_id()
-    last_msg_id = snowflake_id()
+        process_groups_response uses get_store() internally, wired via
+        entity_store.
+        """
+        store = entity_store
 
-    account1 = Account(id=account_id1, username="test_user1")
-    account2 = Account(id=account_id2, username="test_user2")
-    await store.save(account1)
-    await store.save(account2)
+        account_id1 = snowflake_id()
+        account_id2 = snowflake_id()
 
-    response: JsonDict = {
-        "data": [
-            {
-                "groupId": group_id,
-                "account_id": account_id1,
-                "partnerAccountId": account_id2,
-                "lastMessageId": last_msg_id,
-            }
-        ],
-        "aggregationData": {"groups": [], "accounts": []},
-    }
+        account1 = Account(id=account_id1, username="test_user1")
+        account2 = Account(id=account_id2, username="test_user2")
+        await store.save(account1)
+        await store.save(account2)
 
-    await process_groups_response(config, download_state, response)
-
-    saved = await store.get(Group, group_id)
-    assert saved is not None
-    assert saved.id == group_id
-    # lastMessageId stripped — message doesn't exist in the store
-    assert saved.lastMessageId is None
-
-
-@pytest.mark.asyncio
-async def test_process_groups_response_with_users(entity_store, config, download_state):
-    """Test group response processing with user relationships."""
-    store = entity_store
-
-    account_id1 = snowflake_id()
-    account_id2 = snowflake_id()
-    group_id = snowflake_id()
-    last_msg_id = snowflake_id()
-
-    account1 = Account(id=account_id1, username="test_user1")
-    account2 = Account(id=account_id2, username="test_user2")
-    await store.save(account1)
-    await store.save(account2)
-
-    response: JsonDict = {
-        "data": [],
-        "aggregationData": {
-            "groups": [
+        # --- Facet 1: data source, lastMessageId stripped (message absent) ---
+        basic_group_id = snowflake_id()
+        basic_last_msg_id = snowflake_id()
+        basic_response: JsonDict = {
+            "data": [
                 {
-                    "id": group_id,
-                    "createdBy": account_id1,
-                    "lastMessageId": last_msg_id,
-                    "users": [{"userId": account_id1}, {"userId": account_id2}],
+                    "groupId": basic_group_id,
+                    "account_id": account_id1,
+                    "partnerAccountId": account_id2,
+                    "lastMessageId": basic_last_msg_id,
                 }
             ],
-            "accounts": [],
-        },
-    }
+            "aggregationData": {"groups": [], "accounts": []},
+        }
 
-    await process_groups_response(config, download_state, response)
+        await process_groups_response(config, download_state, basic_response)
 
-    saved = await store.get(Group, group_id)
-    assert saved is not None
-    assert saved.id == group_id
+        saved = await store.get(Group, basic_group_id)
+        assert saved is not None
+        assert saved.id == basic_group_id
+        # lastMessageId stripped — message doesn't exist in the store
+        assert saved.lastMessageId is None
 
-    # Verify users via raw query on group_users junction
-    pool = await store._get_pool()
-    rows = await pool.fetch(
-        'SELECT "accountId" FROM group_users WHERE "groupId" = $1', group_id
-    )
-    user_ids = sorted([row["accountId"] for row in rows])
-    assert user_ids == sorted([account_id1, account_id2])
+        # --- Facet 2: aggregation groups with users → junction rows ---
+        users_group_id = snowflake_id()
+        users_last_msg_id = snowflake_id()
+        users_response: JsonDict = {
+            "data": [],
+            "aggregationData": {
+                "groups": [
+                    {
+                        "id": users_group_id,
+                        "createdBy": account_id1,
+                        "lastMessageId": users_last_msg_id,
+                        "users": [
+                            {"userId": account_id1},
+                            {"userId": account_id2},
+                        ],
+                    }
+                ],
+                "accounts": [],
+            },
+        }
 
+        await process_groups_response(config, download_state, users_response)
 
-@pytest.mark.asyncio
-async def test_process_groups_response_multiple_commits(
-    entity_store, config, download_state
-):
-    """Test that multiple process calls don't cause foreign key violations."""
-    store = entity_store
+        saved = await store.get(Group, users_group_id)
+        assert saved is not None
+        assert saved.id == users_group_id
 
-    account_id = snowflake_id()
-    group_id1 = snowflake_id()
-    group_id2 = snowflake_id()
-    msg_id1 = snowflake_id()
-    msg_id2 = snowflake_id()
+        # Verify users via raw query on group_users junction
+        pool = await store._get_pool()
+        rows = await pool.fetch(
+            'SELECT "accountId" FROM group_users WHERE "groupId" = $1',
+            users_group_id,
+        )
+        user_ids = sorted([row["accountId"] for row in rows])
+        assert user_ids == sorted([account_id1, account_id2])
 
-    account = Account(id=account_id, username="test_user")
-    await store.save(account)
-
-    response: JsonDict = {
-        "data": [
-            {"groupId": group_id1, "account_id": account_id, "lastMessageId": msg_id1}
-        ],
-        "aggregationData": {
-            "groups": [
-                {"id": group_id2, "createdBy": account_id, "lastMessageId": msg_id2}
+        # --- Facet 3: multiple commits, no FK violations, idempotency ---
+        multi_group_id1 = snowflake_id()
+        multi_group_id2 = snowflake_id()
+        multi_msg_id1 = snowflake_id()
+        multi_msg_id2 = snowflake_id()
+        multi_response: JsonDict = {
+            "data": [
+                {
+                    "groupId": multi_group_id1,
+                    "account_id": account_id1,
+                    "lastMessageId": multi_msg_id1,
+                }
             ],
-            "accounts": [],
-        },
-    }
+            "aggregationData": {
+                "groups": [
+                    {
+                        "id": multi_group_id2,
+                        "createdBy": account_id1,
+                        "lastMessageId": multi_msg_id2,
+                    }
+                ],
+                "accounts": [],
+            },
+        }
 
-    # First process
-    await process_groups_response(config, download_state, response)
+        # First process
+        await process_groups_response(config, download_state, multi_response)
 
-    # Create one message
-    message = Message(
-        id=msg_id1, senderId=account_id, content="test1", createdAt=datetime.now(UTC)
-    )
-    await store.save(message)
+        # Create one message
+        message = Message(
+            id=multi_msg_id1,
+            senderId=account_id1,
+            content="test1",
+            createdAt=datetime.now(UTC),
+        )
+        await store.save(message)
 
-    # Process again
-    await process_groups_response(config, download_state, response)
+        # Process again (idempotent, no FK violation)
+        await process_groups_response(config, download_state, multi_response)
 
-    group1 = await store.get(Group, group_id1)
-    group2 = await store.get(Group, group_id2)
+        group1 = await store.get(Group, multi_group_id1)
+        group2 = await store.get(Group, multi_group_id2)
 
-    assert group1 is not None
-    assert group1.lastMessageId == msg_id1
+        assert group1 is not None
+        assert group1.lastMessageId == multi_msg_id1
 
-    # For aggregation_groups source, missing lastMessageId is stripped
-    # On second pass, message msg_id2 still doesn't exist → stripped again
-    assert group2 is not None
-    # lastMessageId may be None or msg_id2 depending on whether the
-    # aggregation_groups source strips it. The current code strips it
-    # on each pass when the message doesn't exist.
-    assert group2.lastMessageId is None
+        # For aggregation_groups source, missing lastMessageId is stripped.
+        # On second pass, message multi_msg_id2 still doesn't exist → stripped.
+        assert group2 is not None
+        assert group2.lastMessageId is None

@@ -308,30 +308,37 @@ def test_map_args_no_config_path(mock_config, default_cli_args):
 # ---------------------------------------------------------------------------
 
 
-def test_parse_iso_datetime_utc_z_suffix() -> None:
-    """Z-suffix ISO timestamp is parsed to UTC-aware datetime."""
-    dt = _parse_iso_datetime("2026-01-01T00:00:00Z")
-    assert dt == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
-    assert dt.tzinfo is not None
-
-
-def test_parse_iso_datetime_utc_offset() -> None:
-    """+00:00 offset ISO timestamp is parsed to UTC-aware datetime."""
-    dt = _parse_iso_datetime("2026-01-01T00:00:00+00:00")
-    assert dt == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
-    assert dt.tzinfo is not None
-
-
-def test_parse_iso_datetime_invalid_string_raises() -> None:
-    """Unparseable string raises argparse.ArgumentTypeError (→ SystemExit)."""
-    with pytest.raises(argparse.ArgumentTypeError, match="Invalid ISO 8601"):
-        _parse_iso_datetime("not-a-date")
-
-
-def test_parse_iso_datetime_naive_raises() -> None:
-    """A naive timestamp (no timezone) raises argparse.ArgumentTypeError."""
-    with pytest.raises(argparse.ArgumentTypeError, match="no timezone"):
-        _parse_iso_datetime("2026-01-01T00:00:00")
+@pytest.mark.parametrize(
+    ("value", "expected", "raises_match"),
+    [
+        pytest.param(
+            "2026-01-01T00:00:00Z",
+            datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+            None,
+            id="utc_z_suffix",
+        ),
+        pytest.param(
+            "2026-01-01T00:00:00+00:00",
+            datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+            None,
+            id="utc_offset",
+        ),
+        pytest.param("not-a-date", None, "Invalid ISO 8601", id="invalid_string"),
+        pytest.param("2026-01-01T00:00:00", None, "no timezone", id="naive_no_tz"),
+    ],
+)
+def test_parse_iso_datetime(
+    value: str, expected: datetime | None, raises_match: str | None
+) -> None:
+    """Aware ISO timestamps parse to UTC datetimes; invalid/naive raise
+    argparse.ArgumentTypeError (→ SystemExit at the CLI)."""
+    if raises_match is not None:
+        with pytest.raises(argparse.ArgumentTypeError, match=raises_match):
+            _parse_iso_datetime(value)
+    else:
+        dt = _parse_iso_datetime(value)
+        assert dt == expected
+        assert dt.tzinfo is not None
 
 
 # ---------------------------------------------------------------------------
@@ -420,32 +427,20 @@ def test_handle_monitoring_settings_neither_flag(
 # ---------------------------------------------------------------------------
 
 
-def test_parse_args_daemon_short_flag() -> None:
-    """-d sets daemon_mode=True on the parsed Namespace."""
-    with patch.object(sys, "argv", ["prog", "-d"]):
+@pytest.mark.parametrize(
+    ("argv", "expected_daemon"),
+    [
+        pytest.param(["prog", "-d"], True, id="short_flag"),
+        pytest.param(["prog", "--daemon"], True, id="long_flag"),
+        pytest.param(["prog", "--monitor"], True, id="monitor_alias"),
+        pytest.param(["prog"], False, id="default_false"),
+    ],
+)
+def test_parse_args_daemon_flag(argv: list[str], expected_daemon: bool) -> None:
+    """-d / --daemon / --monitor set daemon_mode=True; absent → False."""
+    with patch.object(sys, "argv", argv):
         ns = parse_args()
-    assert ns.daemon_mode is True
-
-
-def test_parse_args_daemon_long_flag() -> None:
-    """--daemon sets daemon_mode=True on the parsed Namespace."""
-    with patch.object(sys, "argv", ["prog", "--daemon"]):
-        ns = parse_args()
-    assert ns.daemon_mode is True
-
-
-def test_parse_args_monitor_alias() -> None:
-    """--monitor alias also sets daemon_mode=True."""
-    with patch.object(sys, "argv", ["prog", "--monitor"]):
-        ns = parse_args()
-    assert ns.daemon_mode is True
-
-
-def test_parse_args_daemon_default_false() -> None:
-    """Without -d, daemon_mode defaults to False."""
-    with patch.object(sys, "argv", ["prog"]):
-        ns = parse_args()
-    assert ns.daemon_mode is False
+    assert ns.daemon_mode is expected_daemon
 
 
 def test_parse_args_daemon_coexists_with_dir_flag(tmp_path: Path) -> None:

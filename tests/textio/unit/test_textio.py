@@ -50,118 +50,108 @@ class TestInputFunctions:
         ):
             await input_enter_close(interactive=True)
 
-    async def test_input_enter_close_non_interactive(self):
+    async def test_input_enter_close_non_interactive(
+        self, monkeypatch, scaled_async_sleep_recording
+    ):
         """interactive=False → await asyncio.sleep(15) then sys.exit()."""
-        with (
-            patch("textio.textio.asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(SystemExit),
-        ):
+        monkeypatch.setattr("textio.textio.asyncio.sleep", scaled_async_sleep_recording)
+        with pytest.raises(SystemExit):
             await input_enter_close(interactive=False)
+        assert 15 in scaled_async_sleep_recording.calls
 
     async def test_input_enter_continue_interactive(self):
         """interactive=True → await await_for_enter()."""
         with patch("textio.textio.await_for_enter", new_callable=AsyncMock):
             await input_enter_continue(interactive=True)
 
-    async def test_input_enter_continue_non_interactive(self):
+    async def test_input_enter_continue_non_interactive(
+        self, monkeypatch, scaled_async_sleep_recording
+    ):
         """interactive=False → await asyncio.sleep(15)."""
-        with patch("textio.textio.asyncio.sleep", new_callable=AsyncMock):
-            await input_enter_continue(interactive=False)
+        monkeypatch.setattr("textio.textio.asyncio.sleep", scaled_async_sleep_recording)
+        await input_enter_continue(interactive=False)
+        assert 15 in scaled_async_sleep_recording.calls
 
 
 class TestTerminalOps:
     """Terminal clearing and window title — patch subprocess.call at the edge."""
 
-    def test_clear_terminal_macos(self):
-        """Lines 142, 149-152: non-Windows (Darwin) path → calls 'clear'."""
+    @pytest.mark.parametrize(
+        ("platform_name", "which_result", "expected_call"),
+        [
+            pytest.param(
+                "Darwin",
+                "/usr/bin/clear",
+                ["/usr/bin/clear"],
+                id="macos_calls_clear",
+            ),
+            pytest.param(
+                "Windows",
+                "C:\\Windows\\cmd.exe",
+                ["C:\\Windows\\cmd.exe", "/c", "cls"],
+                id="windows_calls_cmd_cls",
+            ),
+            pytest.param("Linux", None, None, id="no_clear_binary"),
+            pytest.param("Windows", None, None, id="windows_no_cmd_binary"),
+        ],
+    )
+    def test_clear_terminal(
+        self,
+        platform_name: str,
+        which_result: str | None,
+        expected_call: list[str] | None,
+    ) -> None:
+        """Lines 142-152: Windows → 'cmd /c cls', Darwin/Linux → 'clear';
+        which() returning None on either branch means no subprocess call."""
         with (
-            patch("textio.textio.platform.system", return_value="Darwin"),
-            patch("textio.textio.shutil.which", return_value="/usr/bin/clear"),
+            patch("textio.textio.platform.system", return_value=platform_name),
+            patch("textio.textio.shutil.which", return_value=which_result),
             patch("textio.textio.subprocess.call") as mock_call,
         ):
             clear_terminal()
-        mock_call.assert_called_once_with(["/usr/bin/clear"])
+        if expected_call is None:
+            mock_call.assert_not_called()
+        else:
+            mock_call.assert_called_once_with(expected_call)
 
-    def test_clear_terminal_windows(self):
-        """Lines 144-147: Windows path → calls 'cmd /c cls'."""
+    @pytest.mark.parametrize(
+        ("platform_name", "which_result", "expected_call"),
+        [
+            pytest.param(
+                "Darwin",
+                "/usr/bin/printf",
+                ["/usr/bin/printf", r"\33]0;Test Title\a"],
+                id="macos_calls_printf",
+            ),
+            pytest.param(
+                "Windows",
+                "C:\\Windows\\cmd.exe",
+                ["C:\\Windows\\cmd.exe", "/c", "title", "Test Title"],
+                id="windows_calls_cmd_title",
+            ),
+            pytest.param("Windows", None, None, id="windows_no_cmd_binary"),
+            pytest.param("Linux", None, None, id="no_printf_binary"),
+            pytest.param("FreeBSD", None, None, id="unsupported_platform"),
+        ],
+    )
+    def test_set_window_title(
+        self,
+        platform_name: str,
+        which_result: str | None,
+        expected_call: list[str] | None,
+    ) -> None:
+        """Lines 157-167: Windows → 'cmd /c title', Darwin/Linux → printf
+        escape sequence containing the title; which() returning None or an
+        unsupported platform (FreeBSD never reaches which()) means no
+        subprocess call."""
         with (
-            patch("textio.textio.platform.system", return_value="Windows"),
-            patch("textio.textio.shutil.which", return_value="C:\\Windows\\cmd.exe"),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            clear_terminal()
-        mock_call.assert_called_once_with(["C:\\Windows\\cmd.exe", "/c", "cls"])
-
-    def test_clear_terminal_no_clear_binary(self):
-        """Lines 150-151: which('clear') returns None → no subprocess call."""
-        with (
-            patch("textio.textio.platform.system", return_value="Linux"),
-            patch("textio.textio.shutil.which", return_value=None),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            clear_terminal()
-        mock_call.assert_not_called()
-
-    def test_clear_terminal_windows_no_cmd_binary(self):
-        """Branch 153->exit: Windows but which('cmd') is None → no subprocess call."""
-        with (
-            patch("textio.textio.platform.system", return_value="Windows"),
-            patch("textio.textio.shutil.which", return_value=None),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            clear_terminal()
-        mock_call.assert_not_called()
-
-    def test_set_window_title_macos(self):
-        """Lines 157, 164-167: Darwin path → calls printf with escape sequence."""
-        with (
-            patch("textio.textio.platform.system", return_value="Darwin"),
-            patch("textio.textio.shutil.which", return_value="/usr/bin/printf"),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            set_window_title("Test Title")
-        mock_call.assert_called_once()
-        args = mock_call.call_args[0][0]
-        assert args[0] == "/usr/bin/printf"
-        assert "Test Title" in args[1]
-
-    def test_set_window_title_windows(self):
-        """Lines 159-162: Windows path → calls cmd /c title."""
-        with (
-            patch("textio.textio.platform.system", return_value="Windows"),
-            patch("textio.textio.shutil.which", return_value="C:\\Windows\\cmd.exe"),
+            patch("textio.textio.platform.system", return_value=platform_name),
+            patch("textio.textio.shutil.which", return_value=which_result),
             patch("textio.textio.subprocess.call") as mock_call,
         ):
             set_window_title("Test Title")
-        mock_call.assert_called_once_with(
-            ["C:\\Windows\\cmd.exe", "/c", "title", "Test Title"],
-        )
-
-    def test_set_window_title_windows_no_cmd_binary(self):
-        """Branch 168->exit: Windows but which('cmd') is None → no subprocess call."""
-        with (
-            patch("textio.textio.platform.system", return_value="Windows"),
-            patch("textio.textio.shutil.which", return_value=None),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            set_window_title("Test Title")
-        mock_call.assert_not_called()
-
-    def test_set_window_title_no_printf(self):
-        """Lines 165-166: which('printf') returns None → no subprocess call."""
-        with (
-            patch("textio.textio.platform.system", return_value="Linux"),
-            patch("textio.textio.shutil.which", return_value=None),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            set_window_title("Test Title")
-        mock_call.assert_not_called()
-
-    def test_set_window_title_unsupported_platform(self):
-        """Line 157-167: platform not Windows/Linux/Darwin → no action."""
-        with (
-            patch("textio.textio.platform.system", return_value="FreeBSD"),
-            patch("textio.textio.subprocess.call") as mock_call,
-        ):
-            set_window_title("Test Title")
-        mock_call.assert_not_called()
+        if expected_call is None:
+            mock_call.assert_not_called()
+        else:
+            mock_call.assert_called_once_with(expected_call)
+            assert "Test Title" in expected_call[-1]

@@ -65,7 +65,7 @@ def _make_chat_ws_factory(server_url: str) -> Callable[[], _ChildWebSocket]:
 
     def _factory() -> _ChildWebSocket:
         return _ChildWebSocket(
-            token="test-chat-token",  # noqa: S106
+            token="test-chat-token",
             user_agent="test-ua",
             cookies={"sess": "abc"},
             base_url=server_url,

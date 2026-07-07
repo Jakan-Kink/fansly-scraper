@@ -293,52 +293,6 @@ async def test_process_media_bundles(entity_store, config):
     assert media_ids == sorted([am_id1, am_id2])
 
 
-class TestProcessMediaBundlesDataEdgeCases:
-    """Cover account.py lines 39→43, 40→39, 70."""
-
-    @pytest.mark.asyncio
-    async def test_no_matching_id_field(self, entity_store, mock_config):
-        """Lines 39→43, 40→39: id_fields loop finds no match → account_id stays None."""
-        data: JsonDict = {
-            "messages": [{"id": snowflake_id(), "content": "no sender"}],
-            "accountMediaBundles": [
-                {
-                    "id": snowflake_id(),
-                    "accountId": snowflake_id(),
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ],
-        }
-        await process_media_bundles_data(mock_config, data)
-
-    @pytest.mark.asyncio
-    async def test_bundle_with_preview(self, entity_store, mock_config, test_account):
-        """Line 70: bundle_obj.preview is truthy → saves preview Media."""
-        store = entity_store
-        preview_id = snowflake_id()
-        bundle_id = snowflake_id()
-
-        preview = Media(id=preview_id, accountId=test_account.id, mimetype="image/jpeg")
-        await store.save(preview)
-
-        data: JsonDict = {
-            "messages": [{"id": snowflake_id(), "senderId": test_account.id}],
-            "accountMediaBundles": [
-                {
-                    "id": bundle_id,
-                    "accountId": test_account.id,
-                    "previewId": preview_id,
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ],
-        }
-        await process_media_bundles_data(mock_config, data)
-        bundle = await store.get(AccountMediaBundle, bundle_id)
-        assert bundle is not None
-
-
 class TestFullAccountPipeline:
     """Process complete Account dict through process_account_data."""
 
@@ -465,92 +419,85 @@ class TestFullAccountPipeline:
         await process_wall_posts(mock_config, state, str(wall.id), posts_data)
 
     @pytest.mark.asyncio
-    async def test_bundles_with_account_id_extraction(
+    async def test_process_media_bundles_data_branches(
         self, entity_store, mock_config, test_account
     ):
-        """process_media_bundles_data should extract accountId from messages."""
-        bundle_id = snowflake_id()
-        data: JsonDict = {
-            "messages": [
-                {
-                    "id": snowflake_id(),
-                    "senderId": test_account.id,
-                    "createdAt": 1700000000,
-                }
-            ],
-            "accountMediaBundles": [
-                {
-                    "id": bundle_id,
-                    "accountId": test_account.id,
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ],
-        }
-        await process_media_bundles_data(mock_config, data)
+        """Walk every process_media_bundles_data branch on one store, in order.
 
-    @pytest.mark.asyncio
-    async def test_bundles_no_messages_no_crash(self, entity_store, mock_config):
-        data: JsonDict = {
-            "accountMediaBundles": [
-                {
-                    "id": snowflake_id(),
-                    "accountId": snowflake_id(),
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ]
-        }
-        await process_media_bundles_data(mock_config, data)
+        1. no accountMediaBundles key (only messages) -> early-return noop.
+        2. bundles present but no matching id field (messages lack sender/
+           recipient) -> account_id stays None -> bundle not persisted.
+        3. messages with senderId + a preview bundle -> account-id extraction
+           fires, preview Media is resolved, bundle is persisted.
+        4. bundles with a non-matching/random accountId and no messages ->
+           account_id stays None -> bundle not persisted.
+        """
+        store = entity_store
 
-    @pytest.mark.asyncio
-    async def test_bundles_no_key_is_noop(self, entity_store, mock_config):
+        # 1. No "accountMediaBundles" key → early return, nothing happens.
         await process_media_bundles_data(mock_config, {"messages": []})
 
-    @pytest.mark.asyncio
-    async def test_bundles_no_matching_id_field(self, entity_store, mock_config):
-        """account.py 39→43, 40→39: id_fields loop where no field matches.
-        All first_item.get(field) return None → account_id stays None → skip."""
-        data: JsonDict = {
-            "messages": [
-                {"id": snowflake_id(), "content": "no sender or recipient fields"}
-            ],
-            "accountMediaBundles": [
-                {
-                    "id": snowflake_id(),
-                    "accountId": snowflake_id(),
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ],
-        }
-        # id_fields defaults to ["senderId", "recipientId"] — neither present
-        await process_media_bundles_data(mock_config, data)
+        # 2. Bundles present, but the first message has no senderId/recipientId
+        #    → id_fields loop finds no match → account_id None → skip.
+        no_match_id = snowflake_id()
+        await process_media_bundles_data(
+            mock_config,
+            {
+                "messages": [
+                    {"id": snowflake_id(), "content": "no sender or recipient"}
+                ],
+                "accountMediaBundles": [
+                    {
+                        "id": no_match_id,
+                        "accountId": snowflake_id(),
+                        "createdAt": 1700000000,
+                        "deleted": False,
+                    },
+                ],
+            },
+        )
+        assert await store.get(AccountMediaBundle, no_match_id) is None
 
-    @pytest.mark.asyncio
-    async def test_bundle_with_preview(self, entity_store, mock_config, test_account):
-        """account.py line 70: bundle_obj.preview is truthy → saves preview Media first."""
+        # 3. senderId present + preview bundle → account-id extraction branch
+        #    fires, preview Media resolved (line 70), bundle persisted.
         preview_id = snowflake_id()
-        bundle_id = snowflake_id()
-
+        extracted_id = snowflake_id()
         preview = Media(id=preview_id, accountId=test_account.id, mimetype="image/jpeg")
-        await entity_store.save(preview)
+        await store.save(preview)
+        await process_media_bundles_data(
+            mock_config,
+            {
+                "messages": [{"id": snowflake_id(), "senderId": test_account.id}],
+                "accountMediaBundles": [
+                    {
+                        "id": extracted_id,
+                        "accountId": test_account.id,
+                        "previewId": preview_id,
+                        "createdAt": 1700000000,
+                        "deleted": False,
+                    },
+                ],
+            },
+        )
+        assert await store.get(AccountMediaBundle, extracted_id) is not None
 
-        data: JsonDict = {
-            "messages": [{"id": snowflake_id(), "senderId": test_account.id}],
-            "accountMediaBundles": [
-                {
-                    "id": bundle_id,
-                    "accountId": test_account.id,
-                    "previewId": preview_id,
-                    "createdAt": 1700000000,
-                    "deleted": False,
-                },
-            ],
-        }
-        await process_media_bundles_data(mock_config, data)
-        bundle = await entity_store.get(AccountMediaBundle, bundle_id)
-        assert bundle is not None
+        # 4. Bundle with a random/non-matching accountId and no messages →
+        #    account_id stays None → bundle not persisted.
+        random_id = snowflake_id()
+        await process_media_bundles_data(
+            mock_config,
+            {
+                "accountMediaBundles": [
+                    {
+                        "id": random_id,
+                        "accountId": snowflake_id(),
+                        "createdAt": 1700000000,
+                        "deleted": False,
+                    },
+                ]
+            },
+        )
+        assert await store.get(AccountMediaBundle, random_id) is None
 
     @pytest.mark.asyncio
     async def test_backfill_still_missing(

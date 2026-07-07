@@ -27,6 +27,7 @@ from enum import StrEnum
 from typing import Any, TypedDict, TypeVar
 
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 from stash_graphql_client.types.unset import UnsetType
 
 from config import db_logger
@@ -759,7 +760,7 @@ class PostgresEntityStore:
         obj._is_new = True  # Explicitly mark for snowflake IDs
         try:
             await self.save(obj)
-        except asyncpg.UniqueViolationError:
+        except UniqueViolationError:
             existing = await self.find_one(model_type, **filters)
             if existing is not None:
                 return existing, False

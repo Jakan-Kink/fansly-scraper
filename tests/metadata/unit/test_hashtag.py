@@ -2,8 +2,25 @@
 
 import pytest
 
+from metadata.entity_store import PostgresEntityStore
 from metadata.hashtag import extract_hashtags, process_post_hashtags
-from metadata.models import Hashtag
+from metadata.models import Account, Hashtag, Post
+from tests.fixtures.utils.test_isolation import snowflake_id
+
+
+async def _make_post(store: PostgresEntityStore) -> Post:
+    """Create + persist a fresh Account and Post on the given store.
+
+    Mirrors the ``test_post`` fixture but binds to the class-scoped store so the
+    whole class can share ONE database. Unique snowflake ids keep each method's
+    rows from colliding in the shared DB.
+    """
+    account = Account(id=snowflake_id(), username=f"ht_{snowflake_id()}")
+    await store.save(account)
+    assert isinstance(account.id, int)
+    post = Post(id=snowflake_id(), accountId=account.id, content="", fypFlags=0)
+    await store.save(post)
+    return post
 
 
 class TestExtractHashtags:
@@ -48,18 +65,27 @@ class TestExtractHashtags:
         assert extract_hashtags(content) == expected
 
 
+@pytest.mark.asyncio(loop_scope="class")
+@pytest.mark.xdist_group("process_post_hashtags")
 class TestProcessPostHashtags:
-    """Integration tests using real entity_store + Postgres."""
+    """Integration tests using a real store + Postgres over ONE shared class DB.
 
-    @pytest.mark.asyncio
-    async def test_no_content_is_noop(self, entity_store, test_post):
+    Each method requests ``reset_class_store`` (clean in-memory cache/identity
+    map) and creates its own Account + Post via ``_make_post`` with unique
+    snowflake ids. Every method uses a DISTINCT hashtag value, so persisted
+    hashtag rows never collide across the shared database — no method depends on
+    an empty DB.
+    """
+
+    async def test_no_content_is_noop(self, reset_class_store):
         """Empty content should not modify the post."""
+        test_post = await _make_post(reset_class_store)
         await process_post_hashtags(test_post, "")
         assert test_post.hashtags == []
 
-    @pytest.mark.asyncio
-    async def test_creates_hashtag_and_links_to_post(self, entity_store, test_post):
+    async def test_creates_hashtag_and_links_to_post(self, reset_class_store):
         """Should create a new Hashtag and append it to the post."""
+        test_post = await _make_post(reset_class_store)
         await process_post_hashtags(test_post, "Check out #newhashtag")
 
         assert len(test_post.hashtags) == 1
@@ -67,15 +93,15 @@ class TestProcessPostHashtags:
         assert test_post.hashtags[0].id is not None  # auto-increment assigned
 
         # Verify persisted in DB
-        found = await entity_store.find_one(Hashtag, value__iexact="newhashtag")
+        found = await reset_class_store.find_one(Hashtag, value__iexact="newhashtag")
         assert found is not None
         assert found.id == test_post.hashtags[0].id
 
-    @pytest.mark.asyncio
-    async def test_reuses_existing_hashtag(self, entity_store, test_post):
+    async def test_reuses_existing_hashtag(self, reset_class_store):
         """If the hashtag already exists, it should be reused, not duplicated."""
+        test_post = await _make_post(reset_class_store)
         # Pre-create the hashtag
-        existing, _ = await entity_store.get_or_create(
+        existing, _ = await reset_class_store.get_or_create(
             Hashtag, defaults={"value": "existing"}, value="existing"
         )
 
@@ -84,10 +110,10 @@ class TestProcessPostHashtags:
         assert len(test_post.hashtags) == 1
         assert test_post.hashtags[0].id == existing.id
 
-    @pytest.mark.asyncio
-    async def test_case_insensitive_reuse(self, entity_store, test_post):
+    async def test_case_insensitive_reuse(self, reset_class_store):
         """Hashtag lookup is case-insensitive; #FOO should reuse #foo."""
-        existing, _ = await entity_store.get_or_create(
+        test_post = await _make_post(reset_class_store)
+        existing, _ = await reset_class_store.get_or_create(
             Hashtag, defaults={"value": "casematch"}, value="casematch"
         )
 
@@ -96,25 +122,25 @@ class TestProcessPostHashtags:
         assert len(test_post.hashtags) == 1
         assert test_post.hashtags[0].id == existing.id
 
-    @pytest.mark.asyncio
-    async def test_multiple_hashtags_in_one_call(self, entity_store, test_post):
+    async def test_multiple_hashtags_in_one_call(self, reset_class_store):
         """Multiple hashtags in one content string."""
+        test_post = await _make_post(reset_class_store)
         await process_post_hashtags(test_post, "Love #art and #music today")
 
         assert len(test_post.hashtags) == 2
         values = {h.value for h in test_post.hashtags}
         assert values == {"art", "music"}
 
-    @pytest.mark.asyncio
-    async def test_no_duplicates_appended(self, entity_store, test_post):
+    async def test_no_duplicates_appended(self, reset_class_store):
         """Calling with same hashtag twice should not duplicate in post.hashtags."""
+        test_post = await _make_post(reset_class_store)
         await process_post_hashtags(test_post, "#repeat")
         await process_post_hashtags(test_post, "#repeat")
 
         assert len(test_post.hashtags) == 1
 
-    @pytest.mark.asyncio
-    async def test_content_with_no_hashtags_is_noop(self, entity_store, test_post):
+    async def test_content_with_no_hashtags_is_noop(self, reset_class_store):
         """Content without hashtags should not modify post."""
+        test_post = await _make_post(reset_class_store)
         await process_post_hashtags(test_post, "Just plain text")
         assert test_post.hashtags == []

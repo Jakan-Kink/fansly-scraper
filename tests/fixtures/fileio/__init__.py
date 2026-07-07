@@ -3,6 +3,7 @@
 from .fileio_fixtures import (
     invalid_image_file,
     invalid_mp4_file,
+    tiny_jpeg_bytes,
     too_small_mp4_file,
     valid_image_file,
     valid_mp4_file,
@@ -12,6 +13,7 @@ from .fileio_fixtures import (
 __all__ = [
     "invalid_image_file",
     "invalid_mp4_file",
+    "tiny_jpeg_bytes",
     "too_small_mp4_file",
     "valid_image_file",
     "valid_mp4_file",

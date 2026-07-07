@@ -161,89 +161,112 @@ class TestDatabaseLoggerUnit:
         stats["queries"] = 999
         assert logger.get_stats()["queries"] == 0
 
-    def test_reset_stats(self):
+    @pytest.mark.parametrize(
+        ("mutations", "reset_method"),
+        [
+            pytest.param(
+                {"queries": 42, "total_time": 1.5},
+                "reset_stats",
+                id="reset_stats",
+            ),
+            pytest.param(
+                {"errors": 10},
+                "cleanup",
+                id="cleanup_delegates_to_reset",
+            ),
+        ],
+    )
+    def test_reset_methods_zero_stats(
+        self, mutations: dict[str, int | float], reset_method: str
+    ) -> None:
+        """reset_stats and cleanup both restore the zeroed stats dict."""
         logger = DatabaseLogger()
-        logger._stats["queries"] = 42
-        logger._stats["total_time"] = 1.5
-        logger.reset_stats()
-        assert logger.get_stats()["queries"] == 0
-        assert logger.get_stats()["total_time"] == 0.0
+        logger._stats.update(mutations)
+        getattr(logger, reset_method)()
+        assert logger.get_stats() == {
+            "queries": 0,
+            "errors": 0,
+            "slow_queries": 0,
+            "total_time": 0.0,
+        }
 
-    def test_cleanup_resets_stats(self):
-        logger = DatabaseLogger()
-        logger._stats["errors"] = 10
-        logger.cleanup()
-        assert logger.get_stats()["errors"] == 0
+    @pytest.mark.parametrize(
+        ("query", "elapsed", "exception", "expected_errors", "expected_slow"),
+        [
+            pytest.param(
+                "SELECT 1",
+                0.005,
+                None,
+                0,
+                0,
+                id="ok_query_counts_query_and_time",
+            ),
+            pytest.param(
+                "SELECT bad_column FROM nonexistent",
+                0.001,
+                RuntimeError("relation does not exist"),
+                1,
+                0,
+                id="exception_tracks_error",
+            ),
+            pytest.param(
+                "SELECT pg_sleep(1)",
+                0.15,  # >100ms threshold
+                None,
+                0,
+                1,
+                id="slow_query_over_100ms",
+            ),
+            pytest.param(
+                "SELECT 1",
+                0.001,  # <100ms
+                None,
+                0,
+                0,
+                id="fast_query_not_slow",
+            ),
+        ],
+    )
+    def test_query_logger_callback(
+        self,
+        query: str,
+        elapsed: float,
+        exception: Exception | None,
+        expected_errors: int,
+        expected_slow: int,
+    ) -> None:
+        """One callback invocation routes into the right stats buckets.
 
-    def test_query_logger_callback_increments_queries(self):
+        Every row asserts the FULL stats dict: queries and total_time always
+        accumulate; errors increments only with an exception; slow_queries
+        only past the 100ms threshold.
+        """
         logger = DatabaseLogger()
         record = SimpleNamespace(
-            query="SELECT 1",
+            query=query,
             args=(),
             timeout=None,
-            elapsed=0.005,
-            exception=None,
+            elapsed=elapsed,
+            exception=exception,
             conn_addr=("localhost", 5432),
             conn_params=None,
         )
         logger.query_logger_callback(record)
-        assert logger.get_stats()["queries"] == 1
-        assert logger.get_stats()["total_time"] == pytest.approx(0.005)
-
-    def test_query_logger_callback_tracks_errors(self):
-        logger = DatabaseLogger()
-        record = SimpleNamespace(
-            query="SELECT bad_column FROM nonexistent",
-            args=(),
-            timeout=None,
-            elapsed=0.001,
-            exception=RuntimeError("relation does not exist"),
-            conn_addr=("localhost", 5432),
-            conn_params=None,
-        )
-        logger.query_logger_callback(record)
-        assert logger.get_stats()["errors"] == 1
-        assert logger.get_stats()["queries"] == 1
-
-    def test_query_logger_callback_detects_slow_query(self):
-        logger = DatabaseLogger()
-        record = SimpleNamespace(
-            query="SELECT pg_sleep(1)",
-            args=(),
-            timeout=None,
-            elapsed=0.15,  # >100ms threshold
-            exception=None,
-            conn_addr=("localhost", 5432),
-            conn_params=None,
-        )
-        logger.query_logger_callback(record)
-        assert logger.get_stats()["slow_queries"] == 1
-
-    def test_query_logger_callback_fast_query_not_slow(self):
-        logger = DatabaseLogger()
-        record = SimpleNamespace(
-            query="SELECT 1",
-            args=(),
-            timeout=None,
-            elapsed=0.001,  # <100ms
-            exception=None,
-            conn_addr=("localhost", 5432),
-            conn_params=None,
-        )
-        logger.query_logger_callback(record)
-        assert logger.get_stats()["slow_queries"] == 0
+        assert logger.get_stats() == {
+            "queries": 1,
+            "errors": expected_errors,
+            "slow_queries": expected_slow,
+            "total_time": pytest.approx(elapsed),
+        }
 
 
 class TestGetDbLogger:
     """Tests for the singleton factory."""
 
-    def test_returns_database_logger(self):
-        logger = get_db_logger()
-        assert isinstance(logger, DatabaseLogger)
-
-    def test_returns_same_instance(self):
+    def test_singleton_returns_same_database_logger(self):
         a = get_db_logger()
         b = get_db_logger()
+        assert isinstance(a, DatabaseLogger)
         assert a is b
 
 

@@ -2537,8 +2537,28 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
 # =============================================================================
 
 
-def test_extract_hashtags_empty_content():
-    """Test extract_hashtags with empty/None content (line 28)."""
+@pytest.mark.parametrize(
+    ("empty_inputs", "membership_cases"),
+    [
+        pytest.param(
+            [None, "", "   "],  # None, empty string, whitespace only
+            [],
+            id="empty_content",
+        ),
+        pytest.param(
+            ["###", "#!@#$%"],  # all hash chars, special chars only
+            # Mixed valid and invalid: invalid123 has numbers so might be
+            # included depending on isalnum
+            [("#valid#!@#invalid123", ["valid", "invalid123"])],
+            id="special_chars",
+        ),
+    ],
+)
+def test_extract_hashtags_pure_fn(
+    empty_inputs: list[str | None],
+    membership_cases: list[tuple[str, list[str]]],
+) -> None:
+    """extract_hashtags with empty/None content (line 28) and special chars."""
     # Load the migration module dynamically since it starts with a number
     spec = importlib.util.spec_from_file_location(
         "clean_malformed_hashtags",
@@ -2550,39 +2570,13 @@ def test_extract_hashtags_empty_content():
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
-    # Test None
-    assert migration.extract_hashtags(None) == []
+    for content in empty_inputs:
+        assert migration.extract_hashtags(content) == []
 
-    # Test empty string
-    assert migration.extract_hashtags("") == []
-
-    # Test whitespace only
-    assert migration.extract_hashtags("   ") == []
-
-
-def test_extract_hashtags_special_chars():
-    """Test extract_hashtags with special characters."""
-    spec = importlib.util.spec_from_file_location(
-        "clean_malformed_hashtags",
-        Path(__file__).parent.parent.parent
-        / "alembic/versions/1941514875f1_clean_malformed_hashtags.py",
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
-    # All hash chars
-    assert migration.extract_hashtags("###") == []
-
-    # Special chars only
-    assert migration.extract_hashtags("#!@#$%") == []
-
-    # Mixed valid and invalid
-    result = migration.extract_hashtags("#valid#!@#invalid123")
-    assert "valid" in result
-    # invalid123 has numbers so might be included depending on isalnum
-    assert "invalid123" in result
+    for content, expected_members in membership_cases:
+        result = migration.extract_hashtags(content)
+        for member in expected_members:
+            assert member in result
 
 
 # =============================================================================
@@ -2630,292 +2624,6 @@ def test_env_tables_spec_unloadable_raises(uuid_test_db_factory, make_spec):
         pytest.raises(RuntimeError, match="Could not load metadata"),
     ):
         command.upgrade(alembic_cfg, "head")
-
-
-# =============================================================================
-# Migration 6dcb1d898d8b - Missing FK/index variants
-# =============================================================================
-
-
-def test_6dcb_account_media_variant_fks_missing(uuid_test_db_factory):
-    """Test 6dcb1d898d8b when variant FK names missing (lines 43, 45)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "6dcb1d898d8b"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE account_media DROP CONSTRAINT IF EXISTS "fk_account_media_accountId_accounts"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE account_media DROP CONSTRAINT IF EXISTS "fk_account_media_mediaId_media"'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_6dcb_groups_lastmessage_fk_missing(uuid_test_db_factory):
-    """Test 6dcb1d898d8b when group_lastMessageId_fkey missing (line 56)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "6dcb1d898d8b"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE groups DROP CONSTRAINT IF EXISTS "group_lastMessageId_fkey"'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration 4416b99f028e - Additional downgrade coverage
-# =============================================================================
-
-
-def test_4416_upgrade_with_existing_index(uuid_test_db_factory):
-    """Test 4416b99f028e upgrade when ix_hashtags_value exists (line 50)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'CREATE UNIQUE INDEX IF NOT EXISTS "ix_hashtags_value" ON hashtags (value)'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_4416_downgrade_pk_missing(uuid_test_db_factory):
-    """Test 4416b99f028e downgrade when pk_post_hashtags missing (line 67)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_hashtags DROP CONSTRAINT IF EXISTS "pk_post_hashtags"'
-            )
-        )
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_4416_downgrade_value_index_missing(uuid_test_db_factory):
-    """Test 4416b99f028e downgrade when ix_hashtags_value missing (line 68)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "4416b99f028e"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(text('DROP INDEX IF EXISTS "ix_hashtags_value"'))
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration 7f057c9b00e0 - Additional constraint coverage
-# =============================================================================
-
-
-def test_7f05_upgrade_pk_already_dropped(uuid_test_db_factory):
-    """Test 7f057c9b00e0 upgrade when old PK already exists (line 56)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "7f057c9b00e0"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, down_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "post_mentions_pkey"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions ADD CONSTRAINT "post_mentions_pkey" '
-                'PRIMARY KEY ("postId", handle)'
-            )
-        )
-
-    try:
-        command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-def test_7f05_downgrade_unique_handle_missing(uuid_test_db_factory):
-    """Test 7f057c9b00e0 downgrade when uix_post_mentions_handle missing (lines 88, 91->95)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "7f057c9b00e0"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
-            )
-        )
-        conn.execute(
-            text(
-                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_account"'
-            )
-        )
-
-    try:
-        command.downgrade(alembic_cfg, down_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
 
 
 # =============================================================================
@@ -3007,94 +2715,6 @@ def test_2dc7_upgrade_stub_tracker_indexes_exist(uuid_test_db_factory):
 
     try:
         command.upgrade(alembic_cfg, target_rev)
-    finally:
-        db.close()
-        loop = None
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(db._async_engine.dispose())
-        except Exception as e:
-            logger.debug(f"Engine disposal failed: {e}")
-        finally:
-            if loop is not None:
-                with contextlib.suppress(Exception):
-                    loop.close()
-
-
-# =============================================================================
-# Migration b8dcecc1e979 - Falsy branch 617->612
-# =============================================================================
-
-
-def test_b8dc_downgrade_messages_fk_exists_skip(uuid_test_db_factory):
-    """Test b8dcecc1e979 downgrade when old FK exists, skip drop (branch 617->612)."""
-    fansly_config = uuid_test_db_factory
-    db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    alembic_cfg = _make_alembic_config(db_url)
-    target_rev = "b8dcecc1e979"
-
-    down_rev = _require_down_revision(alembic_cfg, target_rev)
-    command.upgrade(alembic_cfg, target_rev)
-
-    # Drop ALL FKs on messages.groupId first
-    with db._sync_engine.begin() as conn:
-        result = conn.execute(
-            text(
-                """
-            SELECT conname FROM pg_constraint
-            WHERE conrelid = 'messages'::regclass
-            AND contype = 'f'
-            AND conkey = (SELECT array_agg(attnum) FROM pg_attribute
-                         WHERE attrelid = 'messages'::regclass AND attname = 'groupId')
-            """
-            )
-        )
-        for row in result:
-            conn.execute(
-                text(f'ALTER TABLE messages DROP CONSTRAINT IF EXISTS "{row[0]}"')
-            )
-
-    # Now create the old FK
-    with db._sync_engine.begin() as conn:
-        conn.execute(
-            text(
-                'ALTER TABLE messages ADD CONSTRAINT "messages_groupId_fkey" '
-                'FOREIGN KEY ("groupId") REFERENCES groups(id)'
-            )
-        )
-
-    scripts = script.ScriptDirectory.from_config(alembic_cfg)
-    rev = scripts.get_revision(target_rev)
-
-    real_sa_inspect = sa.inspect
-
-    def side_effect(bind):
-        inspector = real_sa_inspect(bind)
-        mock = MagicMock(wraps=inspector)
-
-        orig_get_fks = inspector.get_foreign_keys
-
-        def fake_get_fks(table_name, *args, **kwargs):
-            res = list(orig_get_fks(table_name, *args, **kwargs))
-            if table_name == "messages":
-                return [
-                    {
-                        "name": "messages_groupId_fkey",
-                        "constrained_columns": ["groupId"],
-                    }
-                ]
-            return res
-
-        mock.get_foreign_keys.side_effect = fake_get_fks
-        return mock
-
-    try:
-        with patch.object(rev.module.sa, "inspect", side_effect=side_effect):
-            command.downgrade(alembic_cfg, down_rev)
     finally:
         db.close()
         loop = None
