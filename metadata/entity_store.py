@@ -1,7 +1,8 @@
 """PostgresEntityStore — 2-tier entity store (local dict + asyncpg).
 
 Architecture:
-- Local dict for identity map (sync access for Pydantic model_validator)
+- Local dict for identity map (sync access for Pydantic model_validator;
+  cross-thread consistency via an RLock)
 - asyncpg pool for stateless DB transport (no sessions, no locks)
 
 Filter syntax mirrors stash-graphql-client's StashEntityStore:
@@ -274,6 +275,14 @@ class PostgresEntityStore:
         self._col_cache: dict[str, set[str]] = {}
         self._stats: dict[str, int] = defaultdict(int)
 
+        # Guards the identity-map cluster (_cache, _type_index,
+        # _cache_timestamps, _fully_loaded, _col_cache): worker threads
+        # reach this store from their own event loops (see _get_pool), and
+        # _cache/_type_index/_cache_timestamps must mutate together
+        # atomically — consistency cannot rely on the GIL. RLock because
+        # get_from_cache -> invalidate re-enters.
+        self._cache_lock = threading.RLock()
+
         # Thread-safe resource access: asyncpg pools bind internal asyncio
         # primitives to the event loop at creation time. Worker threads each
         # run their own asyncio.new_event_loop(), so shared resources would
@@ -380,12 +389,15 @@ class PostgresEntityStore:
     # ── Column / Table Helpers ───────────────────────────────────────
 
     def _table_columns(self, table_name: str) -> set[str]:
-        if table_name not in self._col_cache:
-            table_def = core_metadata.tables.get(table_name)
-            self._col_cache[table_name] = (
-                {c.name for c in table_def.columns} if table_def is not None else set()
-            )
-        return self._col_cache[table_name]
+        with self._cache_lock:
+            if table_name not in self._col_cache:
+                table_def = core_metadata.tables.get(table_name)
+                self._col_cache[table_name] = (
+                    {c.name for c in table_def.columns}
+                    if table_def is not None
+                    else set()
+                )
+            return self._col_cache[table_name]
 
     @staticmethod
     def _pk_column(model_type: type[FanslyObject]) -> str:
@@ -400,11 +412,12 @@ class PostgresEntityStore:
         Returns ``None`` and evicts the entry if its TTL has elapsed. TTL
         is opt-in (None default); per-type override via ``set_ttl``.
         """
-        cached = self._cache.get((model_type, entity_id))
-        if cached is not None and self._is_expired(model_type, entity_id):
-            self.invalidate(model_type, entity_id)
-            return None
-        return cached  # type: ignore[return-value]
+        with self._cache_lock:
+            cached = self._cache.get((model_type, entity_id))
+            if cached is not None and self._is_expired(model_type, entity_id):
+                self.invalidate(model_type, entity_id)
+                return None
+            return cached  # type: ignore[return-value]
 
     def set_ttl(self, model_type: type, ttl: timedelta | int | None) -> None:
         """Set per-type cache TTL override.
@@ -462,9 +475,10 @@ class PostgresEntityStore:
         if obj.id is not None:
             cls = type(obj)
             key = (cls, obj.id)
-            self._cache[key] = obj
-            self._type_index.setdefault(cls, set()).add(obj.id)
-            self._cache_timestamps[key] = time.monotonic()
+            with self._cache_lock:
+                self._cache[key] = obj
+                self._type_index.setdefault(cls, set()).add(obj.id)
+                self._cache_timestamps[key] = time.monotonic()
 
     def _autolink_relationships(self, obj: FanslyObject) -> None:
         """Resolve singular ``belongs_to`` relationships from the identity map.
@@ -472,29 +486,30 @@ class PostgresEntityStore:
         Cache hit links the relationship; cache miss leaves it ``UNSET``.
         Use ``is_set()`` to distinguish unloaded from explicit None.
         """
-        for field_name, meta in type(obj).__relationships__.items():
-            if not meta.fk_column or meta.assoc_table or meta.is_list:
-                continue
-            current = getattr(obj, field_name, None)
-            if not isinstance(current, UnsetType):
-                continue
-            fk_value = getattr(obj, meta.fk_column, None)
-            if fk_value is None:
-                object.__setattr__(obj, field_name, None)
-                self._sync_autolink_snapshot(obj, field_name, None)
-                continue
-            if isinstance(meta.inverse_type, type):
-                target_type: type[FanslyObject] | None = meta.inverse_type
-            elif isinstance(meta.inverse_type, str):
-                target_type = _TYPE_REGISTRY.get(meta.inverse_type)
-            else:
-                target_type = None
-            if target_type is None:
-                continue
-            cached = self._cache.get((target_type, fk_value))
-            if cached is not None:
-                object.__setattr__(obj, field_name, cached)
-                self._sync_autolink_snapshot(obj, field_name, cached)
+        with self._cache_lock:
+            for field_name, meta in type(obj).__relationships__.items():
+                if not meta.fk_column or meta.assoc_table or meta.is_list:
+                    continue
+                current = getattr(obj, field_name, None)
+                if not isinstance(current, UnsetType):
+                    continue
+                fk_value = getattr(obj, meta.fk_column, None)
+                if fk_value is None:
+                    object.__setattr__(obj, field_name, None)
+                    self._sync_autolink_snapshot(obj, field_name, None)
+                    continue
+                if isinstance(meta.inverse_type, type):
+                    target_type: type[FanslyObject] | None = meta.inverse_type
+                elif isinstance(meta.inverse_type, str):
+                    target_type = _TYPE_REGISTRY.get(meta.inverse_type)
+                else:
+                    target_type = None
+                if target_type is None:
+                    continue
+                cached = self._cache.get((target_type, fk_value))
+                if cached is not None:
+                    object.__setattr__(obj, field_name, cached)
+                    self._sync_autolink_snapshot(obj, field_name, cached)
 
     @staticmethod
     def _sync_autolink_snapshot(
@@ -513,7 +528,8 @@ class PostgresEntityStore:
             snapshot[field_name] = value
 
     def is_fully_loaded(self, model_type: type) -> bool:
-        return model_type in self._fully_loaded
+        with self._cache_lock:
+            return model_type in self._fully_loaded
 
     # ── In-memory filter (lambda predicate) ──────────────────────────
 
@@ -527,15 +543,15 @@ class PostgresEntityStore:
         For simple equality/comparison filters, prefer find() with kwargs.
         Use this only for complex predicates that can't be expressed as kwargs.
         """
-        results: list[T] = []
-        ids = self._type_index.get(model_type)
-        if ids:
-            for eid in ids:
-                obj = self._cache.get((model_type, eid))
-                if obj is None:
-                    continue
-                if predicate is None or predicate(obj):  # type: ignore[arg-type]
-                    results.append(obj)  # type: ignore[arg-type]
+        candidates: list[T] = []
+        with self._cache_lock:
+            ids = self._type_index.get(model_type)
+            if ids:
+                for eid in ids:
+                    obj = self._cache.get((model_type, eid))
+                    if obj is not None:
+                        candidates.append(obj)  # type: ignore[arg-type]
+        results = [obj for obj in candidates if predicate is None or predicate(obj)]
         self._stats["filter_cache_hits"] += len(results)
         self._stats["filter_empty"] += 0 if results else 1
         return results
@@ -544,7 +560,8 @@ class PostgresEntityStore:
 
     async def get(self, model_type: type[T], entity_id: int) -> T | None:
         """Get by ID. Local cache -> DB."""
-        cached = self._cache.get((model_type, entity_id))
+        with self._cache_lock:
+            cached = self._cache.get((model_type, entity_id))
         if cached is not None:
             self._stats["get_cache_hits"] += 1
             return cached  # type: ignore[return-value]
@@ -581,19 +598,20 @@ class PostgresEntityStore:
             self._validate_order_by(model_type, sort_spec)
 
         results: list[T]
-        if model_type in self._fully_loaded:
-            ids = self._type_index.get(model_type, set())
-            results = [
-                obj
-                for eid in ids
-                if (obj := self._cache.get((model_type, eid))) is not None
-                and isinstance(obj, model_type)
-                and _matches_filters(obj, parsed)
-            ]
-            if sort_spec:
-                results = self._sort_results(results, sort_spec)
-            self._stats["find_cache_hits"] += len(results)
-            return results
+        with self._cache_lock:
+            if model_type in self._fully_loaded:
+                ids = self._type_index.get(model_type, set())
+                results = [
+                    obj
+                    for eid in ids
+                    if (obj := self._cache.get((model_type, eid))) is not None
+                    and isinstance(obj, model_type)
+                    and _matches_filters(obj, parsed)
+                ]
+                if sort_spec:
+                    results = self._sort_results(results, sort_spec)
+                self._stats["find_cache_hits"] += len(results)
+                return results
 
         rows = await self._query_with_filters(
             model_type,
@@ -628,27 +646,28 @@ class PostgresEntityStore:
         if sort_spec:
             self._validate_order_by(model_type, sort_spec)
 
-        if model_type in self._fully_loaded:
-            ids = self._type_index.get(model_type, set())
-            if sort_spec:
-                matches = [
-                    obj
-                    for eid in ids
-                    if (obj := self._cache.get((model_type, eid))) is not None
-                    and isinstance(obj, model_type)
-                    and _matches_filters(obj, parsed)
-                ]
-                if not matches:
-                    return None
-                sorted_matches = self._sort_results(matches, sort_spec)
-                self._stats["find_one_cache_hits"] += 1
-                return sorted_matches[0]
-            for eid in ids:
-                obj = self._cache.get((model_type, eid))
-                if obj is not None and _matches_filters(obj, parsed):
+        with self._cache_lock:
+            if model_type in self._fully_loaded:
+                ids = self._type_index.get(model_type, set())
+                if sort_spec:
+                    matches = [
+                        obj
+                        for eid in ids
+                        if (obj := self._cache.get((model_type, eid))) is not None
+                        and isinstance(obj, model_type)
+                        and _matches_filters(obj, parsed)
+                    ]
+                    if not matches:
+                        return None
+                    sorted_matches = self._sort_results(matches, sort_spec)
                     self._stats["find_one_cache_hits"] += 1
-                    return obj  # type: ignore[return-value]
-            return None
+                    return sorted_matches[0]
+                for eid in ids:
+                    obj = self._cache.get((model_type, eid))
+                    if obj is not None and _matches_filters(obj, parsed):
+                        self._stats["find_one_cache_hits"] += 1
+                        return obj  # type: ignore[return-value]
+                return None
 
         row = await self._query_with_filters(
             model_type,
@@ -670,14 +689,15 @@ class PostgresEntityStore:
         """Count matching objects."""
         parsed = [(*_parse_lookup(k), v) for k, v in filters.items()]
 
-        if model_type in self._fully_loaded:
-            ids = self._type_index.get(model_type, set())
-            return sum(
-                1
-                for eid in ids
-                if (obj := self._cache.get((model_type, eid))) is not None
-                and _matches_filters(obj, parsed)
-            )
+        with self._cache_lock:
+            if model_type in self._fully_loaded:
+                ids = self._type_index.get(model_type, set())
+                return sum(
+                    1
+                    for eid in ids
+                    if (obj := self._cache.get((model_type, eid))) is not None
+                    and _matches_filters(obj, parsed)
+                )
 
         tbl = model_type.__table_name__
         sql = f"SELECT COUNT(*) FROM {tbl}"
@@ -705,19 +725,22 @@ class PostgresEntityStore:
         if sort_spec:
             self._validate_order_by(model_type, sort_spec)
 
-        if model_type in self._fully_loaded:
-            ids = self._type_index.get(model_type, set())
-            all_matches = [
-                obj
-                for eid in ids
-                if (obj := self._cache.get((model_type, eid))) is not None
-                and isinstance(obj, model_type)
-                and _matches_filters(obj, parsed)
-            ]
+        matched: list[T] | None = None
+        with self._cache_lock:
+            if model_type in self._fully_loaded:
+                ids = self._type_index.get(model_type, set())
+                matched = [
+                    obj
+                    for eid in ids
+                    if (obj := self._cache.get((model_type, eid))) is not None
+                    and isinstance(obj, model_type)
+                    and _matches_filters(obj, parsed)
+                ]
+        if matched is not None:
             if sort_spec:
-                all_matches = self._sort_results(all_matches, sort_spec)
-            for i in range(0, len(all_matches), batch_size):
-                yield all_matches[i : i + batch_size]
+                matched = self._sort_results(matched, sort_spec)
+            for i in range(0, len(matched), batch_size):
+                yield matched[i : i + batch_size]
             return
 
         offset = 0
@@ -772,13 +795,14 @@ class PostgresEntityStore:
         """Batch get: local cache → Postgres with ANY($1)."""
         results: list[T] = []
         missing_ids: list[int] = []
-        for eid in entity_ids:
-            cached = self._cache.get((model_type, eid))
-            if cached is not None:
-                self._stats["get_many_cache_hits"] += 1
-                results.append(cached)  # type: ignore[arg-type]
-            else:
-                missing_ids.append(eid)
+        with self._cache_lock:
+            for eid in entity_ids:
+                cached = self._cache.get((model_type, eid))
+                if cached is not None:
+                    self._stats["get_many_cache_hits"] += 1
+                    results.append(cached)  # type: ignore[arg-type]
+                else:
+                    missing_ids.append(eid)
 
         if not missing_ids:
             return results
@@ -1429,16 +1453,17 @@ class PostgresEntityStore:
                         progress.update_task(row_task, advance=len(batch))
 
                 progress.remove_task(row_task)
-                self._fully_loaded.add(model_type)
-                # Autolink belongs_to relationships now that all rows of this
-                # type are cached. Earlier-loaded types (preload order goes
-                # leaf -> hub) are already in the cache, so a single pass over
-                # the freshly loaded objects resolves cross-type FKs.
-                for eid in self._type_index.get(model_type, set()):
-                    cached_obj = self._cache.get((model_type, eid))
-                    if cached_obj is not None:
-                        self._autolink_relationships(cached_obj)
-                count = len(self._type_index.get(model_type, ()))
+                with self._cache_lock:
+                    self._fully_loaded.add(model_type)
+                    # Autolink belongs_to relationships now that all rows of this
+                    # type are cached. Earlier-loaded types (preload order goes
+                    # leaf -> hub) are already in the cache, so a single pass over
+                    # the freshly loaded objects resolves cross-type FKs.
+                    for eid in self._type_index.get(model_type, set()):
+                        cached_obj = self._cache.get((model_type, eid))
+                        if cached_obj is not None:
+                            self._autolink_relationships(cached_obj)
+                    count = len(self._type_index.get(model_type, ()))
                 db_logger.info(f"  {model_type.__name__}: {count} entities loaded")
                 progress.update_task(models_task, advance=1)
 
@@ -1620,41 +1645,45 @@ class PostgresEntityStore:
     # ── Cache Management ─────────────────────────────────────────────
 
     def invalidate(self, model_type: type, entity_id: int) -> None:
-        key = (model_type, entity_id)
-        self._cache.pop(key, None)
-        self._cache_timestamps.pop(key, None)
-        ids = self._type_index.get(model_type)
-        if ids is not None:
-            ids.discard(entity_id)
+        with self._cache_lock:
+            key = (model_type, entity_id)
+            self._cache.pop(key, None)
+            self._cache_timestamps.pop(key, None)
+            ids = self._type_index.get(model_type)
+            if ids is not None:
+                ids.discard(entity_id)
 
     def invalidate_type(self, model_type: type) -> None:
         # Index lets us evict only this type's entries without scanning _cache.
-        ids = self._type_index.pop(model_type, None)
-        if ids:
-            for eid in ids:
-                key = (model_type, eid)
-                self._cache.pop(key, None)
-                self._cache_timestamps.pop(key, None)
-        self._fully_loaded.discard(model_type)
+        with self._cache_lock:
+            ids = self._type_index.pop(model_type, None)
+            if ids:
+                for eid in ids:
+                    key = (model_type, eid)
+                    self._cache.pop(key, None)
+                    self._cache_timestamps.pop(key, None)
+            self._fully_loaded.discard(model_type)
 
     def invalidate_all(self) -> None:
-        self._cache.clear()
-        self._type_index.clear()
-        self._cache_timestamps.clear()
-        self._fully_loaded.clear()
+        with self._cache_lock:
+            self._cache.clear()
+            self._type_index.clear()
+            self._cache_timestamps.clear()
+            self._fully_loaded.clear()
 
     def cache_stats(self) -> CacheStats:
-        by_type = {
-            model_type.__name__: len(ids)
-            for model_type, ids in self._type_index.items()
-            if ids
-        }
-        return {
-            "total": len(self._cache),
-            "by_type": by_type,
-            "fully_loaded": [t.__name__ for t in self._fully_loaded],
-            "stats": dict(self._stats),
-        }
+        with self._cache_lock:
+            by_type = {
+                model_type.__name__: len(ids)
+                for model_type, ids in self._type_index.items()
+                if ids
+            }
+            return {
+                "total": len(self._cache),
+                "by_type": by_type,
+                "fully_loaded": [t.__name__ for t in self._fully_loaded],
+                "stats": dict(self._stats),
+            }
 
     def get_stats(self) -> dict[str, int]:
         """Return a snapshot of tier hit/miss counters."""
@@ -1670,6 +1699,7 @@ class PostgresEntityStore:
         faster than the decref cascade over the cross-referenced graph.
         """
         await self.close_thread_resources()
-        self._fully_loaded.clear()
+        with self._cache_lock:
+            self._fully_loaded.clear()
         FanslyObject._store = None
         db_logger.info("PostgresEntityStore closed")
