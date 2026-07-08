@@ -116,6 +116,22 @@ class MediaError(RuntimeError):
         super().__init__(*args)
 
 
+class MediaFilteredError(RuntimeError):
+    """Control-flow signal: media skipped by filters.media limits (not a failure)."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        observed: int | None = None,
+        estimated: int | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.observed = observed
+        self.estimated = estimated
+
+
 class M3U8Error(MediaError):
     """This error is raised when M3U8 data is invalid eg.
     both no audio and no video.
@@ -295,6 +311,7 @@ __all__ = [
     "InvalidTraceLogError",
     "M3U8Error",
     "MediaError",
+    "MediaFilteredError",
     "MediaHashMismatchError",
     "StashCleanupWarning",
     "StashConnectionError",

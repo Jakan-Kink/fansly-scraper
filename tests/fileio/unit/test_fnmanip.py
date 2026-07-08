@@ -86,6 +86,7 @@ class TestImageHash:
         else:  # missing
             path = tmp_path / "does_not_exist.png"
 
+        patch_ctx: contextlib.AbstractContextManager[object]
         if phash_behavior == "returns_none":
             patch_ctx = patch("fileio.fnmanip.imagehash.phash", return_value=None)
         elif phash_behavior == "raises":

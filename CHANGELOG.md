@@ -12,7 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `wall_filters` — download only specific wall(s) per creator, by wall name or ID, with optional excludes; available as a persistent `options.wall_filters` config section and an ephemeral `--wall-filters` CLI flag (both enforce wall-only mode).
+- `wall_filters` — download only specific wall(s) per creator, by wall name or ID, with optional excludes; available as a persistent `filters.wall` config section and an ephemeral `--wall-filters` CLI flag (both enforce wall-only mode).
+- `filters.media` — min/max file-size and duration filters (#125): global limits with per-creator `by_creator` overrides, human-friendly values (`4GB`, `1:30:00`, `45m`), enforced before download via metadata/bitrate-estimate gates and at the wire via content-length, with `--file-size-min/--file-size-max/--duration-min/--duration-max` CLI overrides; filtered media is never marked downloaded, so loosened limits pick items up later.
 
 ### Changed
 

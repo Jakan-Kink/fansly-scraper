@@ -13,6 +13,7 @@ from stash_graphql_client import StashClient, StashContext
 
 from api.rate_limiter import RateLimiter
 from api.rate_limiter_display import RateLimiterDisplay
+from config.media_filters import MediaFilters
 from config.modes import DownloadMode
 from config.schema import (
     CacheSection,
@@ -72,6 +73,7 @@ class FanslyConfig:
     # If specified on the command-line
     post_id: str | None = None
     wall_filters: dict[str, WallFilterSpec] = field(default_factory=dict)
+    media_filters: MediaFilters = field(default_factory=MediaFilters)
 
     # Objects
     _schema: ConfigSchema | None = field(default=None)
@@ -615,7 +617,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     )
     _maybe_set(base.options, "use_folder_suffix", config.use_folder_suffix)
     _maybe_set(base.options, "respect_timeline_stats", config.respect_timeline_stats)
-    _maybe_set(base.options, "wall_filters", config.wall_filters)
     _maybe_set(base.options, "interactive", config.interactive)
     _maybe_set(base.options, "prompt_on_exit", config.prompt_on_exit)
     _maybe_set(base.options, "timeline_retries", config.timeline_retries)
@@ -651,6 +652,14 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         "temp_folder",
         str(config.temp_folder) if config.temp_folder is not None else None,
     )
+
+    # filters.wall — the FanslyConfig attribute is ``wall_filters`` but the
+    # schema field is ``wall``; ``_maybe_set``'s internal ephemeral guard
+    # keys off the name it's given, so the mismatch needs an outer check
+    # against the config-side name (mirrors user_names/usernames above).
+    if "wall_filters" not in config._ephemeral_overrides:
+        _maybe_set(base.filters, "wall", config.wall_filters)
+    # filters.media is immutable at runtime (CLI overrides are ephemeral) — no write-back.
 
     # postgres
     pg_password_secret: SecretStr | None = None

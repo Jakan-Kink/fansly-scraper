@@ -116,6 +116,15 @@ class TestPrintStatisticsHelper:
         state = GlobalState()
         print_statistics_helper(state, "Header", "\n  Custom footer text")
 
+    def test_filtered_count_renders_line(self, caplog):
+        """Line 63-64: the filtered-by-filters.media line only appears when nonzero."""
+        caplog.set_level(logging.INFO)
+        state = GlobalState()
+        state.filtered_count = 3
+        print_statistics_helper(state, "Header")
+        output = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Filtered by filters.media: 3" in output
+
 
 _PER_CREATOR_FOOTERS = (
     "Follow the creator to be able to scrape media!",

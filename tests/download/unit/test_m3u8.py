@@ -64,8 +64,13 @@ from download.m3u8 import (
     get_m3u8_cookies,
     get_m3u8_progress,
 )
-from errors import M3U8Error
-from tests.fixtures.api import dump_fansly_calls, mount_m3u8_segment_routes
+from errors import M3U8Error, MediaFilteredError
+from tests.fixtures.api import (
+    build_variant_playlist,
+    dump_fansly_calls,
+    make_synthetic_ivs_segment,
+    mount_m3u8_segment_routes,
+)
 from tests.fixtures.utils import SyncExecutor
 
 
@@ -1187,6 +1192,57 @@ class TestDirectDownloadPyAV:
         # Rogue packet skipped — only mapped_video packets muxed (2 of 3).
         assert output_container.mux_calls == 2
 
+    def test_max_bytes_abort_closes_and_deletes_output(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
+        """Output exceeds max_bytes at a 512-packet checkpoint → abort + cleanup.
+
+        Covers the max_bytes checkpoint in the packet-remux loop: every 512th
+        muxed packet checks the real on-disk output size; once it crosses the
+        threshold both containers are closed, the partial output file is
+        deleted, and MediaFilteredError propagates via the dedicated except
+        clause rather than being swallowed by the generic handler.
+        """
+        config = _make_real_config()
+        config._api = respx_fansly_api
+        output_path = tmp_path / "video.mp4"
+
+        master_route = _mount_master_variant_route()
+
+        video_stream = _FakeAVStream("video", has_codec_context=True)
+        packets = [_FakeAVPacket(video_stream, dts=i) for i in range(600)]
+        input_container = _FakeInputContainer(streams=[video_stream], packets=packets)
+
+        class _GrowingOutputContainer(_FakeOutputContainer):
+            """Appends real bytes per mux call so on-disk size grows for real."""
+
+            def mux(self, packet):
+                super().mux(packet)
+                with self._output_path.open("ab") as f:
+                    f.write(b"\x00" * 200)
+
+        output_container = _GrowingOutputContainer(output_path, write_bytes=b"")
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        try:
+            with pytest.raises(MediaFilteredError) as exc_info:
+                _try_direct_download_pyav(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                    max_bytes=100_000,
+                )
+        finally:
+            dump_fansly_calls(master_route.calls)
+
+        assert exc_info.value.reason == "file_size_max"
+        assert exc_info.value.observed == 512 * 200
+        assert not output_path.exists()
+        assert input_container.close_count == 1
+        assert output_container.close_count == 1
+
 
 # ---------------------------------------------------------------------------
 # TestMuxSegmentsWithPyAV — NEW dedicated tests (lines 418-516)
@@ -2059,3 +2115,62 @@ class TestSegmentDownload:
         finally:
             dump_fansly_calls(playlist_route.calls)
             dump_fansly_calls(segment_route.calls)
+
+    def test_running_total_aborts_and_cleans_segments(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
+        """Running total over max_bytes → MediaFilteredError, no .mp4/.ts left.
+
+        Four real IVS segments served sequentially via SyncExecutor so the
+        running-total threshold is crossed deterministically on the third
+        segment; the fourth is skipped (abort_event already set) and the
+        function's own cleanup finally-block removes every downloaded
+        segment file — none should remain on disk.
+        """
+        config = self._make_config_with_segments(respx_fansly_api)
+        output_path = tmp_path / "video.mp4"
+
+        segment_bytes = make_synthetic_ivs_segment()
+        seg_len = len(segment_bytes)
+        max_bytes = seg_len * 2 + 1  # first two segments pass; third pushes over
+
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+
+        playlist_text = (
+            build_variant_playlist(
+                media_sequence=0,
+                segment_uris=[
+                    "segment1.ts",
+                    "segment2.ts",
+                    "segment3.ts",
+                    "segment4.ts",
+                ],
+                endlist=True,
+            )
+            + "#EXT-X-PLAYLIST-TYPE:VOD\n"
+        )
+        playlist_route, segment_route = mount_m3u8_segment_routes(
+            playlist_text=playlist_text,
+            segment_bytes=segment_bytes,
+            segment_count=4,
+        )
+
+        try:
+            with pytest.raises(MediaFilteredError) as exc_info:
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                    max_bytes=max_bytes,
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
+
+        assert exc_info.value.reason == "file_size_max"
+        assert exc_info.value.observed == seg_len * 3
+        assert not output_path.exists()
+        assert not list(tmp_path.glob("*.ts"))

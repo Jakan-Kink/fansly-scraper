@@ -6,6 +6,7 @@ from config import FanslyConfig
 from config.wall_filters import WallFilterSpec, is_snowflake_token
 from download.downloadstate import DownloadState
 from errors import ApiError
+from helpers.common import expect_dict, expect_list, str_or_none
 from metadata import Wall
 from metadata.models import get_store
 from textio import print_warning
@@ -113,10 +114,13 @@ async def resolve_wall_filter_id_keys(config: FanslyConfig) -> None:
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise ApiError(f"wall_filters: account lookup by ID failed: {e}") from e
-    accounts = config.get_api().get_json_response_contents(response)
+    accounts = expect_list(
+        config.get_api().get_json_response_contents(response), "accounts"
+    )
     username_by_id: dict[str, str] = {}
-    for account in accounts:
-        username = account.get("username")
+    for account_value in accounts:
+        account = expect_dict(account_value, "account")
+        username = str_or_none(account.get("username"))
         if username is not None:
             username_by_id[str(account["id"])] = username.lower()
 

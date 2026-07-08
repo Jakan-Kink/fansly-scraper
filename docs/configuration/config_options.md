@@ -178,16 +178,36 @@ the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
 | `rate_limiting_max_backoff_seconds` | `int`   | `300`   | Cap on the backoff sleep duration                                                                                                                                          |
 | `respect_timeline_stats`            | `bool`  | `true`  | When `true`, the timeline/wall downloaders short-circuit a full scan when `TimelineStats` counts and wall structure match the local DB. Set `false` to force a full scan   |
 
-### `wall_filters`
+### Retired fields (silently dropped on load)
+
+The following keys were valid in earlier versions and are now silently
+stripped from the YAML on load. Keeping them in your file is harmless:
+
+- `separate_metadata` — SQLite-era flag; was always a no-op under Postgres
+- `metadata_handling` — runtime never branched on `SIMPLE` vs `ADVANCED`
+- `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era
+  write-sync tuning knobs; not consulted under asyncpg
+- `debug`, `trace` — replaced by the `-v` / `-vv` CLI flags (per-run
+  runtime override). For persistent verbosity, set
+  `logging.global.default_level` instead
+
+---
+
+## `filters`
+
+Content filters: per-creator wall selection and media size/duration limits.
+
+### `filters.wall`
 
 Restrict wall downloads to specific wall(s) per creator. When set, the run is **WALL-only** (`download_mode: wall` is required — any other mode raises a config error) and **only the creators listed here are processed** (`usernames` is not consulted for scope).
 
-Keys are creator usernames (or account snowflake IDs for advanced use). Values are either a list of wall names/IDs (an *includes* list) or a mapping with optional `includes`/`excludes` lists:
+Keys are creator usernames (or account snowflake IDs for advanced use). Values are either a list of wall names/IDs (an _includes_ list) or a mapping with optional `includes`/`excludes` lists:
 
 ```yaml
 options:
   download_mode: wall
-  wall_filters:
+filters:
+  wall:
     creator1: ["FULL VIDEOS"]
     creator2:
       includes: ["Promos", "1234567890123"]
@@ -205,20 +225,43 @@ python fansly_downloader_ng.py -u creator1 --wall-filters "FULL VIDEOS,Promos"
 python fansly_downloader_ng.py --wall-filters '{"creator1": ["FULL VIDEOS"], "creator2": {"excludes": ["previews"]}}'
 ```
 
-With `-u` alongside YAML `wall_filters`, `-u` must name a subset of the filter keys and narrows the run to those creators. Wall names containing commas (and excludes) require the JSON form.
+With `-u` alongside YAML `filters.wall`, `-u` must name a subset of the filter keys and narrows the run to those creators. Wall names containing commas (and excludes) require the JSON form.
 
-### Retired fields (silently dropped on load)
+### `filters.media`
 
-The following keys were valid in earlier versions and are now silently
-stripped from the YAML on load. Keeping them in your file is harmless:
+Skip media outside a min/max file-size or duration window. Each of the four limits (`file_size_min`, `file_size_max`, `duration_min`, `duration_max`) is independent, and each accepts `0` or an absent/empty value to mean "disabled":
 
-- `separate_metadata` — SQLite-era flag; was always a no-op under Postgres
-- `metadata_handling` — runtime never branched on `SIMPLE` vs `ADVANCED`
-- `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era
-  write-sync tuning knobs; not consulted under asyncpg
-- `debug`, `trace` — replaced by the `-v` / `-vv` CLI flags (per-run
-  runtime override). For persistent verbosity, set
-  `logging.global.default_level` instead
+```yaml
+filters:
+  media:
+    file_size_min: 100KB
+    file_size_max: 4GB
+    duration_min: "0:03"
+    duration_max: 2h
+    by_creator:
+      vod_streamer:
+        duration_max: 45m
+```
+
+Size values accept anything [`pydantic.ByteSize`](https://docs.pydantic.dev/latest/api/types/#pydantic.types.ByteSize) parses: raw bytes (`102400`), decimal units (`100KB`, `4GB`), or binary units (`1GiB`), case-insensitively and with or without a space before the unit. Duration values accept raw seconds (`90`), colon forms (`1:30`, `1:30:00`), unit suffixes (`45s`, `45m`, `2h`), and compound forms (`2h30m`) via [`pytimeparse2`](https://pypi.org/project/pytimeparse2/).
+
+`by_creator` keys are usernames (sanitized: stripped, leading `@` removed, lowercased — `@VOD_Streamer` and `vod_streamer` collide) or account snowflake IDs, matched in that order. Each override is a partial patch: a field absent from the override inherits the corresponding global limit; a field explicitly set to `0` or `null` disables that limit for that creator regardless of the global value.
+
+Duration limits only ever apply to videos (`mimetype` starting `video/`); images and other media are exempt. Any limit whose evidence is unknown — a video with no known duration, a file with no size evidence yet — passes rather than being filtered; the check only fires when there's data to judge it against.
+
+Size enforcement differs by media shape. Regular (non-streaming) files are checked against the CDN's `Content-Length` response header before the body downloads. HLS/DASH streaming VODs have no upfront size, so they're checked against a declared-bitrate × duration estimate before any segments download — an estimate that can run over a boundary near a `file_size_max` limit since bitrate is nominal, not exact — backed by a mid-download running-total check (tiers 1 and 3 of the HLS strategy) and a final completion-size check as the source of truth once the file is fully assembled.
+
+Media that fails any gate is **never marked downloaded**: the violated limit, and whatever size evidence was observed or estimated, is recorded onto the media's stored metadata (`lastFilteredReason`, `observedContentLength`/`estimatedContentLength`) without touching its downloaded/hash state. Loosening the limits in a later run picks the same item up again, since it was never marked complete.
+
+`filters.media` (both the global limits and `by_creator`) is never consulted for `SINGLE`-mode downloads or live-capture recordings — both are exempt from filtering entirely.
+
+CLI equivalent (ephemeral, never written back to `config.yaml`, and overrides the global layer only — a matching `by_creator` override still wins):
+
+```bash
+python fansly_downloader_ng.py --file-size-min 100KB --file-size-max 4GB --duration-min 0:03 --duration-max 2h
+```
+
+`0` disables the corresponding limit for that run.
 
 ---
 
@@ -317,18 +360,18 @@ logging:
 
 ### `logging.global`
 
-| YAML key                    | Default               | Description                                                                                     |
-| --------------------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `directory`                 | `null`                | Log root directory. `null` → application default (`~/.fansly-downloader-ng/logs`)               |
+| YAML key                    | Default               | Description                                                                                                                                                                                                                                                                 |
+| --------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `directory`                 | `null`                | Log root directory. `null` → application default (`~/.fansly-downloader-ng/logs`)                                                                                                                                                                                           |
 | `trace`                     | `false`               | Persistent trace toggle — linked bi-directionally with `trace.enabled`; setting either flips both. Opens the `trace.log` sink at TRACE; peer handlers stay at their configured level. (For a uniform TRACE floor across every handler, use the runtime `-vv` flag instead.) |
-| `default_level`             | `"INFO"`              | Fallback level for any handler whose `level` is `null`                                          |
-| `default_max_size`          | `104857600` (100 MiB) | Size axis cap. `null` disables size-based rotation                                              |
-| `default_rotation_when`     | `"h"`                 | Time axis interval unit: `s`, `m`, `h`, `d`, or `w`. `null` disables time-based rotation        |
-| `default_rotation_interval` | `1`                   | Count of `default_rotation_when` units between rotations                                        |
-| `default_utc`               | `true`                | Whether the time axis uses UTC                                                                  |
-| `default_backup_count`      | `5`                   | Retention: number of rotated files kept. `null` retains forever                                 |
-| `default_compression`       | `"gz"`                | Compression applied to rotated files: `gz`, `bz2`, `xz`, or `null` (uncompressed)               |
-| `default_keep_uncompressed` | `2`                   | Most-recent N rotated files kept uncompressed for live `tail -F`                                |
+| `default_level`             | `"INFO"`              | Fallback level for any handler whose `level` is `null`                                                                                                                                                                                                                      |
+| `default_max_size`          | `104857600` (100 MiB) | Size axis cap. `null` disables size-based rotation                                                                                                                                                                                                                          |
+| `default_rotation_when`     | `"h"`                 | Time axis interval unit: `s`, `m`, `h`, `d`, or `w`. `null` disables time-based rotation                                                                                                                                                                                    |
+| `default_rotation_interval` | `1`                   | Count of `default_rotation_when` units between rotations                                                                                                                                                                                                                    |
+| `default_utc`               | `true`                | Whether the time axis uses UTC                                                                                                                                                                                                                                              |
+| `default_backup_count`      | `5`                   | Retention: number of rotated files kept. `null` retains forever                                                                                                                                                                                                             |
+| `default_compression`       | `"gz"`                | Compression applied to rotated files: `gz`, `bz2`, `xz`, or `null` (uncompressed)                                                                                                                                                                                           |
+| `default_keep_uncompressed` | `2`                   | Most-recent N rotated files kept uncompressed for live `tail -F`                                                                                                                                                                                                            |
 
 ### Per-handler entries
 
@@ -591,9 +634,18 @@ of the YAML setting.
 
 **Wall filters**
 
-| Config field           | CLI flag                     |
-| ---------------------- | ----------------------------- |
-| `options.wall_filters` | `--wall-filters` (ephemeral, forces `WALL` mode) |
+| Config field   | CLI flag                                         |
+| -------------- | ------------------------------------------------ |
+| `filters.wall` | `--wall-filters` (ephemeral, forces `WALL` mode) |
+
+**Media filters**
+
+| Config field                  | CLI flag                                         |
+| ----------------------------- | ------------------------------------------------ |
+| `filters.media.file_size_min` | `--file-size-min` (ephemeral, global layer only) |
+| `filters.media.file_size_max` | `--file-size-max` (ephemeral, global layer only) |
+| `filters.media.duration_min`  | `--duration-min` (ephemeral, global layer only)  |
+| `filters.media.duration_max`  | `--duration-max` (ephemeral, global layer only)  |
 
 **Output / paths**
 
@@ -648,12 +700,12 @@ of the YAML setting.
 
 **Other / CLI-only** (no config equivalent)
 
-| CLI flag                                   | Purpose                                                                                                               |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| CLI flag                                   | Purpose                                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `-r` / `--reverse-order`                   | Process creators in reverse alphabetical order (Z→A instead of A→Z; applies to both the following list and `-u` targets) |
-| `-ufp` / `--use-following-with-pagination` | CLI-only macro: enables `targeted_creator.use_following` AND `options.use_pagination_duplication` together at runtime |
-| `--generate-config`                        | Scaffold a fresh `config.yaml` at the working directory and exit                                                      |
-| `--show-config`                            | Print the loaded effective configuration and exit                                                                     |
+| `-ufp` / `--use-following-with-pagination` | CLI-only macro: enables `targeted_creator.use_following` AND `options.use_pagination_duplication` together at runtime    |
+| `--generate-config`                        | Scaffold a fresh `config.yaml` at the working directory and exit                                                         |
+| `--show-config`                            | Print the loaded effective configuration and exit                                                                        |
 
 ---
 

@@ -154,8 +154,9 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     # empty-spec answers) never alias the schema's dict/objects — a mid-run
     # save would otherwise persist those runtime-only mutations to YAML.
     config.wall_filters = {
-        key: spec.model_copy(deep=True) for key, spec in opts.wall_filters.items()
+        key: spec.model_copy(deep=True) for key, spec in schema.filters.wall.items()
     }
+    config.media_filters = schema.filters.media.to_runtime()
     config.interactive = opts.interactive
     config.prompt_on_exit = opts.prompt_on_exit
     # ``debug`` and ``trace`` are no longer schema-backed. They're runtime

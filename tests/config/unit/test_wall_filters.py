@@ -4,14 +4,14 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import yaml
+from ruamel.yaml import YAML
 
 from config.args import map_args_to_config, parse_args
 from config.config import _populate_config_from_schema, save_config_or_raise
 from config.fanslyconfig import FanslyConfig
 from config.logging import init_logging_config
 from config.modes import DownloadMode
-from config.schema import ConfigSchema, OptionsSection
+from config.schema import ConfigSchema, FiltersSection
 from config.validation import validate_adjust_wall_filters
 from config.wall_filters import (
     WallFilterSpec,
@@ -120,30 +120,31 @@ class TestNormalizeWallFilters:
 
 class TestSchemaField:
     def test_options_section_normalizes(self):
-        opts = OptionsSection(wall_filters={"@C1": "FULL VIDEOS"})
-        assert opts.wall_filters == {"c1": WallFilterSpec(includes=["FULL VIDEOS"])}
+        filters = FiltersSection.model_validate({"wall": {"@C1": "FULL VIDEOS"}})
+        assert filters.wall == {"c1": WallFilterSpec(includes=["FULL VIDEOS"])}
 
     def test_default_is_empty(self):
-        assert OptionsSection().wall_filters == {}
+        assert FiltersSection().wall == {}
 
     def test_schema_yaml_round_trip(self):
         schema = ConfigSchema.model_validate(
             {
-                "options": {
-                    "download_mode": "wall",
-                    "wall_filters": {"c1": ["A"], "c2": {"excludes": ["B"]}},
-                }
+                "options": {"download_mode": "wall"},
+                "filters": {"wall": {"c1": ["A"], "c2": {"excludes": ["B"]}}},
             }
         )
         dumped = schema.model_dump(mode="json", exclude_unset=True)
         again = ConfigSchema.model_validate(dumped)
-        assert again.options.wall_filters == schema.options.wall_filters
+        assert again.filters.wall == schema.filters.wall
 
 
 class TestFanslyConfigPlumbing:
     def test_populate_from_schema(self):
         schema = ConfigSchema.model_validate(
-            {"options": {"download_mode": "wall", "wall_filters": {"c1": ["A"]}}}
+            {
+                "options": {"download_mode": "wall"},
+                "filters": {"wall": {"c1": ["A"]}},
+            }
         )
         config = FanslyConfig(program_version="0.14.5-test")
         _populate_config_from_schema(config, schema)
@@ -251,10 +252,8 @@ class TestMidRunSaveDoesNotMutateSchema:
     async def test_narrowing_does_not_leak_into_saved_yaml(self, validation_config):
         schema = ConfigSchema.model_validate(
             {
-                "options": {
-                    "download_mode": "wall",
-                    "wall_filters": {"c1": ["A"], "c2": ["B"]},
-                }
+                "options": {"download_mode": "wall"},
+                "filters": {"wall": {"c1": ["A"], "c2": ["B"]}},
             }
         )
         validation_config._schema = schema
@@ -263,8 +262,8 @@ class TestMidRunSaveDoesNotMutateSchema:
 
         # Aliasing is broken: mutating the runtime dict must not touch the
         # schema's dict/objects.
-        assert validation_config.wall_filters is not schema.options.wall_filters
-        assert set(schema.options.wall_filters) == {"c1", "c2"}
+        assert validation_config.wall_filters is not schema.filters.wall
+        assert set(schema.filters.wall) == {"c1", "c2"}
 
         # Simulate ``-u c1`` narrowing (config/args.py::_handle_user_settings).
         validation_config.user_names = {"c1"}
@@ -276,9 +275,9 @@ class TestMidRunSaveDoesNotMutateSchema:
         # persist the narrowed runtime view.
         save_config_or_raise(validation_config)
 
-        written = yaml.safe_load(validation_config.config_path.read_text())
-        assert set(written["options"]["wall_filters"]) == {"c1", "c2"}
-        assert set(schema.options.wall_filters) == {"c1", "c2"}
+        written = YAML(typ="safe").load(validation_config.config_path.read_text())
+        assert set(written["filters"]["wall"]) == {"c1", "c2"}
+        assert set(schema.filters.wall) == {"c1", "c2"}
 
 
 def _map(argv, validation_config):

@@ -33,6 +33,7 @@ class GlobalState:
 
     # Counters
     duplicate_count: int = 0
+    filtered_count: int = 0
     pic_count: int = 0
     vid_count: int = 0
 

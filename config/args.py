@@ -16,6 +16,7 @@ from helpers.rich_progress import get_rich_console
 
 from .config import parse_items_from_line, sanitize_creator_names
 from .fanslyconfig import FanslyConfig
+from .media_filters import parse_duration, parse_size
 from .modes import DownloadMode
 from .schema import (
     CacheSection,
@@ -503,6 +504,42 @@ def parse_args() -> argparse.Namespace:
         "(30s → 60s → 120s → 240s → 300s max) before giving up. "
         "Lower values may cause downloads to fail during sustained rate limiting.",
     )
+    parser.add_argument(
+        "--file-size-min",
+        required=False,
+        default=None,
+        metavar="SIZE",
+        dest="file_size_min",
+        help="Skip media smaller than SIZE (e.g. 100KB, 5MB, raw bytes). "
+        "0 disables the limit for this run. Ephemeral override of "
+        "filters.media in config.yaml.",
+    )
+    parser.add_argument(
+        "--file-size-max",
+        required=False,
+        default=None,
+        metavar="SIZE",
+        dest="file_size_max",
+        help="Skip media larger than SIZE (e.g. 4GB). 0 disables for this run.",
+    )
+    parser.add_argument(
+        "--duration-min",
+        required=False,
+        default=None,
+        metavar="DURATION",
+        dest="duration_min",
+        help="Skip videos shorter than DURATION (e.g. 3, 0:03, 45s). "
+        "0 disables for this run.",
+    )
+    parser.add_argument(
+        "--duration-max",
+        required=False,
+        default=None,
+        metavar="DURATION",
+        dest="duration_max",
+        help="Skip videos longer than DURATION (e.g. 5400, 1:30:00, 2h). "
+        "0 disables for this run.",
+    )
 
     # PostgreSQL arguments
     parser.add_argument(
@@ -875,6 +912,28 @@ def _apply_cli_wall_filters(args: argparse.Namespace, config: FanslyConfig) -> N
     config._ephemeral_overrides.add("wall_filters")
 
 
+def _apply_media_filter_args(args: argparse.Namespace, config: FanslyConfig) -> None:
+    """Apply --file-size-*/--duration-* as ephemeral global-layer overrides."""
+    update: dict[str, int | float | None] = {}
+    if args.file_size_min is not None:
+        update["file_size_min"] = parse_size(args.file_size_min)
+    if args.file_size_max is not None:
+        update["file_size_max"] = parse_size(args.file_size_max)
+    if args.duration_min is not None:
+        update["duration_min"] = parse_duration(args.duration_min)
+    if args.duration_max is not None:
+        update["duration_max"] = parse_duration(args.duration_max)
+    if not update:
+        return
+    config.media_filters = config.media_filters.model_copy(update=update)
+    config.media_filters.ensure_valid("CLI")
+    for creator in config.media_filters.by_creator:
+        config.media_filters.for_creator(creator, None).ensure_valid(
+            f"CLI+by_creator.{creator}"
+        )
+    config._ephemeral_overrides.add("media_filters")
+
+
 def _handle_path_settings(
     args: argparse.Namespace, config: FanslyConfig, attr_name: str
 ) -> bool:
@@ -1070,6 +1129,7 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
         download_mode_set = True
 
     _apply_cli_wall_filters(args, config)
+    _apply_media_filter_args(args, config)
 
     _handle_not_none_settings(args, config)
     _handle_boolean_settings(args, config)

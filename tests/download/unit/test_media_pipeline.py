@@ -23,6 +23,7 @@ import pytest
 import respx
 from PIL import Image
 
+from config.media_filters import MediaFilters
 from download.downloadstate import DownloadState
 from download.media import (
     _download_file,
@@ -33,7 +34,7 @@ from download.media import (
     download_media,
 )
 from download.types import DownloadType
-from errors import DownloadError, DuplicateCountError, M3U8Error
+from errors import DownloadError, DuplicateCountError, M3U8Error, MediaFilteredError
 from metadata.models import Account, Media
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -157,12 +158,14 @@ class TestDownloadFunctions:
             ]
         )
 
+        state = _make_state(snowflake_id())
+
         # With timestamp
         media1 = _make_media(snowflake_id())
         media1.download_url = "https://cdn.fansly.com/content/photo.jpg"
         media1.createdAt = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         save1 = tmp_path / "photo.jpg"
-        await _download_regular_file(mock_config, media1, save1)
+        await _download_regular_file(mock_config, state, media1, save1)
         assert save1.read_bytes() == b"photo"
 
         # Without timestamp
@@ -172,7 +175,7 @@ class TestDownloadFunctions:
         save2 = tmp_path / "no_ts.jpg"
 
         try:
-            await _download_regular_file(mock_config, media2, save2)
+            await _download_regular_file(mock_config, state, media2, save2)
         finally:
             dump_fansly_calls(
                 cdn_route.calls, "test_download_regular_file_success_paths"
@@ -214,10 +217,11 @@ class TestDownloadFunctions:
         media = _make_media(snowflake_id())
         media.download_url = "https://cdn.fansly.com/content/missing.jpg"
         save = tmp_path / "missing.jpg"
+        state = _make_state(snowflake_id())
 
         try:
             with pytest.raises(DownloadError) as excinfo:
-                await _download_regular_file(mock_config, media, save)
+                await _download_regular_file(mock_config, state, media, save)
         finally:
             dump_fansly_calls(
                 cdn_route.calls, "test_download_regular_file_non_200_raises"
@@ -229,9 +233,7 @@ class TestDownloadFunctions:
         "invoke",
         [
             pytest.param(
-                lambda cfg, _state, media, path: _download_regular_file(
-                    cfg, media, path
-                ),
+                _download_regular_file,
                 id="regular",
             ),
             pytest.param(
@@ -325,6 +327,39 @@ class TestDownloadM3u8File:
 
         assert is_dupe is True
         assert state2.duplicate_count == 1
+
+    async def test_completion_check_rejects_undersized_file(
+        self, mock_config, reset_class_store, tmp_path
+    ):
+        """Final downloaded file below file_size_min → MediaFilteredError.
+
+        The completion check runs on the temp path before hashing/moving —
+        check_path is never created and media is never marked downloaded.
+        """
+        mock_config.media_filters = MediaFilters(file_size_min=1_000_000)
+        acct_id = snowflake_id()
+        await reset_class_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
+
+        state = _make_state(acct_id)
+        media = _make_media(acct_id, mimetype="video/mp4")
+        media.download_url = "https://cdn.fansly.com/tiny.m3u8"
+        media.file_extension = "m3u8"
+
+        check_path = tmp_path / "target3" / "video.mp4"
+        check_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = tmp_path / "temp_tiny.mp4"
+        temp_file.write_bytes(b"tiny")
+
+        with (
+            patch("download.media.download_m3u8", return_value=temp_file),
+            pytest.raises(MediaFilteredError) as exc_info,
+        ):
+            await _download_m3u8_file(mock_config, state, media, check_path)
+
+        assert exc_info.value.reason == "file_size_min"
+        assert exc_info.value.observed == len(b"tiny")
+        assert not check_path.exists()
+        assert media.is_downloaded is False
 
 
 # ── download_media ──────────────────────────────────────────────────────
@@ -463,7 +498,7 @@ class TestDownloadMedia:
 
         call_count = [0]
 
-        def m3u8_side_effect(config, url, path, ts):
+        def m3u8_side_effect(config, url, path, ts, max_bytes=None):
             call_count[0] += 1
             if call_count[0] == 1:
                 return temp_mp4

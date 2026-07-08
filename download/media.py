@@ -16,7 +16,13 @@ from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
 
 from config import FanslyConfig
-from errors import DownloadError, DuplicateCountError, M3U8Error, MediaError
+from errors import (
+    DownloadError,
+    DuplicateCountError,
+    M3U8Error,
+    MediaError,
+    MediaFilteredError,
+)
 from fileio.dedupe import dedupe_media_file, get_filename_only
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list, expect_dict
@@ -37,6 +43,12 @@ from textio import (
 
 from .downloadstate import DownloadState
 from .m3u8 import download_m3u8
+from .mediafilters import (
+    check_media_filters,
+    estimate_stream_size_gate,
+    record_filter_observation,
+    resolve_media_filters,
+)
 from .types import DownloadType
 
 
@@ -51,6 +63,15 @@ def _media_type_label(mimetype: str | None) -> str:
         return "media"
     parts = mimetype.split("/")
     return parts[-2] if len(parts) >= 2 else mimetype
+
+
+def _print_filtered_skip(config: FanslyConfig, media: Media, reason: str) -> None:
+    """Print the standard filtered-skip line, honoring the display toggles."""
+    if config.show_downloads and config.show_skipped_downloads:
+        print_info(
+            f"Filtered [{reason}]: {_media_type_label(media.mimetype)} "
+            f"'{media.get_file_name()}' -> skipped"
+        )
 
 
 async def fetch_and_process_media(
@@ -342,6 +363,7 @@ async def _download_file(
 
 async def _download_regular_file(
     config: FanslyConfig,
+    state: DownloadState,
     media: Media,
     file_save_path: Path,
 ) -> None:
@@ -362,6 +384,13 @@ async def _download_regular_file(
             text_column = TextColumn("", table_column=Column(ratio=1))
             bar_column = BarColumn(bar_width=60, table_column=Column(ratio=5))
             file_size = int(response.headers.get("content-length", 0))
+
+            filters = resolve_media_filters(config, state)
+            if filters is not None and file_size > 0:
+                reason = filters.size_verdict(file_size)
+                if reason:
+                    raise MediaFilteredError(reason, observed=file_size)
+
             disable_loading_bar = file_size < 20_000_000
 
             # Stream into a sibling temp file so a mid-stream crash doesn't
@@ -433,6 +462,9 @@ async def _download_m3u8_file(
     temp_path = temp_dir / f"temp_{check_path.name}"
 
     try:
+        await estimate_stream_size_gate(config, state, media)
+        filters = resolve_media_filters(config, state)
+
         # Run synchronous HLS download in thread to avoid blocking
         # the event loop (progress bars, rate limiter would freeze otherwise)
         temp_path = await asyncio.to_thread(
@@ -441,7 +473,15 @@ async def _download_m3u8_file(
             download_url,
             temp_path,
             media.created_at_timestamp,
+            max_bytes=filters.file_size_max if filters else None,
         )
+
+        filters = resolve_media_filters(config, state)
+        if filters is not None:
+            final_size = (await asyncio.to_thread(temp_path.stat)).st_size
+            reason = filters.size_verdict(final_size)
+            if reason:
+                raise MediaFilteredError(reason, observed=final_size)
 
         new_hash = await asyncio.to_thread(get_hash_for_other_content, temp_path)
 
@@ -521,6 +561,13 @@ async def download_media(
                 if media.is_preview and not config.download_media_previews:
                     continue
 
+                filter_reason = check_media_filters(config, state, media)
+                if filter_reason:
+                    await record_filter_observation(media, reason=filter_reason)
+                    _print_filtered_skip(config, media, filter_reason)
+                    state.filtered_count += 1
+                    continue
+
                 try:
                     _validate_media(media)
                 except MediaError as e:
@@ -590,7 +637,9 @@ async def download_media(
                             continue
                         # _download_m3u8_file already increments vid_count
                     else:
-                        await _download_regular_file(config, media, file_save_path)
+                        await _download_regular_file(
+                            config, state, media, file_save_path
+                        )
 
                         if not await asyncio.to_thread(file_save_path.exists):
                             print_warning(
@@ -609,6 +658,16 @@ async def download_media(
                         if is_dupe:
                             state.add_duplicate()
 
+                except MediaFilteredError as e:
+                    await record_filter_observation(
+                        media,
+                        reason=e.reason,
+                        observed=e.observed,
+                        estimated=e.estimated,
+                    )
+                    _print_filtered_skip(config, media, e.reason)
+                    state.filtered_count += 1
+                    continue
                 except M3U8Error as ex:
                     print_warning(f"Skipping invalid item: {ex}")
 

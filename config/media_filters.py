@@ -61,8 +61,6 @@ def parse_size(value: Any) -> int | None:
             size = int(_BYTE_SIZE.validate_python(text))
         except ValidationError as e:
             raise _shape_error("file_size", value) from e
-        if size < 0:
-            raise _shape_error("file_size", value)
         return size or None
     raise _shape_error("file_size", value)
 
