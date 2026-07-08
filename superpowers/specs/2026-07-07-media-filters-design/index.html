@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/superpowers/specs/2026-07-07-media-filters-design/" />
+      <link rel="shortcut icon" href="../../../img/favicon.ico" />
+    <title>Media Filters (min/max size and duration) — Design - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../../css/theme.css" />
+    <link rel="stylesheet" href="../../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Media Filters (min/max size and duration) \u2014 Design";
+        var mkdocs_page_input_path = "superpowers/specs/2026-07-07-media-filters-design.md";
+        var mkdocs_page_url = "/fansly-scraper/superpowers/specs/2026-07-07-media-filters-design/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../configuration/config_options/">Config Options</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/request-signing/">Request Signing</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Media Filters (min/max size and duration) — Design</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/superpowers/specs/2026-07-07-media-filters-design.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="media-filters-minmax-size-and-duration-design">Media Filters (min/max size and duration) — Design<a class="headerlink" href="#media-filters-minmax-size-and-duration-design" title="Permanent link">&para;</a></h1>
+<p>Date: 2026-07-07
+Issue: #125 ([Feature Request] Minimum and maximum filter for file size and duration)
+Branch: <code>wall-filters</code> (continues after the wall_filters commit)
+Status: approved (brainstorm 2026-07-07)</p>
+<h2 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h2>
+<p>A creator who streams constantly posts every full VOD to their timeline; users want to skip huge unedited VODs and sub-second clips without giving up the rest of the content. OF-Scraper offers <code>file_size_limit</code>/<code>file_size_min</code> (bytes or human-readable, enforced at download time from content-length) and <code>length_min</code>/<code>length_max</code> (seconds, videos only, pre-download list filter) — reference implementation confirmed in <code>~/docker/scraping-builds/OF-Scraper/ofscraper/filters/media/filters.py</code> and <code>.../download/managers/downloadmanager.py::_check_forced_skip</code>.</p>
+<p>Fansly constraints that shape the design: <code>Media.duration</code> is pre-download API metadata (parsed from the raw <code>metadata</code> JSON by <code>_extract_video_dimensions</code>); no API field carries file size. Regular files reveal size via the <code>content-length</code> header when the GET starts (download/media.py <code>_download_regular_file</code>); streaming VODs (HLS/DASH) declare per-variant bitrate in the manifest (<code>#EXT-X-STREAM-INF:BANDWIDTH</code>/<code>AVERAGE-BANDWIDTH</code>; MPD <code>Representation@bandwidth</code> + <code>mediaPresentationDuration</code>), enabling a bitrate x duration size estimate before any media bytes are fetched; true live captures (IVS sliding window) have no knowable total size or duration mid-broadcast.</p>
+<h2 id="solution-overview">Solution overview<a class="headerlink" href="#solution-overview" title="Permanent link">&para;</a></h2>
+<p>Four limits — <code>file_size_min</code>, <code>file_size_max</code>, <code>duration_min</code>, <code>duration_max</code> — in a new top-level <code>filters:</code> config section (which also becomes the new home of the just-shipped-but-unreleased <code>wall_filters</code>, as <code>filters.wall</code>), set globally with optional per-creator overrides via <code>filters.media.by_creator</code>. Enforcement is a two-phase gate set in a new <code>download/mediafilters.py</code>: a metadata gate in the <code>download_media</code> loop (duration + any size evidence already recorded), and download-time gates (content-length header for regular files; bandwidth x duration estimate, running-total backstop, and completion check for streaming). Filtered skips record observation keys into the Media row's <code>meta_info</code> JSON and never touch download-state fields, so loosened limits later download normally.</p>
+<h2 id="config-surface">Config surface<a class="headerlink" href="#config-surface" title="Permanent link">&para;</a></h2>
+<h3 id="new-top-level-filters-section-configschemapy">New top-level <code>filters</code> section (<code>config/schema.py</code>)<a class="headerlink" href="#new-top-level-filters-section-configschemapy" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">filters</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">wall</span><span class="p">:</span><span class="w">                      </span><span class="c1"># relocated wall_filters; None/absent = no wall filtering</span>
+<span class="w">    </span><span class="nt">creator1</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;FULL</span><span class="nv"> </span><span class="s">VIDEOS&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">media</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">file_size_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100KB</span>
+<span class="w">    </span><span class="nt">file_size_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4GB</span>
+<span class="w">    </span><span class="nt">duration_min</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0:03&quot;</span>
+<span class="w">    </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2h</span>
+</code></pre></div>
+<ul>
+<li><code>FiltersSection(_BaseSection)</code> with two fields: <code>wall: dict[str, WallFilterSpec]</code> (default <code>{}</code>; <code>None</code> normalizes to <code>{}</code>; reuses the existing lenient normalization validator from <code>config/wall_filters.py</code>) and <code>media: MediaFiltersSection</code> (default all-disabled).</li>
+<li><code>MediaFiltersSection(_BaseSection)</code>: <code>file_size_min</code>/<code>file_size_max</code> normalized to <code>int | None</code> bytes; <code>duration_min</code>/<code>duration_max</code> normalized to <code>float | None</code> seconds. <code>0</code>, <code>null</code>, or absent = that filter disabled (normalized to <code>None</code>). <code>min &gt; max</code> (either pair, both set) raises <code>ConfigError</code> at load.</li>
+<li><strong>Per-creator overrides</strong>: <code>filters.media.by_creator</code>, a map of creator → partial override with the same four fields:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="nt">filters</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">media</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">file_size_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4GB</span><span class="w">          </span><span class="c1"># globals = defaults for everyone</span>
+<span class="w">    </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2h</span>
+<span class="w">    </span><span class="nt">by_creator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">vod_streamer</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">45m</span><span class="w">       </span><span class="c1"># tighter for this creator; file_size_max inherited</span>
+<span class="w">      </span><span class="nt">archived_creator</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">file_size_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">        </span><span class="c1"># explicit 0 = disable THAT limit for this creator</span>
+<span class="w">      </span><span class="nt">new_creator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">           </span><span class="c1"># no-op: inherits all globals</span>
+</code></pre></div>
+<ul>
+<li><code>MediaFilterOverride</code> model (<code>extra="forbid"</code>, same per-field parsers): <strong>field-level tri-state</strong> — a field ABSENT from the YAML inherits the global; a field explicitly set to <code>0</code>/<code>null</code> disables that limit for that creator; a value overrides. Distinguished via Pydantic <code>model_fields_set</code> (absent vs explicitly-null), since both normalize the stored value to <code>None</code>. <code>min &gt; max</code> validated on the RESOLVED per-creator result at load for each override, not just the globals.</li>
+<li>Override keys sanitized like <code>wall_filters</code> keys (<code>@</code>-strip, lowercase); all-digit keys &gt;= 10 chars are account snowflake IDs. Unlike <code>wall_filters</code>, no API re-keying is needed: <code>by_creator</code> keys are lookups (not run scope), and the per-creator loop already knows both <code>state.creator_name</code> and <code>state.creator_id</code>, so resolution checks the username key first, then <code>str(creator_id)</code>.</li>
+<li><strong><code>wall_filters</code> relocation</strong>: <code>options.wall_filters</code> (committed post-0.14.5, never released) moves to <code>filters.wall</code>. Clean move, no <code>_DROPPED_FIELDS</code> compat: schema field relocates; <code>FanslyConfig.wall_filters</code> and all internals stay unchanged; populate/save-back mapping, wall-filters validation references, docs, and the unreleased CHANGELOG bullet update to the new path. The <code>--wall-filters</code> CLI flag is untouched.</li>
+</ul>
+<h3 id="value-parsing-configmedia_filterspy-import-cycle-free-like-configwall_filterspy">Value parsing (<code>config/media_filters.py</code>, import-cycle-free like <code>config/wall_filters.py</code>)<a class="headerlink" href="#value-parsing-configmedia_filterspy-import-cycle-free-like-configwall_filterspy" title="Permanent link">&para;</a></h3>
+<p>No hand-rolled unit tables — parsing delegates to existing libraries; the wrappers own only the disable semantics and error UX:</p>
+<ul>
+<li><code>parse_size(value) -&gt; int | None</code>: delegates to <code>pydantic.ByteSize</code> (already a dependency) — raw int/float bytes, decimal <code>KB</code>/<code>MB</code>/<code>GB</code>/<code>TB</code>, binary <code>KiB</code>/<code>MiB</code>/<code>GiB</code>/<code>TiB</code>, case-insensitive, optional space. <code>0</code>/<code>None</code>/empty → <code>None</code>.</li>
+<li><code>parse_duration(value) -&gt; float | None</code>: numeric values pass straight through as seconds; strings delegate to <code>pytimeparse2</code> (new dependency, installed via <code>poetry add pytimeparse2</code> — never editing pyproject directly) — colon forms (<code>"1:30"</code>, <code>"1:30:00"</code>), unit suffixes (<code>"45s"</code>, <code>"45m"</code>, <code>"2h"</code>), and compound forms (<code>"2h30m"</code>) for free. <code>0</code>/<code>None</code>/empty → <code>None</code>.</li>
+<li>Garbage input (library returns None / raises) → <code>ConfigError</code> carrying a correct-syntax example (same UX pattern as <code>WALL_FILTERS_EXAMPLE</code>); negative values raise likewise.</li>
+<li><code>MediaFilters</code> runtime model (frozen) holding the four normalized values, <code>is_active</code> property, and verdict helpers: <code>duration_verdict(duration: float | None) -&gt; str | None</code> and <code>size_verdict(size_bytes: int | None) -&gt; str | None</code>, returning the violated-limit name (<code>"duration_max"</code>, <code>"file_size_min"</code>, ...) or <code>None</code> for pass; <code>None</code> input always passes.</li>
+<li><code>MediaFilters.for_creator(username: str | None, creator_id: int | None) -&gt; MediaFilters</code>: applies the matching <code>by_creator</code> override field-by-field (username key, then ID key) and returns a resolved frozen instance; no match returns the global instance. Called once per creator at gate entry — every gate consumes the resolved instance, so the per-creator layer adds no logic inside the gates themselves.</li>
+</ul>
+<h3 id="fanslyconfig-plumbing">FanslyConfig plumbing<a class="headerlink" href="#fanslyconfig-plumbing" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>FanslyConfig.media_filters: MediaFilters</code> (default all-<code>None</code> = inactive), populated in <code>_populate_config_from_schema</code> from <code>schema.filters.media</code>; save-back via <code>_maybe_set</code> on the section (immutable-frozen runtime model means no aliasing-mutation hazard, unlike wall_filters — documented in code where the wall path deep-copies).</li>
+</ul>
+<h3 id="cli-configargspy">CLI (<code>config/args.py</code>)<a class="headerlink" href="#cli-configargspy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Four flags, NOT in the download-modes group (they compose with any mode): <code>--file-size-min</code>, <code>--file-size-max</code>, <code>--duration-min</code>, <code>--duration-max</code>. Values parsed with the same functions; explicit <code>0</code> disables that filter for the run; each set flag becomes an ephemeral override (never written to YAML). No mode enforcement — passive limits.</li>
+<li>CLI flags override the GLOBAL layer only; <code>by_creator</code> entries still win for their creators (a flag changes the default everyone else inherits).</li>
+</ul>
+<h2 id="runtime-enforcement-downloadmediafilterspy">Runtime enforcement (<code>download/mediafilters.py</code>)<a class="headerlink" href="#runtime-enforcement-downloadmediafilterspy" title="Permanent link">&para;</a></h2>
+<h3 id="metadata-gate-in-download_medias-per-item-loop">Metadata gate — in <code>download_media</code>'s per-item loop<a class="headerlink" href="#metadata-gate-in-download_medias-per-item-loop" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>check_media_filters(config, state, media) -&gt; str | None</code> (skip-reason or <code>None</code>), called directly after the existing <code>is_preview</code> skip and BEFORE <code>process_media_download</code>, so filtered items never enter download-state bookkeeping.</li>
+<li>Returns <code>None</code> immediately when <code>state.download_type == DownloadType.SINGLE</code> (explicitly requested post always downloads) or when <code>config.media_filters.is_active</code> is false. The SINGLE exemption and the inactive short-circuit apply to EVERY gate in this design — the wire and streaming gates receive <code>state</code> (threaded from <code>download_media</code>, which already holds it) and perform the same check, so a <code>--single</code> download is never size-gated either.</li>
+<li>Duration limits: checked against <code>media.duration</code>; videos only; <code>None</code> duration passes (OF-Scraper parity).</li>
+<li>Size limits: checked against prior evidence parsed from the row's <code>meta_info</code> JSON — <code>observedContentLength</code> (ground truth from an earlier header/completion measurement) wins over <code>estimatedContentLength</code> (bitrate math); neither present = pass, defer to download-time gates.</li>
+<li>On skip: merge <code>lastFilteredReason</code> into <code>meta_info</code> (telemetry; the gate recomputes from current limits each run, so nothing sticks).</li>
+</ul>
+<h3 id="wire-gate-regular-files-in-_download_regular_file">Wire gate — regular files, in <code>_download_regular_file</code><a class="headerlink" href="#wire-gate-regular-files-in-_download_regular_file" title="Permanent link">&para;</a></h3>
+<ul>
+<li>After status 200, read <code>content-length</code> BEFORE opening the temp file/streaming: violation → close the response unstreamed, merge <code>observedContentLength</code> + <code>lastFilteredReason</code> into <code>meta_info</code> (<code>store.save</code>, dirty-tracked), raise <code>MediaFilteredError</code> (new exception in <code>errors/</code>).</li>
+<li><code>download_media</code>'s loop catches <code>MediaFilteredError</code>, prints the filtered-skip line, increments the filtered counter, continues. Missing/zero <code>content-length</code> = pass (cannot judge).</li>
+</ul>
+<h3 id="streaming-gates-hlsdash-vods-downloadm3u8py-path">Streaming gates — HLS/DASH VODs (<code>download/m3u8.py</code> path)<a class="headerlink" href="#streaming-gates-hlsdash-vods-downloadm3u8py-path" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Estimate gate (pre-download)</strong>: fetch the master playlist once, pick the highest-quality variant's declared bitrate (preferring <code>AVERAGE-BANDWIDTH</code> over <code>BANDWIDTH</code> when present), estimated size = bitrate / 8 x <code>Media.duration</code>. HLS masters carry no duration, so <code>Media.duration</code> (API metadata, present on Fansly VODs) is the duration source; unknown duration or missing bandwidth → gate passes silently (backstop/completion gates still apply). Gate BOTH size bounds on the estimate; violation → record <code>estimatedContentLength</code> + <code>lastFilteredReason</code>, <code>MediaFilteredError</code>, zero media bytes fetched. (The DASH MPD example that motivated this carries <code>bandwidth</code> + <code>mediaPresentationDuration</code> the same way, but FDNG's download pipeline is HLS-only today — DASH is out of scope until the pipeline ever fetches MPDs.)</li>
+<li><strong>Running-total backstop (<code>file_size_max</code> only)</strong>: in the segment download loop (<code>_try_segment_download</code>) accumulate bytes across segments; crossing the max → cancel remaining segment futures, discard temp segments, record <code>observedContentLength</code> (&gt;= running total) + reason, <code>MediaFilteredError</code>. Caps waste at <code>file_size_max</code> bytes when the declared bitrate underestimated. The PyAV direct path (<code>_try_direct_download_pyav</code>) enforces the same by statting the growing output between packet batches.</li>
+<li><strong>Completion check (<code>file_size_min</code> only)</strong>: after mux/download completes, stat the final file; under min → delete, record true <code>observedContentLength</code> + reason, <code>MediaFilteredError</code>. (Min violations are tiny by definition; waste is negligible.)</li>
+<li><strong>Live captures exempt</strong>: <code>download/livestream.py</code> (IVS sliding-window recording) is untouched by all four filters — no total size or duration exists mid-broadcast.</li>
+</ol>
+<h3 id="recording-semantics-applies-to-every-gate">Recording semantics (applies to every gate)<a class="headerlink" href="#recording-semantics-applies-to-every-gate" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Recording = merging observation keys into the existing Media row's <code>meta_info</code> JSON: <code>observedContentLength</code> (header value / actual bytes), <code>estimatedContentLength</code> (bitrate math), <code>lastFilteredReason</code> (violated-limit name). Saved through the normal <code>store.save()</code> dirty-tracking path.</li>
+<li>Marking never happens: <code>is_downloaded</code>, <code>content_hash</code>, <code>local_filename</code> are untouched by filters. Loosening limits later downloads the item normally — every gate recomputes from current limits + stored observations.</li>
+<li>Known caveat (accepted): <code>meta_info</code> is an API-sourced tracked field; the next API re-serve of that media overwrites the blob and drops the injected keys, costing one extra download-time re-check on the following run. Self-healing, no stuck state.</li>
+</ul>
+<h2 id="statistics-and-output">Statistics and output<a class="headerlink" href="#statistics-and-output" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>DownloadState.filtered_count</code> (new counter) + a line in the per-creator statistics output.</li>
+<li>Per-item message mirrors the dedupe-skip style, gated by <code>show_downloads</code>/<code>show_skipped_downloads</code>: <code>Filtered [duration_max 2h]: video 'file.mp4' -&gt; skipped</code>.</li>
+</ul>
+<h2 id="error-handling">Error handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Parser errors and <code>min &gt; max</code> raise <code>ConfigError</code> at load/arg time with a correct-syntax example.</li>
+<li><code>MediaFilteredError</code> is a control-flow signal, not a failure: caught in <code>download_media</code>'s loop; never bubbles to the per-creator error handler; never triggers <code>input_enter_continue</code>.</li>
+<li>Malformed/absent manifest bandwidth attributes → estimate gate passes silently (falls through to backstop/completion gates).</li>
+<li>Malformed <code>meta_info</code> JSON when merging observations → replace-with-fresh-object is NOT allowed (it would drop API metadata); instead skip the merge with a debug log (the filter still functions, just without persistence that run).</li>
+</ul>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>Per <code>docs/testing/TESTING_REQUIREMENTS.md</code> and the fixture-location policy; respx via <code>respx_fansly_api</code>, real <code>entity_store</code> + factories, real TS/MP4 fixtures from <code>tests/fixtures/api/livestream_factories.py</code> and <code>tests/fixtures/fileio/</code>.</p>
+<ul>
+<li><strong>Parser tests</strong> (<code>tests/config/unit/test_media_filters.py</code>): size/duration parsing tables (all accepted forms incl. binary suffixes and colon/unit durations; garbage raises with example; <code>0</code>/<code>null</code> disable), <code>min &gt; max</code> raise, <code>FiltersSection</code> shape (wall relocation, <code>filters.wall: null</code> -&gt; <code>{}</code>, media defaults), CLI flag parsing/override/ephemerality, <code>0</code>-flag disables for the run.</li>
+<li><strong>Resolution tests</strong>: <code>for_creator</code> merge table — inherit (absent field), explicit-0 disable, value override, <code>{}</code> no-op, ID-key lookup via <code>creator_id</code>, unknown creator returns globals, tri-state via <code>model_fields_set</code>, resolved <code>min &gt; max</code> raises at load, CLI-global override + <code>by_creator</code> precedence.</li>
+<li><strong>Gate tests</strong> (<code>tests/download/unit/test_mediafilters.py</code>): metadata-gate verdict table (duration bounds, videos-only, <code>None</code>-duration passes, SINGLE exemption, inactive short-circuit, observed-beats-estimated evidence precedence, recorded-size reuse); wire gate with respx (violating <code>content-length</code> → body never streamed, <code>meta_info</code> merged, <code>is_downloaded</code> stays False, filtered counter incremented; missing header passes); <code>MediaFilteredError</code> loop handling.</li>
+<li><strong>Streaming tests</strong>: estimate gate against HLS master fixtures (<code>tests/fixtures/api/livestream_factories.py::build_master_playlist</code> takes a <code>bandwidth</code> kwarg) with known bandwidth x duration products (both pass and violate, plus unknown-duration pass-through); running-total abort using real TS segment fixtures; completion-check min path (real small file, deleted); estimated-vs-observed precedence on a later metadata-gate pass.</li>
+<li><strong>Relocation tests</strong>: existing wall-filters config tests updated to <code>filters.wall</code>; one test asserting <code>options.wall_filters</code> now rejects (<code>extra="forbid"</code>).</li>
+</ul>
+<h2 id="docs-packaging">Docs / packaging<a class="headerlink" href="#docs-packaging" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>docs/configuration/config_options.md</code>: new top-level <code>filters</code> section documentation — move the wall_filters subsection under it, add <code>filters.media</code> with all accepted value formats, the <code>by_creator</code> override semantics (absent = inherit, <code>0</code> = disable for that creator), the estimate-based nature of streaming size checks (declared-peak bitrate can over-estimate; <code>--file-size-max 0</code> is the per-run escape hatch), the SINGLE and live-capture exemptions, and the four CLI flags (global layer only; <code>by_creator</code> wins).</li>
+<li>CHANGELOG: amend the unreleased wall_filters bullet to reference <code>filters.wall</code>; add an Added bullet for media filters referencing <code>filters.media</code> + the CLI flags. Minor-version framing; existing configs unaffected (defaults disabled; <code>options.wall_filters</code> never shipped in a release).</li>
+</ul>
+<h2 id="out-of-scope">Out of scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>OF-Scraper's <code>filter</code> (content-type selection) and <code>max_post_count</code> — separate concerns. Its <code>block_ads</code> needs no equivalent: FDNG's existing <code>download_media_previews: false</code> already skips promotional/preview media (the <code>is_preview</code> skip this design's metadata gate sits beside).</li>
+<li>Live-capture size/duration limits (no knowable totals mid-broadcast).</li>
+<li>Retroactive cleanup of already-downloaded files that violate current limits.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+    
+  </span>
+</div>
+    <script src="../../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../../..";</script>
+    <script src="../../../js/theme_extra.js"></script>
+    <script src="../../../js/theme.js"></script>
+      <script src="../../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

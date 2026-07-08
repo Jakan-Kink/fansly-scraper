@@ -80,6 +80,14 @@
     </li>
         </ul>
     </li>
+    <li class="toctree-l2"><a class="reference internal" href="#filters">filters</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#filterswall">filters.wall</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#filtersmedia">filters.media</a>
+    </li>
+        </ul>
+    </li>
     <li class="toctree-l2"><a class="reference internal" href="#postgres">postgres</a>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#cache">cache</a>
@@ -573,6 +581,51 @@ stripped from the YAML on load. Keeping them in your file is harmless:</p>
   runtime override). For persistent verbosity, set
   <code>logging.global.default_level</code> instead</li>
 </ul>
+<hr />
+<h2 id="filters"><code>filters</code><a class="headerlink" href="#filters" title="Permanent link">&para;</a></h2>
+<p>Content filters: per-creator wall selection and media size/duration limits.</p>
+<h3 id="filterswall"><code>filters.wall</code><a class="headerlink" href="#filterswall" title="Permanent link">&para;</a></h3>
+<p>Restrict wall downloads to specific wall(s) per creator. When set, the run is <strong>WALL-only</strong> (<code>download_mode: wall</code> is required — any other mode raises a config error) and <strong>only the creators listed here are processed</strong> (<code>usernames</code> is not consulted for scope).</p>
+<p>Keys are creator usernames (or account snowflake IDs for advanced use). Values are either a list of wall names/IDs (an <em>includes</em> list) or a mapping with optional <code>includes</code>/<code>excludes</code> lists:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">options</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">download_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">wall</span>
+<span class="nt">filters</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">wall</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">creator1</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;FULL</span><span class="nv"> </span><span class="s">VIDEOS&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">creator2</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">includes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Promos&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;1234567890123&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">excludes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;previews&quot;</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<p>Wall names match case-insensitively against the names shown as tabs on the creator's page; all-digit tokens of 10+ characters are treated as wall IDs (visible in DevTools). <code>excludes</code> without <code>includes</code> means "all walls except these". An empty entry prompts interactively (download all walls? / enter wall names) and errors in non-interactive runs.</p>
+<p>CLI equivalent (ephemeral, never written back to <code>config.yaml</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># one creator, bare form</span>
+python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>-u<span class="w"> </span>creator1<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s2">&quot;FULL VIDEOS,Promos&quot;</span>
+<span class="c1"># multiple creators, JSON form</span>
+python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s1">&#39;{&quot;creator1&quot;: [&quot;FULL VIDEOS&quot;], &quot;creator2&quot;: {&quot;excludes&quot;: [&quot;previews&quot;]}}&#39;</span>
+</code></pre></div>
+<p>With <code>-u</code> alongside YAML <code>filters.wall</code>, <code>-u</code> must name a subset of the filter keys and narrows the run to those creators. Wall names containing commas (and excludes) require the JSON form.</p>
+<h3 id="filtersmedia"><code>filters.media</code><a class="headerlink" href="#filtersmedia" title="Permanent link">&para;</a></h3>
+<p>Skip media outside a min/max file-size or duration window. Each of the four limits (<code>file_size_min</code>, <code>file_size_max</code>, <code>duration_min</code>, <code>duration_max</code>) is independent, and each accepts <code>0</code> or an absent/empty value to mean "disabled":</p>
+<div class="highlight"><pre><span></span><code><span class="nt">filters</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">media</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">file_size_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100KB</span>
+<span class="w">    </span><span class="nt">file_size_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4GB</span>
+<span class="w">    </span><span class="nt">duration_min</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0:03&quot;</span>
+<span class="w">    </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2h</span>
+<span class="w">    </span><span class="nt">by_creator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">vod_streamer</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">45m</span>
+</code></pre></div>
+<p>Size values accept anything <a href="https://docs.pydantic.dev/latest/api/types/#pydantic.types.ByteSize"><code>pydantic.ByteSize</code></a> parses: raw bytes (<code>102400</code>), decimal units (<code>100KB</code>, <code>4GB</code>), or binary units (<code>1GiB</code>), case-insensitively and with or without a space before the unit. Duration values accept raw seconds (<code>90</code>), colon forms (<code>1:30</code>, <code>1:30:00</code>), unit suffixes (<code>45s</code>, <code>45m</code>, <code>2h</code>), and compound forms (<code>2h30m</code>) via <a href="https://pypi.org/project/pytimeparse2/"><code>pytimeparse2</code></a>.</p>
+<p><code>by_creator</code> keys are usernames (sanitized: stripped, leading <code>@</code> removed, lowercased — <code>@VOD_Streamer</code> and <code>vod_streamer</code> collide) or account snowflake IDs, matched in that order. Each override is a partial patch: a field absent from the override inherits the corresponding global limit; a field explicitly set to <code>0</code> or <code>null</code> disables that limit for that creator regardless of the global value.</p>
+<p>Duration limits only ever apply to videos (<code>mimetype</code> starting <code>video/</code>); images and other media are exempt. Any limit whose evidence is unknown — a video with no known duration, a file with no size evidence yet — passes rather than being filtered; the check only fires when there's data to judge it against.</p>
+<p>Size enforcement differs by media shape. Regular (non-streaming) files are checked against the CDN's <code>Content-Length</code> response header before the body downloads. HLS/DASH streaming VODs have no upfront size, so they're checked against a declared-bitrate × duration estimate before any segments download — an estimate that can run over a boundary near a <code>file_size_max</code> limit since bitrate is nominal, not exact — backed by a mid-download running-total check (tiers 1 and 3 of the HLS strategy) and a final completion-size check as the source of truth once the file is fully assembled.</p>
+<p>Media that fails any gate is <strong>never marked downloaded</strong>: the violated limit, and whatever size evidence was observed or estimated, is recorded onto the media's stored metadata (<code>lastFilteredReason</code>, <code>observedContentLength</code>/<code>estimatedContentLength</code>) without touching its downloaded/hash state. Loosening the limits in a later run picks the same item up again, since it was never marked complete.</p>
+<p><code>filters.media</code> (both the global limits and <code>by_creator</code>) is never consulted for <code>SINGLE</code>-mode downloads or live-capture recordings — both are exempt from filtering entirely.</p>
+<p>CLI equivalent (ephemeral, never written back to <code>config.yaml</code>, and overrides the global layer only — a matching <code>by_creator</code> override still wins):</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--file-size-min<span class="w"> </span>100KB<span class="w"> </span>--file-size-max<span class="w"> </span>4GB<span class="w"> </span>--duration-min<span class="w"> </span><span class="m">0</span>:03<span class="w"> </span>--duration-max<span class="w"> </span>2h
+</code></pre></div>
+<p><code>0</code> disables the corresponding limit for that run.</p>
 <hr />
 <h2 id="postgres"><code>postgres</code><a class="headerlink" href="#postgres" title="Permanent link">&para;</a></h2>
 <p>PostgreSQL connection settings for asyncpg.</p>
@@ -1390,6 +1443,48 @@ of the YAML setting.</p>
 <tr>
 <td><code>options.download_mode = STASH_ONLY</code></td>
 <td><code>--stash-only</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Wall filters</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>filters.wall</code></td>
+<td><code>--wall-filters</code> (ephemeral, forces <code>WALL</code> mode)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Media filters</strong></p>
+<table>
+<thead>
+<tr>
+<th>Config field</th>
+<th>CLI flag</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>filters.media.file_size_min</code></td>
+<td><code>--file-size-min</code> (ephemeral, global layer only)</td>
+</tr>
+<tr>
+<td><code>filters.media.file_size_max</code></td>
+<td><code>--file-size-max</code> (ephemeral, global layer only)</td>
+</tr>
+<tr>
+<td><code>filters.media.duration_min</code></td>
+<td><code>--duration-min</code> (ephemeral, global layer only)</td>
+</tr>
+<tr>
+<td><code>filters.media.duration_max</code></td>
+<td><code>--duration-max</code> (ephemeral, global layer only)</td>
 </tr>
 </tbody>
 </table>
