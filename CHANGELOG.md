@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-08
+
 ### Added
 
 - **Per-creator wall filters (`filters.wall`).** Wall mode previously downloaded every wall a creator has; now a creator → walls map restricts the run to specific wall(s), matched case-insensitively by the names shown as tabs on the creator page or by wall snowflake ID (visible in DevTools), with optional `includes`/`excludes` lists (excludes-only means "all walls except these"). The map defines the run's creator scope outright — `usernames` is not consulted, `-u` narrows to a subset of the filter keys, and any conflicting `download_mode` or `use_following` raises instead of silently mixing. Common YAML list/dict confusions (bare strings, dash-prefixed nesting, `include`/`exclude` singulars, null values) normalize leniently with a correct-syntax example in every error. Wall names are re-resolved against the live account response each run, so a renamed wall produces a warning listing the creator's actual walls rather than a silent miss. Ephemeral CLI form: `--wall-filters` with a JSON map (defines the creator set) or, with exactly one `-u` creator, a bare comma-separated list — never written back to `config.yaml`.
@@ -398,7 +400,8 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.5...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.5...v0.15.0
 [0.14.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.2...v0.14.3
