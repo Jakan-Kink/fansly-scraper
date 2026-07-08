@@ -174,32 +174,41 @@ def _mount_master_variant_route() -> respx.Route:
 class TestM3U8Cookies:
     """CloudFront cookie extraction from M3U8 URL query strings."""
 
-    def test_all_values_present(self):
-        url = (
-            "https://media.example.com/hls/video.m3u8"
-            "?Policy=abc123&Key-Pair-Id=xyz789&Signature=def456"
-        )
-        assert get_m3u8_cookies(url) == {
-            "CloudFront-Key-Pair-Id": "xyz789",
-            "CloudFront-Policy": "abc123",
-            "CloudFront-Signature": "def456",
-        }
-
-    def test_missing_values_become_none(self):
-        url = "https://media.example.com/hls/video.m3u8?Policy=abc123"
-        assert get_m3u8_cookies(url) == {
-            "CloudFront-Key-Pair-Id": None,
-            "CloudFront-Policy": "abc123",
-            "CloudFront-Signature": None,
-        }
-
-    def test_no_query_string_returns_all_none(self):
-        url = "https://media.example.com/hls/video.m3u8"
-        assert get_m3u8_cookies(url) == {
-            "CloudFront-Key-Pair-Id": None,
-            "CloudFront-Policy": None,
-            "CloudFront-Signature": None,
-        }
+    @pytest.mark.parametrize(
+        ("url", "expected_cookies"),
+        [
+            pytest.param(
+                "https://media.example.com/hls/video.m3u8"
+                "?Policy=abc123&Key-Pair-Id=xyz789&Signature=def456",
+                {
+                    "CloudFront-Key-Pair-Id": "xyz789",
+                    "CloudFront-Policy": "abc123",
+                    "CloudFront-Signature": "def456",
+                },
+                id="all_values_present",
+            ),
+            pytest.param(
+                "https://media.example.com/hls/video.m3u8?Policy=abc123",
+                {
+                    "CloudFront-Key-Pair-Id": None,
+                    "CloudFront-Policy": "abc123",
+                    "CloudFront-Signature": None,
+                },
+                id="missing_values_become_none",
+            ),
+            pytest.param(
+                "https://media.example.com/hls/video.m3u8",
+                {
+                    "CloudFront-Key-Pair-Id": None,
+                    "CloudFront-Policy": None,
+                    "CloudFront-Signature": None,
+                },
+                id="no_query_string_returns_all_none",
+            ),
+        ],
+    )
+    def test_cookie_extraction(self, url, expected_cookies):
+        assert get_m3u8_cookies(url) == expected_cookies
 
 
 # ---------------------------------------------------------------------------
@@ -460,41 +469,37 @@ class TestDownloadM3U8ThreeTierStrategy:
         assert result == save_path.parent / "video.mp4"
         mock_segment.assert_called_once()
 
-    def test_created_at_set_on_pyav_success(
-        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
+    @pytest.mark.parametrize(
+        ("pyav_ok", "ffmpeg_ok", "created_at"),
+        [
+            pytest.param(True, False, 1633046400, id="pyav_success"),
+            pytest.param(False, True, 1700000000, id="ffmpeg_fallback"),
+            pytest.param(False, False, 1633046400, id="segment_fallback"),
+        ],
+    )
+    def test_created_at_applied_on_each_tier(
+        self,
+        mock_pyav,
+        mock_ffmpeg,
+        mock_segment,
+        pyav_ok,
+        ffmpeg_ok,
+        created_at,
+        tmp_path,
+        monkeypatch,
     ):
-        """created_at is applied via os.utime on the resulting path."""
-        config = _make_real_config()
-        save_path = tmp_path / "video.mp4"
-        mock_pyav.return_value = True
+        """created_at is applied via os.utime whichever tier succeeds.
 
-        utime_calls: list[tuple] = []
-        monkeypatch.setattr(
-            "download.m3u8.os.utime", lambda p, t: utime_calls.append((p, t))
-        )
-
-        download_m3u8(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-            save_path=save_path,
-            created_at=1633046400,
-        )
-
-        assert utime_calls == [
-            (save_path.parent / "video.mp4", (1633046400, 1633046400))
-        ]
-
-    def test_created_at_set_on_ffmpeg_fallback(
-        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
-    ):
-        """FFmpeg fallback succeeds → created_at applied on that path too.
-
-        Covers line 727 (os.utime in the FFmpeg-success branch of download_m3u8).
+        Covers the os.utime call in each success branch of download_m3u8:
+        PyAV short-circuit, FFmpeg fallback (line 727), and the
+        segment-download tier (created_at passed through to result path).
         """
         config = _make_real_config()
         save_path = tmp_path / "video.mp4"
-        mock_pyav.return_value = False
-        mock_ffmpeg.return_value = True
+        mock_pyav.return_value = pyav_ok
+        mock_ffmpeg.return_value = ffmpeg_ok
+        if not pyav_ok and not ffmpeg_ok:
+            mock_segment.return_value = save_path.parent / "video.mp4"
 
         utime_calls: list[tuple] = []
         monkeypatch.setattr(
@@ -505,37 +510,11 @@ class TestDownloadM3U8ThreeTierStrategy:
             config=config,
             m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
             save_path=save_path,
-            created_at=1700000000,
+            created_at=created_at,
         )
 
         assert utime_calls == [
-            (save_path.parent / "video.mp4", (1700000000, 1700000000))
-        ]
-
-    def test_created_at_passed_through_to_segment_fallback(
-        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path, monkeypatch
-    ):
-        """Segment-download tier success → created_at applied on result path."""
-        config = _make_real_config()
-        save_path = tmp_path / "video.mp4"
-        mock_pyav.return_value = False
-        mock_ffmpeg.return_value = False
-        mock_segment.return_value = save_path.parent / "video.mp4"
-
-        utime_calls: list[tuple] = []
-        monkeypatch.setattr(
-            "download.m3u8.os.utime", lambda p, t: utime_calls.append((p, t))
-        )
-
-        download_m3u8(
-            config=config,
-            m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
-            save_path=save_path,
-            created_at=1633046400,
-        )
-
-        assert utime_calls == [
-            (save_path.parent / "video.mp4", (1633046400, 1633046400))
+            (save_path.parent / "video.mp4", (created_at, created_at))
         ]
 
     def test_non_m3u8error_exception_is_wrapped(
