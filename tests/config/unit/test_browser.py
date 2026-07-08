@@ -214,65 +214,90 @@ async def test_get_token_from_firefox_profile_storage_db_without_session(tmp_pat
     assert result is None
 
 
+@pytest.mark.parametrize(
+    ("db_rows", "connect_error", "db_file", "interactive", "expected"),
+    [
+        pytest.param(
+            [
+                (
+                    "session_active_session",
+                    None,
+                    None,
+                    None,
+                    None,
+                    b'{"token":"test-token"}',
+                )
+            ],  # Row data with key in first column
+            None,
+            "test.sqlite",
+            True,
+            "test-token",
+            id="with_token",
+        ),
+        pytest.param(
+            [(b"other_key", None, None, None, None, b'{"data":"test"}')],  # Row data
+            None,
+            "test.sqlite",
+            True,
+            None,
+            id="no_token",
+        ),
+        pytest.param(
+            None,
+            sqlite3.OperationalError(
+                "Could not decode to UTF-8 column 'value' with text"
+            ),
+            "test.sqlite",
+            True,
+            None,
+            id="utf8_decode_error",
+        ),
+        pytest.param(
+            None,
+            sqlite3.Error("database is locked"),
+            "firefox.sqlite",
+            False,
+            None,
+            id="locked_non_interactive",
+        ),
+        pytest.param(
+            None,
+            Exception("unexpected error"),
+            "test.sqlite",
+            True,
+            None,
+            id="generic_exception",
+        ),
+    ],
+)
 @patch("sqlite3.connect")
-async def test_get_token_from_firefox_db_with_token(mock_connect):
-    """Test extracting token from Firefox SQLite database when token exists."""
-    mock_cursor = MagicMock()
-    mock_cursor.fetchall.side_effect = [
-        [("table1",)],  # Table names
-        [
-            (
-                "session_active_session",
-                None,
-                None,
-                None,
-                None,
-                b'{"token":"test-token"}',
-            )
-        ],  # Row data with key in first column
-    ]
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
-    mock_connect.return_value = mock_conn
+async def test_get_token_from_firefox_db_outcomes(
+    mock_connect, db_rows, connect_error, db_file, interactive, expected
+):
+    """Firefox SQLite token extraction across leaf-patch outcomes.
 
-    result = await get_token_from_firefox_db("test.sqlite")
-    assert result == "test-token"
+    Covers: token present, token absent, UTF-8 decode OperationalError,
+    locked database in non-interactive mode, and generic exceptions —
+    all via the ``sqlite3.connect`` leaf patch. The interactive locked
+    flow (prompt + browser close + retry) is tested separately below.
+    """
+    if connect_error is not None:
+        mock_connect.side_effect = connect_error
+    else:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.side_effect = [
+            [("table1",)],  # Table names
+            db_rows,
+        ]
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
 
-
-@patch("sqlite3.connect")
-async def test_get_token_from_firefox_db_no_token(mock_connect):
-    """Test extracting token from Firefox SQLite database when no token exists."""
-    mock_cursor = MagicMock()
-    mock_cursor.fetchall.side_effect = [
-        [("table1",)],  # Table names
-        [(b"other_key", None, None, None, None, b'{"data":"test"}')],  # Row data
-    ]
-    mock_conn = MagicMock()
-    mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
-    mock_connect.return_value = mock_conn
-
-    result = await get_token_from_firefox_db("test.sqlite")
-    assert result is None
-
-
-@patch("sqlite3.connect")
-async def test_get_token_from_firefox_db_utf8_decode_error(mock_connect):
-    """Test handling UTF-8 decode errors in Firefox SQLite database."""
-    mock_connect.side_effect = sqlite3.OperationalError(
-        "Could not decode to UTF-8 column 'value' with text"
-    )
-
-    result = await get_token_from_firefox_db("test.sqlite")
-    assert result is None
-
-
-@patch("sqlite3.connect")
-async def test_get_token_from_firefox_db_locked_non_interactive(mock_connect):
-    """Test handling locked database in non-interactive mode."""
-    mock_connect.side_effect = sqlite3.Error("database is locked")
-
-    result = await get_token_from_firefox_db("firefox.sqlite", interactive=False)
-    assert result is None
+    result = await get_token_from_firefox_db(db_file, interactive=interactive)
+    if expected is None:
+        assert result is None
+    else:
+        assert result == expected
 
 
 @patch("sqlite3.connect")
@@ -335,15 +360,6 @@ async def test_get_token_from_firefox_db_other_sqlite_error(
     mock_logger.error.assert_called_once_with(
         "Unexpected Error processing SQLite file:\nTraceback: some other error"
     )
-
-
-@patch("sqlite3.connect")
-async def test_get_token_from_firefox_db_generic_exception(mock_connect):
-    """Test handling generic exceptions."""
-    mock_connect.side_effect = Exception("unexpected error")
-
-    result = await get_token_from_firefox_db("test.sqlite")
-    assert result is None
 
 
 @patch("platform.system")
@@ -417,50 +433,58 @@ def test_close_browser_by_name_no_process(
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
+@pytest.mark.parametrize(
+    ("db_value", "db_error_kind", "interactive", "expected"),
+    [
+        pytest.param(b'{"token":"test-token"}', None, True, "test-token", id="success"),
+        pytest.param(None, None, True, None, id="no_token"),
+        pytest.param(
+            None, "browser_locked", False, None, id="browser_locked_non_interactive"
+        ),
+        pytest.param(None, "generic", True, None, id="generic_exception"),
+    ],
+)
 @patch("plyvel.DB")
-async def test_get_auth_token_from_leveldb_success(mock_db_class):
-    """Test successfully getting auth token from LevelDB.
+async def test_get_auth_token_from_leveldb_outcomes(
+    mock_db_class, db_value, db_error_kind, interactive, expected
+):
+    """LevelDB token extraction across leaf-patch outcomes.
+
+    Covers: token present, token absent, browser-lock IOError in
+    non-interactive mode, and generic exceptions (lines 338-339). The
+    interactive browser-locked flow (prompt + close + retry) is tested
+    separately below.
+
+    Error kinds are encoded as strings and constructed inside the test
+    body — ``plyvel`` is None when not installed, so building
+    ``plyvel._plyvel.IOError`` at parametrize-collection time would crash
+    before the skipif fires.
 
     Production uses ``with plyvel.DB(...) as db:`` — wire __enter__ to
     return the same mock so the as-bound name resolves to ``mock_db``.
     Without this, MagicMock's default __enter__ returns a child mock and
     the ``with`` block sees a different object than the test configured.
     """
-    mock_db = MagicMock()
-    mock_db_class.return_value = mock_db
-    mock_db.__enter__.return_value = mock_db
-    mock_db.get.return_value = b'{"token":"test-token"}'
+    if db_error_kind == "browser_locked":
+        mock_db_class.side_effect = plyvel._plyvel.IOError(
+            "Resource temporarily unavailable"
+        )
+    elif db_error_kind == "generic":
+        mock_db_class.side_effect = RuntimeError("unexpected db error")
+    else:
+        mock_db = MagicMock()
+        mock_db_class.return_value = mock_db
+        mock_db.__enter__.return_value = mock_db
+        mock_db.get.return_value = db_value
 
-    result = await get_auth_token_from_leveldb_folder("test/path")
-
-    assert result == "test-token"
-
-
-@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
-@patch("plyvel.DB")
-async def test_get_auth_token_from_leveldb_no_token(mock_db_class):
-    """Test when no token is found in LevelDB."""
-    mock_db = MagicMock()
-    mock_db_class.return_value = mock_db
-    mock_db.__enter__.return_value = mock_db
-    mock_db.get.return_value = None
-
-    result = await get_auth_token_from_leveldb_folder("test/path")
-
-    assert result is None
-
-
-@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
-@patch("plyvel.DB")
-async def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
-    """Test handling browser lock error in LevelDB access."""
-    mock_db_class.side_effect = plyvel._plyvel.IOError(
-        "Resource temporarily unavailable"
+    result = await get_auth_token_from_leveldb_folder(
+        "test/path", interactive=interactive
     )
 
-    result = await get_auth_token_from_leveldb_folder("test/path", interactive=False)
-
-    assert result is None
+    if expected is None:
+        assert result is None
+    else:
+        assert result == expected
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
@@ -488,17 +512,6 @@ async def test_get_auth_token_from_leveldb_interactive_browser_locked(
     assert result == "test-token"
     mock_close_browser.assert_called_once()
     mock_await_enter.assert_awaited_once()
-
-
-@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
-@patch("plyvel.DB")
-async def test_get_auth_token_from_leveldb_generic_exception(mock_db_class):
-    """Generic exception during LevelDB access returns None (lines 338-339)."""
-    mock_db_class.side_effect = RuntimeError("unexpected db error")
-
-    result = await get_auth_token_from_leveldb_folder("test/path")
-
-    assert result is None
 
 
 @patch("platform.system")

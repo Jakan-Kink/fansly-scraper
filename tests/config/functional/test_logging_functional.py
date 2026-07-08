@@ -39,57 +39,27 @@ def assert_log_contains(
     return False
 
 
-def test_textio_logger_output(logging_config, log_dir):
-    """Test that textio_logger writes to the correct files at correct levels."""
-    # INFO level should go to both console and file
-    textio_logger.info("Info message")
+@pytest.mark.parametrize(
+    ("family_logger", "filename"),
+    [
+        pytest.param(textio_logger, "fansly_downloader_ng.log", id="textio"),
+        pytest.param(json_logger, "fansly_downloader_ng_json.log", id="json"),
+        pytest.param(db_logger, "sqlalchemy.log", id="db"),
+        pytest.param(stash_logger, "stash.log", id="stash"),
+    ],
+)
+def test_logger_output(logging_config, log_dir, family_logger, filename):
+    """Each per-family logger writes to its own file at the correct levels.
+
+    INFO goes to the family's file sink; DEBUG is filtered out by default
+    and appears only once ``set_debug_enabled(True)`` is active.
+    """
+    # INFO level should go to the file sink
+    family_logger.info("Info message")
     # Force logger to flush
     logger.complete()
-    log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
+    log_lines = read_log_file(log_dir, filename)
     assert len(log_lines) > 0, "Log file empty or not found"
-
-    # Check that any line contains our message
-    message_found = False
-    info_level_found = False
-    for line in log_lines:
-        if "Info message" in line:
-            message_found = True
-        if "INFO" in line:
-            info_level_found = True
-
-    assert message_found, f"Log content: {log_lines}"
-    assert info_level_found, f"Log content: {log_lines}"
-
-    # DEBUG level should be filtered out by default
-    textio_logger.debug("Debug message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-    assert not any("Debug message" in line for line in log_lines), (
-        f"Log file should not contain 'Debug message'. Contents: {log_lines}"
-    )
-
-    # With debug enabled, DEBUG should appear
-    set_debug_enabled(True)
-    try:
-        textio_logger.debug("Debug message with debug enabled")
-        logger.complete()
-        log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines), (
-            f"Log content: {log_lines}"
-        )
-        assert any(
-            "DEBUG" in line for line in log_lines
-        )  # Format uses [DEBUG   ] with padding
-    finally:
-        set_debug_enabled(False)
-
-
-def test_json_logger_output(logging_config, log_dir):
-    """Test that json_logger writes to the correct file at correct levels."""
-    # INFO level should go to file only
-    json_logger.info("Info message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
     assert any("Info message" in line for line in log_lines), (
         f"Log content: {log_lines}"
     )
@@ -98,85 +68,25 @@ def test_json_logger_output(logging_config, log_dir):
     )  # Format uses [INFO    ] with padding
 
     # DEBUG level should be filtered out by default
-    json_logger.debug("Debug message")
+    family_logger.debug("Debug message")
     logger.complete()
-    log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
-    assert not any("Debug message" in line for line in log_lines)
+    log_lines = read_log_file(log_dir, filename)
+    assert not any("Debug message" in line for line in log_lines), (
+        f"Log file should not contain 'Debug message'. Contents: {log_lines}"
+    )
 
     # With debug enabled, DEBUG should appear
     set_debug_enabled(True)
     try:
-        json_logger.debug("Debug message with debug enabled")
+        family_logger.debug("Debug message with debug enabled")
         logger.complete()
-        log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
+        log_lines = read_log_file(log_dir, filename)
         assert any("Debug message with debug enabled" in line for line in log_lines), (
             f"Log content: {log_lines}"
         )
         assert any(
             "DEBUG" in line for line in log_lines
         )  # Format uses [DEBUG   ] with padding
-    finally:
-        set_debug_enabled(False)
-
-
-def test_db_logger_output(logging_config, log_dir):
-    """Test that db_logger writes to the correct file at correct levels."""
-    # INFO level should go to file only
-    db_logger.info("Info message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "sqlalchemy.log")
-    assert any("Info message" in line for line in log_lines), (
-        f"Log content: {log_lines}"
-    )
-    assert any("INFO" in line for line in log_lines)
-
-    # DEBUG level should be filtered out by default
-    db_logger.debug("Debug message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "sqlalchemy.log")
-    assert not any("Debug message" in line for line in log_lines)
-
-    # With debug enabled, DEBUG should appear
-    set_debug_enabled(True)
-    try:
-        db_logger.debug("Debug message with debug enabled")
-        logger.complete()
-        log_lines = read_log_file(log_dir, "sqlalchemy.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines), (
-            f"Log content: {log_lines}"
-        )
-        assert any("DEBUG" in line for line in log_lines)
-    finally:
-        set_debug_enabled(False)
-
-
-def test_stash_logger_output(logging_config, log_dir):
-    """Test that stash_logger writes to the correct files at correct levels."""
-    # INFO level should go to both console and file
-    stash_logger.info("Info message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "stash.log")
-    assert any("Info message" in line for line in log_lines), (
-        f"Log content: {log_lines}"
-    )
-    assert any("INFO" in line for line in log_lines)
-
-    # DEBUG level should be filtered out by default
-    stash_logger.debug("Debug message")
-    logger.complete()
-    log_lines = read_log_file(log_dir, "stash.log")
-    assert not any("Debug message" in line for line in log_lines)
-
-    # With debug enabled, DEBUG should appear
-    set_debug_enabled(True)
-    try:
-        stash_logger.debug("Debug message with debug enabled")
-        logger.complete()
-        log_lines = read_log_file(log_dir, "stash.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines), (
-            f"Log content: {log_lines}"
-        )
-        assert any("DEBUG" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
 
@@ -206,18 +116,40 @@ def test_trace_logger_output(logging_config, log_dir, mock_config):
         init_logging_config(logging_config)
 
 
-def test_debug_mode_all_loggers(logging_config, log_dir):
-    """Test that debug mode affects all non-trace loggers."""
-    set_debug_enabled(True)
+@pytest.mark.parametrize(
+    ("mode", "trace_visible"),
+    [
+        pytest.param("debug", False, id="debug_mode"),
+        pytest.param("trace", True, id="trace_mode"),
+    ],
+)
+def test_mode_floors_all_loggers(
+    logging_config, log_dir, mock_config, mode, trace_visible
+):
+    """Debug mode floors all non-trace loggers; trace mode floors EVERY handler.
+
+    ``set_debug_enabled(True)`` lets DEBUG flow through all four family
+    sinks while ``trace_logger`` stays silent. ``-vv`` / ``config.trace=True``
+    (pre-v0.14 the trace toggle only affected ``trace_logger`` and
+    ``sqlalchemy``; non-db file handlers kept their INFO floor) is a
+    uniform runtime override — DEBUG messages from every handler surface
+    in their respective sinks AND ``trace_logger`` outputs TRACE.
+    """
+    config = mock_config
+    if mode == "trace":
+        config.trace = True
+        init_logging_config(config)
+    else:
+        set_debug_enabled(True)
     try:
-        # All non-trace loggers should output DEBUG
+        # All non-trace loggers should output DEBUG in either mode.
         textio_logger.debug("Debug textio")
         json_logger.debug("Debug json")
         stash_logger.debug("Debug stash")
         db_logger.debug("Debug db")
         logger.complete()
 
-        # Check each log file
+        # All four sinks carry the DEBUG message.
         assert any(
             "Debug textio" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng.log")
@@ -233,61 +165,22 @@ def test_debug_mode_all_loggers(logging_config, log_dir):
             "Debug db" in line for line in read_log_file(log_dir, "sqlalchemy.log")
         ), f"Log content: {read_log_file(log_dir, 'sqlalchemy.log')}"
 
-        # trace_logger should still be silent
+        # trace_logger emits only in trace mode; silent in debug mode.
         trace_logger.trace("Trace message")
         logger.complete()
-        assert not any(
-            "Trace message" in line for line in read_log_file(log_dir, "trace.log")
-        )
+        trace_lines = read_log_file(log_dir, "trace.log")
+        if trace_visible:
+            assert any("Trace message" in line for line in trace_lines), (
+                f"Log content: {trace_lines}"
+            )
+        else:
+            assert not any("Trace message" in line for line in trace_lines)
     finally:
-        set_debug_enabled(False)
-
-
-def test_trace_mode_floors_every_handler(logging_config, log_dir, mock_config):
-    """``-vv`` / ``config.trace=True`` floors EVERY handler at TRACE.
-
-    Pre-v0.14 the trace toggle only affected ``trace_logger`` and
-    ``sqlalchemy``; non-db file handlers (main_log, json, stash) kept
-    their INFO floor. The v0.14 redesign reframes trace as a uniform
-    runtime override — DEBUG (and TRACE) messages from every handler
-    surface in their respective sinks.
-    """
-    config = mock_config
-    config.trace = True
-    init_logging_config(config)
-    try:
-        # trace_logger should output TRACE
-        trace_logger.trace("Trace message")
-        logger.complete()
-        assert any(
-            "Trace message" in line for line in read_log_file(log_dir, "trace.log")
-        ), f"Log content: {read_log_file(log_dir, 'trace.log')}"
-
-        # Every handler — DEBUG messages now flow through to their sinks.
-        textio_logger.debug("Debug textio")
-        json_logger.debug("Debug json")
-        stash_logger.debug("Debug stash")
-        db_logger.debug("Debug db")
-        logger.complete()
-
-        # All four sinks now carry the DEBUG message.
-        assert any(
-            "Debug textio" in line
-            for line in read_log_file(log_dir, "fansly_downloader_ng.log")
-        )
-        assert any(
-            "Debug json" in line
-            for line in read_log_file(log_dir, "fansly_downloader_ng_json.log")
-        )
-        assert any(
-            "Debug stash" in line for line in read_log_file(log_dir, "stash.log")
-        )
-        assert any(
-            "Debug db" in line for line in read_log_file(log_dir, "sqlalchemy.log")
-        )
-    finally:
-        config.trace = False
-        init_logging_config(logging_config)
+        if mode == "trace":
+            config.trace = False
+            init_logging_config(logging_config)
+        else:
+            set_debug_enabled(False)
 
 
 def test_console_output(logging_config, capsys, mock_config):
