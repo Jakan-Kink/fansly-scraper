@@ -409,18 +409,26 @@ async def _get_following_page(
 
     await asyncio.sleep(request_delay)
 
-    account_response = await _make_rate_limited_request(
-        config.get_api().get_account_info_by_id,
-        account_ids,
-        rate_limit_delay=30.0,
-    )
-    json_output(1, f"account_details_page_{page}", account_response.json())
-    account_data = config.get_api().get_json_response_contents(account_response)
-    if not isinstance(account_data, list):
-        raise TypeError("Fansly API: expected an account-details array response")
-    await asyncio.sleep(timing_jitter(2, 4))
+    batch_size = config.account_ids_batch_size
+    accounts: list[dict] = []
+    for chunk_index, start in enumerate(range(0, len(account_ids), batch_size)):
+        chunk = account_ids[start : start + batch_size]
+        account_response = await _make_rate_limited_request(
+            config.get_api().get_account_info_by_id,
+            chunk,
+            rate_limit_delay=30.0,
+        )
+        json_output(
+            1,
+            f"account_details_page_{page}_chunk_{chunk_index}",
+            account_response.json(),
+        )
+        account_data = config.get_api().get_json_response_contents(account_response)
+        if not isinstance(account_data, list):
+            raise TypeError("Fansly API: expected an account-details array response")
+        accounts.extend(expect_dict(a, "account") for a in account_data)
+        await asyncio.sleep(timing_jitter(2, 4))
 
-    accounts = [expect_dict(a, "account") for a in account_data]
     return accounts, len(account_ids)
 
 

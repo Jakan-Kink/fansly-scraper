@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Max-resolution cap (`filters.media.max_resolution`).** Cap downloads to a resolution tier (`240p`…`1440p`, `4k`) or a shorter-edge pixel integer: the highest rendition at or below the cap is downloaded (real downscaling when Fansly offers a smaller variant), and an item is skipped as a filtered download only when no rendition fits. Compares on the shorter edge so portrait and landscape both work; supports per-creator `by_creator` overrides and a `--max-resolution` CLI override (`off` disables per run); the authored form (`4k`/`1080p`) is preserved in config.yaml.
 
+### Fixed
+
+- **Batched account lookups no longer 404 — the wire format now matches the Fansly web client.** `GET /account?ids=` began rejecting the downloader's requests, killing the following-list flow at startup. The requests diverged from the browser on two axes: httpx's params-dict encoding sent `%2C` between ids where the browser sends literal commas, and a whole following page (up to 50 ids) went out as a single lookup where the browser chunks to 5 ids per request. `get_with_ngsw`/`get_with_ngsw_sync` now pre-encode the query string with commas left literal — covering every CSV endpoint (`account?ids=`, `account?usernames=`, `account/media?ids=`, `subscriptions?ids=`) — and the following-list and `wall_filters` account lookups go out in chunks of the new `options.account_ids_batch_size` (default 5, matching the browser; only written to `config.yaml` when explicitly set).
+
 ## [0.15.0] - 2026-07-08
 
 ### Added
