@@ -358,6 +358,7 @@ in.</p>
 <span class="w">  </span><span class="nt">timeline_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 <span class="w">  </span><span class="nt">timeline_delay_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
 <span class="w">  </span><span class="nt">api_max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">account_ids_batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
 <span class="w">  </span><span class="nt">rate_limiting_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">rate_limiting_adaptive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">rate_limiting_requests_per_minute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
@@ -518,6 +519,12 @@ the <a href="#cli--config-mapping">CLI mapping table</a> for the verbosity flags
 <td><code>int</code></td>
 <td><code>10</code></td>
 <td>Total retry attempts for any API call before giving up</td>
+</tr>
+<tr>
+<td><code>account_ids_batch_size</code></td>
+<td><code>int</code></td>
+<td><code>5</code></td>
+<td>ids per batched <code>/account?ids=</code> lookup — the Fansly web client uses 5</td>
 </tr>
 <tr>
 <td><code>rate_limiting_enabled</code></td>
