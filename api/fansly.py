@@ -5,12 +5,12 @@ import base64
 import binascii
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from ctypes import c_int32
 from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 from httpx_retries import Retry, RetryTransport
@@ -334,9 +334,11 @@ class FanslyApi:
         # Heterogeneous httpx-kwargs bag spread via **arguments into the
         # overloaded get()/build_request(); dict[str, Any] is the honest type
         # for a kwargs bag (each value targets a different httpx parameter).
+        # Query is pre-encoded with commas left literal (ids=1,2,3) to match
+        # the browser client; httpx's params-dict encoding would emit %2C.
+        query = urlencode(request_params, safe=",", quote_via=quote)
         arguments: dict[str, Any] = {
-            "url": file_url,
-            "params": request_params,
+            "url": f"{file_url}?{query}",
             "headers": headers,
         }
 
@@ -432,9 +434,11 @@ class FanslyApi:
         # Heterogeneous httpx-kwargs bag spread via **arguments into the
         # overloaded get()/build_request(); dict[str, Any] is the honest type
         # for a kwargs bag (each value targets a different httpx parameter).
+        # Query is pre-encoded with commas left literal (ids=1,2,3) to match
+        # the browser client; httpx's params-dict encoding would emit %2C.
+        query = urlencode(request_params, safe=",", quote_via=quote)
         arguments: dict[str, Any] = {
-            "url": file_url,
-            "params": request_params,
+            "url": f"{file_url}?{query}",
             "headers": headers,
         }
         if len(cookies) > 0:
@@ -509,20 +513,21 @@ class FanslyApi:
         )
 
     async def get_account_info_by_id(
-        self, account_ids: str | int | list[str | int]
+        self, account_ids: str | int | Sequence[str | int]
     ) -> httpx.Response:
         """Get account info by ID(s).
 
         Args:
-            account_ids: Single account ID or list of IDs
+            account_ids: Single account ID or sequence of IDs
 
         Returns:
             Response containing account info
         """
-        if isinstance(account_ids, list):
-            account_ids = ",".join(str(account_id) for account_id in account_ids)
-        else:
+        # str | int first: a bare str is itself a Sequence[str]
+        if isinstance(account_ids, str | int):
             account_ids = str(account_ids)
+        else:
+            account_ids = ",".join(str(account_id) for account_id in account_ids)
         return await self.get_with_ngsw(
             url=self.ACCOUNT_BY_ID_ENDPOINT.format(account_ids),
         )

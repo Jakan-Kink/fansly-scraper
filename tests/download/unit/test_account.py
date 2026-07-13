@@ -808,14 +808,15 @@ class TestGetFollowingAccounts:
     ):
         """Page 1 (50 items, full page → continue) + Page 2 (2 items, short → stop).
 
-        4 GETs in this exact order:
+        13 GETs in this exact order:
           1. following list page 1
-          2. account details page 1 (50 ids)
-          3. following list page 2
-          4. account details page 2 (2 ids)
+          2-11. account details page 1 (50 ids in 10 chunks of
+                account_ids_batch_size=5)
+          12. following list page 2
+          13. account details page 2 (2 ids, 1 chunk)
 
-        Sized side_effect=[r1, r2, r3, r4] — a 5th GET (any unintended retry
-        or duplicate poll) would StopIteration and surface in the dump.
+        Sized side_effect lists — a 14th GET (any unintended retry or
+        duplicate poll) would StopIteration and surface in the dump.
         """
         state = DownloadState()
         state.creator_id = snowflake_id()
@@ -828,6 +829,17 @@ class TestGetFollowingAccounts:
         second_page_accounts = [{"accountId": str(cid)} for cid in creator_ids[50:]]
         second_page_details = [
             {"id": str(cid), "username": f"user_{cid}"} for cid in creator_ids[50:]
+        ]
+        batch_size = mock_config.account_ids_batch_size
+        first_page_detail_responses = [
+            httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": first_page_details[start : start + batch_size],
+                },
+            )
+            for start in range(0, len(first_page_details), batch_size)
         ]
 
         following_route = respx.get(
@@ -848,10 +860,7 @@ class TestGetFollowingAccounts:
             url__startswith=respx_fansly_api.ACCOUNT_BY_ID_ENDPOINT.format("")
         ).mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json={"success": "true", "response": first_page_details},
-                ),
+                *first_page_detail_responses,
                 httpx.Response(
                     200,
                     json={"success": "true", "response": second_page_details},

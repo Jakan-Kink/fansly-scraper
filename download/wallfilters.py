@@ -109,14 +109,20 @@ async def resolve_wall_filter_id_keys(config: FanslyConfig) -> None:
 
     config._ephemeral_overrides.add("wall_filters")
 
-    try:
-        response = await config.get_api().get_account_info_by_id(",".join(id_keys))
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise ApiError(f"wall_filters: account lookup by ID failed: {e}") from e
-    accounts = expect_list(
-        config.get_api().get_json_response_contents(response), "accounts"
-    )
+    batch_size = config.account_ids_batch_size
+    accounts = []
+    for start in range(0, len(id_keys), batch_size):
+        chunk = id_keys[start : start + batch_size]
+        try:
+            response = await config.get_api().get_account_info_by_id(chunk)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise ApiError(f"wall_filters: account lookup by ID failed: {e}") from e
+        accounts.extend(
+            expect_list(
+                config.get_api().get_json_response_contents(response), "accounts"
+            )
+        )
     username_by_id: dict[str, str] = {}
     for account_value in accounts:
         account = expect_dict(account_value, "account")

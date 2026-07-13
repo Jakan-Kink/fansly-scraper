@@ -168,6 +168,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.timeline_retries = opts.timeline_retries
     config.timeline_delay_seconds = opts.timeline_delay_seconds
     config.api_max_retries = opts.api_max_retries
+    config.account_ids_batch_size = opts.account_ids_batch_size
 
     # Rate limiting
     config.rate_limiting_enabled = opts.rate_limiting_enabled

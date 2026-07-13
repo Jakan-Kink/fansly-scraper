@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Batched account lookups no longer 404 — the wire format now matches the Fansly web client.** `GET /account?ids=` began rejecting the downloader's requests, killing the following-list flow at startup. The requests diverged from the browser on two axes: httpx's params-dict encoding sent `%2C` between ids where the browser sends literal commas, and a whole following page (up to 50 ids) went out as a single lookup where the browser chunks to 5 ids per request. `get_with_ngsw`/`get_with_ngsw_sync` now pre-encode the query string with commas left literal — covering every CSV endpoint (`account?ids=`, `account?usernames=`, `account/media?ids=`, `subscriptions?ids=`) — and the following-list and `wall_filters` account lookups go out in chunks of the new `options.account_ids_batch_size` (default 5, matching the browser; only written to `config.yaml` when explicitly set).
+
 ## [0.15.0] - 2026-07-08
 
 ### Added

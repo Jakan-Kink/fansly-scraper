@@ -137,6 +137,8 @@ class FanslyConfig:
     # Maximum number of retries for API requests that fail with 429 (rate limit)
     # Allows exponential backoff progression: 30s → 60s → 120s → 240s → 300s (max)
     api_max_retries: int = 10
+    # ids per batched /account?ids= lookup; the Fansly web client uses 5
+    account_ids_batch_size: int = 5
 
     # Rate limiting configuration
     rate_limiting_enabled: bool = True
@@ -622,6 +624,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "timeline_retries", config.timeline_retries)
     _maybe_set(base.options, "timeline_delay_seconds", config.timeline_delay_seconds)
     _maybe_set(base.options, "api_max_retries", config.api_max_retries)
+    _maybe_set(base.options, "account_ids_batch_size", config.account_ids_batch_size)
     _maybe_set(base.options, "rate_limiting_enabled", config.rate_limiting_enabled)
     _maybe_set(base.options, "rate_limiting_adaptive", config.rate_limiting_adaptive)
     _maybe_set(
