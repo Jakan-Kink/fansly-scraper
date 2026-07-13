@@ -13,8 +13,10 @@ from config.logging import init_logging_config
 from config.media_filters import (
     MediaFilterOverride,
     MediaFilters,
+    Resolution,
     parse_duration,
     parse_size,
+    resolution_threshold,
 )
 from config.schema import ConfigSchema, FiltersSection, MediaFiltersSection
 from config.wall_filters import WallFilterSpec
@@ -200,6 +202,18 @@ class TestFiltersSection:
                 {"by_creator": {"@Foo": {"duration_max": "1h"}, "foo": {}}}
             )
 
+    @pytest.mark.parametrize(
+        ("field", "bad"),
+        [
+            ("file_size_max", "huge"),
+            ("duration_max", "soon"),
+            ("max_resolution", "huge"),
+        ],
+    )
+    def test_by_creator_garbage_raises_validationerror(self, field, bad):
+        with pytest.raises(ValidationError):
+            MediaFiltersSection.model_validate({"by_creator": {"c1": {field: bad}}})
+
 
 class TestFanslyConfigMediaFilters:
     def test_populate_from_schema(self):
@@ -340,3 +354,123 @@ class TestByCreatorYamlRoundTrip:
                 f"{vod_block}"
             )
         assert "duration_max:" in vod_block
+
+
+class TestResolution:
+    def test_threshold_ladder(self):
+        assert Resolution.P240.threshold == 240
+        assert Resolution.P1080.threshold == 1080
+        assert Resolution.UHD.threshold == 2160
+        assert Resolution.P1080.dimensions == (1920, 1080)
+
+    def test_missing_case_and_alias(self):
+        assert Resolution("1080P") is Resolution.P1080
+        assert Resolution("4K") is Resolution.UHD
+        assert Resolution("2160p") is Resolution.UHD
+
+    def test_members_are_str(self):
+        assert Resolution.P1080.lower() == "1080p"
+
+    def test_missing_with_non_string_value_returns_none(self):
+        assert Resolution._missing_(1080) is None
+
+
+class TestResolutionThreshold:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, None),
+            (0, None),
+            ("", None),
+            ("1080p", 1080),
+            ("4k", 2160),
+            ("1080P", 1080),
+            ("2160p", 2160),
+            (1080, 1080),
+            ("900", 900),
+            (1600, 1600),
+        ],
+    )
+    def test_accepted(self, value, expected):
+        assert resolution_threshold(value) == expected
+
+    @pytest.mark.parametrize("value", ["huge", "1080i", "-720", -5, "720x480", [1]])
+    def test_garbage_raises(self, value):
+        with pytest.raises(ConfigError, match="resolution") as exc_info:
+            resolution_threshold(value)
+        assert "1080p" in str(exc_info.value)
+
+    def test_bool_raises(self):
+        with pytest.raises(ConfigError, match="resolution"):
+            resolution_threshold(True)
+
+
+class TestMaxResolutionModel:
+    def test_stored_raw_and_threshold_computed(self):
+        f = MediaFilters(max_resolution="4k")
+        assert f.max_resolution == "4k"  # raw form preserved
+        assert f.max_resolution_px == 2160
+        assert f.is_active is True
+
+    def test_disabled_when_absent(self):
+        assert MediaFilters().max_resolution_px is None
+        assert MediaFilters(max_resolution=0).max_resolution_px is None
+
+    def test_for_creator_merges_max_resolution(self):
+        base = MediaFilters(
+            max_resolution="4k",
+            by_creator={"c1": MediaFilterOverride(max_resolution="1080p")},
+        )
+        assert base.for_creator("c1", None).max_resolution == "1080p"
+        assert base.for_creator("c1", None).max_resolution_px == 1080
+        assert base.for_creator("other", None).max_resolution == "4k"
+
+
+class TestMaxResolutionSchema:
+    def test_section_parses_both_forms(self):
+        section = MediaFiltersSection.model_validate(
+            {"max_resolution": "1080p", "by_creator": {"c1": {"max_resolution": 720}}}
+        )
+        rt = section.to_runtime()
+        assert rt.max_resolution == "1080p"
+        assert rt.max_resolution_px == 1080
+        assert rt.for_creator("c1", None).max_resolution_px == 720
+
+    def test_garbage_raises_validationerror(self):
+        with pytest.raises(ValidationError, match="resolution"):
+            MediaFiltersSection.model_validate({"max_resolution": "huge"})
+
+    def test_authored_form_survives_round_trip(self, tmp_path):
+        schema = ConfigSchema()
+        schema.filters.media = MediaFiltersSection.model_validate(
+            {"max_resolution": "4k"}
+        )
+        out_path = tmp_path / "media_filters.yaml"
+        schema.dump_yaml(out_path)
+        yaml_text = out_path.read_text(encoding="utf-8")
+        assert "4k" in yaml_text
+        assert "2160" not in yaml_text
+
+        reloaded = ConfigSchema.load_yaml(out_path)
+        assert reloaded.filters.media.max_resolution == "4k"
+
+
+class TestMaxResolutionCli:
+    def test_flag_sets_tier(self, validation_config):
+        _map(["--max-resolution", "1080p"], validation_config)
+        assert validation_config.media_filters.max_resolution == "1080p"
+        assert validation_config.media_filters.max_resolution_px == 1080
+        assert "media_filters" in validation_config._ephemeral_overrides
+
+    def test_flag_accepts_int(self, validation_config):
+        _map(["--max-resolution", "900"], validation_config)
+        assert validation_config.media_filters.max_resolution_px == 900
+
+    def test_off_disables_for_run(self, validation_config):
+        validation_config.media_filters = MediaFilters(max_resolution="4k")
+        _map(["--max-resolution", "off"], validation_config)
+        assert validation_config.media_filters.max_resolution_px is None
+
+    def test_garbage_raises(self, validation_config):
+        with pytest.raises(ConfigError, match="resolution"):
+            _map(["--max-resolution", "huge"], validation_config)

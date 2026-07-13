@@ -6,6 +6,7 @@ holds the resolved limits plus per-creator overrides and answers
 pass/violate verdicts for the download gates.
 """
 
+from enum import StrEnum
 from typing import Any
 
 import pytimeparse2  # type: ignore[import-untyped]  # pytimeparse2 ships no stubs
@@ -95,6 +96,83 @@ def parse_duration(value: Any) -> float | None:
     raise _shape_error("duration", value)
 
 
+class Resolution(StrEnum):
+    """Named resolution tiers; value is the conventional label."""
+
+    P240 = "240p"
+    P360 = "360p"
+    P480 = "480p"
+    P720 = "720p"
+    P1080 = "1080p"
+    P1440 = "1440p"
+    UHD = "4k"
+
+    @property
+    def dimensions(self) -> tuple[int, int]:
+        return {
+            "240p": (426, 240),
+            "360p": (640, 360),
+            "480p": (854, 480),
+            "720p": (1280, 720),
+            "1080p": (1920, 1080),
+            "1440p": (2560, 1440),
+            "4k": (3840, 2160),
+        }[self.value]
+
+    @property
+    def threshold(self) -> int:
+        """Shorter-edge pixel count (the 'p' number) for this tier."""
+        return min(self.dimensions)
+
+    @classmethod
+    def _missing_(cls, value: object) -> "Resolution | None":
+        if isinstance(value, str):
+            v = value.lower()
+            for member in cls:
+                if member.value == v:
+                    return member
+            if v == "2160p":
+                return cls.UHD
+        return None
+
+
+_RESOLUTION_TIERS = ", ".join(r.value for r in Resolution)
+
+
+def _resolution_error(value: Any) -> ConfigError:
+    return ConfigError(
+        f"media_filters: could not parse resolution value {value!r}.\n"
+        f"Expected one of: {_RESOLUTION_TIERS}, or a shorter-edge pixel integer."
+    )
+
+
+def resolution_threshold(value: int | str | None) -> int | None:
+    """Shorter-edge pixel cap for a max_resolution value; None disables.
+
+    Accepts a Resolution tier name (case-insensitive, '2160p' alias), a bare
+    pixel integer or digit-string, or 0/None/empty (disabled). Raises on else.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise _resolution_error(value)
+    if isinstance(value, int):
+        if value < 0:
+            raise _resolution_error(value)
+        return value or None
+    if isinstance(value, str):
+        text = value.strip()
+        if text == "":
+            return None
+        try:
+            return Resolution(text).threshold
+        except ValueError:
+            pass
+        if text.isdigit():
+            return int(text) or None
+    raise _resolution_error(value)
+
+
 class MediaFilterOverride(BaseModel):
     """Per-creator partial override; absent fields inherit the globals."""
 
@@ -104,16 +182,32 @@ class MediaFilterOverride(BaseModel):
     file_size_max: int | None = None
     duration_min: float | None = None
     duration_max: float | None = None
+    max_resolution: int | str | None = None
 
     @field_validator("file_size_min", "file_size_max", mode="before")
     @classmethod
     def _parse_sizes(cls, v: Any) -> int | None:
-        return parse_size(v)
+        try:
+            return parse_size(v)
+        except ConfigError as exc:
+            raise ValueError(str(exc)) from exc
 
     @field_validator("duration_min", "duration_max", mode="before")
     @classmethod
     def _parse_durations(cls, v: Any) -> float | None:
-        return parse_duration(v)
+        try:
+            return parse_duration(v)
+        except ConfigError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("max_resolution", mode="before")
+    @classmethod
+    def _validate_max_resolution(cls, v: Any) -> int | str | None:
+        try:
+            resolution_threshold(v)  # validate only; raises on garbage
+        except ConfigError as exc:
+            raise ValueError(str(exc)) from exc
+        return v  # preserve the authored form
 
 
 class MediaFilters(BaseModel):
@@ -125,18 +219,26 @@ class MediaFilters(BaseModel):
     file_size_max: int | None = None
     duration_min: float | None = None
     duration_max: float | None = None
+    max_resolution: int | str | None = None
     by_creator: dict[str, MediaFilterOverride] = Field(default_factory=dict)
 
     @property
+    def max_resolution_px(self) -> int | None:
+        return resolution_threshold(self.max_resolution)
+
+    @property
     def is_active(self) -> bool:
-        return any(
-            limit is not None
-            for limit in (
-                self.file_size_min,
-                self.file_size_max,
-                self.duration_min,
-                self.duration_max,
+        return (
+            any(
+                limit is not None
+                for limit in (
+                    self.file_size_min,
+                    self.file_size_max,
+                    self.duration_min,
+                    self.duration_max,
+                )
             )
+            or self.max_resolution_px is not None
         )
 
     def size_verdict(self, size_bytes: int | None) -> str | None:
@@ -171,7 +273,13 @@ class MediaFilters(BaseModel):
         if override is None:
             return self.model_copy(update={"by_creator": {}})
         update: dict[str, Any] = {"by_creator": {}}
-        for name in ("file_size_min", "file_size_max", "duration_min", "duration_max"):
+        for name in (
+            "file_size_min",
+            "file_size_max",
+            "duration_min",
+            "duration_max",
+            "max_resolution",
+        ):
             if name in override.model_fields_set:
                 update[name] = getattr(override, name)
         return self.model_copy(update=update)

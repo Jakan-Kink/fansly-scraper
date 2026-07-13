@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from config.logging import textio_logger
 from download.downloadstate import DownloadState
+from errors import MediaFilteredError
 from metadata.models import Media, get_store
 from textio.prompts import await_for_enter
 
@@ -29,8 +30,12 @@ def _get_best_location_url(media: Media) -> str | None:
     return None
 
 
-def _select_best_variant(media: Media) -> Media | None:
-    """Select the highest-resolution variant matching the parent's mimetype."""
+def _select_best_variant(media: Media, max_px: int | None = None) -> Media | None:
+    """Select the highest-resolution variant matching the parent's mimetype.
+
+    When ``max_px`` is set, only variants with a known width and height whose
+    shorter edge fits within it are eligible; the highest-resolution fit wins.
+    """
     if not media.variants:
         return None
 
@@ -42,10 +47,40 @@ def _select_best_variant(media: Media) -> Media | None:
         if v.locations and simplify_mimetype(v.mimetype or "") == parent_mime
     ]
 
+    if max_px is not None:
+        matching = [
+            v
+            for v in matching
+            if v.width is not None
+            and v.height is not None
+            and min(v.width, v.height) <= max_px
+        ]
+
     if not matching:
         return None
 
     return max(matching, key=lambda v: (v.width or 0) * (v.height or 0))
+
+
+def _any_known_variant(media: Media) -> bool:
+    """True if any mimetype-matching variant has a location and known dimensions."""
+    parent_mime = simplify_mimetype(media.mimetype or "")
+    return any(
+        v.locations
+        and v.width is not None
+        and v.height is not None
+        and simplify_mimetype(v.mimetype or "") == parent_mime
+        for v in media.variants or []
+    )
+
+
+def _fits_cap(width: int | None, height: int | None, max_px: int | None) -> bool:
+    """True if there's no cap, or both dimensions are known and fit within it."""
+    if max_px is None:
+        return True
+    if width is None or height is None:
+        return False
+    return min(width, height) <= max_px
 
 
 def _build_m3u8_auth_url(variant: Media) -> str | None:
@@ -82,6 +117,7 @@ async def parse_media_info(
     post_id: str | None = None,
     *,
     interactive: bool = False,
+    max_px: int | None = None,
 ) -> Media:
     """Select best variant and populate download fields on a cached Media object.
 
@@ -122,25 +158,32 @@ async def parse_media_info(
         else default_media_dict["id"]
     )
 
-    # Select best variant
-    best = _select_best_variant(media)
+    # Select best variant, capped at max_px on the shorter edge when set
+    best = _select_best_variant(media, max_px)
+    default_known = (
+        media.width is not None and media.height is not None and bool(media.locations)
+    )
+    default_fits = _fits_cap(media.width, media.height, max_px)
 
-    if best:
-        # Use variant's location as download URL
-        download_url = _build_m3u8_auth_url(best)
-        use_variant = True
-
-        # Fall back to default if it has higher resolution
-        default_url = _get_best_location_url(media)
-        if default_url and (media.height or 0) > (best.height or 0):
+    if best or (default_fits and media.locations):
+        # Use variant's location as download URL, falling back to the
+        # default when it fits the cap and is higher-res than the variant.
+        use_variant = best is not None
+        download_url = _build_m3u8_auth_url(best) if best else None
+        default_url = _get_best_location_url(media) if default_fits else None
+        if default_url and (not best or (media.height or 0) > (best.height or 0)):
             download_url = default_url
             use_variant = False
 
         media.download_url = download_url
 
         # Track variant ID for filename without mutating cached identity
-        if use_variant:
+        if use_variant and best:
             media.download_id = best.id
+
+    elif max_px is not None and (default_known or _any_known_variant(media)):
+        # Renditions exist with known resolution but none fits the cap.
+        raise MediaFilteredError("max_resolution", media_id=media.id)
 
     else:
         # No suitable variant — use default media location
@@ -158,7 +201,7 @@ async def parse_media_info(
         if preview_media is None:
             preview_media = Media.model_validate(preview_dict)
 
-        preview_best = _select_best_variant(preview_media)
+        preview_best = _select_best_variant(preview_media, max_px)
         if preview_best:
             media.download_url = _build_m3u8_auth_url(preview_best)
         elif preview_media.locations:

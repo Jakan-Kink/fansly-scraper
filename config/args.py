@@ -16,7 +16,7 @@ from helpers.rich_progress import get_rich_console
 
 from .config import parse_items_from_line, sanitize_creator_names
 from .fanslyconfig import FanslyConfig
-from .media_filters import parse_duration, parse_size
+from .media_filters import parse_duration, parse_size, resolution_threshold
 from .modes import DownloadMode
 from .schema import (
     CacheSection,
@@ -540,6 +540,18 @@ def parse_args() -> argparse.Namespace:
         help="Skip videos longer than DURATION (e.g. 5400, 1:30:00, 2h). "
         "0 disables for this run.",
     )
+    parser.add_argument(
+        "--max-resolution",
+        required=False,
+        default=None,
+        metavar="RES",
+        dest="max_resolution",
+        help="Cap download resolution to a tier (240p, 360p, 480p, 720p, "
+        "1080p, 1440p, 4k) or a shorter-edge pixel integer. Renditions above "
+        "the cap are downscaled to the highest that fits, or skipped if none "
+        "fits. 'off' / 'none' / 0 disables for this run. Ephemeral override "
+        "of filters.media.",
+    )
 
     # PostgreSQL arguments
     parser.add_argument(
@@ -913,8 +925,8 @@ def _apply_cli_wall_filters(args: argparse.Namespace, config: FanslyConfig) -> N
 
 
 def _apply_media_filter_args(args: argparse.Namespace, config: FanslyConfig) -> None:
-    """Apply --file-size-*/--duration-* as ephemeral global-layer overrides."""
-    update: dict[str, int | float | None] = {}
+    """Apply --file-size-*/--duration-*/--max-resolution as ephemeral global-layer overrides."""
+    update: dict[str, int | float | str | None] = {}
     if args.file_size_min is not None:
         update["file_size_min"] = parse_size(args.file_size_min)
     if args.file_size_max is not None:
@@ -923,6 +935,13 @@ def _apply_media_filter_args(args: argparse.Namespace, config: FanslyConfig) -> 
         update["duration_min"] = parse_duration(args.duration_min)
     if args.duration_max is not None:
         update["duration_max"] = parse_duration(args.duration_max)
+    if args.max_resolution is not None:
+        raw = args.max_resolution.strip()
+        if raw.lower() in ("off", "none", "0"):
+            update["max_resolution"] = None
+        else:
+            resolution_threshold(raw)  # validate; raises ConfigError on garbage
+            update["max_resolution"] = raw
     if not update:
         return
     config.media_filters = config.media_filters.model_copy(update=update)

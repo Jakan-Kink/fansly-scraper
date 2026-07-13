@@ -125,11 +125,13 @@ class MediaFilteredError(RuntimeError):
         *,
         observed: int | None = None,
         estimated: int | None = None,
+        media_id: int | None = None,
     ) -> None:
         super().__init__(reason)
         self.reason = reason
         self.observed = observed
         self.estimated = estimated
+        self.media_id = media_id
 
 
 class M3U8Error(MediaError):

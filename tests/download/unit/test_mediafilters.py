@@ -8,6 +8,7 @@ import respx
 
 from config.media_filters import MediaFilterOverride, MediaFilters
 from download.downloadstate import DownloadState
+from download.m3u8 import _get_highest_quality_variant_url
 from download.media import _download_regular_file, download_media
 from download.mediafilters import (
     check_media_filters,
@@ -453,3 +454,83 @@ class TestEstimateGate:
         finally:
             dump_fansly_calls(route.calls, "test_zero_bandwidth_variant_passes")
         assert route.called
+
+
+class TestHlsResolutionCap:
+    def test_picks_fitting_variant(self, respx_fansly_api, mock_config):
+        master_url = (
+            "https://cdn.example.com/vod/rescap.m3u8?Policy=p&Key-Pair-Id=k&Signature=s"
+        )
+        playlist_text = build_master_playlist(
+            variants=[
+                {
+                    "url": "https://cdn.example.com/vod/720.m3u8",
+                    "bandwidth": 1_000_000,
+                    "resolution": (1280, 720),
+                },
+                {
+                    "url": "https://cdn.example.com/vod/1080.m3u8",
+                    "bandwidth": 3_000_000,
+                    "resolution": (1920, 1080),
+                },
+                {
+                    "url": "https://cdn.example.com/vod/4k.m3u8",
+                    "bandwidth": 8_000_000,
+                    "resolution": (3840, 2160),
+                },
+            ]
+        )
+        route = respx.get(url__startswith="https://cdn.example.com/vod/rescap").mock(
+            side_effect=[httpx.Response(200, text=playlist_text)]
+        )
+        try:
+            url = _get_highest_quality_variant_url(mock_config, master_url, {}, 1080)
+        finally:
+            dump_fansly_calls(route.calls, "test_picks_fitting_variant")
+        assert route.called
+        assert url == "https://cdn.example.com/vod/1080.m3u8"
+
+    def test_raises_when_none_fit(self, respx_fansly_api, mock_config):
+        master_url = "https://cdn.example.com/vod4k/only4k.m3u8?Policy=p&Key-Pair-Id=k&Signature=s"
+        playlist_text = build_master_playlist(
+            variants=[
+                {
+                    "url": "https://cdn.example.com/vod4k/4k.m3u8",
+                    "bandwidth": 8_000_000,
+                    "resolution": (3840, 2160),
+                },
+            ]
+        )
+        route = respx.get(url__startswith="https://cdn.example.com/vod4k/only4k").mock(
+            side_effect=[httpx.Response(200, text=playlist_text)]
+        )
+        try:
+            with pytest.raises(MediaFilteredError) as exc_info:
+                _get_highest_quality_variant_url(mock_config, master_url, {}, 1080)
+        finally:
+            dump_fansly_calls(route.calls, "test_raises_when_none_fit")
+        assert route.called
+        assert exc_info.value.reason == "max_resolution"
+
+    def test_unknown_resolution_is_not_sole_cause_of_skip(
+        self, respx_fansly_api, mock_config
+    ):
+        master_url = "https://cdn.example.com/vodunk/unknown.m3u8?Policy=p&Key-Pair-Id=k&Signature=s"
+        playlist_text = build_master_playlist(
+            variants=[
+                {
+                    "url": "https://cdn.example.com/vodunk/stream.m3u8",
+                    "bandwidth": 2_000_000,
+                    "resolution": None,
+                },
+            ]
+        )
+        route = respx.get(
+            url__startswith="https://cdn.example.com/vodunk/unknown"
+        ).mock(side_effect=[httpx.Response(200, text=playlist_text)])
+        try:
+            url = _get_highest_quality_variant_url(mock_config, master_url, {}, 1080)
+        finally:
+            dump_fansly_calls(route.calls, "test_unknown_resolution_is_not_sole_cause")
+        assert route.called
+        assert url == "https://cdn.example.com/vodunk/stream.m3u8"

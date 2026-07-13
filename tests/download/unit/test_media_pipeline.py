@@ -498,7 +498,9 @@ class TestDownloadMedia:
 
         call_count = [0]
 
-        def m3u8_side_effect(config, url, path, ts, max_bytes=None):
+        def m3u8_side_effect(
+            config, url, path, ts, max_bytes=None, max_resolution=None
+        ):
             call_count[0] += 1
             if call_count[0] == 1:
                 return temp_mp4

@@ -263,6 +263,37 @@ python fansly_downloader_ng.py --file-size-min 100KB --file-size-max 4GB --durat
 
 `0` disables the corresponding limit for that run.
 
+### `filters.media.max_resolution`
+
+Cap download resolution to a tier or a raw pixel count, also under `filters.media`:
+
+```yaml
+filters:
+  media:
+    max_resolution: 1080p
+    by_creator:
+      photo_heavy:
+        max_resolution: 4k
+```
+
+Accepts a tier name from the ladder `240p`, `360p`, `480p`, `720p`, `1080p`, `1440p`, `4k` (case-insensitive; `2160p` is also accepted as an alias for `4k`), or a bare shorter-edge pixel integer (e.g. `900`). `0`, `null`, or an empty value disables the cap.
+
+The cap compares against the **shorter edge** (`min(width, height)`) of each candidate rendition, so portrait and landscape media are judged the same way: a 1080x1920 vertical video qualifies at `1080p` just as a 1920x1080 landscape video does.
+
+Fansly serves most media as multiple renditions (a default plus a `variants` list for regular files, multiple playlist variants for HLS). The cap is a rendition selector, not a transcoder: the highest rendition at or below the cap is downloaded as a real, already-smaller file from Fansly's CDN, never re-encoded locally. Only when every known-resolution rendition exceeds the cap is the item skipped as a filtered download, recorded the same way as the size/duration skips above (`lastFilteredReason`, `Filtered [max_resolution]`, `filtered_count`). Media with no known resolution at all passes through untouched, same as the size/duration limits.
+
+`by_creator` overrides for `max_resolution` inherit like the other `filters.media` fields: an override that omits `max_resolution` falls back to the global cap, and an override that sets it to `0`/`null` disables the cap for that creator regardless of the global setting.
+
+The authored form is preserved in `config.yaml` — a `4k` cap stays `4k` after a config save-back; it is never normalized to its pixel threshold on disk.
+
+CLI equivalent (ephemeral, global layer only — a matching `by_creator` override still wins):
+
+```bash
+python fansly_downloader_ng.py --max-resolution 1080p
+```
+
+`off`, `none`, or `0` disables the cap for that run.
+
 ---
 
 ## `postgres`
@@ -646,6 +677,7 @@ of the YAML setting.
 | `filters.media.file_size_max` | `--file-size-max` (ephemeral, global layer only) |
 | `filters.media.duration_min`  | `--duration-min` (ephemeral, global layer only)  |
 | `filters.media.duration_max`  | `--duration-max` (ephemeral, global layer only)  |
+| `filters.media.max_resolution` | `--max-resolution` (ephemeral, global layer only) |
 
 **Output / paths**
 

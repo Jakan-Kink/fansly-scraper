@@ -41,6 +41,7 @@ from config.media_filters import (
     MediaFilters,
     parse_duration,
     parse_size,
+    resolution_threshold,
 )
 from config.modes import DownloadMode
 from config.wall_filters import WallFilterSpec, normalize_wall_filters
@@ -817,6 +818,7 @@ class MediaFiltersSection(_BaseSection):
     file_size_max: int | None = None
     duration_min: float | None = None
     duration_max: float | None = None
+    max_resolution: int | str | None = None
     by_creator: dict[str, MediaFilterOverride] = Field(default_factory=dict)
 
     @field_validator("file_size_min", "file_size_max", mode="before")
@@ -834,6 +836,15 @@ class MediaFiltersSection(_BaseSection):
             return parse_duration(v)
         except ConfigError as exc:
             raise ValueError(str(exc)) from exc
+
+    @field_validator("max_resolution", mode="before")
+    @classmethod
+    def _validate_max_resolution(cls, v: Any) -> int | str | None:
+        try:
+            resolution_threshold(v)
+        except ConfigError as exc:
+            raise ValueError(str(exc)) from exc
+        return v
 
     @field_validator("by_creator", mode="before")
     @classmethod
@@ -882,6 +893,7 @@ class MediaFiltersSection(_BaseSection):
             file_size_max=self.file_size_max,
             duration_min=self.duration_min,
             duration_max=self.duration_max,
+            max_resolution=self.max_resolution,
             by_creator=dict(self.by_creator),
         )
 

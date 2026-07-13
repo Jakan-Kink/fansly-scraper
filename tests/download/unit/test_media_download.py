@@ -13,11 +13,14 @@ AccountMedia payload shape (from project memory / media/media.py:95-118):
   download_url passes the metadata-present check at media/media.py:180.
 """
 
+import json
+
 import httpx
 import pytest
 import respx
 
 from api.fansly import FanslyApi
+from config.media_filters import MediaFilters
 from download.downloadstate import DownloadState
 from download.media import (
     _update_media_type_stats,
@@ -228,3 +231,55 @@ class TestFetchAndProcessMedia:
         assert "Key-Pair-Id" in resolved.download_url
         # process_media_info persisted the Media through the real identity map.
         assert await entity_store.get(Media, good["media"]["id"]) is not None
+
+    @pytest.mark.asyncio
+    async def test_max_resolution_skip_records_against_persisted_media(
+        self, respx_fansly_api, mock_config, entity_store
+    ):
+        """Item whose default + variants all exceed max_resolution_px raises
+        MediaFilteredError inside parse_media_info; fetch_and_process_media
+        catches it, records the observation against the persisted Media (via
+        the exception's media_id), counts the skip, and excludes it from the
+        result — without invoking the generic parse-error handler.
+        """
+        mock_config.download_media_previews = False
+        mock_config.interactive = False
+        mock_config.BATCH_SIZE = 50
+        mock_config.media_filters = MediaFilters(max_resolution=1080)
+
+        account_id = snowflake_id()
+        await entity_store.save(Account(id=account_id, username=f"u_{account_id}"))
+
+        oversized = _account_media_payload(account_id, valid=True)
+        oversized["media"]["width"] = 3840
+        oversized["media"]["height"] = 2160
+
+        route = respx.get(
+            url__startswith=FanslyApi.ACCOUNT_MEDIA_ENDPOINT.format("")
+        ).mock(
+            side_effect=[
+                httpx.Response(200, json={"success": True, "response": [oversized]}),
+            ],
+        )
+
+        state = DownloadState()
+        state.creator_id = account_id
+        state.creator_name = f"u_{account_id}"
+        state.download_type = DownloadType.TIMELINE
+
+        try:
+            result = await fetch_and_process_media(
+                mock_config, state, [oversized["id"]]
+            )
+        finally:
+            dump_fansly_calls(route.calls, "fetch_process_max_resolution_skip")
+
+        assert route.called
+        assert result == []
+        assert state.filtered_count == 1
+
+        media = await entity_store.get(Media, oversized["media"]["id"])
+        assert media is not None
+        assert media.meta_info is not None
+        payload = json.loads(media.meta_info)
+        assert payload["lastFilteredReason"] == "max_resolution"

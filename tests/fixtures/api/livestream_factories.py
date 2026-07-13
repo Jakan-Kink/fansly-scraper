@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
+from typing import Any
 
 import av
 import numpy as np
@@ -132,27 +133,40 @@ def build_streaming_account(
 
 def build_master_playlist(
     *,
-    variant_url: str,
+    variant_url: str | None = None,
     bandwidth: int = 2_000_000,
     resolution: tuple[int, int] = (1280, 720),
     codecs: str = "avc1.64001f,mp4a.40.2",
+    variants: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Build an IVS-shape master playlist with a single variant.
+    """Build an IVS-shape master playlist with one or more variants.
 
-    The single ``EXT-X-STREAM-INF`` entry points at ``variant_url`` — a
-    fully-qualified URL on the variant host (use14.playlist.live-video.net
-    or wherever the fixture wires it). Production ``_resolve_variant_url``
-    picks ``max(bandwidth)`` so a single-variant master is enough to
-    cover the highest-bandwidth-selection branch.
+    Pass ``variant_url`` for the single-variant shape — production
+    ``_resolve_variant_url`` picks ``max(bandwidth)`` so one variant is
+    enough to cover the highest-bandwidth-selection branch. Pass
+    ``variants`` (a list of dicts with ``url``, and optionally
+    ``bandwidth``/``resolution``/``codecs`` keys) for a multi-variant
+    master — a variant with ``resolution=None`` omits the RESOLUTION
+    attribute entirely (an unknown-resolution stream).
     """
-    width, height = resolution
-    return (
-        "#EXTM3U\n"
-        "#EXT-X-VERSION:3\n"
-        f"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},RESOLUTION={width}x{height},"
-        f'CODECS="{codecs}"\n'
-        f"{variant_url}\n"
-    )
+    if variants is None:
+        if variant_url is None:
+            raise ValueError("build_master_playlist requires variant_url or variants")
+        variants = [{"url": variant_url}]
+
+    lines = ["#EXTM3U", "#EXT-X-VERSION:3"]
+    for variant in variants:
+        variant_bandwidth = variant.get("bandwidth", bandwidth)
+        variant_resolution = variant.get("resolution", resolution)
+        variant_codecs = variant.get("codecs", codecs)
+        attrs = f"BANDWIDTH={variant_bandwidth}"
+        if variant_resolution is not None:
+            width, height = variant_resolution
+            attrs += f",RESOLUTION={width}x{height}"
+        attrs += f',CODECS="{variant_codecs}"'
+        lines.append(f"#EXT-X-STREAM-INF:{attrs}")
+        lines.append(variant["url"])
+    return "\n".join(lines) + "\n"
 
 
 def build_variant_playlist(

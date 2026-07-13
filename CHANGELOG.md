@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Max-resolution cap (`filters.media.max_resolution`).** Cap downloads to a resolution tier (`240p`…`1440p`, `4k`) or a shorter-edge pixel integer: the highest rendition at or below the cap is downloaded (real downscaling when Fansly offers a smaller variant), and an item is skipped as a filtered download only when no rendition fits. Compares on the shorter edge so portrait and landscape both work; supports per-creator `by_creator` overrides and a `--max-resolution` CLI override (`off` disables per run); the authored form (`4k`/`1080p`) is preserved in config.yaml.
+
 ## [0.15.0] - 2026-07-08
 
 ### Added

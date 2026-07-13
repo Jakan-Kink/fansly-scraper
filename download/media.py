@@ -74,6 +74,23 @@ def _print_filtered_skip(config: FanslyConfig, media: Media, reason: str) -> Non
         )
 
 
+async def handle_filtered_skip(
+    config: FanslyConfig,
+    state: DownloadState,
+    media: Media,
+    reason: str,
+    *,
+    observed: int | None = None,
+    estimated: int | None = None,
+) -> None:
+    """Record a filtered-skip observation, print the skip line, and count it."""
+    await record_filter_observation(
+        media, reason=reason, observed=observed, estimated=estimated
+    )
+    _print_filtered_skip(config, media, reason)
+    state.filtered_count += 1
+
+
 async def fetch_and_process_media(
     config: FanslyConfig,
     state: DownloadState,
@@ -113,15 +130,32 @@ async def fetch_and_process_media(
 
             # Select best variant for each item
             for info in media_infos:
+                filters = resolve_media_filters(config, state)
+                max_px = filters.max_resolution_px if filters else None
                 try:
+                    media_dict = expect_dict(info, "media info")
                     all_media.append(
                         await parse_media_info(
                             state,
-                            expect_dict(info, "media info"),
+                            media_dict,
                             post_id,
                             interactive=config.interactive,
+                            max_px=max_px,
                         )
                     )
+                except MediaFilteredError as e:
+                    skipped = (
+                        get_store().get_from_cache(Media, e.media_id)
+                        if e.media_id is not None
+                        else None
+                    )
+                    if skipped is not None:
+                        await handle_filtered_skip(config, state, skipped, e.reason)
+                    else:
+                        print_debug(
+                            f"Filtered [{e.reason}]: media_id {e.media_id} not "
+                            f"found in cache; skip could not be recorded."
+                        )
                 except Exception:
                     print_error(
                         f"Unexpected error parsing "
@@ -464,6 +498,7 @@ async def _download_m3u8_file(
     try:
         await estimate_stream_size_gate(config, state, media)
         filters = resolve_media_filters(config, state)
+        max_px = filters.max_resolution_px if filters else None
 
         # Run synchronous HLS download in thread to avoid blocking
         # the event loop (progress bars, rate limiter would freeze otherwise)
@@ -474,6 +509,7 @@ async def _download_m3u8_file(
             temp_path,
             media.created_at_timestamp,
             max_bytes=filters.file_size_max if filters else None,
+            max_resolution=max_px,
         )
 
         filters = resolve_media_filters(config, state)
@@ -659,14 +695,14 @@ async def download_media(
                             state.add_duplicate()
 
                 except MediaFilteredError as e:
-                    await record_filter_observation(
+                    await handle_filtered_skip(
+                        config,
+                        state,
                         media,
-                        reason=e.reason,
+                        e.reason,
                         observed=e.observed,
                         estimated=e.estimated,
                     )
-                    _print_filtered_skip(config, media, e.reason)
-                    state.filtered_count += 1
                     continue
                 except M3U8Error as ex:
                     print_warning(f"Skipping invalid item: {ex}")

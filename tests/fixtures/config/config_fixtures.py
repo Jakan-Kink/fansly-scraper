@@ -176,6 +176,7 @@ def default_cli_args():
         file_size_max=None,
         duration_min=None,
         duration_max=None,
+        max_resolution=None,
         download_directory=None,
         token=None,
         user_agent=None,

@@ -819,6 +819,30 @@ class TestDirectDownloadFFmpeg:
         assert result is False
         assert not output_path.exists()
 
+    def test_media_filtered_error_propagates(self, tmp_path, monkeypatch):
+        """No variant fits max_resolution → MediaFilteredError propagates.
+
+        Covers the dedicated ``except MediaFilteredError: raise`` clause —
+        it must not be swallowed by the generic ``except Exception`` handler.
+        """
+        config = _make_real_config()
+        output_path = tmp_path / "video.mp4"
+
+        def _raise_filtered(*_a, **_k):
+            raise MediaFilteredError("max_resolution")
+
+        monkeypatch.setattr(
+            "download.m3u8._get_highest_quality_variant_url", _raise_filtered
+        )
+
+        with pytest.raises(MediaFilteredError):
+            _try_direct_download_ffmpeg(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies={"CloudFront-Policy": "a"},
+            )
+
 
 # ---------------------------------------------------------------------------
 # PyAV fakes for _try_direct_download_pyav + _mux_segments_with_pyav
