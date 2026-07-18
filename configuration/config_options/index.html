@@ -86,6 +86,8 @@
     </li>
     <li class="toctree-l3"><a class="reference internal" href="#filtersmedia">filters.media</a>
     </li>
+    <li class="toctree-l3"><a class="reference internal" href="#filtersmediamax_resolution">filters.media.max_resolution</a>
+    </li>
         </ul>
     </li>
     <li class="toctree-l2"><a class="reference internal" href="#postgres">postgres</a>
@@ -633,6 +635,24 @@ python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--w
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--file-size-min<span class="w"> </span>100KB<span class="w"> </span>--file-size-max<span class="w"> </span>4GB<span class="w"> </span>--duration-min<span class="w"> </span><span class="m">0</span>:03<span class="w"> </span>--duration-max<span class="w"> </span>2h
 </code></pre></div>
 <p><code>0</code> disables the corresponding limit for that run.</p>
+<h3 id="filtersmediamax_resolution"><code>filters.media.max_resolution</code><a class="headerlink" href="#filtersmediamax_resolution" title="Permanent link">&para;</a></h3>
+<p>Cap download resolution to a tier or a raw pixel count, also under <code>filters.media</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">filters</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">media</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">max_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1080p</span>
+<span class="w">    </span><span class="nt">by_creator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">photo_heavy</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">max_resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4k</span>
+</code></pre></div>
+<p>Accepts a tier name from the ladder <code>240p</code>, <code>360p</code>, <code>480p</code>, <code>720p</code>, <code>1080p</code>, <code>1440p</code>, <code>4k</code> (case-insensitive; <code>2160p</code> is also accepted as an alias for <code>4k</code>), or a bare shorter-edge pixel integer (e.g. <code>900</code>). <code>0</code>, <code>null</code>, or an empty value disables the cap.</p>
+<p>The cap compares against the <strong>shorter edge</strong> (<code>min(width, height)</code>) of each candidate rendition, so portrait and landscape media are judged the same way: a 1080x1920 vertical video qualifies at <code>1080p</code> just as a 1920x1080 landscape video does.</p>
+<p>Fansly serves most media as multiple renditions (a default plus a <code>variants</code> list for regular files, multiple playlist variants for HLS). The cap is a rendition selector, not a transcoder: the highest rendition at or below the cap is downloaded as a real, already-smaller file from Fansly's CDN, never re-encoded locally. Only when every known-resolution rendition exceeds the cap is the item skipped as a filtered download, recorded the same way as the size/duration skips above (<code>lastFilteredReason</code>, <code>Filtered [max_resolution]</code>, <code>filtered_count</code>). Media with no known resolution at all passes through untouched, same as the size/duration limits.</p>
+<p><code>by_creator</code> overrides for <code>max_resolution</code> inherit like the other <code>filters.media</code> fields: an override that omits <code>max_resolution</code> falls back to the global cap, and an override that sets it to <code>0</code>/<code>null</code> disables the cap for that creator regardless of the global setting.</p>
+<p>The authored form is preserved in <code>config.yaml</code> — a <code>4k</code> cap stays <code>4k</code> after a config save-back; it is never normalized to its pixel threshold on disk.</p>
+<p>CLI equivalent (ephemeral, global layer only — a matching <code>by_creator</code> override still wins):</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--max-resolution<span class="w"> </span>1080p
+</code></pre></div>
+<p><code>off</code>, <code>none</code>, or <code>0</code> disables the cap for that run.</p>
 <hr />
 <h2 id="postgres"><code>postgres</code><a class="headerlink" href="#postgres" title="Permanent link">&para;</a></h2>
 <p>PostgreSQL connection settings for asyncpg.</p>
@@ -1492,6 +1512,10 @@ of the YAML setting.</p>
 <tr>
 <td><code>filters.media.duration_max</code></td>
 <td><code>--duration-max</code> (ephemeral, global layer only)</td>
+</tr>
+<tr>
+<td><code>filters.media.max_resolution</code></td>
+<td><code>--max-resolution</code> (ephemeral, global layer only)</td>
 </tr>
 </tbody>
 </table>

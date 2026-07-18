@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/superpowers/specs/2026-07-09-max-resolution-design/" />
+      <link rel="shortcut icon" href="../../../img/favicon.ico" />
+    <title>Max-Resolution Cap (filters.media.max_resolution) — Design - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../../css/theme.css" />
+    <link rel="stylesheet" href="../../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Max-Resolution Cap (filters.media.max_resolution) \u2014 Design";
+        var mkdocs_page_input_path = "superpowers/specs/2026-07-09-max-resolution-design.md";
+        var mkdocs_page_url = "/fansly-scraper/superpowers/specs/2026-07-09-max-resolution-design/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../configuration/config_options/">Config Options</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/request-signing/">Request Signing</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Max-Resolution Cap (filters.media.max_resolution) — Design</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/superpowers/specs/2026-07-09-max-resolution-design.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="max-resolution-cap-filtersmediamax_resolution-design">Max-Resolution Cap (<code>filters.media.max_resolution</code>) — Design<a class="headerlink" href="#max-resolution-cap-filtersmediamax_resolution-design" title="Permanent link">&para;</a></h1>
+<p>Date: 2026-07-09
+Origin: Discord follow-up to #125 ("tell it the max resolution to download cause sometimes I don't want the giant 4k versions")
+Target: 0.15.1
+Branch: continues on <code>wall-filters</code> (or a fresh branch off fork-main; operator's call at merge time)</p>
+<h2 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h2>
+<p>A user wants to cap download resolution — take a 1080p rendition instead of the 4K one to save space. Fansly serves most media in multiple resolutions: regular files carry a <code>variants</code> list plus a default rendition, and HLS VODs carry multiple variants in the master playlist. Today both selection points pick the single highest resolution (<code>_select_best_variant</code> in <code>media/media.py</code>, <code>_get_highest_quality_variant_url</code> in <code>download/m3u8.py</code>). There is no way to ask for a smaller rendition.</p>
+<h2 id="solution-overview">Solution overview<a class="headerlink" href="#solution-overview" title="Permanent link">&para;</a></h2>
+<p>A new <code>filters.media.max_resolution</code> setting caps rendition selection: pick the highest rendition whose <strong>shorter edge</strong> is at or below the cap; if no rendition qualifies, skip the item as a filtered download (reusing the <code>filters.media</code> skip machinery from #125). It is a rendition <em>cap</em> first (real downscaling when a smaller variant exists) and a skip only when nothing fits. It extends the existing <code>filters.media</code> section, inheriting per-creator <code>by_creator</code> overrides, the <code>--max-resolution</code> CLI override, the filtered-skip recording + <code>Filtered by filters.media</code> statistics line, and the <code>--single</code>/live-capture exemptions.</p>
+<h2 id="decisions-from-brainstorming">Decisions (from brainstorming)<a class="headerlink" href="#decisions-from-brainstorming" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Hard ceiling with skip-on-no-fit.</strong> Pick the highest rendition with <code>min(w,h) &lt;= cap</code>; if renditions exist with known resolution but none qualify, skip (filtered). A downscale is a normal download (no skip record); only the no-fit case is recorded/counted.</li>
+<li><strong>Comparison on the shorter edge</strong> — <code>min(width, height) &lt;= threshold</code> — so portrait and landscape both work (a 1080x1920 vertical video and a 1920x1080 landscape video both qualify at <code>1080p</code>; 4K in either orientation is capped).</li>
+<li><strong>Lives in <code>filters.media</code></strong> — reuses by_creator, CLI, skip-recording, exemptions.</li>
+<li><strong>Accepts a named tier OR a bare pixel integer</strong>, stored raw for config round-trip fidelity.</li>
+<li><strong>Both variant selectors get the cap</strong> (regular files and HLS); unknown-resolution renditions never trigger a skip (silent-pass).</li>
+</ul>
+<h2 id="config-surface-configmedia_filterspy-configschemapy">Config surface (<code>config/media_filters.py</code>, <code>config/schema.py</code>)<a class="headerlink" href="#config-surface-configmedia_filterspy-configschemapy" title="Permanent link">&para;</a></h2>
+<h3 id="resolution-ladder"><code>Resolution</code> ladder<a class="headerlink" href="#resolution-ladder" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Resolution</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+    <span class="n">P240</span> <span class="o">=</span> <span class="s2">&quot;240p&quot;</span>
+    <span class="n">P360</span> <span class="o">=</span> <span class="s2">&quot;360p&quot;</span>
+    <span class="n">P480</span> <span class="o">=</span> <span class="s2">&quot;480p&quot;</span>
+    <span class="n">P720</span> <span class="o">=</span> <span class="s2">&quot;720p&quot;</span>
+    <span class="n">P1080</span> <span class="o">=</span> <span class="s2">&quot;1080p&quot;</span>
+    <span class="n">P1440</span> <span class="o">=</span> <span class="s2">&quot;1440p&quot;</span>
+    <span class="n">UHD</span> <span class="o">=</span> <span class="s2">&quot;4k&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;240p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">426</span><span class="p">,</span> <span class="mi">240</span><span class="p">),</span>
+            <span class="s2">&quot;360p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">640</span><span class="p">,</span> <span class="mi">360</span><span class="p">),</span>
+            <span class="s2">&quot;480p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">854</span><span class="p">,</span> <span class="mi">480</span><span class="p">),</span>
+            <span class="s2">&quot;720p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1280</span><span class="p">,</span> <span class="mi">720</span><span class="p">),</span>
+            <span class="s2">&quot;1080p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="s2">&quot;1440p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">2560</span><span class="p">,</span> <span class="mi">1440</span><span class="p">),</span>
+            <span class="s2">&quot;4k&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+        <span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">value</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel count for this tier (the &#39;p&#39; number).&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_missing_</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Resolution | None&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Case-insensitive lookup plus the 2160p -&gt; 4k alias.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="bp">cls</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">member</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">v</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">member</span>
+            <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="s2">&quot;2160p&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">UHD</span>
+        <span class="k">return</span> <span class="kc">None</span>
+</code></pre></div>
+<p><code>threshold</code> yields the monotonic ladder <code>240 / 360 / 480 / 720 / 1080 / 1440 / 2160</code>. <code>dimensions</code> is retained for display/logging and future use; the cap comparison only needs <code>threshold</code>. <code>_missing_</code> mirrors the existing <code>DownloadMode</code> enum's case-insensitive pattern (StrEnum members are <code>str</code>, so <code>value.lower()</code> is a plain <code>str</code>).</p>
+<h3 id="stored-value-raw-int-str-none">Stored value: raw <code>int | str | None</code><a class="headerlink" href="#stored-value-raw-int-str-none" title="Permanent link">&para;</a></h3>
+<p><code>max_resolution</code> is stored in the <strong>user's authored form</strong> and never normalized on the way in, so a mid-run config save-back writes <code>4k</code> back as <code>4k</code> (not <code>2160</code>). This is the same round-trip-fidelity requirement that the #125 <code>by_creator</code> <code>field_serializer</code> fix established — a normalized-on-load value would clobber the user's file on the next <code>_save_config</code>.</p>
+<ul>
+<li><code>MediaFiltersSection.max_resolution: int | str | None = None</code></li>
+<li><code>MediaFilterOverride.max_resolution: int | str | None = None</code> (by_creator, tri-state via <code>model_fields_set</code>)</li>
+<li><code>MediaFilters.max_resolution: int | str | None = None</code> (runtime frozen model)</li>
+</ul>
+<h3 id="conversion-validation-single-source-of-truth">Conversion + validation (single source of truth)<a class="headerlink" href="#conversion-validation-single-source-of-truth" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolution_threshold</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel cap for a max_resolution value; None = disabled.</span>
+
+<span class="sd">    Accepts a Resolution tier name (case-insensitive, &#39;2160p&#39; alias),</span>
+<span class="sd">    a bare pixel integer or digit-string, or 0/None (disabled).</span>
+<span class="sd">    Raises ConfigError on anything else.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<ul>
+<li><code>None</code> / <code>0</code> / <code>""</code> -&gt; <code>None</code> (disabled; <code>0</code> mirrors the other filters' 0-disables convention).</li>
+<li><code>int</code> (or all-digit <code>str</code>) &gt; 0 -&gt; that int. Negative -&gt; <code>ConfigError</code>.</li>
+<li>tier name resolvable via <code>Resolution(...)</code> -&gt; <code>.threshold</code>.</li>
+<li>anything else -&gt; <code>ConfigError</code>, message listing the named tiers <strong>and</strong> "or a pixel integer", carrying the shared <code>MEDIA_FILTERS_EXAMPLE</code>.</li>
+</ul>
+<p>A <code>field_validator</code> on each <code>max_resolution</code> field calls <code>resolution_threshold(v)</code> to <strong>validate</strong> (raising on garbage) but returns <code>v</code> <strong>unchanged</strong> (preserving the raw form). <code>ConfigError</code> is re-raised as <code>ValueError</code> so Pydantic wraps it into a field-pathed <code>ValidationError</code>, exactly like the #125 parsers (<code>_parse_sizes</code>/<code>_parse_durations</code>), giving a clean operator-facing error through <code>load_yaml</code>.</p>
+<p>Union note: with <code>int | str</code>, Pydantic tries <code>int</code> first, so <code>1080</code>/<code>"1080"</code> become int <code>1080</code> while <code>"4k"</code>/<code>"1080p"</code> stay strings — all fine, since <code>resolution_threshold</code> treats digit-strings and ints identically and only the <code>4k</code>/<code>1080p</code> forms (the ones worth preserving) stay as authored.</p>
+<h3 id="runtime-model-resolution">Runtime model + resolution<a class="headerlink" href="#runtime-model-resolution" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>MediaFilters</code> gains a <code>max_resolution_px</code> property returning <code>resolution_threshold(self.max_resolution)</code>.</li>
+<li><code>is_active</code> is true when any of the four #125 limits <strong>or</strong> <code>max_resolution_px</code> is set.</li>
+<li><code>for_creator(...)</code> merges <code>max_resolution</code> field-wise like the others (raw value carried through; tri-state absent=inherit, explicit <code>0</code>/<code>null</code>=disable).</li>
+<li><code>ensure_valid</code> is unchanged — a single-ended cap has no min&gt;max pair to cross-check.</li>
+</ul>
+<h3 id="cli-configargspy">CLI (<code>config/args.py</code>)<a class="headerlink" href="#cli-configargspy" title="Permanent link">&para;</a></h3>
+<p><code>--max-resolution</code> ephemeral flag, same global-layer-override semantics as the #125 flags. Accepts a tier name or an int; <code>0</code> / <code>off</code> / <code>none</code> disables for the run (the enum has no zero tier, so <code>off</code>/<code>none</code> are accepted as explicit-disable sentinels alongside <code>0</code>). Stored raw as an ephemeral override; <code>by_creator</code> entries still win.</p>
+<h2 id="runtime-enforcement-approach-a-cap-at-both-selectors">Runtime enforcement (Approach A — cap at both selectors)<a class="headerlink" href="#runtime-enforcement-approach-a-cap-at-both-selectors" title="Permanent link">&para;</a></h2>
+<p>The resolved cap for the current creator is <code>resolve_media_filters(config, state).max_resolution_px</code> (an <code>int | None</code>); <code>resolve_media_filters</code> already returns <code>None</code> for SINGLE mode and inactive filters, so both selectors inherit the exemptions.</p>
+<h3 id="candidate-pool-and-selection-rule">Candidate pool and selection rule<a class="headerlink" href="#candidate-pool-and-selection-rule" title="Permanent link">&para;</a></h3>
+<p>For any media, the candidate renditions are <strong>the default media itself plus its <code>variants</code></strong> (the current code already treats both as candidates: <code>_select_best_variant</code> picks the best variant, then <code>parse_media_info</code> falls back to the default when the default is higher-res). The cap-aware rule over that pool:</p>
+<ol>
+<li>Partition renditions into <em>known</em> (both width and height present) and <em>unknown</em>.</li>
+<li><code>qualifying = [r for r in known if min(r.width, r.height) &lt;= cap]</code>.</li>
+<li>If <code>qualifying</code> -&gt; pick <code>max(qualifying, key=lambda r: r.width * r.height)</code> (highest rendition that fits — the downscale).</li>
+<li>Else if <code>known</code> is non-empty (renditions exist but all exceed the cap) -&gt; <strong>skip</strong> (<code>MediaFilteredError("max_resolution")</code>).</li>
+<li>Else (no known-resolution rendition at all) -&gt; <strong>silent pass</strong>: fall back to today's behavior (pick highest by area / default), never skip purely for missing metadata.</li>
+</ol>
+<h3 id="regular-files-mediamediapy">Regular files (<code>media/media.py</code>)<a class="headerlink" href="#regular-files-mediamediapy" title="Permanent link">&para;</a></h3>
+<p><code>_select_best_variant(media, max_px)</code> stays a pure <code>(media, cap) -&gt; Media | None</code> helper that returns the highest <strong>variant</strong> whose <code>min(w,h) &lt;= cap</code> (steps 1-3 over <code>media.variants</code>), or <code>None</code> when no variant qualifies. The skip-vs-downscale <em>decision</em> is centralized in <code>parse_media_info</code> (which has <code>state</code> and resolves <code>max_px</code>), because only it sees the full candidate pool — the default media plus the variants:</p>
+<ol>
+<li><code>best_variant = _select_best_variant(media, max_px)</code> (best fitting variant, or None).</li>
+<li><code>default_fits = media.width/height known and min(default) &lt;= cap</code> (or cap disabled).</li>
+<li>If both a fitting variant and a fitting default exist, keep the existing "default wins if higher-res" tiebreak — but only among renditions that fit the cap.</li>
+<li>If neither the default nor any variant fits <strong>and at least one candidate has known resolution</strong> -&gt; record the observation and raise/skip so the item is dropped from <code>accessible_media</code> with <code>state.filtered_count += 1</code>.</li>
+<li>If no candidate has known resolution -&gt; silent pass (today's behavior).</li>
+</ol>
+<p>Because <code>parse_media_info</code> runs before the <code>download_media</code> loop, the regular-file skip is recorded here at parse time (via the existing <code>record_filter_observation</code>), not in the loop handler.</p>
+<h3 id="hls-downloadm3u8py">HLS (<code>download/m3u8.py</code>)<a class="headerlink" href="#hls-downloadm3u8py" title="Permanent link">&para;</a></h3>
+<p><code>_get_highest_quality_variant_url(..., max_px)</code> filters master-playlist variants by <code>min(stream_info.resolution) &lt;= cap</code> (variants with no <code>resolution</code> are the unknown bucket), picks highest-area of the qualifying set, and raises <code>MediaFilteredError("max_resolution")</code> on the step-4 no-fit case. This runs inside <code>download_m3u8</code> within the <code>download_media</code> loop, so the skip routes through the loop's existing <code>except MediaFilteredError</code> handler (record + count). The cap must be threaded to this call; the plan resolves how <code>state</code>/cap reaches <code>_get_highest_quality_variant_url</code> (currently <code>(config, m3u8_url, cookies)</code>), consistent with how <code>estimate_stream_size_gate</code> already reaches the resolved filters.</p>
+<h3 id="recording-ux">Recording / UX<a class="headerlink" href="#recording-ux" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Skip</strong> (no rendition fits): <code>lastFilteredReason="max_resolution"</code> merged into <code>meta_info</code>, <code>Filtered [max_resolution]</code> printed (gated by <code>show_downloads and show_skipped_downloads</code>), <code>filtered_count += 1</code>.</li>
+<li><strong>Downscale</strong> (a smaller rendition was chosen): a normal download — no skip, no filtered record beyond the chosen variant's own <code>download_id</code>. The stats line counts skips, not downscales (accepted in brainstorming).</li>
+<li>Loosening or removing the cap later re-admits a previously skipped item on the next run, like the other <code>filters.media</code> limits (nothing is marked downloaded).</li>
+</ul>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>Per <code>docs/testing/TESTING_REQUIREMENTS.md</code>, the <code>filters.media</code> conventions, and the rules pack. Project stays mypy-zero; the two new-code modules reach 100%.</p>
+<ul>
+<li><strong>Enum + conversion</strong> (<code>tests/config/unit/test_media_filters.py</code>): <code>Resolution</code> tiers, <code>_missing_</code> (case-fold, <code>2160p</code>-&gt;UHD), <code>.threshold</code> ladder; <code>resolution_threshold</code> table — each tier -&gt; threshold, bare int/digit-string, <code>0</code>/<code>None</code>/<code>""</code> -&gt; None, <code>off</code>/<code>none</code> (CLI), garbage (<code>"huge"</code>, <code>"1080i"</code>, negative) -&gt; raises; the field stores the raw form unchanged (assert a <code>4k</code>-authored value survives a <code>dump_yaml -&gt; load_yaml</code> round-trip as <code>4k</code>, mirroring the by_creator round-trip test).</li>
+<li><strong>Schema/CLI</strong>: <code>filters.media.max_resolution</code> parses both forms; <code>by_creator</code> override tri-state; <code>--max-resolution</code> ephemeral override (tier, int, and <code>off</code>); resolved-bounds validation unaffected (no min&gt;max for resolution).</li>
+<li><strong>Selection</strong> (<code>tests/download/unit/test_mediafilters.py</code> + regular/HLS): <code>_select_best_variant(media, cap)</code> picks the highest fitting variant (downscale), skips when all known renditions exceed the cap, silent-passes when width/height are absent, and handles portrait vs landscape via <code>min(w,h)</code>; HLS variant selection over a real master playlist (<code>build_master_playlist</code> with multiple <code>RESOLUTION=</code> variants) picks the fitting one and raises <code>MediaFilteredError</code> when none fit; the loop handler / parse-time path records <code>max_resolution</code> and increments <code>filtered_count</code>. Real Media/variant factories and real playlist fixtures — no mocked selectors.</li>
+</ul>
+<h2 id="docs-changelog">Docs / CHANGELOG<a class="headerlink" href="#docs-changelog" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>docs/configuration/config_options.md</code>: document <code>max_resolution</code> under <code>filters.media</code> — accepted forms (tier ladder + pixel int), shorter-edge semantics with a portrait example, the downscale-else-skip behavior, <code>by_creator</code> inheritance, the <code>--max-resolution</code> flag (<code>off</code> to disable per run), and the round-trip note that the authored form is preserved.</li>
+<li>CHANGELOG under <code>## [Unreleased] / Added</code>, one physical line, minor-version framing (additive; default absent = zero behavior change).</li>
+</ul>
+<h2 id="out-of-scope">Out of scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Minimum-resolution filtering (only a max was requested; YAGNI).</li>
+<li>Re-encoding/downscaling a single high-res rendition into a smaller one — this feature only <em>selects among renditions Fansly already provides</em>; it never transcodes.</li>
+<li>A separate downscale tally in statistics (skips are counted; downscales are silent).</li>
+<li>Arbitrary aspect-ratio or bitrate-based quality caps.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+    
+  </span>
+</div>
+    <script src="../../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../../..";</script>
+    <script src="../../../js/theme_extra.js"></script>
+    <script src="../../../js/theme.js"></script>
+      <script src="../../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="author" content="Jakan-Kink" /><link rel="canonical" href="https://jakan-kink.github.io/fansly-scraper/superpowers/plans/2026-07-09-max-resolution/" />
+      <link rel="shortcut icon" href="../../../img/favicon.ico" />
+    <title>Max-Resolution Cap Implementation Plan - Fansly Downloader NG</title>
+    <link rel="stylesheet" href="../../../css/theme.css" />
+    <link rel="stylesheet" href="../../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Max-Resolution Cap Implementation Plan";
+        var mkdocs_page_input_path = "superpowers/plans/2026-07-09-max-resolution.md";
+        var mkdocs_page_url = "/fansly-scraper/superpowers/plans/2026-07-09-max-resolution/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../../.." class="icon icon-home"> Fansly Downloader NG
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../../changelog/">Changelog</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../guide/manual-token-extraction/">Manual Token Extraction</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Configuration</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../configuration/config_options/">Config Options</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Reference</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/architecture/">Architecture</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/monitoring-cadence/">Monitoring Daemon Cadence</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-API-analysis/">Fansly API Analysis</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Route-Table/">Fansly Route Table</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-WebSocket-Protocol/">Fansly WebSocket Protocol</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-mapping/">Fansly-to-Stash Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-performer-mapping/">Performer Mapping</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/Fansly-Stash-field-transformations/">Stash Field Transformations</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/CHECKKEY_JSPYBRIDGE/">CheckKey Extraction</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../reference/request-signing/">Request Signing</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Testing</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/TESTING_REQUIREMENTS/">Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_TESTING_REQUIREMENTS/">API Testing Requirements</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/API_DOWNLOAD_TEST_MIGRATION_TODO/">API/Download Test Migration</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/STASH_TEST_MIGRATION_TODO/">Stash Test Refactor</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/V0_10_MOCK_PATTERNS/">v0.10 Mock Patterns (archive)</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../testing/snyk-violations-from-contributers/">Snyk Violations (derived)</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Archive</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../../../archive/hardCut-PostgreSQL-Implementation-Plan/">Hard-Cut PostgreSQL Implementation Plan</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../..">Fansly Downloader NG</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../.." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Max-Resolution Cap Implementation Plan</li>
+    <li class="wy-breadcrumbs-aside">
+          <a href="https://github.com/Jakan-Kink/fansly-scraper/edit/main/docs/superpowers/plans/2026-07-09-max-resolution.md">Edit on Jakan-Kink/fansly-scraper</a>
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="max-resolution-cap-implementation-plan">Max-Resolution Cap Implementation Plan<a class="headerlink" href="#max-resolution-cap-implementation-plan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Add <code>filters.media.max_resolution</code> — cap rendition selection to the highest rendition whose shorter edge is at or below a resolution tier, downscaling when a smaller rendition exists and skipping (filtered) only when none fits.</p>
+<p><strong>Architecture:</strong> Extends the existing <code>filters.media</code> subsystem (shipped 0.15.0). A <code>Resolution</code> StrEnum ladder + <code>resolution_threshold()</code> helper convert a raw <code>int | str | None</code> config value to a shorter-edge pixel threshold on demand (raw form stored for config round-trip fidelity). The two existing "pick highest rendition" selectors gain the cap: <code>_select_best_variant</code> (regular files) and <code>_get_highest_quality_variant_url</code> (HLS). No-fit routes through the existing <code>filters.media</code> <code>MediaFilteredError</code> skip machinery. Spec: <code>docs/superpowers/specs/2026-07-09-max-resolution-design.md</code>.</p>
+<p><strong>Tech Stack:</strong> Python 3.12+, Pydantic v2 (StrEnum + field validators), the <code>m3u8</code> lib, pytest + respx + factory-boy, asyncpg EntityStore.</p>
+<h2 id="global-constraints">Global Constraints<a class="headerlink" href="#global-constraints" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Git</strong>: the OPERATOR controls the entire commit cycle. Subagents NEVER run <code>git add</code>/<code>git commit</code>/any state-modifying git command — a "Commit" step means writing the suggested message into the report file only.</li>
+<li><strong>Rules pack</strong>: <code>.superpowers/sdd/agent-rules.md</code> binds every task (imports at file top; <code>tee-nocolor</code> FOREGROUND pytest, never backgrounded; NEVER a dotted <code>--cov=pkg.mod</code>; respx via <code>respx_fansly_api</code> with <code>side_effect</code>/<code>try-finally dump</code>/<code>url__startswith</code>/<code>route.called</code>; real <code>entity_store</code>/factories/TS fixtures; no <code>typing.cast</code>; no production <code>assert</code>; Markdown prose one physical line; NO plan-process references in code — no "Task N"/"per the plan" in source, comments, or docstrings).</li>
+<li><strong>Project is mypy-zero</strong> (prod + tests) and must stay zero: <code>.venv/bin/mypy . 2&gt;&amp;1 | tail -2</code> is an extra gate on every task.</li>
+<li><strong>Stored value is raw <code>int | str | None</code></strong> — never normalize on load; a mid-run config save-back must write <code>4k</code> back as <code>4k</code>. The <code>resolution_threshold()</code> helper is the single validate+convert point; the field validator returns the value UNCHANGED.</li>
+<li><strong>Comparison is shorter-edge</strong>: a rendition qualifies iff <code>min(width, height) &lt;= threshold</code>. Renditions with unknown width/height never trigger a skip (silent-pass to today's behavior).</li>
+<li><strong>Downscale is a normal download</strong> (no skip record); only the no-fit case records <code>lastFilteredReason="max_resolution"</code>, prints <code>Filtered [max_resolution]</code>, and increments <code>filtered_count</code>.</li>
+<li>Line anchors below are current at plan time; locate by the quoted code, not the number.</li>
+</ul>
+<hr />
+<h3 id="task-1-resolution-ladder-resolution_threshold-model-plumbing">Task 1: <code>Resolution</code> ladder + <code>resolution_threshold</code> + model plumbing<a class="headerlink" href="#task-1-resolution-ladder-resolution_threshold-model-plumbing" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>config/media_filters.py</code> (add <code>Resolution</code>, <code>resolution_threshold</code>; extend <code>MediaFilterOverride</code>, <code>MediaFilters</code>)</li>
+<li>Modify: <code>config/schema.py</code> (<code>MediaFiltersSection</code>: add field + validator + <code>to_runtime</code>)</li>
+<li>Test: <code>tests/config/unit/test_media_filters.py</code> (extend)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: existing <code>ConfigError</code>, <code>MEDIA_FILTERS_EXAMPLE</code>, <code>parse_size</code>/<code>parse_duration</code>, <code>MediaFilters.for_creator</code>/<code>is_active</code>/<code>ensure_valid</code>, <code>MediaFiltersSection.to_runtime</code>.</li>
+<li>
+<p>Produces: <code>class Resolution(StrEnum)</code> with <code>.dimensions</code>, <code>.threshold</code>, <code>_missing_</code>; <code>resolution_threshold(value: int | str | None) -&gt; int | None</code> (raises <code>ConfigError</code> on garbage); <code>MediaFilterOverride.max_resolution: int | str | None</code>; <code>MediaFilters.max_resolution: int | str | None</code> + <code>max_resolution_px</code> property; <code>MediaFiltersSection.max_resolution: int | str | None</code>. Later tasks read <code>resolve_media_filters(...).max_resolution_px</code> (an <code>int | None</code>).</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write the failing tests</strong></p>
+</li>
+</ul>
+<p>Append to <code>tests/config/unit/test_media_filters.py</code> (imports merged at file top: <code>from config.media_filters import Resolution, resolution_threshold</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestResolution</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_threshold_ladder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">P240</span><span class="o">.</span><span class="n">threshold</span> <span class="o">==</span> <span class="mi">240</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">P1080</span><span class="o">.</span><span class="n">threshold</span> <span class="o">==</span> <span class="mi">1080</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">UHD</span><span class="o">.</span><span class="n">threshold</span> <span class="o">==</span> <span class="mi">2160</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">P1080</span><span class="o">.</span><span class="n">dimensions</span> <span class="o">==</span> <span class="p">(</span><span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_missing_case_and_alias</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="p">(</span><span class="s2">&quot;1080P&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">P1080</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="p">(</span><span class="s2">&quot;4K&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">UHD</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="p">(</span><span class="s2">&quot;2160p&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">UHD</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_members_are_str</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">Resolution</span><span class="o">.</span><span class="n">P1080</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;1080p&quot;</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestResolutionThreshold</span><span class="p">:</span>
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span>
+        <span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="s2">&quot;expected&quot;</span><span class="p">),</span>
+        <span class="p">[</span>
+            <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;1080p&quot;</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;4k&quot;</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;1080P&quot;</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;2160p&quot;</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+            <span class="p">(</span><span class="mi">1080</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">&quot;900&quot;</span><span class="p">,</span> <span class="mi">900</span><span class="p">),</span>
+            <span class="p">(</span><span class="mi">1600</span><span class="p">,</span> <span class="mi">1600</span><span class="p">),</span>
+        <span class="p">],</span>
+    <span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_accepted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">expected</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">resolution_threshold</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">==</span> <span class="n">expected</span>
+
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;huge&quot;</span><span class="p">,</span> <span class="s2">&quot;1080i&quot;</span><span class="p">,</span> <span class="s2">&quot;-720&quot;</span><span class="p">,</span> <span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;720x480&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_raises</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;resolution&quot;</span><span class="p">):</span>
+            <span class="n">resolution_threshold</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestMaxResolutionModel</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_stored_raw_and_threshold_computed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">max_resolution</span><span class="o">=</span><span class="s2">&quot;4k&quot;</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;4k&quot;</span>  <span class="c1"># raw form preserved</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">2160</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">is_active</span> <span class="ow">is</span> <span class="kc">True</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_disabled_when_absent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">MediaFilters</span><span class="p">()</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="ow">is</span> <span class="kc">None</span>
+        <span class="k">assert</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">max_resolution</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="ow">is</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_for_creator_merges_max_resolution</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">base</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span>
+            <span class="n">max_resolution</span><span class="o">=</span><span class="s2">&quot;4k&quot;</span><span class="p">,</span>
+            <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">max_resolution</span><span class="o">=</span><span class="s2">&quot;1080p&quot;</span><span class="p">)},</span>
+        <span class="p">)</span>
+        <span class="k">assert</span> <span class="n">base</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;c1&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;1080p&quot;</span>
+        <span class="k">assert</span> <span class="n">base</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;c1&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">1080</span>
+        <span class="k">assert</span> <span class="n">base</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;other&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;4k&quot;</span>
+</code></pre></div>
+<p>Also append a schema + round-trip test (mirror the existing <code>TestByCreatorYamlRoundTrip</code> dump/load helpers in this file):</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestMaxResolutionSchema</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_section_parses_both_forms</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">section</span> <span class="o">=</span> <span class="n">MediaFiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">:</span> <span class="s2">&quot;1080p&quot;</span><span class="p">,</span> <span class="s2">&quot;by_creator&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">:</span> <span class="mi">720</span><span class="p">}}}</span>
+        <span class="p">)</span>
+        <span class="n">rt</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">to_runtime</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;1080p&quot;</span>
+        <span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">1080</span>
+        <span class="k">assert</span> <span class="n">rt</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;c1&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">720</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_raises_validationerror</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ValidationError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;resolution&quot;</span><span class="p">):</span>
+            <span class="n">MediaFiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">({</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">:</span> <span class="s2">&quot;huge&quot;</span><span class="p">})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_authored_form_survives_round_trip</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
+            <span class="p">{</span><span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;media&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">:</span> <span class="s2">&quot;4k&quot;</span><span class="p">}}}</span>
+        <span class="p">)</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="n">_dump_schema_to_text</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>  <span class="c1"># reuse the file&#39;s existing dump helper</span>
+        <span class="k">assert</span> <span class="s2">&quot;4k&quot;</span> <span class="ow">in</span> <span class="n">text</span>
+        <span class="k">assert</span> <span class="s2">&quot;2160&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">text</span>
+        <span class="n">again</span> <span class="o">=</span> <span class="n">_load_schema_from_text</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">again</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">media</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;4k&quot;</span>
+</code></pre></div>
+<p>(Before writing, read this file's existing round-trip test to reuse its exact dump/load helper names — <code>_dump_schema_to_text</code>/<code>_load_schema_from_text</code> are placeholders for whatever <code>TestByCreatorYamlRoundTrip</code> already uses; match them.)</p>
+<ul>
+<li>[ ] <strong>Step 2: Run tests to verify they fail</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/config/unit/test_media_filters.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -12</code>
+Expected: <code>ImportError: cannot import name 'Resolution'</code></p>
+<ul>
+<li>[ ] <strong>Step 3: Implement in <code>config/media_filters.py</code></strong></li>
+</ul>
+<p>Add imports at file top: <code>from enum import StrEnum</code>. After the <code>MEDIA_FILTERS_EXAMPLE</code> block and before <code>MediaFilterOverride</code>, add:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Resolution</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Named resolution tiers; value is the conventional label.&quot;&quot;&quot;</span>
+
+    <span class="n">P240</span> <span class="o">=</span> <span class="s2">&quot;240p&quot;</span>
+    <span class="n">P360</span> <span class="o">=</span> <span class="s2">&quot;360p&quot;</span>
+    <span class="n">P480</span> <span class="o">=</span> <span class="s2">&quot;480p&quot;</span>
+    <span class="n">P720</span> <span class="o">=</span> <span class="s2">&quot;720p&quot;</span>
+    <span class="n">P1080</span> <span class="o">=</span> <span class="s2">&quot;1080p&quot;</span>
+    <span class="n">P1440</span> <span class="o">=</span> <span class="s2">&quot;1440p&quot;</span>
+    <span class="n">UHD</span> <span class="o">=</span> <span class="s2">&quot;4k&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;240p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">426</span><span class="p">,</span> <span class="mi">240</span><span class="p">),</span>
+            <span class="s2">&quot;360p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">640</span><span class="p">,</span> <span class="mi">360</span><span class="p">),</span>
+            <span class="s2">&quot;480p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">854</span><span class="p">,</span> <span class="mi">480</span><span class="p">),</span>
+            <span class="s2">&quot;720p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1280</span><span class="p">,</span> <span class="mi">720</span><span class="p">),</span>
+            <span class="s2">&quot;1080p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="s2">&quot;1440p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">2560</span><span class="p">,</span> <span class="mi">1440</span><span class="p">),</span>
+            <span class="s2">&quot;4k&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+        <span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">value</span><span class="p">]</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel count (the &#39;p&#39; number) for this tier.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_missing_</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Resolution | None&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="bp">cls</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">member</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">v</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">member</span>
+            <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="s2">&quot;2160p&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">UHD</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">resolution_threshold</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel cap for a max_resolution value; None disables.</span>
+
+<span class="sd">    Accepts a Resolution tier name (case-insensitive, &#39;2160p&#39; alias), a bare</span>
+<span class="sd">    pixel integer or digit-string, or 0/None/empty (disabled). Raises on else.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;resolution&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;resolution&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span> <span class="ow">or</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">Resolution</span><span class="p">(</span><span class="n">text</span><span class="p">)</span><span class="o">.</span><span class="n">threshold</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="ow">or</span> <span class="kc">None</span>
+    <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;resolution&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</code></pre></div>
+<p>Note <code>_shape_error(kind, value)</code> already exists in this module (used by <code>parse_size</code>/<code>parse_duration</code>); reuse it so the message carries <code>MEDIA_FILTERS_EXAMPLE</code>. Its <code>kind</code> string appears in the error — <code>"resolution"</code> makes the <code>match="resolution"</code> tests pass. If <code>_shape_error</code>'s signature differs, adapt the call to match the existing one.</p>
+<p>In <code>MediaFilterOverride</code> add the field + validator:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">max_resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_max_resolution</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">resolution_threshold</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>  <span class="c1"># validate only; raises on garbage</span>
+        <span class="k">return</span> <span class="n">v</span>  <span class="c1"># preserve the authored form</span>
+</code></pre></div>
+<p>In <code>MediaFilters</code> add the field + property, extend <code>is_active</code> and <code>for_creator</code>:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">max_resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">max_resolution_px</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">resolution_threshold</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_resolution</span><span class="p">)</span>
+</code></pre></div>
+<p><code>is_active</code> — add the resolution check:</p>
+<div class="highlight"><pre><span></span><code>    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_active</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="nb">any</span><span class="p">(</span>
+                <span class="n">limit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                <span class="k">for</span> <span class="n">limit</span> <span class="ow">in</span> <span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">duration_min</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">duration_max</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="p">)</span>
+</code></pre></div>
+<p><code>for_creator</code> — add <code>"max_resolution"</code> to the merged field tuple:</p>
+<div class="highlight"><pre><span></span><code>        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span>
+            <span class="s2">&quot;file_size_min&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;duration_min&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;duration_max&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;max_resolution&quot;</span><span class="p">,</span>
+        <span class="p">):</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">override</span><span class="o">.</span><span class="n">model_fields_set</span><span class="p">:</span>
+                <span class="n">update</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">override</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</code></pre></div>
+<p>(<code>ensure_valid</code> is unchanged — a single-ended cap has no min&gt;max pair.)</p>
+<p>In <code>config/schema.py</code> <code>MediaFiltersSection</code>, add the field + validator (mirror <code>_parse_sizes</code> placement) and thread it into <code>to_runtime</code>:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">max_resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_max_resolution</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">resolution_threshold</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ConfigError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+        <span class="k">return</span> <span class="n">v</span>
+</code></pre></div>
+<p>(Import <code>resolution_threshold</code> alongside the existing <code>from config.media_filters import ...</code> line. The <code>ConfigError -&gt; ValueError</code> re-raise matches the existing <code>_parse_sizes</code>/<code>_parse_durations</code>/<code>_normalize_wall</code> pattern so Pydantic wraps it with a field path.)</p>
+<p>In <code>to_runtime</code>, add <code>max_resolution=self.max_resolution</code> to the <code>MediaFilters(...)</code> construction.</p>
+<ul>
+<li>[ ] <strong>Step 4: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/config/unit/test_media_filters.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -8</code>
+Expected: all PASS</p>
+<ul>
+<li>[ ] <strong>Step 5: Quality gate + hand commit to operator</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/ruff check config/media_filters.py config/schema.py tests/config/unit/test_media_filters.py &amp;&amp; .venv/bin/ruff format --check config/media_filters.py config/schema.py tests/config/unit/test_media_filters.py &amp;&amp; .venv/bin/mypy . 2&gt;&amp;1 | tail -2</code>
+Expected: clean; mypy zero. Commit message: <code>feat(config): Resolution ladder + filters.media.max_resolution model</code></p>
+<hr />
+<h3 id="task-2-max-resolution-cli-flag">Task 2: <code>--max-resolution</code> CLI flag<a class="headerlink" href="#task-2-max-resolution-cli-flag" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>config/args.py</code> (new argument near the other media-filter flags; <code>_apply_media_filter_args</code>)</li>
+<li>Modify: <code>tests/fixtures/config/config_fixtures.py</code> (<code>default_cli_args</code> gains <code>max_resolution=None</code>)</li>
+<li>Test: <code>tests/config/unit/test_media_filters.py</code> (extend)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>resolution_threshold</code> (Task 1); existing <code>_apply_media_filter_args</code>, <code>config.media_filters</code> (a <code>MediaFilters</code>), the <code>_map</code> test helper.</li>
+<li>
+<p>Produces: <code>args.max_resolution: str | None</code>; on use, <code>config.media_filters</code> replaced via <code>model_copy(update={"max_resolution": ...})</code> + <code>config._ephemeral_overrides.add("media_filters")</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write the failing tests</strong></p>
+</li>
+</ul>
+<p>Append to <code>tests/config/unit/test_media_filters.py</code> (CLI test class, using the existing <code>_map</code> helper):</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestMaxResolutionCli</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_flag_sets_tier</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--max-resolution&quot;</span><span class="p">,</span> <span class="s2">&quot;1080p&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">max_resolution</span> <span class="o">==</span> <span class="s2">&quot;1080p&quot;</span>
+        <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">1080</span>
+        <span class="k">assert</span> <span class="s2">&quot;media_filters&quot;</span> <span class="ow">in</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">_ephemeral_overrides</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_flag_accepts_int</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--max-resolution&quot;</span><span class="p">,</span> <span class="s2">&quot;900&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="o">==</span> <span class="mi">900</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_off_disables_for_run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
+        <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">max_resolution</span><span class="o">=</span><span class="s2">&quot;4k&quot;</span><span class="p">)</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--max-resolution&quot;</span><span class="p">,</span> <span class="s2">&quot;off&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="ow">is</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_raises</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;resolution&quot;</span><span class="p">):</span>
+            <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--max-resolution&quot;</span><span class="p">,</span> <span class="s2">&quot;huge&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Run tests to verify they fail</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/config/unit/test_media_filters.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -8</code>
+Expected: FAIL — <code>unrecognized arguments: --max-resolution</code></p>
+<ul>
+<li>[ ] <strong>Step 3: Implement in <code>config/args.py</code></strong></li>
+</ul>
+<p>Add the argument beside <code>--duration-max</code> (a plain value option, not in the download-modes group):</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--max-resolution&quot;</span><span class="p">,</span>
+        <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;RES&quot;</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Cap download resolution to a tier (240p, 360p, 480p, 720p, &quot;</span>
+        <span class="s2">&quot;1080p, 1440p, 4k) or a shorter-edge pixel integer. Renditions above &quot;</span>
+        <span class="s2">&quot;the cap are downscaled to the highest that fits, or skipped if none &quot;</span>
+        <span class="s2">&quot;fits. &#39;off&#39; / &#39;none&#39; / 0 disables for this run. Ephemeral override &quot;</span>
+        <span class="s2">&quot;of filters.media.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p>In <code>_apply_media_filter_args</code>, after the existing size/duration handling and before the <code>ensure_valid</code>/ephemeral-mark, add:</p>
+<div class="highlight"><pre><span></span><code>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">max_resolution</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">max_resolution</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">raw</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;off&quot;</span><span class="p">,</span> <span class="s2">&quot;none&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">):</span>
+            <span class="n">update</span><span class="p">[</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">resolution_threshold</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>  <span class="c1"># validate; raises ConfigError on garbage</span>
+            <span class="n">update</span><span class="p">[</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">raw</span>
+</code></pre></div>
+<p>(<code>update</code> is the existing dict the function builds for the <code>model_copy</code>; <code>resolution_threshold</code> is imported alongside <code>parse_size</code>/<code>parse_duration</code>. The existing empty-<code>update</code> short-circuit and <code>_ephemeral_overrides.add("media_filters")</code> already cover this new key.)</p>
+<p>In <code>tests/fixtures/config/config_fixtures.py::default_cli_args</code>, add <code>max_resolution=None</code> beside the other media-filter dests.</p>
+<ul>
+<li>[ ] <strong>Step 4: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/config/unit/test_media_filters.py tests/config/unit/test_args.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -8</code>
+Expected: all PASS</p>
+<ul>
+<li>[ ] <strong>Step 5: Quality gate + hand commit to operator</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/ruff check config/args.py tests/ &amp;&amp; .venv/bin/mypy . 2&gt;&amp;1 | tail -2</code>
+Expected: clean; mypy zero. Commit message: <code>feat(cli): --max-resolution ephemeral override</code></p>
+<hr />
+<h3 id="task-3-regular-file-cap-_select_best_variant-parse-time-skip-shared-skip-helper">Task 3: Regular-file cap — <code>_select_best_variant</code> + parse-time skip + shared skip helper<a class="headerlink" href="#task-3-regular-file-cap-_select_best_variant-parse-time-skip-shared-skip-helper" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>media/media.py</code> (<code>_select_best_variant</code>, <code>parse_media_info</code>)</li>
+<li>Modify: <code>download/media.py</code> (<code>fetch_and_process_media</code> loop; extract shared <code>handle_filtered_skip</code>; refactor <code>download_media</code>'s existing <code>except MediaFilteredError</code>)</li>
+<li>Test: <code>tests/download/unit/test_mediafilters.py</code> and/or <code>tests/media/</code> (extend)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>resolve_media_filters</code> (returns <code>MediaFilters | None</code>), <code>.max_resolution_px</code>, <code>record_filter_observation</code>, <code>MediaFilteredError</code>, <code>_print_filtered_skip</code> (all existing in <code>download/mediafilters.py</code> / <code>download/media.py</code> / <code>errors</code>).</li>
+<li>
+<p>Produces: <code>_select_best_variant(media, max_px: int | None)</code> (new second param); <code>parse_media_info</code> raises <code>MediaFilteredError("max_resolution")</code> when no known rendition fits; <code>async handle_filtered_skip(config, state, media, reason)</code> shared helper (record + print + count).</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write the failing tests</strong></p>
+</li>
+</ul>
+<p>Add to <code>tests/download/unit/test_mediafilters.py</code> (real <code>Media</code>/variant factories, no mocked selector). First the pure selector:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">media.media</span><span class="w"> </span><span class="kn">import</span> <span class="n">_select_best_variant</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_variant</span><span class="p">(</span><span class="n">media_id</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">h</span><span class="p">):</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">tests.fixtures.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MediaFactory</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">media_id</span><span class="p">,</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="n">w</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">h</span><span class="p">)</span>
+    <span class="c1"># give it a location so it&#39;s a valid candidate</span>
+    <span class="n">v</span><span class="o">.</span><span class="n">locations</span> <span class="o">=</span> <span class="p">[</span> <span class="o">...</span> <span class="p">]</span>  <span class="c1"># mirror how sibling tests build a MediaLocation</span>
+    <span class="k">return</span> <span class="n">v</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TestSelectBestVariantCap</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_downscales_to_fitting_variant</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">tests.fixtures.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MediaFactory</span>
+        <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">)</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">1280</span><span class="p">,</span> <span class="mi">720</span><span class="p">),</span>
+            <span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+        <span class="p">]</span>
+        <span class="n">best</span> <span class="o">=</span> <span class="n">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="mi">1080</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">min</span><span class="p">(</span><span class="n">best</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">best</span><span class="o">.</span><span class="n">height</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1080</span>  <span class="c1"># picked the 1080p, not 4K</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_none_when_no_variant_fits</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">tests.fixtures.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MediaFactory</span>
+        <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">)</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">[</span><span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">)]</span>
+        <span class="k">assert</span> <span class="n">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="mi">1080</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_no_cap_picks_highest</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">tests.fixtures.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MediaFactory</span>
+        <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">)</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+        <span class="p">]</span>
+        <span class="n">best</span> <span class="o">=</span> <span class="n">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">min</span><span class="p">(</span><span class="n">best</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">best</span><span class="o">.</span><span class="n">height</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2160</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_portrait_qualifies_by_shorter_edge</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">tests.fixtures.metadata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MediaFactory</span>
+        <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">)</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">variants</span> <span class="o">=</span> <span class="p">[</span><span class="n">_variant</span><span class="p">(</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="mi">1080</span><span class="p">,</span> <span class="mi">1920</span><span class="p">)]</span>  <span class="c1"># portrait 1080p</span>
+        <span class="n">best</span> <span class="o">=</span> <span class="n">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="mi">1080</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">best</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>  <span class="c1"># short edge 1080 &lt;= 1080</span>
+</code></pre></div>
+<p>(Imports at file top; <code>_variant</code>'s location construction must mirror how existing tests in this repo build a <code>MediaLocation</code> on a <code>Media</code> — read a sibling test first and copy the exact shape.)</p>
+<ul>
+<li>[ ] <strong>Step 2: Run tests to verify they fail</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/download/unit/test_mediafilters.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -8</code>
+Expected: FAIL — <code>_select_best_variant() takes 1 positional argument but 2 were given</code></p>
+<ul>
+<li>[ ] <strong>Step 3: Implement</strong></li>
+</ul>
+<p>In <code>media/media.py</code>, change <code>_select_best_variant</code> to take the cap and filter to fitting variants:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">:</span> <span class="n">Media</span><span class="p">,</span> <span class="n">max_px</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Media</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Select the highest-resolution variant matching the parent&#39;s mimetype,</span>
+<span class="sd">    capped at max_px on the shorter edge when set.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">media</span><span class="o">.</span><span class="n">variants</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="n">parent_mime</span> <span class="o">=</span> <span class="n">simplify_mimetype</span><span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">mimetype</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="n">matching</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">v</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">media</span><span class="o">.</span><span class="n">variants</span>
+        <span class="k">if</span> <span class="n">v</span><span class="o">.</span><span class="n">locations</span> <span class="ow">and</span> <span class="n">simplify_mimetype</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">mimetype</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">parent_mime</span>
+    <span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">max_px</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fitting</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">v</span>
+            <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">matching</span>
+            <span class="k">if</span> <span class="n">v</span><span class="o">.</span><span class="n">width</span> <span class="ow">and</span> <span class="n">v</span><span class="o">.</span><span class="n">height</span> <span class="ow">and</span> <span class="nb">min</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">v</span><span class="o">.</span><span class="n">height</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_px</span>
+        <span class="p">]</span>
+        <span class="n">matching</span> <span class="o">=</span> <span class="n">fitting</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">matching</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="n">matching</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">v</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">width</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">height</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">))</span>
+</code></pre></div>
+<p>In <code>parse_media_info</code>, resolve the cap and make the skip decision over the default+variant pool. At the top (it already imports what it needs; add <code>from download.mediafilters import resolve_media_filters</code> and <code>from errors import MediaFilteredError</code> at file top — verify no import cycle; <code>media/media.py</code> importing <code>download.mediafilters</code> may cycle, so if mypy/import fails, resolve the cap in the CALLER (<code>fetch_and_process_media</code>) and pass <code>max_px</code> into <code>parse_media_info</code> as a parameter instead). Preferred shape — pass <code>max_px</code> in as a parameter to keep <code>media/media.py</code> free of a <code>download.*</code> import:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">parse_media_info</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">:</span> <span class="n">DownloadState</span><span class="p">,</span>
+    <span class="n">media_info</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">post_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">interactive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">max_px</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Media</span><span class="p">:</span>
+</code></pre></div>
+<p>Replace the <code>best = _select_best_variant(media)</code> block and its default-fallback with a cap-aware decision:</p>
+<div class="highlight"><pre><span></span><code>    <span class="n">best</span> <span class="o">=</span> <span class="n">_select_best_variant</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">max_px</span><span class="p">)</span>
+    <span class="n">default_known</span> <span class="o">=</span> <span class="n">media</span><span class="o">.</span><span class="n">width</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">media</span><span class="o">.</span><span class="n">height</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="n">default_fits</span> <span class="o">=</span> <span class="n">default_known</span> <span class="ow">and</span> <span class="p">(</span>
+        <span class="n">max_px</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">min</span><span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">width</span><span class="p">,</span> <span class="n">media</span><span class="o">.</span><span class="n">height</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_px</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">best</span> <span class="ow">or</span> <span class="p">(</span><span class="n">default_fits</span> <span class="ow">and</span> <span class="n">media</span><span class="o">.</span><span class="n">locations</span><span class="p">):</span>
+        <span class="c1"># Prefer the default only when it fits the cap AND is higher-res.</span>
+        <span class="n">use_variant</span> <span class="o">=</span> <span class="n">best</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="n">download_url</span> <span class="o">=</span> <span class="n">_build_m3u8_auth_url</span><span class="p">(</span><span class="n">best</span><span class="p">)</span> <span class="k">if</span> <span class="n">best</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="n">default_url</span> <span class="o">=</span> <span class="n">_get_best_location_url</span><span class="p">(</span><span class="n">media</span><span class="p">)</span> <span class="k">if</span> <span class="n">default_fits</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">default_url</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">best</span> <span class="ow">or</span> <span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">height</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="p">(</span><span class="n">best</span><span class="o">.</span><span class="n">height</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)):</span>
+            <span class="n">download_url</span> <span class="o">=</span> <span class="n">default_url</span>
+            <span class="n">use_variant</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">download_url</span> <span class="o">=</span> <span class="n">download_url</span>
+        <span class="k">if</span> <span class="n">use_variant</span> <span class="ow">and</span> <span class="n">best</span><span class="p">:</span>
+            <span class="n">media</span><span class="o">.</span><span class="n">download_id</span> <span class="o">=</span> <span class="n">best</span><span class="o">.</span><span class="n">id</span>
+    <span class="k">elif</span> <span class="n">max_px</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="p">(</span><span class="n">default_known</span> <span class="ow">or</span> <span class="n">_any_known_variant</span><span class="p">(</span><span class="n">media</span><span class="p">)):</span>
+        <span class="c1"># Renditions exist but none fits the cap -&gt; filtered skip.</span>
+        <span class="k">raise</span> <span class="n">MediaFilteredError</span><span class="p">(</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">download_url</span> <span class="o">=</span> <span class="n">_get_best_location_url</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
+</code></pre></div>
+<p>Add a tiny local helper <code>_any_known_variant(media)</code> returning True if any variant has both width and height (used only to distinguish "known but too big" from "unknown metadata"). If the <code>elif</code> guard reads cleaner inline, inline it. The existing preview-fallback block below stays; it should also respect <code>max_px</code> when it re-selects a preview variant (<code>_select_best_variant(preview_media, max_px)</code>).</p>
+<p>In <code>download/media.py</code> <code>fetch_and_process_media</code>, resolve the cap once per item and pass it, catching the skip:</p>
+<div class="highlight"><pre><span></span><code>            <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">media_infos</span><span class="p">:</span>
+                <span class="n">media_dict</span> <span class="o">=</span> <span class="n">expect_dict</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="s2">&quot;media info&quot;</span><span class="p">)</span>
+                <span class="n">filters</span> <span class="o">=</span> <span class="n">resolve_media_filters</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+                <span class="n">max_px</span> <span class="o">=</span> <span class="n">filters</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="k">if</span> <span class="n">filters</span> <span class="k">else</span> <span class="kc">None</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">all_media</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                        <span class="k">await</span> <span class="n">parse_media_info</span><span class="p">(</span>
+                            <span class="n">state</span><span class="p">,</span>
+                            <span class="n">media_dict</span><span class="p">,</span>
+                            <span class="n">post_id</span><span class="p">,</span>
+                            <span class="n">interactive</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">interactive</span><span class="p">,</span>
+                            <span class="n">max_px</span><span class="o">=</span><span class="n">max_px</span><span class="p">,</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">except</span> <span class="n">MediaFilteredError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="c1"># need the media object to record against; fetch from cache</span>
+                    <span class="k">await</span> <span class="n">handle_filtered_skip</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media_dict</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">reason</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">print_error</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>  <span class="c1"># unchanged</span>
+                    <span class="k">await</span> <span class="n">input_enter_continue</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">interactive</span><span class="p">)</span>
+</code></pre></div>
+<p>The recording needs the <code>Media</code> row. <code>process_media_info</code> already persisted it to the identity map before this loop, so <code>handle_filtered_skip</code> can <code>get_store().get_from_cache(Media, int(media_dict["media"]["id"]))</code> — verify the exact id path against <code>parse_media_info</code>'s own <code>default_media_dict = media_info["media"]</code> usage and mirror it. If threading the <code>Media</code> object is cleaner, have <code>parse_media_info</code> attach it to the exception (<code>MediaFilteredError</code> already carries attributes; add the media id) — pick whichever keeps the recording correct; the report must state which.</p>
+<p>Extract the shared skip helper in <code>download/media.py</code> and refactor <code>download_media</code>'s existing <code>except MediaFilteredError</code> to call it:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_filtered_skip</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">DownloadState</span><span class="p">,</span> <span class="n">media</span><span class="p">:</span> <span class="n">Media</span><span class="p">,</span> <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Record a filtered-skip observation, print, and count it.&quot;&quot;&quot;</span>
+    <span class="k">await</span> <span class="n">record_filter_observation</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="n">reason</span><span class="p">)</span>
+    <span class="n">_print_filtered_skip</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="p">)</span>
+    <span class="n">state</span><span class="o">.</span><span class="n">filtered_count</span> <span class="o">+=</span> <span class="mi">1</span>
+</code></pre></div>
+<p>(Match <code>record_filter_observation</code>'s actual signature. The existing <code>download_media</code> loop handler that inlines record+print+count is replaced by a call to <code>handle_filtered_skip</code>, so both the parse-time and download-time skips share one implementation.)</p>
+<ul>
+<li>[ ] <strong>Step 4: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/download/unit/test_mediafilters.py tests/download/unit/test_media_download.py tests/download/unit/test_media_pipeline.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -10</code>
+Expected: all PASS</p>
+<ul>
+<li>[ ] <strong>Step 5: Quality gate + hand commit to operator</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/ruff check media/media.py download/media.py tests/ &amp;&amp; .venv/bin/mypy . 2&gt;&amp;1 | tail -2</code>
+Expected: clean; mypy zero. Commit message: <code>feat(download): cap regular-file rendition selection at max_resolution</code></p>
+<hr />
+<h3 id="task-4-hls-cap-_get_highest_quality_variant_url-thread-through-tiers">Task 4: HLS cap — <code>_get_highest_quality_variant_url</code> + thread through tiers<a class="headerlink" href="#task-4-hls-cap-_get_highest_quality_variant_url-thread-through-tiers" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>download/m3u8.py</code> (<code>_get_highest_quality_variant_url</code>, <code>download_m3u8</code>, the three tier helpers)</li>
+<li>Modify: <code>download/media.py</code> (<code>_download_m3u8_file</code> resolves + passes <code>max_px</code>)</li>
+<li>Test: <code>tests/download/unit/test_mediafilters.py</code> / <code>tests/download/unit/test_m3u8.py</code> (extend)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>resolve_media_filters(...).max_resolution_px</code>, <code>MediaFilteredError</code>; existing <code>max_bytes</code> threading pattern from the size feature (mirror it exactly).</li>
+<li>
+<p>Produces: <code>_get_highest_quality_variant_url(config, m3u8_url, cookies, max_px: int | None = None)</code>; <code>download_m3u8(..., max_resolution: int | None = None)</code>; the tier helpers accept and forward <code>max_resolution</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write the failing test</strong></p>
+</li>
+</ul>
+<p>Add to <code>tests/download/unit/test_mediafilters.py</code> using <code>build_master_playlist</code> with multiple variants (read the fixture's real signature first — the size feature's estimate-gate tests already use it):</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestHlsResolutionCap</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_picks_fitting_variant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">respx_fansly_api</span><span class="p">,</span> <span class="n">mock_config</span><span class="p">):</span>
+        <span class="c1"># master playlist with 720p, 1080p, 4K variants; cap 1080 -&gt; 1080 URL</span>
+        <span class="o">...</span>  <span class="c1"># mirror the estimate-gate test&#39;s master-playlist mounting</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="n">_get_highest_quality_variant_url</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">master_url</span><span class="p">,</span> <span class="p">{},</span> <span class="mi">1080</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="s2">&quot;1080&quot;</span> <span class="ow">in</span> <span class="n">url</span>  <span class="c1"># or assert against the known variant URL</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_raises_when_none_fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">respx_fansly_api</span><span class="p">,</span> <span class="n">mock_config</span><span class="p">):</span>
+        <span class="c1"># master playlist with only a 4K variant; cap 1080 -&gt; MediaFilteredError</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">MediaFilteredError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">_get_highest_quality_variant_url</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">master_url</span><span class="p">,</span> <span class="p">{},</span> <span class="mi">1080</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">exc</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;max_resolution&quot;</span>
+</code></pre></div>
+<p>(Fill in the master-playlist mounting by copying the estimate-gate HLS test in this same file — same <code>build_master_playlist</code>/route/<code>dump_fansly_calls</code> conventions, <code>route.called</code> asserted.)</p>
+<ul>
+<li>[ ] <strong>Step 2: Run test to verify it fails</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/download/unit/test_mediafilters.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -8</code>
+Expected: FAIL — <code>_get_highest_quality_variant_url() takes 3 positional arguments but 4 were given</code></p>
+<ul>
+<li>[ ] <strong>Step 3: Implement in <code>download/m3u8.py</code></strong></li>
+</ul>
+<p><code>_get_highest_quality_variant_url</code> — add <code>max_px</code> and cap the selection:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_get_highest_quality_variant_url</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span>
+    <span class="n">m3u8_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">cookies</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+    <span class="n">max_px</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="o">...</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">master_playlist</span><span class="o">.</span><span class="n">playlists</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">candidates</span> <span class="o">=</span> <span class="n">master_playlist</span><span class="o">.</span><span class="n">playlists</span>
+        <span class="k">if</span> <span class="n">max_px</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">fitting</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">p</span>
+                <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">candidates</span>
+                <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">stream_info</span><span class="o">.</span><span class="n">resolution</span>
+                <span class="ow">and</span> <span class="nb">min</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stream_info</span><span class="o">.</span><span class="n">resolution</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_px</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">fitting</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stream_info</span><span class="o">.</span><span class="n">resolution</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">MediaFilteredError</span><span class="p">(</span><span class="s2">&quot;max_resolution&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">fitting</span><span class="p">:</span>
+                <span class="n">candidates</span> <span class="o">=</span> <span class="n">fitting</span>
+        <span class="n">variant_info</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span>
+            <span class="n">candidates</span><span class="p">,</span>
+            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">p</span><span class="p">:</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stream_info</span><span class="o">.</span><span class="n">resolution</span> <span class="ow">or</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="o">*</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stream_info</span><span class="o">.</span><span class="n">resolution</span> <span class="ow">or</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">variant_info</span><span class="o">.</span><span class="n">absolute_uri</span>
+    <span class="o">...</span>  <span class="c1"># unchanged 1080p-guess fallback</span>
+</code></pre></div>
+<p>Import <code>MediaFilteredError</code> at file top. Thread <code>max_resolution</code> through <code>download_m3u8</code> and the three tier callers (lines ~163, ~203, ~319 call <code>_get_highest_quality_variant_url</code>; <code>fetch_m3u8_segment_playlist</code> at ~163 also calls it and needs the param forwarded) exactly as <code>max_bytes</code> was threaded for the size feature — add <code>max_resolution: int | None = None</code> to <code>download_m3u8</code>, <code>_try_direct_download_pyav</code>, <code>_try_direct_download_ffmpeg</code>, <code>_try_segment_download</code>, and <code>fetch_m3u8_segment_playlist</code>, forwarding to each <code>_get_highest_quality_variant_url(...)</code> call. <code>MediaFilteredError</code> must NOT be swallowed by the tier fallbacks — mirror the existing <code>except MediaFilteredError: raise</code> guards the size feature added in these same functions (verify they're present and cover the new raise).</p>
+<p>In <code>download/media.py</code> <code>_download_m3u8_file</code>, resolve and pass the cap (it already resolves filters for the size gate — reuse that <code>filters</code> binding):</p>
+<div class="highlight"><pre><span></span><code>        <span class="n">filters</span> <span class="o">=</span> <span class="n">resolve_media_filters</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+        <span class="n">max_px</span> <span class="o">=</span> <span class="n">filters</span><span class="o">.</span><span class="n">max_resolution_px</span> <span class="k">if</span> <span class="n">filters</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="c1"># ... existing max_bytes resolution ...</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">download_m3u8</span><span class="p">,</span>
+            <span class="n">config</span><span class="p">,</span>
+            <span class="n">media</span><span class="o">.</span><span class="n">download_url</span><span class="p">,</span>
+            <span class="n">temp_path</span><span class="p">,</span>
+            <span class="n">media</span><span class="o">.</span><span class="n">created_at_timestamp</span><span class="p">,</span>
+            <span class="n">max_bytes</span><span class="o">=</span><span class="n">max_bytes</span><span class="p">,</span>
+            <span class="n">max_resolution</span><span class="o">=</span><span class="n">max_px</span><span class="p">,</span>
+        <span class="p">)</span>
+</code></pre></div>
+<p>The HLS skip raises inside <code>download_m3u8</code> within the <code>download_media</code> loop, so the loop's existing <code>except MediaFilteredError</code> handler (now <code>handle_filtered_skip</code>) records + counts it — no new handling needed here.</p>
+<ul>
+<li>[ ] <strong>Step 4: Run tests to verify they pass</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/download/unit/test_mediafilters.py tests/download/unit/test_m3u8.py tests/download/integration/test_m3u8_integration.py -q 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/run.log | tail -10</code>
+Expected: all PASS</p>
+<ul>
+<li>[ ] <strong>Step 5: Quality gate + hand commit to operator</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/ruff check download/ tests/ &amp;&amp; .venv/bin/mypy . 2&gt;&amp;1 | tail -2</code>
+Expected: clean; mypy zero. Commit message: <code>feat(download): cap HLS variant selection at max_resolution</code></p>
+<hr />
+<h3 id="task-5-docs-changelog-full-suite">Task 5: Docs, CHANGELOG, full suite<a class="headerlink" href="#task-5-docs-changelog-full-suite" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>docs/configuration/config_options.md</code> (document <code>max_resolution</code> under <code>filters.media</code>)</li>
+<li>Modify: <code>CHANGELOG.md</code> (Unreleased / Added)</li>
+<li>
+<p>Test: full suite + coverage</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Document <code>max_resolution</code> in <code>docs/configuration/config_options.md</code></strong></p>
+</li>
+</ul>
+<p>Under the existing <code>filters.media</code> section, add a <code>max_resolution</code> subsection in the page's voice covering: accepted forms (tier ladder <code>240p/360p/480p/720p/1080p/1440p/4k</code>, or a shorter-edge pixel integer); shorter-edge semantics with a portrait example (<code>a 1080x1920 vertical video qualifies at 1080p</code>); downscale-else-skip behavior (picks the highest rendition at/below the cap; skips as a filtered item when none fits, recorded like size/duration skips); <code>by_creator</code> inheritance; the <code>--max-resolution</code> flag with <code>off</code>/<code>none</code>/<code>0</code> to disable per run; and that the authored form is preserved on save (<code>4k</code> stays <code>4k</code>). Keep prose one physical line per paragraph/bullet.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add the CHANGELOG entry</strong></li>
+</ul>
+<p>Under <code>## [Unreleased]</code> / <code>### Added</code> (create the heading if the section was promoted at 0.15.0 release), one physical line:</p>
+<div class="highlight"><pre><span></span><code><span class="k">-</span><span class="w"> </span><span class="gs">**Max-resolution cap (`filters.media.max_resolution`).**</span> Cap downloads to a resolution tier (<span class="sb">`240p`</span>…<span class="sb">`1440p`</span>, <span class="sb">`4k`</span>) or a shorter-edge pixel integer: the highest rendition at or below the cap is downloaded (real downscaling when Fansly offers a smaller variant), and an item is skipped as a filtered download only when no rendition fits. Compares on the shorter edge so portrait and landscape both work; supports per-creator <span class="sb">`by_creator`</span> overrides and a <span class="sb">`--max-resolution`</span> CLI override (<span class="sb">`off`</span> disables per run); the authored form (<span class="sb">`4k`</span>/<span class="sb">`1080p`</span>) is preserved in config.yaml.
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Full-suite verification (FOREGROUND)</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/python -m pytest tests/ -q --no-header -n8 -rs --timeout=60 --cov --cov-report=term-missing 2&gt;&amp;1 | tee-nocolor /tmp/pytest-logs/cov.log | tail -40</code>
+Expected: zero failures. Skips only pre-existing (plyvel x5, cleanup-enforcement demo). Grep <code>config/media_filters|download/mediafilters|media/media|download/m3u8</code> in the log; the two config/mediafilters modules stay at 100%, and any NEW lines in <code>media/media.py</code>/<code>download/m3u8.py</code> are covered (add targeted tests for gaps, no pragmas). If <code>TestChatWsLoopE2E::test_records_pushed_messages_to_jsonl</code> is the ONLY failure, re-run it alone to confirm the known load-timing flake and report it.</p>
+<ul>
+<li>[ ] <strong>Step 4: Quality gates</strong></li>
+</ul>
+<p>Run: <code>.venv/bin/ruff check . &amp;&amp; .venv/bin/ruff format --check . &amp;&amp; .venv/bin/mypy . 2&gt;&amp;1 | tail -2</code>
+Expected: clean; mypy zero.</p>
+<ul>
+<li>[ ] <strong>Step 5: Hand commit to operator</strong></li>
+</ul>
+<p>Commit message: <code>docs: filters.media.max_resolution reference + changelog</code></p>
+<hr />
+<h2 id="plan-self-review-notes">Plan Self-Review Notes<a class="headerlink" href="#plan-self-review-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Spec coverage: Resolution ladder + raw-storage + threshold helper + model/schema (Task 1); CLI (Task 2); regular-file cap + parse-time skip + shared skip helper (Task 3); HLS cap + tier threading (Task 4); docs/CHANGELOG/suite (Task 5). Shorter-edge comparison, downscale-else-skip, unknown-metadata silent-pass, SINGLE/live exemption (inherited via <code>resolve_media_filters</code> returning None), and round-trip fidelity (raw <code>int|str|None</code> + validator-returns-unchanged) are all covered.</li>
+<li>Type/name consistency: <code>resolution_threshold</code> (int|str|None -&gt; int|None), <code>max_resolution_px</code>, <code>_select_best_variant(media, max_px)</code>, <code>_get_highest_quality_variant_url(..., max_px)</code>, <code>download_m3u8(..., max_resolution=)</code>, <code>handle_filtered_skip(config, state, media, reason)</code> used consistently across tasks.</li>
+<li>Two verify-before-trusting points flagged inline: the <code>media/media.py</code> → <code>download.mediafilters</code> import-cycle risk (resolved by passing <code>max_px</code> as a parameter rather than importing) and the exact <code>Media</code>-id path for recording a parse-time skip (mirror <code>parse_media_info</code>'s own <code>media_info["media"]["id"]</code> usage). Both are called out in Task 3 for the implementer to confirm against live code.</li>
+<li>Known simplification: <code>_select_best_variant</code>'s cap makes it a pure <code>(media, cap)</code> function; the default-rendition decision stays in <code>parse_media_info</code> (the only place that sees both), matching the spec's centralized-decision design.</li>
+</ul>
+              
+            </div>
+          </div><footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+        <span>
+          <a href="https://github.com/Jakan-Kink/fansly-scraper" class="fa fa-code-fork" style="color: #fcfcfc"> Jakan-Kink/fansly-scraper</a>
+        </span>
+    
+    
+    
+  </span>
+</div>
+    <script src="../../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../../..";</script>
+    <script src="../../../js/theme_extra.js"></script>
+    <script src="../../../js/theme.js"></script>
+      <script src="../../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
