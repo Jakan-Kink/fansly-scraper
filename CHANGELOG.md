@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-07-14
+
 ### Added
 
 - **Max-resolution cap (`filters.media.max_resolution`).** Cap downloads to a resolution tier (`240p`…`1440p`, `4k`) or a shorter-edge pixel integer: the highest rendition at or below the cap is downloaded (real downscaling when Fansly offers a smaller variant), and an item is skipped as a filtered download only when no rendition fits. Compares on the shorter edge so portrait and landscape both work; supports per-creator `by_creator` overrides and a `--max-resolution` CLI override (`off` disables per run); the authored form (`4k`/`1080p`) is preserved in config.yaml.
@@ -408,7 +410,8 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.5...v0.15.0
 [0.14.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.3...v0.14.4
