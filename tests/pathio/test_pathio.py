@@ -18,28 +18,7 @@ from pathio import (
     set_create_directory_for_download,
 )
 from tests.fixtures.metadata import MediaFactory
-
-
-class MockPathConfig:
-    """Mock configuration class for use in tests."""
-
-    def __init__(
-        self,
-        download_directory=Path("/test/downloads"),
-        separate_messages=True,
-        separate_timeline=True,
-        separate_previews=True,
-        use_folder_suffix=True,
-        stash_mapped_path=None,
-        stash_override_dldir_w_mapped=False,
-    ):
-        self.download_directory = download_directory
-        self.separate_messages = separate_messages
-        self.separate_timeline = separate_timeline
-        self.separate_previews = separate_previews
-        self.use_folder_suffix = use_folder_suffix
-        self.stash_mapped_path = stash_mapped_path
-        self.stash_override_dldir_w_mapped = stash_override_dldir_w_mapped
+from tests.fixtures.pathio import FakePathConfig
 
 
 class TestPathIO:
@@ -47,7 +26,7 @@ class TestPathIO:
 
     def test_set_create_directory_for_download_no_download_dir(self):
         """Test set_create_directory_for_download with missing download directory."""
-        config = MockPathConfig(download_directory=None)
+        config = FakePathConfig(download_directory=None)
         state = DownloadState(
             creator_name="test_creator", download_type=DownloadType.MESSAGES
         )
@@ -57,7 +36,7 @@ class TestPathIO:
 
     def test_set_create_directory_for_download_no_creator_name(self):
         """Test set_create_directory_for_download with missing creator name."""
-        config = MockPathConfig()
+        config = FakePathConfig()
         state = DownloadState(creator_name=None, download_type=DownloadType.MESSAGES)
 
         with pytest.raises(RuntimeError, match="creator name not set"):
@@ -66,7 +45,7 @@ class TestPathIO:
     def test_set_create_directory_for_download_collections(self, tmp_path):
         """Test set_create_directory_for_download for collections using real directory."""
         # Set up config with tmp_path
-        config = MockPathConfig(download_directory=tmp_path)
+        config = FakePathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.COLLECTIONS
         )
@@ -87,7 +66,7 @@ class TestPathIO:
     def test_set_create_directory_for_download_messages(self, tmp_path):
         """Test set_create_directory_for_download for messages using real directory."""
         # Set up config with tmp_path
-        config = MockPathConfig(download_directory=tmp_path, separate_messages=True)
+        config = FakePathConfig(download_directory=tmp_path, separate_messages=True)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.MESSAGES
         )
@@ -108,7 +87,7 @@ class TestPathIO:
     def test_set_create_directory_for_download_timeline(self, tmp_path):
         """Test set_create_directory_for_download for timeline using real directory."""
         # Set up config with tmp_path
-        config = MockPathConfig(download_directory=tmp_path, separate_timeline=True)
+        config = FakePathConfig(download_directory=tmp_path, separate_timeline=True)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
@@ -142,7 +121,7 @@ class TestPathIO:
         creator_dir = tmp_path / "Creator_fansly"
         creator_dir.mkdir(exist_ok=True)
 
-        config = MockPathConfig(use_folder_suffix=True, download_directory=tmp_path)
+        config = FakePathConfig(use_folder_suffix=True, download_directory=tmp_path)
 
         target = tmp_path / "creator_fansly"
         real_exists = Path.exists
@@ -161,20 +140,20 @@ class TestPathIO:
 
     def test_get_creator_base_path_with_folder_suffix(self, tmp_path):
         """Test get_creator_base_path with folder suffix enabled."""
-        config = MockPathConfig(use_folder_suffix=True, download_directory=tmp_path)
+        config = FakePathConfig(use_folder_suffix=True, download_directory=tmp_path)
         result = get_creator_base_path(config, "creator")
         assert result == tmp_path / "creator_fansly"
 
     def test_get_creator_base_path_without_folder_suffix(self, tmp_path):
         """Test get_creator_base_path with folder suffix disabled."""
-        config = MockPathConfig(use_folder_suffix=False, download_directory=tmp_path)
+        config = FakePathConfig(use_folder_suffix=False, download_directory=tmp_path)
         result = get_creator_base_path(config, "creator")
         assert result == tmp_path / "creator"
 
     def test_get_creator_metadata_path(self, tmp_path):
         """Test get_creator_metadata_path creates and returns the correct path."""
         # Set up config with tmp_path
-        config = MockPathConfig(download_directory=tmp_path)
+        config = FakePathConfig(download_directory=tmp_path)
 
         # Create the creator directory first (needed because the function doesn't use parents=True)
         creator_dir = tmp_path / "creator_fansly"
@@ -242,7 +221,7 @@ class TestPathIO:
         ``Media.get_file_name`` (filename composition from ``createdAt`` / id /
         ``file_extension`` / preview marker) both run end-to-end.
         """
-        config = MockPathConfig(
+        config = FakePathConfig(
             download_directory=tmp_path, separate_previews=separate_previews
         )
         state = DownloadState(creator_name="creator", download_type=download_type)
@@ -274,7 +253,7 @@ class TestPathIO:
 
     def test_get_media_save_path_collections(self, tmp_path):
         """Collections mode saves directly under the Collections dir (no type split)."""
-        config = MockPathConfig(download_directory=tmp_path)
+        config = FakePathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.COLLECTIONS
         )
@@ -297,7 +276,7 @@ class TestPathIO:
 
     def test_get_media_save_path_unknown_mimetype(self, tmp_path):
         """A real Media with an unclassifiable mimetype raises ValueError."""
-        config = MockPathConfig(download_directory=tmp_path)
+        config = FakePathConfig(download_directory=tmp_path)
         state = DownloadState(
             creator_name="creator", download_type=DownloadType.TIMELINE
         )
@@ -311,60 +290,42 @@ class TestPathIO:
         with pytest.raises(ValueError, match="Unknown mimetype"):
             get_media_save_path(config, state, media_item)
 
-    async def test_ask_correct_dir_valid(self, tmp_path):
+    async def test_ask_correct_dir_valid(self, tmp_path, tty, fake_prompt_session):
         """TTY + valid input: returns the parsed directory."""
-        mock_stdin = mock.MagicMock()
-        mock_stdin.isatty.return_value = True
-        mock_session = mock.MagicMock()
-        mock_session.prompt_async = mock.AsyncMock(return_value=str(tmp_path))
-        with (
-            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
-        ):
-            result = await ask_correct_dir()
+        fake_prompt_session.append(f"  {tmp_path}  ")
+        result = await ask_correct_dir()
         assert result == tmp_path
+        assert fake_prompt_session == []
 
-    async def test_ask_correct_dir_invalid_then_valid(self, tmp_path):
-        """Invalid path on first prompt → loop → valid path on second."""
+    async def test_ask_correct_dir_invalid_then_valid(
+        self, tmp_path, tty, fake_prompt_session, caplog
+    ):
+        """Invalid path on first prompt → error logged → valid path on second."""
         valid_dir = tmp_path / "valid"
         valid_dir.mkdir()
-        mock_stdin = mock.MagicMock()
-        mock_stdin.isatty.return_value = True
-        mock_session = mock.MagicMock()
-        mock_session.prompt_async = mock.AsyncMock(
-            side_effect=["/nonexistent", str(valid_dir)]
-        )
-        with (
-            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
-        ):
-            result = await ask_correct_dir()
+        fake_prompt_session.extend([str(tmp_path / "nonexistent"), str(valid_dir)])
+        result = await ask_correct_dir()
         assert result == valid_dir
+        assert fake_prompt_session == []
+        assert "did not choose a valid folder" in caplog.text
 
-    async def test_ask_correct_dir_keyboard_interrupt(self):
+    async def test_ask_correct_dir_keyboard_interrupt(
+        self, tty, fake_prompt_session, caplog
+    ):
         """KeyboardInterrupt during prompt re-raises after logging."""
-        mock_stdin = mock.MagicMock()
-        mock_stdin.isatty.return_value = True
-        mock_session = mock.MagicMock()
-        mock_session.prompt_async = mock.AsyncMock(side_effect=KeyboardInterrupt)
-        with (
-            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
-            mock.patch("pathio.pathio.PromptSession", return_value=mock_session),
-            pytest.raises(KeyboardInterrupt),
-        ):
+        fake_prompt_session.append(KeyboardInterrupt())
+        with pytest.raises(KeyboardInterrupt):
             await ask_correct_dir()
+        assert "Directory selection cancelled" in caplog.text
 
-    async def test_ask_correct_dir_non_interactive_raises(self):
+    async def test_ask_correct_dir_non_interactive_raises(self, no_tty):
         """No TTY → RuntimeError pointing at config.yaml."""
-        with (
-            mock.patch("pathio.pathio.sys.stdin", None),
-            pytest.raises(RuntimeError, match="unable to prompt"),
-        ):
+        with pytest.raises(RuntimeError, match="unable to prompt"):
             await ask_correct_dir()
 
     def test_get_creator_base_path_no_download_dir(self):
         """Line 157: download_directory is None → RuntimeError."""
-        config = MockPathConfig(download_directory=None)
+        config = FakePathConfig(download_directory=None)
         with pytest.raises(RuntimeError, match="not set"):
             get_creator_base_path(config, "creator")
 
@@ -431,7 +392,7 @@ class TestGetStashPath:
         preserves_subdir: nested subdirectories (Timeline, Videos, etc.) are
         preserved after remapping.
         """
-        config = MockPathConfig(
+        config = FakePathConfig(
             download_directory=download_directory,
             stash_mapped_path=stash_mapped_path,
         )

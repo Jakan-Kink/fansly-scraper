@@ -10,7 +10,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from urllib.parse import quote_plus
 
 import pytest
 import sqlalchemy
@@ -19,6 +18,7 @@ from alembic.config import Config
 from sqlalchemy import Engine, text
 
 from alembic import command, script
+from tests.fixtures.database import alembic_ini_url, config_pg_url
 from tests.fixtures.database.database_fixtures import TestDatabase
 
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def _make_alembic_config(db_url: str) -> Config:
     cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("sqlalchemy.url", alembic_ini_url(db_url))
     cfg.attributes["configure_logger"] = False
     return cfg
 
@@ -447,13 +447,7 @@ def test_alembic_upgrade_and_downgrade(uuid_test_db_factory, spec):
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
 
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = (
-        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
-        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    )
+    db_url = config_pg_url(fansly_config)
 
     alembic_cfg = _make_alembic_config(db_url)
 
@@ -518,10 +512,7 @@ def test_6dcb_skip_drop_fks(uuid_test_db_factory):
     # 1. Setup
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
@@ -608,10 +599,7 @@ def test_7f05_skip_drop_constraints(uuid_test_db_factory):
     """Test 7f057c9b00e0 idempotency guard (skip drop if missing)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
@@ -683,10 +671,7 @@ def test_4416_skip_create_index(uuid_test_db_factory):
     """Test 4416b99f028e idempotency guard (skip create if exists)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -773,8 +758,38 @@ def test_env_offline_mode_emits_sql(capsys):
     assert "CREATE TABLE" in captured.out
 
 
+def test_env_url_from_environment_escapes_special_password(monkeypatch, capsys):
+    """``FANSLY_PG_*`` credentials with ``%``, ``@``, ``+`` and spaces reach env.py's URL intact.
+
+    ``set_main_option`` interpolates ``%`` (an unescaped one raises ``ValueError``),
+    and a space must not come back as ``+``. Offline mode, so no server.
+    """
+    password = "p%ss @w0rd+/"
+    for key, value in {
+        "FANSLY_PG_HOST": "db.example",
+        "FANSLY_PG_PORT": "5433",
+        "FANSLY_PG_USER": "fansly user",
+        "FANSLY_PG_PASSWORD": password,
+        "FANSLY_PG_DATABASE": "fansly_db",
+    }.items():
+        monkeypatch.setenv(key, value)
+    alembic_cfg = _make_alembic_config_no_url()
+
+    command.upgrade(alembic_cfg, "1c766f50e19a", sql=True)
+
+    url = sa.engine.make_url(alembic_cfg.get_main_option("sqlalchemy.url") or "")
+    assert (url.username, url.password, url.host, url.port, url.database) == (
+        "fansly user",
+        password,
+        "db.example",
+        5433,
+        "fansly_db",
+    )
+    assert "CREATE TABLE" in capsys.readouterr().out
+
+
 def test_env_url_from_environment_variables(uuid_test_db_factory):
-    """Test env.py URL construction from environment variables (lines 13-24)."""
+    """env.py connects with the URL it builds from ``FANSLY_PG_*`` (lines 13-29)."""
     fansly_config = uuid_test_db_factory
 
     # Set environment variables
@@ -800,19 +815,17 @@ def test_env_url_from_environment_variables(uuid_test_db_factory):
             if "alembic.env" in sys.modules:
                 del sys.modules["alembic.env"]
 
-            # Now run a simple upgrade which will trigger env.py
-            # Set the URL properly for actual migration
-            password_encoded = (
-                quote_plus(fansly_config.pg_password)
-                if fansly_config.pg_password
-                else ""
-            )
-            db_url = (
-                f"postgresql://{fansly_config.pg_user}:{password_encoded}"
-                f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-            )
-            alembic_cfg.set_main_option("sqlalchemy.url", db_url)
             command.upgrade(alembic_cfg, "1c766f50e19a")
+
+        engine = sa.create_engine(config_pg_url(fansly_config))
+        try:
+            with engine.connect() as conn:
+                version = conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar()
+        finally:
+            engine.dispose()
+        assert version == "1c766f50e19a"
     finally:
         db.close()
         loop = None
@@ -831,13 +844,7 @@ def test_env_provided_connection(uuid_test_db_factory):
     """Test env.py with provided connection (lines 87-88)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = (
-        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
-        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    )
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
 
     try:
@@ -865,13 +872,7 @@ def test_env_fallback_import(uuid_test_db_factory):
     """Test env.py fallback import path (lines 32-36)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = (
-        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
-        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    )
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
 
     try:
@@ -900,10 +901,7 @@ def test_2dc7_fk_already_dropped(uuid_test_db_factory):
     """Test 2dc7238fee2b when FK constraints are already dropped (branches 66->71, 86->91)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -963,10 +961,7 @@ def test_2dc7_indexes_already_exist(uuid_test_db_factory):
     """Test 2dc7238fee2b when indexes already exist (branches 74->81, 92->exit)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -1042,10 +1037,7 @@ def test_2dc7_downgrade_indexes_missing(uuid_test_db_factory):
     """Test 2dc7238fee2b downgrade when indexes already dropped (branches 108->111, 112->117)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -1115,10 +1107,7 @@ def test_2dc7_downgrade_fks_exist(uuid_test_db_factory):
     """Test 2dc7238fee2b downgrade when FKs already exist (branches 122->131, 136->146)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -1192,10 +1181,7 @@ def test_2dc7_downgrade_stub_tracker_indexes_missing(uuid_test_db_factory):
     """Test 2dc7238fee2b downgrade with stub_tracker indexes missing (branches 149->151, 151->155)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -1268,10 +1254,7 @@ def test_6dcb_account_media_fk_variants_missing(uuid_test_db_factory):
     """Test 6dcb1d898d8b when fk_account_media_accountId_accounts missing (line 43)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
@@ -1325,10 +1308,7 @@ def test_6dcb_groups_fk_missing(uuid_test_db_factory):
     """Test 6dcb1d898d8b when groups FK already dropped (line 56)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
@@ -1363,10 +1343,7 @@ def test_6dcb_index_already_exists(uuid_test_db_factory):
     """Test 6dcb1d898d8b when index already exists (line 78)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
@@ -1438,10 +1415,7 @@ def test_6dcb_messages_index_missing(uuid_test_db_factory):
     """Test 6dcb1d898d8b when messages recipientId index missing (branch 87->92)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "6dcb1d898d8b"
 
@@ -1496,10 +1470,7 @@ def test_4416_upgrade_index_already_exists(uuid_test_db_factory):
     """Test 4416b99f028e upgrade when ix_hashtags_value exists (line 50)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1534,10 +1505,7 @@ def test_4416_downgrade_pk_constraint_missing(uuid_test_db_factory):
     """Test 4416b99f028e downgrade when pk_post_hashtags missing (line 67)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1572,10 +1540,7 @@ def test_4416_downgrade_index_already_dropped(uuid_test_db_factory):
     """Test 4416b99f028e downgrade when ix_hashtags_value missing (line 68)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1606,10 +1571,7 @@ def test_4416_pk_constraint_exists(uuid_test_db_factory):
     """Test 4416b99f028e when pk_post_hashtags already exists (lines 50-51, branch 36->42)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1676,10 +1638,7 @@ def test_4416_downgrade_constraint_missing(uuid_test_db_factory):
     """Test 4416b99f028e downgrade when constraint already missing (lines 67-68)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1745,10 +1704,7 @@ def test_4416_downgrade_index_missing(uuid_test_db_factory):
     """Test 4416b99f028e downgrade when index already missing (branch 72->exit)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "4416b99f028e"
 
@@ -1815,10 +1771,7 @@ def test_7f05_upgrade_pk_already_exists(uuid_test_db_factory):
     """Test 7f057c9b00e0 upgrade when PK already exists (line 56)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
@@ -1861,10 +1814,7 @@ def test_7f05_downgrade_unique_constraints_missing(uuid_test_db_factory):
     """Test 7f057c9b00e0 downgrade when unique constraints missing (lines 88, branch 91->95)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
@@ -1904,10 +1854,7 @@ def test_7f05_downgrade_constraints_missing(uuid_test_db_factory):
     """Test 7f057c9b00e0 downgrade when new constraints missing (branches 89->91, 91->95)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "7f057c9b00e0"
 
@@ -1988,10 +1935,7 @@ def test_0c4cb_duplicate_merge_skip_no_overlap(uuid_test_db_factory):
     """Test 0c4cb91b36d5 with case variants but no post overlap (branch 73->64)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
@@ -2034,10 +1978,7 @@ def test_2dc7_upgrade_all_constraints_exist(uuid_test_db_factory):
     """Test 2dc7238fee2b when all FKs/indexes exist (branches 122->131, 136->146)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 
@@ -2096,10 +2037,7 @@ def test_187642_fk_missing_on_upgrade(uuid_test_db_factory):
     """Test 187642755f36 upgrade when FK already missing (branch 44->54)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
@@ -2153,10 +2091,7 @@ def test_187642_fk_missing_on_downgrade(uuid_test_db_factory):
     """Test 187642755f36 downgrade when FK already missing (branch 78->86)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "187642755f36"
 
@@ -2226,10 +2161,7 @@ def test_b8dc_downgrade_no_matching_constraint(uuid_test_db_factory):
     """Test b8dcecc1e979 downgrade when no matching unique constraint (branches 457->464, 617->612)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
@@ -2301,10 +2233,7 @@ def test_b8dc_downgrade_stories_fk_not_found(uuid_test_db_factory):
     """Test b8dcecc1e979 downgrade when stories FK not found (branch 458->457)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
@@ -2375,10 +2304,7 @@ def test_b8dc_downgrade_fk_exists_skip_drop(uuid_test_db_factory):
     """Test b8dcecc1e979 downgrade when FK exists, skip drop (branch 617->612)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "b8dcecc1e979"
 
@@ -2464,10 +2390,7 @@ def test_00c9_walls_index_already_exists(uuid_test_db_factory):
     """Test 00c9f171789c upgrade when walls index already exists (branch 86->exit)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
@@ -2502,10 +2425,7 @@ def test_00c9_downgrade_walls_index_missing(uuid_test_db_factory):
     """Test 00c9f171789c downgrade when walls index already missing (branch 106->110)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "00c9f171789c"
 
@@ -2603,13 +2523,7 @@ def test_env_tables_spec_unloadable_raises(uuid_test_db_factory, make_spec):
     no loader).
     """
     fansly_config = uuid_test_db_factory
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = (
-        f"postgresql://{fansly_config.pg_user}:{password_encoded}"
-        f"@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
-    )
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
 
     real_spec_from_file_location = importlib.util.spec_from_file_location
@@ -2635,10 +2549,7 @@ def test_0c4cb_duplicate_case_variants_no_post_overlap(uuid_test_db_factory):
     """Test 0c4cb91b36d5 with case variants but no post overlap (branch 73->64)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "0c4cb91b36d5"
 
@@ -2678,10 +2589,7 @@ def test_2dc7_upgrade_stub_tracker_indexes_exist(uuid_test_db_factory):
     """Test 2dc7238fee2b when stub_tracker indexes exist (branches 122->131, 136->146)."""
     fansly_config = uuid_test_db_factory
     db = TestDatabase(fansly_config, skip_migrations=True)
-    password_encoded = (
-        quote_plus(fansly_config.pg_password) if fansly_config.pg_password else ""
-    )
-    db_url = f"postgresql://{fansly_config.pg_user}:{password_encoded}@{fansly_config.pg_host}:{fansly_config.pg_port}/{fansly_config.pg_database}"
+    db_url = config_pg_url(fansly_config)
     alembic_cfg = _make_alembic_config(db_url)
     target_rev = "2dc7238fee2b"
 

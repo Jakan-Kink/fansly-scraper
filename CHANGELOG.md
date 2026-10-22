@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **asyncpg constraint widened to `>=0.30.0,<0.33.0` (lock now 0.32.0).** asyncpg 0.32 changes the pool's `min_size` from an initial size into a maintained floor, so the downloader now keeps its minimum connections (2 on the main pool, 1 per worker-thread pool) open for the whole run (including daemon mode) instead of letting them close after 5 idle minutes, and reopens them in the background if Postgres restarts. The re-import crash tracked in MagicStack/asyncpg#1292 is unchanged in 0.32; its root cause is in Cython (cython/cython#8048) and it remains unreachable from normal app use.
+
+### Fixed
+
+- **`pg_sslmode`, `pg_sslcert`, `pg_sslkey` and `pg_sslrootcert` now take effect.** They were read from `config.yaml` but never passed to any connection, so every run used the driver default (`prefer`) whatever you configured. They now apply to the database pools and the migration engine. If you set `pg_sslmode: require` or stricter against a server without SSL, the downloader now refuses to connect instead of silently connecting unencrypted.
+- **Database passwords with special characters no longer break startup migrations.** If you set `FANSLY_PG_PASSWORD` to a password containing characters such as `@`, `:`, `/`, `%` or `#`, the migration step crashed with `invalid interpolation syntax`; a space was sent as `+`; and `pg_user: null` produced the literal user `None`. Credentials now reach the migration engine exactly as configured.
+- **Firefox token detection handles a running Firefox again.** A locked Firefox storage database was silently skipped, so the "close Firefox and retry" prompt never appeared; it now prompts in interactive mode and skips (without closing the browser) in non-interactive mode, as the LevelDB browsers already did. The Firefox reader also no longer leaks an open SQLite connection per database it scans.
+
 ## [0.15.1] - 2026-07-14
 
 ### Added

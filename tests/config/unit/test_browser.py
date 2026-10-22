@@ -1,10 +1,5 @@
 """Unit tests for browser configuration utilities."""
 
-import json
-import sqlite3
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 
@@ -24,6 +19,15 @@ from config.browser import (
     get_token_from_firefox_db,
     get_token_from_firefox_profile,
     parse_browser_from_string,
+)
+from tests.fixtures.config import (
+    FakeBrowserProcess,
+    firefox_session_row,
+    hold_exclusive_lock,
+    leveldb_session_value,
+    write_firefox_store,
+    write_leveldb_store,
+    write_non_utf8_store,
 )
 
 
@@ -51,20 +55,15 @@ def test_parse_browser_from_string(input_name, expected):
     assert parse_browser_from_string(input_name) == expected
 
 
-@patch("platform.system")
-@patch("os.path.expanduser")
-@patch("os.getenv")
-def test_get_browser_config_paths_windows(mock_getenv, mock_expanduser, mock_platform):
-    """Test browser config paths resolution on Windows."""
-    mock_platform.return_value = "Windows"
-    mock_getenv.side_effect = lambda x: {  # noqa: PLW0108
-        "APPDATA": "C:\\Users\\test\\AppData\\Roaming",
-        "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local",
-    }.get(x)
+def test_get_browser_config_paths_windows(monkeypatch):
+    """Windows paths are built from the real APPDATA / LOCALAPPDATA env vars."""
+    monkeypatch.setattr("platform.system", lambda: "Windows")
+    monkeypatch.setenv("APPDATA", "C:\\Users\\test\\AppData\\Roaming")
+    monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\test\\AppData\\Local")
 
     paths = get_browser_config_paths()
 
-    assert len(paths) == 6  # Should return 6 browser paths
+    assert len(paths) == 6
     assert any("Chrome" in path for path in paths)
     assert any("Firefox" in path for path in paths)
     assert any("Edge" in path for path in paths)
@@ -73,16 +72,50 @@ def test_get_browser_config_paths_windows(mock_getenv, mock_expanduser, mock_pla
     assert any("Brave" in path for path in paths)
 
 
-@patch("platform.system")
-@patch("os.path.expanduser")
-def test_get_browser_config_paths_macos(mock_expanduser, mock_platform):
-    """Test browser config paths resolution on macOS."""
-    mock_platform.return_value = "Darwin"
-    mock_expanduser.return_value = "/Users/testuser"
+def test_get_browser_config_paths_windows_no_env(monkeypatch):
+    """Missing AppData env vars on Windows raise."""
+    monkeypatch.setattr("platform.system", lambda: "Windows")
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    with pytest.raises(RuntimeError):
+        get_browser_config_paths()
+
+
+def test_unsupported_os_has_no_browser_paths_and_closes_nothing(
+    browser_processes, monkeypatch, scaled_sync_sleep_recording
+):
+    """An OS outside Windows/macOS/Linux yields no paths and never kills processes."""
+    monkeypatch.setattr("platform.system", lambda: "FreeBSD")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    firefox = FakeBrowserProcess("firefox")
+    browser_processes.append(firefox)
+
+    assert get_browser_config_paths() == []
+    close_browser_by_name("Firefox")
+
+    assert not firefox.killed
+    assert not firefox.terminated
+    assert scaled_sync_sleep_recording.calls == []
+
+
+async def test_get_auth_token_from_leveldb_without_plyvel_raises(monkeypatch):
+    """Without plyvel-ci the LevelDB reader refuses with an install hint."""
+    monkeypatch.setattr("config.browser.PLYVEL_AVAILABLE", False)
+
+    with pytest.raises(ImportError, match="poetry install --with browser-auth"):
+        await get_auth_token_from_leveldb_folder("unused")
+
+
+def test_get_browser_config_paths_macos(monkeypatch, tmp_path):
+    """macOS paths hang off the real ``Path.home()`` (HOME)."""
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     paths = get_browser_config_paths()
 
-    assert len(paths) == 6  # Should return 6 browser paths
+    assert len(paths) == 6
+    assert all(path.startswith(str(tmp_path / "Library")) for path in paths)
     assert any("Chrome" in path for path in paths)
     assert any("Firefox" in path for path in paths)
     assert any("Microsoft Edge" in path for path in paths)
@@ -91,435 +124,310 @@ def test_get_browser_config_paths_macos(mock_expanduser, mock_platform):
     assert any("BraveSoftware" in path for path in paths)
 
 
-@patch("platform.system")
-@patch("os.path.expanduser")
-def test_get_browser_config_paths_linux(mock_expanduser, mock_platform):
-    """Test browser config paths resolution on Linux."""
-    mock_platform.return_value = "Linux"
-    mock_expanduser.return_value = "/home/testuser"
+def test_get_browser_config_paths_linux(monkeypatch, tmp_path):
+    """Linux paths hang off the real ``Path.home()`` (HOME)."""
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     paths = get_browser_config_paths()
 
-    assert len(paths) == 5  # Should return 5 browser paths
+    assert len(paths) == 5
+    assert all(path.startswith(str(tmp_path)) for path in paths)
     assert any("chrome" in path for path in paths)
-    assert any("firefox" in path or "snap/firefox" in path for path in paths)
+    assert any("snap/firefox" in path for path in paths)
     assert any("opera" in path for path in paths)
     assert any("Brave" in path for path in paths)
 
 
-def _write_firefox_store(sqlite_path: Path, token: str | None) -> None:
-    """Build a real Firefox-style webappsstore.sqlite at ``sqlite_path``.
-
-    Mirrors the on-disk shape the production reader (``get_token_from_firefox_db``)
-    walks: every table is scanned, each row's column 0 is the storage key and
-    column 5 is the JSON-encoded value as UTF-8 bytes. The reader pulls
-    ``json.loads(row[5])["token"]`` when ``row[0] == "session_active_session"``.
-
-    When ``token`` is None, only an unrelated key is written so the real reader
-    returns None for that DB.
-    """
-    conn = sqlite3.connect(str(sqlite_path))
-    try:
-        conn.execute(
-            "CREATE TABLE webappsstore2 "
-            "(scope TEXT, c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT, value BLOB)"
-        )
-        if token is not None:
-            value = json.dumps({"token": token}).encode("utf-8")
-            conn.execute(
-                "INSERT INTO webappsstore2 VALUES (?, ?, ?, ?, ?, ?)",
-                ("session_active_session", None, None, None, None, value),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO webappsstore2 VALUES (?, ?, ?, ?, ?, ?)",
-                ("unrelated_key", None, None, None, None, b'{"data":"x"}'),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-async def test_get_token_from_firefox_profile_no_storage(tmp_path):
-    """No ``storage`` folder anywhere in the profile tree → None.
-
-    Real filesystem walk over a real profile dir; the production ``os.walk``
-    never matches the ``"storage" in root`` predicate, so no sqlite read runs.
-    """
-    profile = tmp_path / "profile"
-    (profile / "other").mkdir(parents=True)
-    (profile / "other" / "file.txt").write_text("not a db")
-
-    result = await get_token_from_firefox_profile(str(profile))
-    assert result is None
-
-
-async def test_get_token_from_firefox_profile_deeply_nested_storage(tmp_path):
-    """Token in a deeply nested ``storage`` dir is found via the real sqlite read.
-
-    Builds a real ``webappsstore.sqlite`` under ``root/folder1/storage`` and
-    lets the real ``os.walk`` + real ``get_token_from_firefox_db`` + real
-    ``sqlite3`` edge resolve the token end-to-end (covers the profile-loop
-    token-found return at browser.py:47-48).
-    """
-    storage = tmp_path / "root" / "folder1" / "storage" / "subdir"
-    storage.mkdir(parents=True)
-    _write_firefox_store(storage / "webappsstore.sqlite", "deep-token")
-
-    result = await get_token_from_firefox_profile(str(tmp_path / "root"))
-    assert result == "deep-token"
-
-
-async def test_get_token_from_firefox_profile_multiple_storage_first_match_wins(
-    tmp_path,
+async def test_get_token_from_firefox_profile_walks_storage_dirs(
+    tmp_path, sqlite_connect_spy
 ):
-    """Multiple ``storage`` dirs: search stops at the first DB carrying a token.
+    """Real ``os.walk`` over real profiles; only ``storage`` dirs are read.
 
-    Two real storage dirs each hold a real sqlite DB; only one has the session
-    row. The real reader returns that token and short-circuits the walk.
+    Covers: no ``storage`` dir, ``storage`` without ``.sqlite`` files, a DB
+    without the session row, a deeply nested DB, and first-match-wins across
+    two storage dirs. Every connection the reader opens is closed.
     """
-    s1 = tmp_path / "storage1"
-    s2 = tmp_path / "storage2"
-    s1.mkdir()
-    s2.mkdir()
-    _write_firefox_store(s1 / "webappsstore.sqlite", "tokenA")
-    _write_firefox_store(s2 / "webappsstore.sqlite", None)
+    no_storage = tmp_path / "no_storage"
+    (no_storage / "other").mkdir(parents=True)
+    (no_storage / "other" / "file.txt").write_text("not a db")
+    assert await get_token_from_firefox_profile(str(no_storage)) is None
 
-    result = await get_token_from_firefox_profile(str(tmp_path))
-    assert result == "tokenA"
+    no_sqlite = tmp_path / "no_sqlite"
+    (no_sqlite / "storage").mkdir(parents=True)
+    (no_sqlite / "storage" / "data.json").write_text("{}")
+    assert await get_token_from_firefox_profile(str(no_sqlite)) is None
 
+    no_session = tmp_path / "no_session"
+    write_firefox_store(
+        no_session / "storage" / "webappsstore.sqlite",
+        ("unrelated_key", None, None, None, None, b'{"data":"x"}'),
+    )
+    assert await get_token_from_firefox_profile(str(no_session)) is None
 
-async def test_get_token_from_firefox_profile_no_sqlite_in_storage(tmp_path):
-    """``storage`` exists but holds no ``.sqlite`` files → None (no read attempted)."""
-    storage = tmp_path / "storage"
-    storage.mkdir()
-    (storage / "other.txt").write_text("x")
-    (storage / "data.json").write_text("{}")
+    nested = tmp_path / "nested"
+    write_firefox_store(
+        nested / "folder1" / "storage" / "subdir" / "webappsstore.sqlite",
+        firefox_session_row("deep-token"),
+    )
+    assert await get_token_from_firefox_profile(str(nested)) == "deep-token"
 
-    result = await get_token_from_firefox_profile(str(tmp_path))
-    assert result is None
+    first_match = tmp_path / "first_match"
+    write_firefox_store(
+        first_match / "storage1" / "webappsstore.sqlite",
+        firefox_session_row("tokenA"),
+    )
+    write_firefox_store(
+        first_match / "storage2" / "webappsstore.sqlite",
+        ("unrelated_key", None, None, None, None, b"{}"),
+    )
+    assert await get_token_from_firefox_profile(str(first_match)) == "tokenA"
 
-
-async def test_get_token_from_firefox_profile_storage_db_without_session(tmp_path):
-    """``storage`` sqlite exists but lacks the session row → None.
-
-    Exercises the real reader returning None (no ``session_active_session``
-    key) so the profile loop falls through to its final ``return None``.
-    """
-    storage = tmp_path / "storage"
-    storage.mkdir()
-    _write_firefox_store(storage / "webappsstore.sqlite", None)
-
-    result = await get_token_from_firefox_profile(str(tmp_path))
-    assert result is None
+    assert len(sqlite_connect_spy.opened) >= 3
+    assert sqlite_connect_spy.all_closed()
 
 
 @pytest.mark.parametrize(
-    ("db_rows", "connect_error", "db_file", "interactive", "expected"),
+    ("build_db", "expected", "error_log"),
     [
         pytest.param(
-            [
-                (
-                    "session_active_session",
-                    None,
-                    None,
-                    None,
-                    None,
-                    b'{"token":"test-token"}',
-                )
-            ],  # Row data with key in first column
-            None,
-            "test.sqlite",
-            True,
+            lambda p: write_firefox_store(p, firefox_session_row("test-token")),
             "test-token",
+            None,
             id="with_token",
         ),
         pytest.param(
-            [(b"other_key", None, None, None, None, b'{"data":"test"}')],  # Row data
+            lambda p: write_firefox_store(
+                p, (b"other_key", None, None, None, None, b'{"data":"test"}')
+            ),
             None,
-            "test.sqlite",
-            True,
             None,
             id="no_token",
         ),
+        pytest.param(write_non_utf8_store, None, None, id="non_utf8_operational_error"),
         pytest.param(
+            lambda p: p.write_bytes(b"not a database at all " * 50),
             None,
-            sqlite3.OperationalError(
-                "Could not decode to UTF-8 column 'value' with text"
+            "Unexpected Error processing SQLite file",
+            id="not_a_database",
+        ),
+        pytest.param(
+            lambda p: write_firefox_store(
+                p, ("session_active_session", None, None, None, None, b"{not json")
             ),
-            "test.sqlite",
-            True,
             None,
-            id="utf8_decode_error",
-        ),
-        pytest.param(
-            None,
-            sqlite3.Error("database is locked"),
-            "firefox.sqlite",
-            False,
-            None,
-            id="locked_non_interactive",
-        ),
-        pytest.param(
-            None,
-            Exception("unexpected error"),
-            "test.sqlite",
-            True,
-            None,
-            id="generic_exception",
+            "Unexpected Error parsing Firefox SQLite databases",
+            id="malformed_session_json",
         ),
     ],
 )
-@patch("sqlite3.connect")
 async def test_get_token_from_firefox_db_outcomes(
-    mock_connect, db_rows, connect_error, db_file, interactive, expected
+    tmp_path, sqlite_connect_spy, caplog, build_db, expected, error_log
 ):
-    """Firefox SQLite token extraction across leaf-patch outcomes.
+    """Real SQLite files drive every reader outcome; the connection always closes.
 
-    Covers: token present, token absent, UTF-8 decode OperationalError,
-    locked database in non-interactive mode, and generic exceptions —
-    all via the ``sqlite3.connect`` leaf patch. The interactive locked
-    flow (prompt + browser close + retry) is tested separately below.
+    ``not_a_database`` raises a real ``sqlite3.DatabaseError`` (logged);
+    ``non_utf8_operational_error`` raises a real ``OperationalError`` (skipped
+    silently); ``malformed_session_json`` hits the generic ``except``.
     """
-    if connect_error is not None:
-        mock_connect.side_effect = connect_error
+    db_path = tmp_path / "webappsstore.sqlite"
+    build_db(db_path)
+    sqlite_connect_spy.opened.clear()
+
+    result = await get_token_from_firefox_db(str(db_path), interactive=False)
+
+    assert result == expected
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    if error_log is None:
+        assert errors == []
     else:
-        mock_cursor = MagicMock()
-        mock_cursor.fetchall.side_effect = [
-            [("table1",)],  # Table names
-            db_rows,
-        ]
-        mock_conn = MagicMock()
-        mock_conn.__enter__.return_value.cursor.return_value = mock_cursor
-        mock_connect.return_value = mock_conn
-
-    result = await get_token_from_firefox_db(db_file, interactive=interactive)
-    if expected is None:
-        assert result is None
-    else:
-        assert result == expected
+        assert len(errors) == 1
+        assert error_log in errors[0]
+    assert len(sqlite_connect_spy.opened) == 1
+    assert sqlite_connect_spy.all_closed()
 
 
-@patch("sqlite3.connect")
-@patch("config.browser.await_for_enter", new_callable=AsyncMock)
-@patch("config.browser.close_browser_by_name")
-async def test_get_token_from_firefox_db_locked_interactive(
-    mock_close_browser, mock_await_enter, mock_connect
+async def test_firefox_locked_non_interactive_skips_without_prompt(
+    tmp_path, sqlite_connect_spy, fake_prompt_session, browser_processes
 ):
-    """Test handling locked database in interactive mode."""
-    mock_connect.side_effect = [
-        sqlite3.Error("database is locked"),  # First attempt fails
-        MagicMock(  # Second attempt succeeds
-            __enter__=MagicMock(
-                return_value=MagicMock(
-                    cursor=MagicMock(
-                        return_value=MagicMock(
-                            fetchall=MagicMock(
-                                side_effect=[
-                                    [("table1",)],
-                                    [
-                                        (
-                                            "session_active_session",
-                                            None,
-                                            None,
-                                            None,
-                                            None,
-                                            b'{"token":"test-token"}',
-                                        )
-                                    ],
-                                ]
-                            )
-                        )
-                    )
-                )
-            )
-        ),
-    ]
+    """A real lock held by a running Firefox is skipped in non-interactive mode.
 
-    result = await get_token_from_firefox_db("firefox.sqlite", interactive=True)
+    No prompt, no browser kill; the profile walker forwards ``interactive``.
+    """
+    profile = tmp_path / "firefox" / "profile"
+    db_path = write_firefox_store(
+        profile / "storage" / "default" / "webappsstore.sqlite",
+        firefox_session_row("locked-token"),
+    )
+    firefox = FakeBrowserProcess("firefox")
+    browser_processes.append(firefox)
 
-    assert result == "test-token"
-    mock_close_browser.assert_called_once_with("firefox")
-    mock_await_enter.assert_called_once()
-
-
-@patch("sqlite3.connect")
-@patch("config.browser.textio_logger")
-@patch("traceback.format_exc", return_value="Traceback: some other error")
-async def test_get_token_from_firefox_db_other_sqlite_error(
-    mock_traceback,
-    mock_logger,
-    mock_connect,
-):
-    """Test handling other SQLite errors."""
-    mock_connect.side_effect = sqlite3.Error("some other error")
-
-    result = await get_token_from_firefox_db("test.sqlite")
+    with hold_exclusive_lock(db_path):
+        sqlite_connect_spy.opened.clear()
+        result = await get_token_from_firefox_profile(str(profile), interactive=False)
 
     assert result is None
-    mock_logger.error.assert_called_once_with(
-        "Unexpected Error processing SQLite file:\nTraceback: some other error"
+    assert len(sqlite_connect_spy.opened) == 1
+    assert not firefox.killed
+    assert not firefox.terminated
+    assert fake_prompt_session == []
+    assert sqlite_connect_spy.all_closed()
+
+
+async def test_firefox_locked_interactive_prompts_closes_and_retries(
+    tmp_path,
+    sqlite_connect_spy,
+    tty,
+    fake_prompt_session,
+    browser_processes,
+    monkeypatch,
+    scaled_sync_sleep_recording,
+    caplog,
+):
+    """A real ``database is locked`` reaches the prompt-close-retry flow.
+
+    The lock surfaces as ``sqlite3.OperationalError``; the reader must route
+    it to the Firefox-locked branch instead of the non-UTF-8 skip. Closing the
+    browser releases the lock, so the retry reads the token.
+    """
+    profile = tmp_path / "firefox" / "profile"
+    db_path = write_firefox_store(
+        profile / "storage" / "default" / "webappsstore.sqlite",
+        firefox_session_row("unlocked-token"),
     )
-
-
-@patch("platform.system")
-@patch("psutil.process_iter")
-def test_close_browser_by_name_windows(
-    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
-):
-    """Test closing browser on Windows."""
-    mock_platform.return_value = "Windows"
-    mock_process = MagicMock()
-    mock_process.info = {"name": "msedge.exe"}
-    mock_process_iter.return_value = [mock_process]
-
+    fake_prompt_session.append("")
     monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
-    close_browser_by_name("Microsoft Edge")
 
-    mock_process.terminate.assert_called_once()
+    with hold_exclusive_lock(db_path) as release:
+        firefox = FakeBrowserProcess("firefox", on_exit=release)
+        browser_processes.append(firefox)
+        sqlite_connect_spy.opened.clear()
+
+        result = await get_token_from_firefox_profile(str(profile), interactive=True)
+
+    assert result == "unlocked-token"
+    assert firefox.killed or firefox.terminated
+    assert fake_prompt_session == []
+    assert scaled_sync_sleep_recording.calls == [3]
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("Firefox browser is open" in m for m in messages)
+    assert len(sqlite_connect_spy.opened) == 2
+    assert sqlite_connect_spy.all_closed()
+
+
+@pytest.mark.parametrize(
+    ("system", "process_name", "browser_arg", "expect_terminate"),
+    [
+        pytest.param("Windows", "msedge.exe", "Microsoft Edge", True, id="windows"),
+        pytest.param("Darwin", "firefox", "Firefox", False, id="unix"),
+        pytest.param("Windows", "opera", "Opera Gx", True, id="opera_gx"),
+    ],
+)
+def test_close_browser_by_name(
+    browser_processes,
+    monkeypatch,
+    scaled_sync_sleep_recording,
+    system,
+    process_name,
+    browser_arg,
+    expect_terminate,
+):
+    """Matching processes are terminated (Windows) or killed (Unix), then a 3 s settle."""
+    proc = FakeBrowserProcess(process_name)
+    browser_processes.append(proc)
+    monkeypatch.setattr("platform.system", lambda: system)
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+
+    close_browser_by_name(browser_arg)
+
+    assert proc.terminated is expect_terminate
+    assert proc.killed is not expect_terminate
     assert scaled_sync_sleep_recording.calls == [3]
 
 
-@patch("platform.system")
-@patch("psutil.process_iter")
-def test_close_browser_by_name_unix(
-    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
-):
-    """Test closing browser on Unix-like systems."""
-    mock_platform.return_value = "Darwin"
-    mock_process = MagicMock()
-    mock_process.info = {"name": "firefox"}
-    mock_process_iter.return_value = [mock_process]
-
-    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
-    close_browser_by_name("Firefox")
-
-    mock_process.kill.assert_called_once()
-    assert scaled_sync_sleep_recording.calls == [3]
-
-
-@patch("platform.system")
-@patch("psutil.process_iter")
-def test_close_browser_by_name_opera_gx(
-    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
-):
-    """Test closing Opera GX browser (special case where process name differs)."""
-    mock_platform.return_value = "Windows"
-    mock_process = MagicMock()
-    mock_process.info = {"name": "opera"}
-    mock_process_iter.return_value = [mock_process]
-
-    # Production code expects "Opera Gx" with lowercase x
-    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
-    close_browser_by_name("Opera Gx")
-
-    mock_process.terminate.assert_called_once()
-    assert scaled_sync_sleep_recording.calls == [3]
-
-
-@patch("platform.system")
-@patch("psutil.process_iter")
 def test_close_browser_by_name_no_process(
-    mock_process_iter, mock_platform, monkeypatch, scaled_sync_sleep_recording
+    browser_processes, monkeypatch, scaled_sync_sleep_recording
 ):
-    """Test when no matching browser process is found."""
-    mock_platform.return_value = "Windows"
-    mock_process_iter.return_value = []  # No processes found
-
+    """No matching browser process → nothing closed, no settle sleep."""
+    unrelated = FakeBrowserProcess("python")
+    browser_processes.append(unrelated)
+    monkeypatch.setattr("platform.system", lambda: "Windows")
     monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+
     close_browser_by_name("Firefox")
 
+    assert not unrelated.terminated
     assert scaled_sync_sleep_recording.calls == []
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
-@pytest.mark.parametrize(
-    ("db_value", "db_error_kind", "interactive", "expected"),
-    [
-        pytest.param(b'{"token":"test-token"}', None, True, "test-token", id="success"),
-        pytest.param(None, None, True, None, id="no_token"),
-        pytest.param(
-            None, "browser_locked", False, None, id="browser_locked_non_interactive"
-        ),
-        pytest.param(None, "generic", True, None, id="generic_exception"),
-    ],
-)
-@patch("plyvel.DB")
-async def test_get_auth_token_from_leveldb_outcomes(
-    mock_db_class, db_value, db_error_kind, interactive, expected
-):
-    """LevelDB token extraction across leaf-patch outcomes.
+async def test_get_auth_token_from_leveldb_outcomes(tmp_path, browser_processes):
+    """Real LevelDB databases drive every reader outcome.
 
-    Covers: token present, token absent, browser-lock IOError in
-    non-interactive mode, and generic exceptions (lines 338-339). The
-    interactive browser-locked flow (prompt + close + retry) is tested
-    separately below.
-
-    Error kinds are encoded as strings and constructed inside the test
-    body — ``plyvel`` is None when not installed, so building
-    ``plyvel._plyvel.IOError`` at parametrize-collection time would crash
-    before the skipif fires.
-
-    Production uses ``with plyvel.DB(...) as db:`` — wire __enter__ to
-    return the same mock so the as-bound name resolves to ``mock_db``.
-    Without this, MagicMock's default __enter__ returns a child mock and
-    the ``with`` block sees a different object than the test configured.
+    Covers: token present, token absent, malformed session JSON (generic
+    ``except``), and a real ``LOCK`` held by a running browser in
+    non-interactive mode (no prompt, no kill).
     """
-    if db_error_kind == "browser_locked":
-        mock_db_class.side_effect = plyvel._plyvel.IOError(
-            "Resource temporarily unavailable"
+    root = tmp_path / "Google" / "Chrome" / "Default" / "Local Storage"
+    folders = {
+        name: str(write_leveldb_store(root / name / "leveldb", value))
+        for name, value in (
+            ("with_token", leveldb_session_value("test-token")),
+            ("no_token", None),
+            ("malformed", b"\x01{not json"),
         )
-    elif db_error_kind == "generic":
-        mock_db_class.side_effect = RuntimeError("unexpected db error")
-    else:
-        mock_db = MagicMock()
-        mock_db_class.return_value = mock_db
-        mock_db.__enter__.return_value = mock_db
-        mock_db.get.return_value = db_value
+    }
 
-    result = await get_auth_token_from_leveldb_folder(
-        "test/path", interactive=interactive
+    assert (
+        await get_auth_token_from_leveldb_folder(folders["with_token"]) == "test-token"
     )
+    assert await get_auth_token_from_leveldb_folder(folders["no_token"]) is None
+    assert await get_auth_token_from_leveldb_folder(folders["malformed"]) is None
 
-    if expected is None:
-        assert result is None
-    else:
-        assert result == expected
+    chrome = FakeBrowserProcess("chrome")
+    browser_processes.append(chrome)
+    holder = plyvel.DB(folders["with_token"])
+    try:
+        result = await get_auth_token_from_leveldb_folder(
+            folders["with_token"], interactive=False
+        )
+    finally:
+        holder.close()
+
+    assert result is None
+    assert not chrome.killed
+    assert not chrome.terminated
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
-@patch("plyvel.DB")
-@patch("config.browser.await_for_enter", new_callable=AsyncMock)
-@patch("config.browser.close_browser_by_name")
 async def test_get_auth_token_from_leveldb_interactive_browser_locked(
-    mock_close_browser, mock_await_enter, mock_db_class
+    tmp_path,
+    tty,
+    fake_prompt_session,
+    browser_processes,
+    monkeypatch,
+    scaled_sync_sleep_recording,
 ):
-    """Test interactive handling of browser lock error in LevelDB access."""
-    # Second-attempt mock supports the ``with`` context manager: __enter__
-    # returns the same mock so ``db.get(...)`` hits the configured bytes.
-    second_db = MagicMock()
-    second_db.__enter__.return_value = second_db
-    second_db.get.return_value = b'{"token":"test-token"}'
-    mock_db_class.side_effect = [
-        plyvel._plyvel.IOError(
-            "Resource temporarily unavailable"
-        ),  # First attempt fails
-        second_db,  # Second attempt succeeds
-    ]
+    """A real LevelDB ``LOCK`` prompts, closes the browser, and the retry reads the token."""
+    folder = write_leveldb_store(
+        tmp_path / "Google" / "Chrome" / "Default" / "Local Storage" / "leveldb",
+        leveldb_session_value("t"),
+    )
+    holder = plyvel.DB(str(folder))
 
-    result = await get_auth_token_from_leveldb_folder("test/path", interactive=True)
+    chrome = FakeBrowserProcess("chrome", on_exit=holder.close)
+    browser_processes.append(chrome)
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("config.browser.sleep", scaled_sync_sleep_recording)
+    fake_prompt_session.append("")
 
-    assert result == "test-token"
-    mock_close_browser.assert_called_once()
-    mock_await_enter.assert_awaited_once()
+    try:
+        result = await get_auth_token_from_leveldb_folder(str(folder), interactive=True)
+    finally:
+        if not holder.closed:
+            holder.close()
 
-
-@patch("platform.system")
-@patch("os.getenv")
-def test_get_browser_config_paths_windows_no_env(mock_getenv, mock_platform):
-    """Test Windows browser paths with missing environment variables."""
-    mock_platform.return_value = "Windows"
-    mock_getenv.return_value = None
-
-    with pytest.raises(RuntimeError):
-        get_browser_config_paths()
+    assert result == "t"
+    assert chrome.killed
+    assert fake_prompt_session == []
+    assert scaled_sync_sleep_recording.calls == [3]

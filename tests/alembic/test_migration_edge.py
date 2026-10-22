@@ -13,7 +13,6 @@ Tests cover:
 
 from itertools import groupby as original_groupby
 from unittest.mock import patch
-from urllib.parse import quote_plus
 
 import pytest
 from alembic.config import Config
@@ -34,6 +33,7 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
 
 from alembic import command
+from tests.fixtures.database import alembic_ini_url, config_pg_url
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -56,8 +56,7 @@ class Test6dcbEdgeCases:
         The goal is to achieve 100% code coverage by exercising all conditional branches.
         """
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -66,7 +65,7 @@ class Test6dcbEdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -171,8 +170,7 @@ class Test4416EdgeCases:
     ):
         """Test 4416 upgrade when pk_post_hashtags doesn't exist (line 50-51)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
 
         metadata = MetaData()
@@ -212,7 +210,7 @@ class Test4416EdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -242,8 +240,7 @@ sqlalchemy.url = {db_url}
     def test_4416_downgrade_without_index(self, uuid_test_db_factory, tmp_path):
         """Test 4416 downgrade when ix_hashtags_value doesn't exist (lines 67-68)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
 
         metadata = MetaData()
@@ -283,7 +280,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -308,8 +305,7 @@ class Test7f05EdgeCases:
     def test_7f05_upgrade_without_existing_pk(self, uuid_test_db_factory, tmp_path):
         """Test 7f05 upgrade when post_mentions_pkey doesn't exist (line 56)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -318,7 +314,7 @@ class Test7f05EdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -342,7 +338,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -369,8 +365,7 @@ sqlalchemy.url = {db_url}
     ):
         """Test 7f05 downgrade when unique constraints don't exist (lines 88, 91->95)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -379,7 +374,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -408,7 +403,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -428,8 +423,7 @@ sqlalchemy.url = {db_url}
     def test_7f05_downgrade_without_pk(self, uuid_test_db_factory, tmp_path):
         """Test 7f05 downgrade when PK doesn't exist - covers branch 91->95."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -438,7 +432,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -472,8 +466,7 @@ sqlalchemy.url = {db_url}
     def test_7f05_upgrade_with_old_constraint(self, uuid_test_db_factory, tmp_path):
         """Test 7f05 upgrade with old constraint existing - covers line 56."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -482,7 +475,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -530,8 +523,7 @@ sqlalchemy.url = {db_url}
     ):
         """Test 7f05 downgrade when only handle constraint exists - covers line 88 and branch 89->91."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -540,7 +532,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -596,8 +588,7 @@ class Test1941EdgeCases:
     def test_1941_no_conflicting_posts_to_copy(self, uuid_test_db_factory, tmp_path):
         """Test 1941 when posts_to_copy is empty (line 142)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
 
         # Create schema with malformed hashtag that will create a NEW hashtag
@@ -655,7 +646,7 @@ class Test1941EdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -686,8 +677,7 @@ sqlalchemy.url = {db_url}
     def test_1941_posts_to_copy_with_new_hashtags(self, uuid_test_db_factory, tmp_path):
         """Test 1941 line 142 (posts_to_copy with new hashtags being created)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
 
         # Create schema
@@ -733,7 +723,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -766,8 +756,7 @@ sqlalchemy.url = {db_url}
     ):
         """Test 1941 branch 97->113 (no conflict_posts when existing hashtag) and posts_to_copy copying (line 142)."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
 
         # Create schema that will trigger both branches
@@ -821,7 +810,7 @@ sqlalchemy.url = {db_url}
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -855,8 +844,7 @@ class Test0c4cbEdgeCases:
     def test_0c4cb_empty_group(self, uuid_test_db_factory, tmp_path):
         """Test 0c4cb normal path with case-variant duplicates - covers line 67, branch 73->64."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -865,7 +853,7 @@ class Test0c4cbEdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -902,15 +890,14 @@ sqlalchemy.url = {db_url}
     ):
         """Test 0c4cb with mock groupby yielding empty and single-item groups - covers line 67 and branch 73->64."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
 
         # Run migrations up to 4416b99f028e
         alembic_ini = tmp_path / "alembic.ini"
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -948,8 +935,7 @@ class Test2dc7EdgeCases:
     def test_2dc7_downgrade_with_existing_fks(self, uuid_test_db_factory, tmp_path):
         """Test 2dc7 downgrade when FKs already exist - covers branches 122->131, 136->146."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -958,7 +944,7 @@ class Test2dc7EdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -1021,8 +1007,7 @@ class Testb8dcEdgeCases:
     ):
         """Test b8dc downgrade when FK/constraint not found in loops - covers branches 458->457, 617->612."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        db_url = config_pg_url(config)
         engine = create_engine(db_url, poolclass=NullPool)
         engine.dispose()
 
@@ -1031,7 +1016,7 @@ class Testb8dcEdgeCases:
         alembic_ini.write_text(
             f"""[alembic]
 script_location = alembic
-sqlalchemy.url = {db_url}
+sqlalchemy.url = {alembic_ini_url(db_url)}
 """
         )
 
@@ -1104,14 +1089,11 @@ class Test3b51OrphanCleanup:
     def _build(self, uuid_test_db_factory, tmp_path):
         """Return (config, db_url, alembic_config) for a fresh test database."""
         config = uuid_test_db_factory
-        password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-        db_url = (
-            f"postgresql://{config.pg_user}:{password_encoded}"
-            f"@{config.pg_host}:{config.pg_port}/{config.pg_database}"
-        )
+        db_url = config_pg_url(config)
         alembic_ini = tmp_path / "alembic.ini"
         alembic_ini.write_text(
-            f"[alembic]\nscript_location = alembic\nsqlalchemy.url = {db_url}\n"
+            "[alembic]\nscript_location = alembic\n"
+            f"sqlalchemy.url = {alembic_ini_url(db_url)}\n"
         )
         return config, db_url, Config(str(alembic_ini))
 

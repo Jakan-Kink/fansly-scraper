@@ -211,7 +211,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
             # if firefox, process sqlite db instead
             else:
                 browser_fansly_token = await get_token_from_firefox_profile(
-                    browser_path
+                    browser_path, interactive=config.interactive
                 )
 
                 if browser_fansly_token:

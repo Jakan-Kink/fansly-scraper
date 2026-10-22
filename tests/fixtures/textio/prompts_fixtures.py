@@ -22,7 +22,7 @@ class FakePromptSession:
     one from the front and records the prompt message.
     """
 
-    _answers: list[str] = []
+    _answers: list[str | BaseException] = []
     _captured_messages: list[str] = []
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -30,15 +30,19 @@ class FakePromptSession:
 
     async def prompt_async(self, message: str) -> str:
         FakePromptSession._captured_messages.append(message)
-        return FakePromptSession._answers.pop(0)
+        answer = FakePromptSession._answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
 
 
 @pytest.fixture
 def fake_prompt_session(monkeypatch):
-    """Replace PromptSession in textio.prompts with a scripted fake.
+    """Replace PromptSession in textio.prompts and pathio.pathio with a scripted fake.
 
     Yields the answer queue. Push string answers in test order; each
-    ``prompt_async`` call pops one. Tests that exercise retry loops
+    ``prompt_async`` call pops one, raising it instead if it is an exception
+    (e.g. ``KeyboardInterrupt()``). Tests that exercise retry loops
     queue multiple answers.
 
     Also exposes ``FakePromptSession._captured_messages`` for assertions
@@ -47,6 +51,7 @@ def fake_prompt_session(monkeypatch):
     FakePromptSession._answers = []
     FakePromptSession._captured_messages = []
     monkeypatch.setattr(prompts, "PromptSession", FakePromptSession)
+    monkeypatch.setattr("pathio.pathio.PromptSession", FakePromptSession)
     return FakePromptSession._answers
 
 

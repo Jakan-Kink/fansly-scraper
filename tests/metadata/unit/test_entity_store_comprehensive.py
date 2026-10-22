@@ -620,13 +620,6 @@ class TestThreadLocalPool:
         table_metadata.create_all(db._sync_engine)
         try:
             store = await db.create_entity_store()
-            store._db_config = {
-                "host": config.pg_host,
-                "port": int(config.pg_port),
-                "database": config.pg_database,
-                "user": config.pg_user,
-                "password": config.pg_password or "",
-            }
 
             result_holder: dict[str, object] = {}
             error_holder = {}
@@ -882,13 +875,6 @@ class TestEntityStoreEdgeCases:
         table_metadata.create_all(db._sync_engine)
         try:
             store = await db.create_entity_store()
-            store._db_config = {
-                "host": config.pg_host,
-                "port": int(config.pg_port),
-                "database": config.pg_database,
-                "user": config.pg_user,
-                "password": config.pg_password or "",
-            }
 
             error_holder = {}
 

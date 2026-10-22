@@ -26,6 +26,10 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 
+[tool.poetry]
+package-mode = false  # An app run from source; no importable fansly-scraper package
+
+
 [tool.poetry.dependencies]
 python = ">=3.12,<3.15"
 imagehash = ">=4.3.1,<5.0.0"
@@ -45,7 +49,7 @@ sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<0.32.0"
+asyncpg = ">=0.30.0,<0.33.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
@@ -352,6 +356,7 @@ omit = [
     "*/htmlcov/*",
     "stash/example.py",  # Example code, not production code
     "db_init_scratch.py",  # One-off scratch script, not production code
+    "scripts/*",  # Standalone utility scripts, not part of the app
 ]
 command_line = "-m pytest discover -s tests/"
 parallel = true
@@ -490,16 +495,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "download.m3u8"
 # Uses ffmpeg, m3u8, and av libraries (no type stubs)
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "metadata.decorators"
-# Complex decorator typing with dynamic behavior
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "config.decorators"
-# Complex decorator typing with dynamic behavior
 ignore_errors = true
 
 # stash-graphql-client now on PyPI - CodeArtifact no longer needed

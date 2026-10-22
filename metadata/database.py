@@ -14,12 +14,12 @@ import threading
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote_plus
+from urllib.parse import urlencode
 
 import asyncpg
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, event
+from sqlalchemy import URL, create_engine, event
 
 from config import db_logger
 
@@ -32,6 +32,18 @@ if TYPE_CHECKING:
 # Set up database logging
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)
+
+
+def _libpq_ssl_params(config: FanslyConfig) -> dict[str, str]:
+    """libpq SSL parameters (``sslmode`` plus any configured cert paths)."""
+    cert_paths = {
+        "sslcert": config.pg_sslcert,
+        "sslkey": config.pg_sslkey,
+        "sslrootcert": config.pg_sslrootcert,
+    }
+    return {"sslmode": config.pg_sslmode} | {
+        key: str(path) for key, path in cert_paths.items() if path is not None
+    }
 
 
 class Database:
@@ -95,8 +107,15 @@ class Database:
         password = os.getenv("FANSLY_PG_PASSWORD")
         if password is None:
             password = config.pg_password if config.pg_password is not None else ""
-        password_encoded = quote_plus(password)
-        return f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+        return URL.create(
+            "postgresql",
+            username=config.pg_user or "",  # "" keeps the password; libpq default user
+            password=password,
+            host=config.pg_host,
+            port=int(config.pg_port),
+            database=config.pg_database,
+            query=_libpq_ssl_params(config),
+        ).render_as_string(hide_password=False)
 
     async def create_entity_store(self) -> PostgresEntityStore:
         """Create and initialize the EntityStore with an asyncpg pool.
@@ -114,8 +133,10 @@ class Database:
         password = os.getenv("FANSLY_PG_PASSWORD")
         if password is None:
             password = config.pg_password if config.pg_password is not None else ""
+        ssl_dsn = f"postgresql://?{urlencode(_libpq_ssl_params(config))}"
 
         self._asyncpg_pool = await asyncpg.create_pool(
+            dsn=ssl_dsn,
             host=config.pg_host,
             port=int(config.pg_port),
             database=config.pg_database,
@@ -138,6 +159,7 @@ class Database:
             "database": config.pg_database,
             "user": config.pg_user,
             "password": password,
+            "ssl_dsn": ssl_dsn,
         }
         self._entity_store = PostgresEntityStore(
             self._asyncpg_pool,

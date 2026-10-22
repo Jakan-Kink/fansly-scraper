@@ -1,7 +1,9 @@
 """Database fixtures for testing with PostgreSQL."""
 
 from .database_fixtures import (
+    alembic_ini_url,
     config,
+    config_pg_url,
     config_with_database,
     conversation_data,
     entity_store,
@@ -11,6 +13,7 @@ from .database_fixtures import (
     mock_account,
     mock_post,
     pg_template_db,
+    pg_url,
     # safe_name,  # Commented out - fixture is not currently defined
     session,
     session_factory,
@@ -31,12 +34,16 @@ from .database_fixtures import (
     timeline_data,
     uuid_test_db_factory,
 )
+from .pool_fixtures import asyncpg_create_pool_spy
 from .shared_db_fixtures import class_entity_store, reset_class_store
 
 
 __all__ = [
+    "alembic_ini_url",
+    "asyncpg_create_pool_spy",
     "class_entity_store",
     "config",
+    "config_pg_url",
     "config_with_database",
     "conversation_data",
     "entity_store",
@@ -46,6 +53,7 @@ __all__ = [
     "mock_account",
     "mock_post",
     "pg_template_db",
+    "pg_url",
     "reset_class_store",
     # "safe_name",  # Commented out - fixture is not currently defined
     "session",

@@ -1,7 +1,7 @@
 """Unit tests for config.wall_filters spec model and lenient normalization."""
 
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from ruamel.yaml import YAML
@@ -209,31 +209,42 @@ class TestValidateAdjustWallFilters:
         with pytest.raises(ConfigError, match="c1"):
             await validate_adjust_wall_filters(validation_config)
 
-    async def test_empty_spec_interactive_grab_all(self, validation_config):
+    async def test_empty_spec_interactive_grab_all(
+        self, validation_config, tty, fake_prompt_session
+    ):
         validation_config.download_mode = DownloadMode.WALL
         validation_config.interactive = True
         validation_config.wall_filters = {"c1": WallFilterSpec()}
-        with patch("config.validation.aconfirm", new=AsyncMock(return_value=True)):
-            await validate_adjust_wall_filters(validation_config)
+        fake_prompt_session.append("y")
+        await validate_adjust_wall_filters(validation_config)
         assert validation_config.wall_filters["c1"].all_walls is True
+        assert fake_prompt_session == []
 
-    async def test_empty_spec_interactive_entry(self, validation_config):
+    async def test_empty_spec_interactive_entry(
+        self, validation_config, tty, fake_prompt_session
+    ):
         validation_config.download_mode = DownloadMode.WALL
         validation_config.interactive = True
         validation_config.wall_filters = {"c1": WallFilterSpec()}
-        with (
-            patch("config.validation.aconfirm", new=AsyncMock(return_value=False)),
-            patch(
-                "config.validation.aprompt_text",
-                new=AsyncMock(return_value="FULL VIDEOS, 1234567890123"),
-            ),
-        ):
-            await validate_adjust_wall_filters(validation_config)
+        fake_prompt_session.extend(["n", "FULL VIDEOS, 1234567890123"])
+        await validate_adjust_wall_filters(validation_config)
         assert validation_config.wall_filters["c1"].includes == [
             "FULL VIDEOS",
             "1234567890123",
         ]
         assert "wall_filters" in validation_config._ephemeral_overrides
+        assert fake_prompt_session == []
+
+    async def test_empty_spec_interactive_blank_entry_raises(
+        self, validation_config, tty, fake_prompt_session
+    ):
+        validation_config.download_mode = DownloadMode.WALL
+        validation_config.interactive = True
+        validation_config.wall_filters = {"c1": WallFilterSpec()}
+        fake_prompt_session.extend(["n", " , ,"])
+        with pytest.raises(ConfigError, match=r"no walls provided.*'c1'"):
+            await validate_adjust_wall_filters(validation_config)
+        assert validation_config.wall_filters["c1"].includes == []
 
 
 @pytest.mark.asyncio

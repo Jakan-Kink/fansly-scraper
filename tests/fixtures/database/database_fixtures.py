@@ -21,12 +21,11 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, TypeVar
-from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import URL, create_engine, event, text
 from sqlalchemy.engine import Connection, Engine, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -122,11 +121,45 @@ def _pg_connection_params() -> tuple[str, int, str, str, str]:
     pg_port = int(os.getenv("FANSLY_PG_PORT", "5432"))
     pg_user = os.getenv("FANSLY_PG_USER", os.getenv("USER", "postgres"))
     pg_password = os.getenv("FANSLY_PG_PASSWORD", "")
-    password_encoded = quote_plus(pg_password) if pg_password else ""
-    admin_url = (
-        f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/postgres"
-    )
+    admin_url = pg_url(pg_host, pg_port, pg_user, pg_password, "postgres")
     return pg_host, pg_port, pg_user, pg_password, admin_url
+
+
+def pg_url(
+    host: str,
+    port: int,
+    user: str | None,
+    password: str | None,
+    database: str,
+    *,
+    driver: str = "postgresql",
+) -> str:
+    """SQLAlchemy URL whose credentials round-trip exactly (spaces, ``@``, ``%``...)."""
+    return URL.create(
+        driver,
+        username=user or "",
+        password=password or "",
+        host=host,
+        port=int(port),
+        database=database,
+    ).render_as_string(hide_password=False)
+
+
+def config_pg_url(config: FanslyConfig, *, driver: str = "postgresql") -> str:
+    """``pg_url`` for ``config``'s connection settings."""
+    return pg_url(
+        config.pg_host,
+        config.pg_port,
+        config.pg_user,
+        config.pg_password,
+        config.pg_database,
+        driver=driver,
+    )
+
+
+def alembic_ini_url(url: str) -> str:
+    """``url`` escaped for Alembic's ConfigParser ``%`` interpolation."""
+    return url.replace("%", "%%")
 
 
 @pytest.fixture(scope="session")
@@ -164,10 +197,7 @@ def pg_template_db() -> Generator[str, None, None]:
 
     # 2. Build schema once via create_all() (mirrors the per-test cost we're
     # eliminating from test_engine / test_async_session / entity_store).
-    password_encoded = quote_plus(pg_password) if pg_password else ""
-    template_url = (
-        f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/{template_name}"
-    )
+    template_url = pg_url(pg_host, pg_port, pg_user, pg_password, template_name)
     template_engine = create_engine(template_url, isolation_level="AUTOCOMMIT")
     try:
         table_metadata.create_all(template_engine)
@@ -178,7 +208,7 @@ def pg_template_db() -> Generator[str, None, None]:
         # tests) get a no-op ``alembic upgrade head`` instead of attempting
         # to re-run all migrations against tables that already exist.
         alembic_cfg = AlembicConfig("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", template_url)
+        alembic_cfg.set_main_option("sqlalchemy.url", alembic_ini_url(template_url))
         alembic_command.stamp(alembic_cfg, "head")
     finally:
         # Fully dispose so PostgreSQL can clone the template (no active backends).
@@ -358,8 +388,14 @@ class TestDatabase(Database):
         # only if we need a different isolation level
         if self.isolation_level != "READ COMMITTED":
             # Get connection URL from existing engine
-            pg_password = self.config.pg_password or os.getenv("FANSLY_PG_PASSWORD", "")
-            async_url = f"postgresql+asyncpg://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
+            async_url = pg_url(
+                self.config.pg_host,
+                self.config.pg_port,
+                self.config.pg_user,
+                self.config.pg_password or os.getenv("FANSLY_PG_PASSWORD", ""),
+                self.config.pg_database,
+                driver="postgresql+asyncpg",
+            )
 
             # Dispose old async engine
             if hasattr(self, "_async_engine") and self._async_engine is not None:
@@ -560,9 +596,7 @@ async def test_engine(
     no per-test ``create_all()`` needed.
     """
     config = uuid_test_db_factory
-    password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-
-    async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+    async_url = config_pg_url(config, driver="postgresql+asyncpg")
 
     engine = create_async_engine(
         async_url,
@@ -585,9 +619,7 @@ async def test_async_session(
     Tables come from the cloned template (see ``pg_template_db``).
     """
     config = uuid_test_db_factory
-    password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
-
-    async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+    async_url = config_pg_url(config, driver="postgresql+asyncpg")
 
     engine = create_async_engine(
         async_url,
@@ -1042,9 +1074,8 @@ async def factory_async_session(
         A helper object with methods for factory operations
     """
     # Create a sync engine from the async engine's URL
-    sync_url = str(test_engine.url).replace("+asyncpg", "")
     sync_engine = create_engine(
-        sync_url,
+        test_engine.url.set(drivername="postgresql"),
         isolation_level="SERIALIZABLE",
         echo=False,
         pool_pre_ping=True,

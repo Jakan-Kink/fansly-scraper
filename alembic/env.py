@@ -1,9 +1,8 @@
 import importlib.util
 import os
 from pathlib import Path
-from urllib.parse import quote_plus
 
-from sqlalchemy import create_engine, pool
+from sqlalchemy import URL, create_engine, pool
 
 from alembic import context
 
@@ -18,12 +17,16 @@ if not config.get_main_option("sqlalchemy.url"):
     pg_password = os.getenv("FANSLY_PG_PASSWORD", "")
     pg_database = os.getenv("FANSLY_PG_DATABASE", "fansly")
 
-    # URL-encode password to handle special characters
-    password_encoded = quote_plus(pg_password) if pg_password else ""
-    db_url = (
-        f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/{pg_database}"
-    )
-    config.set_main_option("sqlalchemy.url", db_url)
+    db_url = URL.create(
+        "postgresql",
+        username=pg_user,
+        password=pg_password,
+        host=pg_host,
+        port=int(pg_port),
+        database=pg_database,
+    ).render_as_string(hide_password=False)
+    # set_main_option goes through ConfigParser interpolation; escape "%".
+    config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
 # Import SA Core table definitions directly from the file, bypassing
 # metadata/__init__.py to avoid circular imports through the ORM model chain.

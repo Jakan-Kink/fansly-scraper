@@ -65,9 +65,8 @@ postgres:
   pg_user: fansly_user
   # SecretStr — stored as plaintext in the file but never printed in logs.
   pg_password: null
-  # The pg_ssl* settings are accepted but NOT yet wired to
-  # asyncpg.create_pool. See `metadata/database.py` — a follow-up task
-  # will pass them through.
+  # libpq SSL settings, applied to every database connection.
+  # pg_sslmode: disable | allow | prefer | require | verify-ca | verify-full
   pg_sslmode: prefer
   pg_sslcert: null
   pg_sslkey: null

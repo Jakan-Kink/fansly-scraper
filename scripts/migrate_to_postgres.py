@@ -27,11 +27,20 @@ import getpass
 import os
 import shutil
 import sys
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import MetaData, create_engine, inspect, text
+from sqlalchemy import URL, Column, MetaData, Table, create_engine, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.types import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    String,
+    Text,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,10 +144,14 @@ def create_postgres_connection_url(
     password: str,
 ) -> str:
     """Create PostgreSQL connection URL."""
-    from urllib.parse import quote_plus
-
-    password_encoded = quote_plus(password)
-    return f"postgresql://{user}:{password_encoded}@{host}:{port}/{database}"
+    return URL.create(
+        "postgresql",
+        username=user,
+        password=password,
+        host=host,
+        port=port,
+        database=database,
+    ).render_as_string(hide_password=False)
 
 
 def create_tables(sqlite_engine: Engine, pg_engine: Engine) -> None:
@@ -148,16 +161,6 @@ def create_tables(sqlite_engine: Engine, pg_engine: Engine) -> None:
     with proper type translation from SQLite to PostgreSQL types.
     """
     print("  Creating tables in PostgreSQL...")
-
-    from sqlalchemy import Column, Table
-    from sqlalchemy.types import (
-        BigInteger,
-        Boolean,
-        DateTime,
-        Float,
-        String,
-        Text,
-    )
 
     # Reflect the complete schema from SQLite
     sqlite_metadata = MetaData()
@@ -478,8 +481,6 @@ def main() -> int:
 
     except Exception as e:
         print(f"\n✗ Migration failed: {e}", file=sys.stderr)
-        import traceback
-
         traceback.print_exc()
         return 1
 

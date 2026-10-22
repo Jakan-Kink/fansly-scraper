@@ -55,13 +55,17 @@ from .api import (
 )
 from .config import (
     CONFIG_DATA_DIR,
+    browser_processes,
     config_dir,
     config_with_path,
     default_cli_args,
     fresh_config,
+    linux_browser_home,
     loaded_config,
     no_display,
+    opened_urls,
     sample_yaml_path,
+    sqlite_connect_spy,
     unit_config,
     unit_config_path,
     validation_config,
@@ -82,6 +86,7 @@ from .daemon import (
     progress_manager,
 )
 from .database import (
+    asyncpg_create_pool_spy,
     class_entity_store,
     config,
     config_with_database,
@@ -284,13 +289,17 @@ mod_core_fixtures = [
 
 mod_config_fixtures = [
     "CONFIG_DATA_DIR",
+    "browser_processes",
     "config_dir",
     "config_with_path",
     "default_cli_args",
     "fresh_config",
+    "linux_browser_home",
     "loaded_config",
     "no_display",
+    "opened_urls",
     "sample_yaml_path",
+    "sqlite_connect_spy",
     "unit_config",
     "unit_config_path",
     "validation_config",
@@ -474,6 +483,7 @@ mod_database_fixtures = [
     "config_with_database",
     "entity_store",
     "class_entity_store",
+    "asyncpg_create_pool_spy",
     "reset_class_store",
     "test_sync_engine",
     "session_factory",

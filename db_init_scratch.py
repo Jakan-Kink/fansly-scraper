@@ -18,9 +18,10 @@ import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import quote_plus, unquote, urlparse
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 
 if TYPE_CHECKING:
@@ -195,25 +196,31 @@ def resolve_db_settings(args: argparse.Namespace) -> dict[str, str]:
 
 
 def build_db_url(settings: dict[str, str]) -> str:
-    password_encoded = quote_plus(settings["pg_password"])
-    return (
-        f"postgresql://{settings['pg_user']}:{password_encoded}"
-        f"@{settings['pg_host']}:{settings['pg_port']}/{settings['pg_database']}"
-    )
+    return URL.create(
+        "postgresql",
+        username=settings["pg_user"],
+        password=settings["pg_password"],
+        host=settings["pg_host"],
+        port=int(settings["pg_port"]),
+        database=settings["pg_database"],
+    ).render_as_string(hide_password=False)
 
 
 def settings_from_db_url(db_url: str) -> dict[str, str] | None:
-    parsed = urlparse(db_url)
-    if parsed.scheme not in {"postgresql", "postgres"}:
+    try:
+        url = make_url(db_url)
+    except ArgumentError:
         return None
-    if not parsed.hostname or not parsed.path:
+    if url.drivername not in {"postgresql", "postgres"}:
+        return None
+    if not url.host or not url.database:
         return None
     return {
-        "pg_host": parsed.hostname,
-        "pg_port": str(parsed.port or 5432),
-        "pg_database": parsed.path.lstrip("/"),
-        "pg_user": parsed.username or "fansly_user",
-        "pg_password": unquote(parsed.password or ""),
+        "pg_host": url.host,
+        "pg_port": str(url.port or 5432),
+        "pg_database": url.database,
+        "pg_user": url.username or "fansly_user",
+        "pg_password": url.password or "",
     }
 
 

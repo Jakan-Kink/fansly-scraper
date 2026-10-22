@@ -1,21 +1,12 @@
-"""Unit tests for configuration validation.
+"""Unit tests for configuration validation against a real ``FanslyConfig``.
 
-Post-Wave-2.3 rewrite: this suite exercises ``config/validation.py`` with
-a real ``FanslyConfig`` instead of ``MagicMock(spec=FanslyConfig)``. The
-prior file used a ``mock_config`` fixture with ``return_value`` attribute
-stubs for ``token_is_valid()``/``useragent_is_valid()``, then further
-``@patch``-ed every internal helper (``save_config_or_raise``,
-``validate_adjust_creator_name``, ``textio_logger``). Those tests
-exercised mocks rather than production code.
-
-Replacement strategy — only mock at true edges:
-- HTTP: ``respx.mock`` for ``httpx.get`` (user-agent fetcher)
-- Browser leaves: ``config.browser.find_leveldb_folders`` etc. touch on-
-  disk leveldb/firefox profiles
-- stdlib leaves: ``importlib.util.find_spec``, ``builtins.input``,
-  ``config.validation.sleep``
-- Side-effectful leaves: ``config.validation.open_get_started_url``
-  (browser), ``config.validation.ask_correct_dir`` (prompt_toolkit prompt)
+Edges stood in for:
+- HTTP: respx (Fansly API, website main.js scrape)
+- Browser storage: real LevelDB/SQLite stores under a temporary ``HOME``
+  (``linux_browser_home``); ``platform.system`` and ``psutil`` processes
+- Prompts: the prompt_toolkit session (``tty`` + ``fake_prompt_session``)
+- ``webbrowser.open`` (``opened_urls``); ``importlib.util.find_spec`` only
+  to simulate plyvel being absent
 
 Everything else runs real code:
 - ``FanslyConfig`` is real — set ``token = "a" * 60`` for a valid-length
@@ -29,10 +20,10 @@ it returns a fresh real ``FanslyConfig`` with a writable config_path, so
 save-triggering branches exercise the real YAML write without mocks.
 """
 
+import importlib.util
 import logging
-import types
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -53,13 +44,27 @@ from config.validation import (
 )
 from errors import ConfigError
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
-from tests.fixtures.utils import scaled_async_sleep
+from tests.fixtures.config import (
+    FakeBrowserProcess,
+    firefox_session_row,
+    hold_exclusive_lock,
+    leveldb_session_value,
+    write_firefox_store,
+    write_leveldb_store,
+)
 
 
 # Website-host URLs scraped by guess_check_key for main.js — not apiv3
 # endpoints, so no FanslyApi.*_ENDPOINT constant maps to them.
 _FANSLY_HOMEPAGE = "https://fansly.com/"  # CCH:api  # website root for main.js scrape, not an apiv3 endpoint
 _FANSLY_MAIN_JS = "https://fansly.com/main.abc123.js"  # CCH:api  # scraped website main.js asset, not an apiv3 endpoint
+
+# Chrome Local Storage under a Linux ``HOME`` (see ``linux_browser_home``).
+CHROME_LOCAL_STORAGE = Path(".config/google-chrome/Default/Local Storage/leveldb")
+
+needs_plyvel = pytest.mark.skipif(
+    importlib.util.find_spec("plyvel") is None, reason="plyvel-ci not installed"
+)
 
 
 # validation_config fixture lives in tests/fixtures/config/ and flows through
@@ -142,24 +147,19 @@ async def test_validate_creator_names_all_removed_returns_true_and_falls_back(
 
 
 async def test_validate_creator_names_interactive_adjustment(
-    validation_config, monkeypatch
+    validation_config, tty, fake_prompt_session
 ):
     """Interactive mode: user fixes an invalid name → config updates and saves.
 
-    The real ``validate_adjust_creator_name`` loops on invalid input until
-    the user types a valid name. We inject ``correctuser`` by monkey-patching
-    the ``aprompt_text`` async helper; the real validator accepts the result
-    and the set mutation + save fires.
+    The real ``validate_adjust_creator_name`` prompts through the real
+    ``aprompt_text``; the scripted answer is accepted and the save fires.
     """
     validation_config.interactive = True
     validation_config.user_names = {"bad user"}  # space → invalid
-
-    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
-        return "correctuser"
-
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
+    fake_prompt_session.append("correctuser")
 
     assert await validate_creator_names(validation_config) is True
+    assert fake_prompt_session == []
     assert validation_config.user_names == {"correctuser"}
     assert validation_config.config_path.exists()
 
@@ -193,18 +193,16 @@ async def test_validate_adjust_creator_name_rejects_bad_chars():
 
 
 async def test_validate_adjust_creator_name_interactive_retries_until_valid(
-    monkeypatch,
+    tty, fake_prompt_session
 ):
-    """Interactive mode loops on invalid input until a valid one is entered."""
+    """Interactive mode re-prompts on invalid input until a valid one is entered."""
+    fake_prompt_session.extend(["still bad", "validuser"])
 
-    async def _fake_aprompt_text(_prompt: str, **_kwargs: object) -> str:
-        return "validuser"
-
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
     assert (
         await validate_adjust_creator_name("invalid user", interactive=True)
         == "validuser"
     )
+    assert fake_prompt_session == []
 
 
 # -- validate_adjust_token --------------------------------------------------
@@ -265,55 +263,52 @@ async def test_validate_adjust_token_no_plyvel_invalid_token_raises(
 @pytest.mark.asyncio
 @patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
-    mock_find_spec, validation_config
+    mock_find_spec, validation_config, opened_urls
 ):
-    """Interactive + invalid token + no browsers → open_get_started_url fires."""
+    """Interactive + invalid token + no plyvel → the Getting-Started page opens."""
     mock_find_spec.return_value = None
     validation_config.token = "short"
     validation_config.interactive = True
 
-    with (
-        patch("config.validation.open_get_started_url") as mock_open_url,
-        pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
-    ):
+    with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
         await validate_adjust_token(validation_config)
 
-    mock_open_url.assert_called_once()
+    assert len(opened_urls) == 1
+    assert "Getting-Started" in opened_urls[0]
 
 
+@needs_plyvel
 @pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_plyvel_installed_no_account_raises(
-    mock_find_spec, validation_config
+async def test_validate_adjust_token_plyvel_installed_no_browsers_raises(
+    validation_config, monkeypatch
 ):
-    """Plyvel installed + empty browser list → raises with "not found" message."""
-    mock_find_spec.return_value = types.SimpleNamespace()  # plyvel "installed"
+    """An OS with no known browser paths → raises with the "not found" message."""
+    monkeypatch.setattr("platform.system", lambda: "FreeBSD")
     validation_config.token = "short"
     validation_config.interactive = False
 
-    with (
-        patch("config.browser.get_browser_config_paths", return_value=[]),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
+    with pytest.raises(ConfigError, match="not found in any of your browser"):
         await validate_adjust_token(validation_config)
 
 
+@needs_plyvel
 @pytest.mark.asyncio
-@patch("importlib.util.find_spec")
 async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
-    mock_find_spec, respx_fansly_api, validation_config
+    respx_fansly_api, validation_config, linux_browser_home
 ):
-    """Non-interactive + token found in browser → auto-linked (lines 242-258).
+    """Non-interactive + token in a real Chrome LevelDB store → auto-linked.
 
-    Real verification path: the relaxed ``get_api`` builds an empty-token probe
-    api, and ``get_client_user_name(browser_token)`` hits the real account
-    endpoint (respx) to confirm the browser-found token before linking.
+    Real ``get_browser_config_paths`` / ``find_leveldb_folders`` / plyvel read;
+    ``get_client_user_name(browser_token)`` hits the account endpoint (respx)
+    to confirm the browser-found token before linking.
     """
-    mock_find_spec.return_value = types.SimpleNamespace()
     validation_config.token = "short"  # invalid → triggers browser search
     validation_config.interactive = False
 
     valid_token = "a" * 60
+    write_leveldb_store(
+        linux_browser_home / CHROME_LOCAL_STORAGE, leveldb_session_value(valid_token)
+    )
 
     # respx_fansly_api cleared its one-shot bootstrap routes; re-mount
     # device/id + account/me so validation_config's own probe api can verify
@@ -335,41 +330,43 @@ async def test_validate_adjust_token_auto_links_in_non_interactive_mode(
         ]
     )
 
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/home/user/.config/chromium/leveldb"],
-        ),
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value=valid_token,
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-    ):
-        try:
-            await validate_adjust_token(validation_config)
-        finally:
-            dump_fansly_calls(account_route.calls, "auto_links_non_interactive")
+    try:
+        await validate_adjust_token(validation_config)
+    finally:
+        dump_fansly_calls(account_route.calls, "auto_links_non_interactive")
 
+    assert account_route.call_count == 1
     assert validation_config.token == valid_token
-    assert validation_config.token_from_browser_name == "Chromium"
+    assert validation_config.token_from_browser_name == "Chrome"
 
 
+@needs_plyvel
 @pytest.mark.asyncio
-@patch("importlib.util.find_spec")
 async def test_validate_adjust_token_firefox_profile_branch(
-    mock_find_spec, respx_fansly_api, validation_config
+    respx_fansly_api,
+    validation_config,
+    linux_browser_home,
+    sqlite_connect_spy,
 ):
-    """Firefox path uses ``get_token_from_firefox_profile`` (lines 208-214)."""
-    mock_find_spec.return_value = types.SimpleNamespace()
+    """Firefox path reads a real ``~/.mozilla/firefox`` profile store and links it.
+
+    Real ``get_browser_config_paths`` / ``os.walk`` / sqlite read; only the
+    account lookup is mocked (respx).
+    """
     validation_config.token = "short"
     validation_config.interactive = False
 
     firefox_token = "b" * 60
+    write_firefox_store(
+        linux_browser_home
+        / ".mozilla"
+        / "firefox"
+        / "abc.default"
+        / "storage"
+        / "default"
+        / "webappsstore.sqlite",
+        firefox_session_row(firefox_token),
+    )
 
     respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
         side_effect=[
@@ -388,41 +385,31 @@ async def test_validate_adjust_token_firefox_profile_branch(
         ]
     )
 
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.mozilla/firefox"],
-        ),
-        patch(
-            "config.browser.get_token_from_firefox_profile",
-            return_value=firefox_token,
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Firefox"),
-    ):
-        try:
-            await validate_adjust_token(validation_config)
-        finally:
-            dump_fansly_calls(account_route.calls, "firefox_profile")
+    try:
+        await validate_adjust_token(validation_config)
+    finally:
+        dump_fansly_calls(account_route.calls, "firefox_profile")
 
+    assert account_route.call_count == 1
     assert validation_config.token == firefox_token
+    assert validation_config.token_from_browser_name == "Firefox"
+    assert sqlite_connect_spy.all_closed()
 
 
+@needs_plyvel
 @pytest.mark.asyncio
-@patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_user_accepts_link(
-    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
+    respx_fansly_api, validation_config, linux_browser_home, tty, fake_prompt_session
 ):
-    """Interactive: token found → user types "yes" → token saved (lines 222-258)."""
-    mock_find_spec.return_value = types.SimpleNamespace()
+    """Interactive: token found → user types "y" → token saved (lines 222-258)."""
     validation_config.interactive = True
     validation_config.token = "short"
-
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return True
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
+    fake_prompt_session.append("y")
 
     valid_token = "c" * 60
+    write_leveldb_store(
+        linux_browser_home / CHROME_LOCAL_STORAGE, leveldb_session_value(valid_token)
+    )
 
     respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
         side_effect=[
@@ -441,44 +428,33 @@ async def test_validate_adjust_token_interactive_user_accepts_link(
         ]
     )
 
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/home/user/.config/chromium/leveldb"],
-        ),
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value=valid_token,
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-    ):
-        try:
-            await validate_adjust_token(validation_config)
-        finally:
-            dump_fansly_calls(account_route.calls, "interactive_accepts")
+    try:
+        await validate_adjust_token(validation_config)
+    finally:
+        dump_fansly_calls(account_route.calls, "interactive_accepts")
 
+    assert fake_prompt_session == []
     assert validation_config.token == valid_token
-    assert validation_config.token_from_browser_name == "Chromium"
+    assert validation_config.token_from_browser_name == "Chrome"
 
 
+@needs_plyvel
 @pytest.mark.asyncio
-@patch("importlib.util.find_spec")
 async def test_validate_adjust_token_interactive_user_rejects_link(
-    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
+    respx_fansly_api,
+    validation_config,
+    linux_browser_home,
+    tty,
+    fake_prompt_session,
+    opened_urls,
 ):
-    """Interactive: token found but user says "no" → raises ConfigError."""
-    mock_find_spec.return_value = types.SimpleNamespace()
+    """Interactive: token found but user says "n" → Getting-Started opens, ConfigError."""
     validation_config.interactive = True
     validation_config.token = "short"
-
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return False
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
+    fake_prompt_session.append("n")
+    write_leveldb_store(
+        linux_browser_home / CHROME_LOCAL_STORAGE, leveldb_session_value("d" * 60)
+    )
 
     respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
         side_effect=[
@@ -497,207 +473,152 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
         ]
     )
 
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/home/user/.config/chromium/leveldb"],
-        ),
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value="d" * 60,
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-        patch("config.validation.open_get_started_url"),
-    ):
-        try:
-            with pytest.raises(
-                ConfigError, match=r"authorization token.*still invalid"
-            ):
-                await validate_adjust_token(validation_config)
-        finally:
-            dump_fansly_calls(account_route.calls, "interactive_rejects")
-
-
-@pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_leveldb_folder_no_token_continues_loop(
-    mock_find_spec, validation_config
-):
-    """Leveldb folder yields no token → inner ``if`` False; outer ``if all`` False.
-
-    Covers partial branches 201->196 (no token → loop next folder) and
-    216->189 (no account → loop next browser_path).
-    """
-    mock_find_spec.return_value = types.SimpleNamespace()
-    validation_config.token = "short"
-    validation_config.interactive = False
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/leveldb/folder1", "/leveldb/folder2"],
-        ),
-        # Every folder returns None → no valid token found → loop continues,
-        # fansly_account stays None, outer ``if all`` skips, final ConfigError fires.
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value=None,
-        ),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
-        await validate_adjust_token(validation_config)
-
-
-@pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_empty_leveldb_folders_continues(
-    mock_find_spec, validation_config
-):
-    """``find_leveldb_folders`` returns empty → inner for-loop body skipped.
-
-    Covers partial branch 196->216 (for-folder loop doesn't execute) and
-    216->189 (continues to next browser_path).
-    """
-    mock_find_spec.return_value = types.SimpleNamespace()
-    validation_config.token = "short"
-    validation_config.interactive = False
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        # Empty folder list — inner for-loop body never executes.
-        patch("config.browser.find_leveldb_folders", return_value=[]),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
-        await validate_adjust_token(validation_config)
-
-
-@pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_firefox_no_token_continues(
-    mock_find_spec, validation_config
-):
-    """Firefox profile yields no token → ``if browser_fansly_token`` False.
-
-    Covers partial branch 211->216 (firefox path with no token, falls
-    through to the ``if all`` check which also evaluates False).
-    """
-    mock_find_spec.return_value = types.SimpleNamespace()
-    validation_config.token = "short"
-    validation_config.interactive = False
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.mozilla/firefox"],
-        ),
-        patch(
-            "config.browser.get_token_from_firefox_profile",
-            return_value=None,
-        ),
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
-        await validate_adjust_token(validation_config)
-
-
-@pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
-    mock_find_spec, validation_config
-):
-    """Plyvel + interactive + no account found → ``open_get_started_url`` fires.
-
-    Covers line 266: the inner ``if config.interactive: open_get_started_url()``
-    branch inside the "no account found" path. Distinct from the
-    outer-invalid-token branch which also calls open_get_started_url
-    but from a different location.
-    """
-    mock_find_spec.return_value = types.SimpleNamespace()
-    validation_config.token = "short"
-    validation_config.interactive = True
-
-    with (
-        patch("config.browser.get_browser_config_paths", return_value=[]),
-        patch("config.validation.open_get_started_url") as mock_open_url,
-        pytest.raises(ConfigError, match="not found in any of your browser"),
-    ):
-        await validate_adjust_token(validation_config)
-
-    mock_open_url.assert_called_once()
-
-
-@pytest.mark.asyncio
-@patch("importlib.util.find_spec")
-async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
-    mock_find_spec, respx_fansly_api, validation_config, monkeypatch
-):
-    """Interactive: user types garbage → prompt re-asks → accepts next valid input.
-
-    Covers line 236: the "Please enter either 'Yes' or 'No'" error log
-    when the user provides input that doesn't start with y or n. This is
-    the ONE line previously uncovered in config/validation.py — fixed by
-    simulating a garbage-then-valid input sequence.
-    """
-    mock_find_spec.return_value = types.SimpleNamespace()
-    validation_config.interactive = True
-    validation_config.token = "short"
-
-    # Note: invalid-input retry behavior now lives in textio.prompts.aconfirm
-    # itself (the helper loops on unparseable answers); production code only
-    # sees the final True/False. Test simplifies to "user eventually accepts."
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return True
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-
-    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
-        side_effect=[
-            httpx.Response(200, json={"success": True, "response": "test-device-id"})
-        ]
-    )
-    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
-        side_effect=[
-            httpx.Response(
-                200,
-                json={
-                    "success": True,
-                    "response": {"account": {"username": "found_user"}},
-                },
-            )
-        ]
-    )
-
-    with (
-        patch(
-            "config.browser.get_browser_config_paths",
-            return_value=["/home/user/.config/chromium"],
-        ),
-        patch(
-            "config.browser.find_leveldb_folders",
-            return_value=["/home/user/.config/chromium/leveldb"],
-        ),
-        patch(
-            "config.browser.get_auth_token_from_leveldb_folder",
-            return_value="e" * 60,
-        ),
-        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
-    ):
-        try:
+    try:
+        with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
             await validate_adjust_token(validation_config)
-        finally:
-            dump_fansly_calls(account_route.calls, "interactive_reprompts")
+    finally:
+        dump_fansly_calls(account_route.calls, "interactive_rejects")
 
-    # User eventually accepted, so token is saved.
+    assert fake_prompt_session == []
+    assert len(opened_urls) == 1
+    assert validation_config.token == "short"
+
+
+@needs_plyvel
+@pytest.mark.asyncio
+async def test_validate_adjust_token_leveldb_stores_without_token_raise(
+    validation_config, linux_browser_home
+):
+    """Real LevelDB stores without a session → every loop continues → "not found".
+
+    Chrome holds two token-less stores (no token → next folder); Brave's profile
+    exists with no LevelDB at all (empty folder loop) → next browser path.
+    """
+    validation_config.token = "short"
+    validation_config.interactive = False
+    write_leveldb_store(linux_browser_home / CHROME_LOCAL_STORAGE, None)
+    write_leveldb_store(
+        linux_browser_home
+        / ".config"
+        / "google-chrome"
+        / "Default"
+        / "Session Storage"
+        / "leveldb",
+        None,
+    )
+    (
+        linux_browser_home / ".config" / "BraveSoftware" / "Brave-Browser" / "Default"
+    ).mkdir(parents=True)
+
+    with pytest.raises(ConfigError, match="not found in any of your browser"):
+        await validate_adjust_token(validation_config)
+
+
+@needs_plyvel
+@pytest.mark.asyncio
+async def test_validate_adjust_token_firefox_locked_non_interactive_no_token(
+    validation_config,
+    linux_browser_home,
+    sqlite_connect_spy,
+    browser_processes,
+):
+    """A Firefox store locked by a running browser yields no token in non-interactive mode.
+
+    ``config.interactive`` must reach the Firefox reader: no prompt (no TTY
+    here, so a prompt would raise ``RuntimeError``), no browser kill, and the
+    "not found" ``ConfigError`` fires.
+    """
+    validation_config.token = "short"
+    validation_config.interactive = False
+
+    db_path = write_firefox_store(
+        linux_browser_home
+        / ".mozilla"
+        / "firefox"
+        / "abc.default"
+        / "storage"
+        / "default"
+        / "webappsstore.sqlite",
+        firefox_session_row("c" * 60),
+    )
+    firefox = FakeBrowserProcess("firefox")
+    browser_processes.append(firefox)
+
+    with (
+        hold_exclusive_lock(db_path),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        await validate_adjust_token(validation_config)
+
+    assert not firefox.killed
+    assert not firefox.terminated
+    assert sqlite_connect_spy.all_closed()
+
+
+@needs_plyvel
+@pytest.mark.asyncio
+async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
+    validation_config, monkeypatch, opened_urls
+):
+    """Plyvel + interactive + no account found → the Getting-Started page opens.
+
+    Covers the inner ``if config.interactive: open_get_started_url()`` branch
+    inside the "no account found" path, distinct from the outer invalid-token one.
+    """
+    monkeypatch.setattr("platform.system", lambda: "FreeBSD")
+    validation_config.token = "short"
+    validation_config.interactive = True
+
+    with pytest.raises(ConfigError, match="not found in any of your browser"):
+        await validate_adjust_token(validation_config)
+
+    assert len(opened_urls) == 1
+    assert "Getting-Started" in opened_urls[0]
+
+
+@needs_plyvel
+@pytest.mark.asyncio
+async def test_validate_adjust_token_interactive_reprompts_on_invalid_input(
+    respx_fansly_api,
+    validation_config,
+    linux_browser_home,
+    tty,
+    fake_prompt_session,
+    caplog,
+):
+    """Interactive: user types garbage → the real prompt re-asks → "y" links the token."""
+    validation_config.interactive = True
+    validation_config.token = "short"
+    fake_prompt_session.extend(["maybe", "y"])
+    write_leveldb_store(
+        linux_browser_home / CHROME_LOCAL_STORAGE, leveldb_session_value("e" * 60)
+    )
+
+    respx.get(url__startswith=f"{FanslyApi.BASE_URL}device/id?").mock(
+        side_effect=[
+            httpx.Response(200, json={"success": True, "response": "test-device-id"})
+        ]
+    )
+    account_route = respx.get(url__startswith=f"{FanslyApi.BASE_URL}account/me?").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {"account": {"username": "found_user"}},
+                },
+            )
+        ]
+    )
+
+    try:
+        await validate_adjust_token(validation_config)
+    finally:
+        dump_fansly_calls(account_route.calls, "interactive_reprompts")
+
+    assert fake_prompt_session == []
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert "Please enter 'y' or 'n'." in errors
     assert validation_config.token == "e" * 60
 
 
@@ -777,6 +698,24 @@ def test_validate_adjust_user_agent_freezes_macos_token(
     assert "Mac OS X 26" not in validation_config.user_agent
 
 
+@pytest.mark.parametrize(
+    ("host_os", "expected_fragment"),
+    [("Linux", "Linux"), ("Windows", "Windows NT")],
+)
+def test_validate_adjust_user_agent_non_macos_host(
+    validation_config, monkeypatch, host_os, expected_fragment
+):
+    """Non-macOS hosts get their own platform token and skip the macOS freeze."""
+    monkeypatch.setattr("config.validation.platform.system", lambda: host_os)
+    validation_config.user_agent = "short"
+    validation_config.token_from_browser_name = "Chrome"
+
+    validate_adjust_user_agent(validation_config)
+
+    assert expected_fragment in validation_config.user_agent
+    assert "Mac OS X" not in validation_config.user_agent
+
+
 # -- validate_adjust_check_key ----------------------------------------------
 
 
@@ -830,69 +769,53 @@ async def test_validate_adjust_check_key_guess_succeeds_sets_key(
 # FanslyConfig with no ``guess_check_key`` patch — only the stdin-edge prompts
 # are faked.
 @pytest.mark.parametrize(
-    ("confirm_answers", "text_answers", "expected_key_attr"),
+    ("answers", "expected_key_attr"),
     [
-        pytest.param([True], [], "original", id="confirm-keeps-existing-key"),
+        pytest.param(["y"], "original", id="confirm-keeps-existing-key"),
+        pytest.param(["n", "new_key_value", "y"], "new_key_value", id="enters-new-key"),
         pytest.param(
-            [False, True], ["new_key_value"], "new_key_value", id="enters-new-key"
-        ),
-        pytest.param(
-            [False, False, True],
-            ["first_try", "second_try"],
+            ["n", "first_try", "n", "second_try", "y"],
             "second_try",
             id="rejects-new-key-then-accepts",
         ),
     ],
 )
 async def test_validate_adjust_check_key_no_guess_interactive_arms(
-    validation_config, monkeypatch, confirm_answers, text_answers, expected_key_attr
+    validation_config, tty, fake_prompt_session, answers, expected_key_attr
 ):
     """No user_agent → guess skipped → real interactive key-confirm loop runs.
 
-    Each param drives a distinct stdin arm of the real while-loop:
-    confirm-keep, enter-new, and reject-then-accept (the partial branch where
-    the new-key confirmation is rejected and the prompt repeats). Only the
-    prompt leaves (``aconfirm``/``aprompt_text``, prompt_toolkit stdin edge)
-    are faked; ``save_config_or_raise`` and the loop logic run for real.
+    Each param scripts the stdin answers for one arm of the real while-loop:
+    confirm-keep, enter-new, and reject-then-accept (the new-key confirmation
+    is rejected and the prompt repeats). Only the prompt_toolkit session is
+    scripted; ``aconfirm``/``aprompt_text``, ``save_config_or_raise`` and the
+    loop run for real.
     """
     validation_config.user_agent = None
     validation_config.interactive = True
     original_key = validation_config.check_key
-
-    confirm_iter = iter(confirm_answers)
-    text_iter = iter(text_answers)
-
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return next(confirm_iter)
-
-    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
-        return next(text_iter)
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
+    fake_prompt_session.extend(answers)
 
     await validate_adjust_check_key(validation_config)
 
     expected = original_key if expected_key_attr == "original" else expected_key_attr
     assert validation_config.check_key == expected
+    assert fake_prompt_session == []
 
 
 async def test_validate_adjust_check_key_no_user_agent_non_interactive(
-    validation_config,
+    validation_config, monkeypatch, scaled_async_sleep_recording
 ):
-    """user_agent is None → skips guess; non-interactive falls through to continue.
-
-    Covers the ``if config.user_agent:`` False branch.
-    """
+    """No user_agent → guess skipped; non-interactive waits the real 15s continue."""
     validation_config.user_agent = None
     validation_config.interactive = False
+    original_key = validation_config.check_key
+    monkeypatch.setattr("textio.textio.asyncio.sleep", scaled_async_sleep_recording)
 
-    with patch(
-        "config.validation.input_enter_continue", new_callable=AsyncMock
-    ) as mock_continue:
-        await validate_adjust_check_key(validation_config)
+    await validate_adjust_check_key(validation_config)
 
-    mock_continue.assert_called_once_with(False)
+    assert scaled_async_sleep_recording.calls == [15]
+    assert validation_config.check_key == original_key
 
 
 # -- validate_adjust_download_directory -------------------------------------
@@ -923,29 +846,30 @@ async def test_validate_adjust_download_directory_valid_custom_dir_kept(
 
 
 async def test_validate_adjust_download_directory_invalid_prompts_for_replacement(
-    validation_config, tmp_path, monkeypatch
+    validation_config,
+    tmp_path,
+    monkeypatch,
+    tty,
+    fake_prompt_session,
+    scaled_async_sleep_recording,
 ):
-    """Invalid directory → sleep + ask_correct_dir → save.
+    """Invalid directory → 10s pause → real ask_correct_dir loop → save.
 
-    Uses a non-existent Path as the bad directory; a real tmp_path
-    directory as the replacement. Patches ``asyncio.sleep`` (so tests don't
-    pause 10s) and ``ask_correct_dir`` (would open a prompt_toolkit prompt).
+    The first scripted answer is not a directory, so the real prompt loop
+    re-asks; the second is accepted and persisted to config.yaml.
     """
     validation_config.download_directory = tmp_path / "nonexistent"
     replacement = tmp_path / "picked"
     replacement.mkdir()
+    monkeypatch.setattr("config.validation.asyncio.sleep", scaled_async_sleep_recording)
+    fake_prompt_session.extend([str(tmp_path / "still_missing"), str(replacement)])
 
-    monkeypatch.setattr("config.validation.asyncio.sleep", scaled_async_sleep)
-
-    with patch(
-        "config.validation.ask_correct_dir",
-        new_callable=AsyncMock,
-        return_value=replacement,
-    ):
-        await validate_adjust_download_directory(validation_config)
+    await validate_adjust_download_directory(validation_config)
 
     assert validation_config.download_directory == replacement
     assert validation_config.config_path.exists()
+    assert scaled_async_sleep_recording.calls == [10]
+    assert fake_prompt_session == []
 
 
 async def test_validate_adjust_download_directory_creates_missing_temp_folder(
@@ -1031,78 +955,40 @@ async def test_validate_adjust_download_mode_non_interactive_no_change(
     assert validation_config.download_mode == DownloadMode.TIMELINE
 
 
-async def test_validate_adjust_download_mode_interactive_user_declines(
-    validation_config, monkeypatch
+@pytest.mark.parametrize(
+    ("answers", "expected_mode"),
+    [
+        pytest.param(["n"], DownloadMode.TIMELINE, id="declines"),
+        pytest.param(["y", "SINGLE"], DownloadMode.SINGLE, id="changes-mode"),
+        pytest.param(
+            ["y", "INVALIDMODE", "n"],
+            DownloadMode.TIMELINE,
+            id="invalid-mode-then-declines-keeps-original",
+        ),
+    ],
+)
+async def test_validate_adjust_download_mode_interactive(
+    validation_config, tty, fake_prompt_session, answers, expected_mode
 ):
-    """Interactive mode: user answers no → mode unchanged."""
-    validation_config.interactive = True
+    """Interactive mode drives the real confirm/mode-entry loop.
 
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return False
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-
-    await validate_adjust_download_mode(validation_config, download_mode_set=False)
-
-    assert validation_config.download_mode == DownloadMode.TIMELINE
-
-
-async def test_validate_adjust_download_mode_interactive_user_changes_mode(
-    validation_config, monkeypatch
-):
-    """Interactive mode: user answers yes then 'SINGLE' → mode updated."""
-    validation_config.interactive = True
-
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return True
-
-    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
-        return "SINGLE"
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
-
-    await validate_adjust_download_mode(validation_config, download_mode_set=False)
-
-    assert validation_config.download_mode == DownloadMode.SINGLE
-
-
-async def test_validate_adjust_download_mode_interactive_invalid_mode_preserves_original(
-    validation_config, monkeypatch
-):
-    """Interactive: user yes → invalid mode → no exits → original kept.
-
-    Runs real ``DownloadMode(...)`` constructor — an invalid string raises
-    the real ``ValueError`` which the production code catches and logs.
+    An invalid mode string raises the real ``DownloadMode(...)`` ``ValueError``,
+    which production logs before asking again.
     """
     validation_config.interactive = True
-
-    confirm_answers = iter([True, False])
-
-    async def _fake_aconfirm(_q: str, **_k: object) -> bool:
-        return next(confirm_answers)
-
-    async def _fake_aprompt_text(_q: str, **_k: object) -> str:
-        return "INVALIDMODE"
-
-    monkeypatch.setattr("config.validation.aconfirm", _fake_aconfirm)
-    monkeypatch.setattr("config.validation.aprompt_text", _fake_aprompt_text)
+    fake_prompt_session.extend(answers)
 
     await validate_adjust_download_mode(validation_config, download_mode_set=False)
 
-    assert validation_config.download_mode == DownloadMode.TIMELINE
+    assert validation_config.download_mode == expected_mode
+    assert fake_prompt_session == []
 
 
 async def test_validate_adjust_download_mode_skips_prompt_when_mode_preset(
-    validation_config, monkeypatch
+    validation_config, no_tty
 ):
-    """download_mode_set=True → no interactive prompt even if interactive=True."""
+    """download_mode_set=True → no prompt even if interactive (a prompt would raise)."""
     validation_config.interactive = True
-
-    async def _fail_aconfirm(*_args, **_kwargs):
-        raise AssertionError("aconfirm should not be called when download_mode_set")
-
-    monkeypatch.setattr("config.validation.aconfirm", _fail_aconfirm)
 
     await validate_adjust_download_mode(validation_config, download_mode_set=True)
     assert validation_config.download_mode == DownloadMode.TIMELINE

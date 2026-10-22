@@ -37,6 +37,14 @@ class TestTypeIndexMaintenance:
         assert a.id not in store._type_index.get(Account, set())
         assert (Account, a.id) not in store._cache
 
+    async def test_invalidate_uncached_type_is_noop(self, reset_class_store):
+        store = reset_class_store
+        a = Account(id=snowflake_id(), username="ti_other_type")
+        store.cache_instance(a)
+        store.invalidate(Post, snowflake_id())
+        assert Post not in store._type_index
+        assert a.id in store._type_index[Account]
+
     async def test_invalidate_type_clears_only_one_type(self, reset_class_store):
         store = reset_class_store
         a1 = Account(id=snowflake_id(), username="ti_a1")

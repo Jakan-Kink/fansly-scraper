@@ -32,7 +32,7 @@ This project has **two distinct testing domains** that require different strateg
 
 #### 1. SQLAlchemy Tests (Fansly Metadata)
 
-**Domain**: Fansly API data → Local SQLite database
+**Domain**: Fansly API data → Local PostgreSQL database
 **Models**: `metadata/` (Account, Media, Post, Message, Story, etc. defined in account.py, media.py, post.py, etc.)
 **Strategy**: Real PostgreSQL UUID fixtures - **NO mocking of database or sessions**
 

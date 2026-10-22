@@ -5,6 +5,7 @@ import os
 import platform
 import sqlite3
 import traceback
+from contextlib import closing
 from pathlib import Path
 from time import sleep
 
@@ -25,11 +26,14 @@ except ImportError:
 
 
 # Function to recursively search for "storage" folders and process SQLite files
-async def get_token_from_firefox_profile(directory: str) -> str | None:
+async def get_token_from_firefox_profile(
+    directory: str, interactive: bool = True
+) -> str | None:
     """Gets a Fansly authorization token from a Firefox
     configuration directory.
 
     :param str directory: The user's Firefox profile directory to analyze.
+    :param bool interactive: Whether a locked database may prompt and close Firefox.
 
     :return: A Fansly authorization token if one could be found or None.
     :rtype: str | None
@@ -42,7 +46,7 @@ async def get_token_from_firefox_profile(directory: str) -> str | None:
                 if file.endswith(".sqlite"):
                     sqlite_file = str(Path(root) / file)
                     session_active_session = await get_token_from_firefox_db(
-                        sqlite_file
+                        sqlite_file, interactive
                     )
                     if session_active_session is not None:
                         return session_active_session
@@ -66,7 +70,7 @@ async def get_token_from_firefox_db(
     session_active_session = None
 
     try:
-        with sqlite3.connect(sqlite_file_name) as conn:
+        with closing(sqlite3.connect(sqlite_file_name)) as conn:
             cursor = conn.cursor()
 
             # Get all table names in the SQLite database
@@ -85,11 +89,6 @@ async def get_token_from_firefox_db(
                             "token"
                         ]
                         break
-
-    except sqlite3.OperationalError:
-        # Other browsers' cookies DBs use non-UTF-8 encodings (UTF-16, etc.);
-        # "Could not decode to UTF-8 column 'value'" — skip rather than crash.
-        pass
 
     except sqlite3.Error as e:
         sqlite_error = str(e)
@@ -115,9 +114,12 @@ async def get_token_from_firefox_db(
                 sqlite_file_name, interactive
             )  # recursively restart function
 
-        textio_logger.error(
-            f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}"
-        )
+        # Other browsers' cookies DBs use non-UTF-8 encodings (UTF-16, etc.);
+        # "Could not decode to UTF-8 column 'value'" — skip rather than crash.
+        if not isinstance(e, sqlite3.OperationalError):
+            textio_logger.error(
+                f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}"
+            )
 
     except Exception:
         textio_logger.error(

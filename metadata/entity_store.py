@@ -165,6 +165,7 @@ class DbConfig(TypedDict):
     database: str
     user: str | None
     password: str | None
+    ssl_dsn: str  # query-only DSN carrying libpq ssl* params
 
 
 def _normalize_order_by(
@@ -332,6 +333,7 @@ class PostgresEntityStore:
             )
 
         pool = await asyncpg.create_pool(
+            dsn=self._db_config["ssl_dsn"],
             host=self._db_config["host"],
             port=self._db_config["port"],
             database=self._db_config["database"],
