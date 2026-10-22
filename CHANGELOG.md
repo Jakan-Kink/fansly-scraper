@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Python 3.15 support.** The downloader now installs and runs on Python 3.12 through 3.15. The locked dependencies were updated to versions that publish Python 3.15 wheels (including Pillow 13, numpy 2.5.4, pydantic 2.14 and psycopg 3.3.6), so a 3.15 install no longer has to compile them from source, and greenlet now requires 3.5.6 or newer, since earlier versions break SQLAlchemy's async engine on 3.15. The optional `browser-auth` group's `plyvel-ci` has no prebuilt wheel for 3.15, the same as 3.14, so it still builds from source against an installed LevelDB.
+
 ### Changed
 
 - **asyncpg constraint widened to `>=0.30.0,<0.33.0` (lock now 0.32.0).** asyncpg 0.32 changes the pool's `min_size` from an initial size into a maintained floor, so the downloader now keeps its minimum connections (2 on the main pool, 1 per worker-thread pool) open for the whole run (including daemon mode) instead of letting them close after 5 idle minutes, and reopens them in the background if Postgres restarts. The re-import crash tracked in MagicStack/asyncpg#1292 is unchanged in 0.32; its root cause is in Cython (cython/cython#8048) and it remains unreachable from normal app use.

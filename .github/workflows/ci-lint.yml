@@ -20,7 +20,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12', '3.13', '3.14']
 
     steps:
       - name: Checkout code
@@ -76,10 +76,10 @@ jobs:
         run: |
           poetry run ruff format --check .
 
-  # Forward-compatibility check for Python 3.14
+  # Forward-compatibility check for Python 3.15
   # This won't block PRs if it fails, but gives visibility into future compatibility
-  lint-python-3-14:
-    name: Lint & Format Check (Python 3.14 - Forward Compatibility)
+  lint-python-3-15:
+    name: Lint & Format Check (Python 3.15 - Forward Compatibility)
     runs-on: ubuntu-latest
     continue-on-error: true
 
@@ -87,10 +87,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Python 3.14
+      - name: Set up Python 3.15
         uses: actions/setup-python@v6
         with:
-          python-version: '3.14'
+          python-version: '3.15'
           allow-prereleases: true
 
       - name: Install Poetry
@@ -105,7 +105,7 @@ jobs:
 
       - name: Try to install dependencies
         run: |
-          poetry install --no-interaction --no-root --with dev || echo "Dependencies may not be compatible with Python 3.14 yet"
+          poetry install --no-interaction --no-root --with dev || echo "Dependencies may not be compatible with Python 3.15 yet"
 
       - name: Run pre-commit hooks (if deps installed)
         run: |
