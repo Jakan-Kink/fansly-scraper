@@ -15,7 +15,7 @@ jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@v11
         with:
           # Issues with no activity for 14 days get labeled
           days-before-stale: 14
