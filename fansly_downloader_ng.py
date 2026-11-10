@@ -990,7 +990,7 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         remove_start = time.time()
         print_info("Closing log sinks...")
         try:
-            from config.logging import remove_tracked_handlers  # noqa: PLC0415, I001  # circular: config.logging imports FanslyConfig
+            from config.logging import remove_tracked_handlers  # noqa: PLC0415  # circular: config.logging imports FanslyConfig
 
             remove_tracked_handlers()
         except Exception as exc:

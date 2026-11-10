@@ -275,7 +275,7 @@ class FanslyConfig:
                 # otherwise.
                 api_token = (token or "") if self.token_is_valid() else ""
 
-                from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
+                from api import FanslyApi  # noqa: PLC0415  # circular-break: spawn-context subprocess unpickle fails if top-level
 
                 self._api = FanslyApi(
                     token=api_token,

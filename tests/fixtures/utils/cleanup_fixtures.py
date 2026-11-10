@@ -185,8 +185,11 @@ def cleanup_access_changed_accounts():
 def _close_unawaited_coroutines():
     """Helper to close any unawaited coroutines."""
     for obj in gc.get_objects():
-        with contextlib.suppress(TypeError, AttributeError, ValueError, RuntimeError):
+        with contextlib.suppress(
+            TypeError, AttributeError, ValueError, RuntimeError, ReferenceError
+        ):
             # RuntimeError: coroutine ignored GeneratorExit
+            # ReferenceError: isinstance() on a dead weakref.proxy
             if asyncio.iscoroutine(obj):
                 obj.close()
 

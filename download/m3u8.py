@@ -387,7 +387,7 @@ def _try_direct_download_ffmpeg(
         print_debug(f"FFmpeg command: {' '.join(stream.get_args())}")
 
         # Detect duration for progress tracking
-        from helpers.rich_progress import ffmpeg_progress  # noqa: PLC0415, I001  # circular: helpers.rich_progress depends on download/textio chain
+        from helpers.rich_progress import ffmpeg_progress  # noqa: PLC0415  # circular: helpers.rich_progress depends on download/textio chain
 
         total_duration = 0.0
         try:

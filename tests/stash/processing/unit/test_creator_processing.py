@@ -69,24 +69,21 @@ class TestCreatorProcessing:
         # Configure processor state to find the account
         processor.state.creator_id = real_account.id
 
-        # Create performer dict for GraphQL response
+        # The performer carries the creator's Fansly URL, so the first search hits
         performer_dict = create_performer_dict(
             id="5700",
             name="Test User",
+            urls=["https://fansly.com/test_user"],
+        )
+        by_url = create_graphql_response(
+            "findPerformers",
+            create_find_performers_result(count=1, performers=[performer_dict]),
         )
 
-        # Mock GraphQL HTTP response
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        create_find_performers_result(
-                            count=1, performers=[performer_dict]
-                        ),
-                    ),
-                ),
+                httpx.Response(200, json=by_url),  # URL search: count
+                httpx.Response(200, json=by_url),  # URL search: fetch
             ]
         )
 
@@ -107,23 +104,19 @@ class TestCreatorProcessing:
         assert performer is not None
         assert performer.name == "Test User"
 
-        # Verify respx was hit - check the HTTP call was made
-        assert graphql_route.called
-        assert graphql_route.call_count == 1
+        assert graphql_route.call_count == 2
 
         # Inspect the GraphQL request to verify method/URL stayed correct
         request = graphql_route.calls[0].request
         assert request.method == "POST"
         assert "graphql" in str(request.url)
 
-        # Verify findPerformers with name search (EQUALS) on displayName
-        # New library: find_performer uses performer_filter with name/alias searches
-        # Note: Library uses per_page=1 for find_one (not -1), don't assert on implementation details
+        # The first search is by the creator's Fansly profile URL
         assert_op_with_vars(
             graphql_route.calls[0],
             "findPerformers",
-            performer_filter__name__value="Test User",  # displayName from Account
-            performer_filter__name__modifier="EQUALS",
+            performer_filter__url__value="fansly.com/test_user",
+            performer_filter__url__modifier="INCLUDES",
         )
 
     @pytest.mark.asyncio
@@ -343,6 +336,7 @@ class TestCreatorProcessing:
     @pytest.mark.asyncio
     async def test_start_creator_processing_get_client_error(
         self,
+        *,
         entity_store: PostgresEntityStore,
         respx_stash_processor: StashProcessing,
         caplog: pytest.LogCaptureFixture,
@@ -427,12 +421,12 @@ class TestCreatorProcessing:
         performer_dict = create_performer_dict(
             id="5700",
             name="Test User",
+            urls=["https://fansly.com/test_user"],
         )
-
-        # Empty preload results
-        empty_scenes = {"count": 0, "scenes": []}
-        empty_images = {"count": 0, "images": []}
-        empty_galleries = {"count": 0, "galleries": []}
+        by_url = create_graphql_response(
+            "findPerformers",
+            create_find_performers_result(count=1, performers=[performer_dict]),
+        )
 
         # Mock GraphQL HTTP responses for the full workflow
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -446,24 +440,8 @@ class TestCreatorProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findJob", finished_job_dict)
                 ),
-                # Not a preload (retired): respx feeds these empties in order to the
-                # performer search's name+alias tiers (count=0 → falls to url tier).
-                httpx.Response(
-                    200, json=create_graphql_response("findScenes", empty_scenes)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
-                ),
-                # findPerformers url-tier (returns the match)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        create_find_performers_result(
-                            count=1, performers=[performer_dict]
-                        ),
-                    ),
-                ),
+                httpx.Response(200, json=by_url),  # performer URL search: count
+                httpx.Response(200, json=by_url),  # performer URL search: fetch
             ]
         )
 
@@ -480,17 +458,16 @@ class TestCreatorProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "start_creator_processing")
 
-        # 6 calls: connect, scan (metadataScan + findJob), then the performer
-        # fuzzy-search's 3 findPerformers tiers (name/alias/url). No preload.
-        assert len(graphql_route.calls) == 6, (
-            f"Expected exactly 6 GraphQL calls, got {len(graphql_route.calls)}"
+        # 5 calls: connect, scan (metadataScan + findJob), then the performer
+        # URL search's count and fetch. No preload.
+        assert len(graphql_route.calls) == 5, (
+            f"Expected exactly 5 GraphQL calls, got {len(graphql_route.calls)}"
         )
         assert_op(graphql_route.calls[0], "ConfigurationDefaults")
         assert_op(graphql_route.calls[1], "metadataScan")
         assert_op(graphql_route.calls[2], "findJob")
         assert_op(graphql_route.calls[3], "findPerformers")
         assert_op(graphql_route.calls[4], "findPerformers")
-        assert_op(graphql_route.calls[5], "findPerformers")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None
@@ -794,3 +771,95 @@ class TestCreatorProcessing:
 
         # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
         assert graphql_route.call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_scan_creator_folder_stops_waiting_on_unfinished_job(
+        self, respx_stash_processor, tmp_path, caplog, monkeypatch
+    ):
+        """A scan job that will never reach FINISHED ends the wait with a warning.
+
+        Four scans in a row: cancelled, failed, gone from the job queue, and
+        briefly missing before finishing. Only the first three warn, and each
+        returns so processing can continue with what Stash has indexed.
+        """
+        caplog.set_level(logging.DEBUG)
+        monkeypatch.setattr("stash.processing.base._SCAN_POLL_S", 0.01)
+        processor = respx_stash_processor
+        processor.config.stash_scan_settle_s = 0
+        processor.state.base_path = tmp_path / "creator_folder"
+        processor.state.base_path.mkdir(parents=True, exist_ok=True)
+
+        def job_response(
+            job_id: str, status: JobStatus, **fields: str | float
+        ) -> httpx.Response:
+            job = JobFactory.build(
+                id=job_id, status=status, description="Scanning metadata", **fields
+            )
+            return httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findJob", json.loads(job.model_dump_json())
+                ),
+            )
+
+        def scan_started(job_id: str) -> list[httpx.Response]:
+            return [
+                httpx.Response(200, json={"data": {}}),
+                httpx.Response(200, json={"data": {"metadataScan": job_id}}),
+            ]
+
+        missing = {"data": {"findJob": None}}
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                *scan_started("job_cancelled"),
+                job_response("job_cancelled", JobStatus.CANCELLED),
+                *scan_started("job_failed"),
+                job_response("job_failed", JobStatus.FAILED, error="disk full"),
+                *scan_started("job_gone"),
+                httpx.Response(200, json=missing),
+                httpx.Response(200, json=missing),
+                httpx.Response(200, json=missing),
+                *scan_started("job_blip"),
+                httpx.Response(200, json=missing),
+                job_response("job_blip", JobStatus.RUNNING, progress=0.5),
+                job_response("job_blip", JobStatus.RUNNING, progress=0.5),
+                job_response("job_blip", JobStatus.FINISHED, progress=1.0),
+            ]
+        )
+
+        await processor.context.get_client()
+
+        try:
+            for _ in range(4):
+                await processor.scan_creator_folder()
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_scan_creator_folder_stops_waiting_on_unfinished_job",
+            )
+
+        expected_polls = [
+            ("job_cancelled", 1),
+            ("job_failed", 1),
+            ("job_gone", 3),
+            ("job_blip", 4),
+        ]
+        assert graphql_route.call_count == sum(2 + n for _, n in expected_polls)
+        index = 0
+        for job_id, polls in expected_polls:
+            assert_op(graphql_route.calls[index + 1], "metadataScan")
+            for poll in range(polls):
+                assert_op_with_vars(
+                    graphql_route.calls[index + 2 + poll], "findJob", input__id=job_id
+                )
+            index += 2 + polls
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        carry_on = "; continuing with what Stash has indexed"
+        assert [w for w in warnings if "Scan job" in w] == [
+            f"Scan job job_cancelled ended as CANCELLED{carry_on}",
+            f"Scan job job_failed ended as FAILED: disk full{carry_on}",
+            f"Scan job job_gone is not in Stash's job queue{carry_on}",
+        ]
+        debug = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+        assert debug.count("Scan job job_blip: RUNNING, progress 0.5") == 1

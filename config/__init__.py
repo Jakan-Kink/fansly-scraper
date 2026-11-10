@@ -76,7 +76,7 @@ def __getattr__(name: str) -> Any:
     importing it eagerly here re-enters the config <-> textio import cycle.
     """
     if name in _BROWSER_FUNCTIONS:
-        from . import browser  # noqa: PLC0415, I001  # lazy-load: browser pulls optional plyvel dep
+        from . import browser  # noqa: PLC0415  # lazy-load: browser pulls optional plyvel dep
 
         return getattr(browser, name)
     if name == "validate_adjust_config":

@@ -23,6 +23,7 @@ from stash_graphql_client.types import (
     BaseFile,
     Gallery,
     Image,
+    JobStatus,
     Performer,
     Scene,
     SceneCreateInput,
@@ -45,6 +46,11 @@ if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState
     from metadata import Media, Message, Post
+
+
+_SCAN_POLL_S = 1.5
+# Consecutive polls a scan job may be absent before it is treated as gone.
+_SCAN_MISSING_POLLS = 3
 
 
 class StashProcessingBase(StashProcessingProtocol):
@@ -109,6 +115,9 @@ class StashProcessingBase(StashProcessingProtocol):
         self._performer: Performer | None = None
         self._studio: Studio | None = None
         self._stash_parent_task: str | None = None
+
+        # (lowercased username, name) -> matched performers; None = ambiguous
+        self._performer_matches: dict[tuple[str, str], list[Performer] | None] = {}
 
     @property
     def store(self) -> StashEntityStore:
@@ -211,13 +220,7 @@ class StashProcessingBase(StashProcessingProtocol):
                 flags=flags,
             )
             print_info(f"Metadata scan job ID: {job_id}")
-
-            finished_job = False
-            while not finished_job:
-                try:
-                    finished_job = bool(await self.context.client.wait_for_job(job_id))
-                except Exception:
-                    finished_job = False
+            await self._wait_for_scan_job(job_id)
 
             # The job-FINISHED signal can precede Stash's index commit; settle
             # before any File/Scene/Image read-back.
@@ -228,6 +231,46 @@ class StashProcessingBase(StashProcessingProtocol):
             # stash_graphql_client's ``metadata_scan`` raises
             # ``ValueError("Failed to start metadata scan: ...")``
             raise RuntimeError(f"Failed to process metadata: {e}") from e
+
+    async def _wait_for_scan_job(self, job_id: str) -> None:
+        """Poll a scan job until Stash reports it over.
+
+        A job that is cancelled, fails, or drops out of Stash's job queue is
+        logged and treated as over; the caller continues with what is indexed.
+
+        Args:
+            job_id: Scan job ID returned by ``metadata_scan``.
+        """
+        misses = 0
+        last_seen: tuple[object, object] | None = None
+        while True:
+            job = await self.context.client.find_job(job_id)
+            if job is None:
+                misses += 1
+                if misses >= _SCAN_MISSING_POLLS:
+                    logger.warning(
+                        f"Scan job {job_id} is not in Stash's job queue; "
+                        "continuing with what Stash has indexed"
+                    )
+                    return
+            elif job.status == JobStatus.FINISHED:
+                return
+            elif job.status in (JobStatus.CANCELLED, JobStatus.FAILED):
+                detail = f": {job.error}" if isinstance(job.error, str) else ""
+                logger.warning(
+                    f"Scan job {job_id} ended as {job.status}{detail}; "
+                    "continuing with what Stash has indexed"
+                )
+                return
+            else:
+                misses = 0
+                seen = (job.status, job.progress)
+                if seen != last_seen:
+                    logger.debug(
+                        f"Scan job {job_id}: {job.status}, progress {job.progress}"
+                    )
+                    last_seen = seen
+            await asyncio.sleep(_SCAN_POLL_S)
 
     def _configure_scene_creation_guard(self) -> None:
         """Enable Scene creation (the split's create path) only when the user

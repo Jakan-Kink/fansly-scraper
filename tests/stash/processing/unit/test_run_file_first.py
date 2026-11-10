@@ -50,7 +50,7 @@ _GRAPHQL_URL = "http://localhost:9999/graphql"
 
 @pytest.mark.asyncio
 async def test_run_file_first_isolates_failing_file(
-    entity_store, respx_stash_processor, mock_item, mock_account
+    entity_store, respx_stash_processor, mock_item
 ):
     """A swept file that raises during adjudication does not abort the sweep.
 
@@ -103,8 +103,9 @@ async def test_run_file_first_isolates_failing_file(
             )
         )
 
-    # Seed Stash caches so the good file's stamp fires no incidental query.
-    processor._account = mock_account
+    # Point the processor at this creator, as continue_stash_processing does,
+    # so the good file's stamp fires no incidental performer query.
+    processor._account = account
     processor._performer = PerformerFactory(
         id="123", name="test_user", scenes=[], images=[], galleries=[]
     )

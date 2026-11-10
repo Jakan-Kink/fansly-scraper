@@ -41,6 +41,7 @@ if TYPE_CHECKING:
         Media,
         Message,
         Post,
+        PostMention,
     )
 
 
@@ -91,6 +92,7 @@ class StashProcessingProtocol(Protocol):
     _performer: Performer | None
     _studio: Studio | None
     _stash_parent_task: str | None
+    _performer_matches: dict[tuple[str, str], list[Performer] | None]
 
     # --- Base class properties ---
 
@@ -125,9 +127,13 @@ class StashProcessingProtocol(Protocol):
 
     async def process_creator(self) -> tuple[Account, Performer]: ...
 
-    async def _find_existing_performer(self, account: Account) -> Performer | None: ...
+    async def _find_existing_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None: ...
 
-    async def _get_or_create_performer(self, account: Account) -> Performer: ...
+    async def _get_or_create_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None: ...
 
     async def _update_account_stash_id(
         self,

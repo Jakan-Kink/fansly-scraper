@@ -1,9 +1,11 @@
 """Common Utility Functions"""
 
+import string
 import webbrowser
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import JsonValue
 
@@ -11,6 +13,9 @@ from pydantic import JsonValue
 # A JSON object: string keys mapping to JSON values. Prefer over
 # dict[str, Any] for genuine JSON payloads — keeps value typing honest.
 JsonDict = dict[str, JsonValue]
+
+# Characters Fansly allows in a username.
+USERNAME_CHARS = frozenset(string.ascii_letters + string.digits + "-_")
 
 
 def expect_dict(value: JsonValue, what: str) -> JsonDict:
@@ -114,6 +119,39 @@ def is_valid_post_id(post_id: str) -> bool:
             not any(char.isspace() for char in post_id),
         ]
     )
+
+
+def clean_mention_handle(handle: str) -> str:
+    """Reduce a post-mention handle to the username it names.
+
+    Fansly delivers the handle with whatever followed it in the post text
+    (``name!``, ``name's``, ``name,``). Keeps the leading run of valid
+    username characters after an optional ``@``; case is preserved.
+    """
+    handle = handle.strip().removeprefix("@")
+    end = next(
+        (i for i, char in enumerate(handle) if char not in USERNAME_CHARS),
+        len(handle),
+    )
+    return handle[:end]
+
+
+def fansly_username_from_url(url: str) -> str | None:
+    """Return the lowercased username a Fansly profile URL points at.
+
+    Accepts a path, query, or fragment after the username (``/posts``).
+    Returns None for any other site, a missing username, or a username
+    segment holding characters Fansly does not allow.
+    """
+    parts = urlsplit(url.strip())
+    if parts.scheme not in {"http", "https"}:
+        return None
+    if parts.hostname not in {"fansly.com", "www.fansly.com"}:
+        return None
+    segment = parts.path.strip("/").split("/", 1)[0]
+    if not segment or set(segment) - USERNAME_CHARS:
+        return None
+    return segment.lower()
 
 
 def get_post_id_from_request(requested_post: str) -> str:

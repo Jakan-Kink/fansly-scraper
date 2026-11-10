@@ -58,20 +58,19 @@ class TestStashProcessingBaseErrorPaths:
         real_stash_processor,
         stash_cleanup_tracker,
     ):
-        """scan_creator_folder retries when wait_for_job fails transiently.
+        """scan_creator_folder keeps polling when one job lookup fails transiently.
 
         Patch the gql leaf (`client.execute`) so the real `metadata_scan`
-        and `wait_for_job` run end-to-end. The orchestrated responses are:
+        and `find_job` run end-to-end. The orchestrated responses are:
 
         1. ``CONFIG_DEFAULTS_QUERY`` → raise; ``metadata_scan``'s inner
            ``try/except`` swallows it and falls back to hardcoded defaults.
         2. ``METADATA_SCAN_MUTATION`` → return job id, completing
            ``metadata_scan``.
         3. ``FIND_JOB_QUERY`` (call 1) → raise; ``find_job`` swallows and
-           returns ``None``, so ``wait_for_job`` raises ``ValueError``,
-           which the production loop at base.py:343-345 catches and retries.
-        4. ``FIND_JOB_QUERY`` (call 2) → return a FINISHED Job dict;
-           ``wait_for_job`` returns ``True`` and the loop exits.
+           returns ``None``, which the wait tolerates for a few polls.
+        4. ``FIND_JOB_QUERY`` (call 2) → return a FINISHED Job dict and the
+           wait ends.
         """
         client = real_stash_processor.context.client
         async with (

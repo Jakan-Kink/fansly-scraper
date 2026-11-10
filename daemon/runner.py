@@ -623,7 +623,7 @@ async def _run_incremental_stash(config: FanslyConfig, state: DownloadState) -> 
     if not config.stash_active or not state.creator_name:
         return
     # Deferred import: avoid pulling stash deps when the integration is off.
-    from stash import StashProcessing  # noqa: PLC0415, I001  # only used in stash context
+    from stash import StashProcessing  # noqa: PLC0415  # only used in stash context
 
     processor = StashProcessing.from_config(config, state)
     try:

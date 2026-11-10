@@ -118,25 +118,24 @@ class TestGalleryCreation:
             200,
             json={"data": {"findGalleries": {"count": 0, "galleries": []}}},
         )
+        mention_by_url = {
+            "data": {
+                "findPerformers": {
+                    "performers": [
+                        {
+                            "id": "5101",
+                            "name": "mention1",
+                            "urls": ["https://fansly.com/mention1"],
+                        }
+                    ],
+                    "count": 1,
+                }
+            }
+        }
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "data": {
-                            "findPerformers": {
-                                "performers": [
-                                    {
-                                        "id": "5101",
-                                        "name": "mention1",
-                                        "urls": ["https://fansly.com/mention1"],
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                ),
+                httpx.Response(200, json=mention_by_url),  # URL search: count
+                httpx.Response(200, json=mention_by_url),  # URL search: fetch
                 *([empty_find_galleries] * 5),
             ],
         )
@@ -253,9 +252,12 @@ class TestGalleryCreation:
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
-        # Verify findPerformers was called twice (name + alias search)
-        assert len(graphql_route.calls) == 2
-        assert_op(graphql_route.calls[0], "findPerformers")
+        # One findPerformers per search (URL, alias, name), then the main
+        # performer's galleries inverse fetched by add_performer
+        assert len(graphql_route.calls) == 4
+        for call in graphql_route.calls[:3]:
+            assert_op(call, "findPerformers")
+        assert_op(graphql_route.calls[3], "PopulateRelationship")
 
 
 class TestGalleryOrchestration:

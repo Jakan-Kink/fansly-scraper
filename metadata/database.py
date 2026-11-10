@@ -91,6 +91,9 @@ class Database:
             cursor = dbapi_conn.cursor()
             cursor.execute("SET timezone='UTC'")
             cursor.close()
+            # An uncommitted SET is undone by a rollback and leaves the
+            # connection mid-transaction for whatever configures it next.
+            dbapi_conn.commit()
 
         # Run Alembic migrations
         if not skip_migrations:

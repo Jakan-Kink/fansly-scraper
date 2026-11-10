@@ -10,6 +10,7 @@ from config.loader import load_or_migrate
 from config.logging import init_logging_config, set_debug_enabled, textio_logger
 from config.schema import ConfigSchema
 from errors import ConfigError
+from helpers.common import USERNAME_CHARS
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
@@ -79,9 +80,7 @@ def username_has_valid_chars(name: str | None) -> bool:
     if name is None:
         return False
 
-    invalid_chars = set(name) - set(
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-    )
+    invalid_chars = set(name) - USERNAME_CHARS
 
     return not invalid_chars
 

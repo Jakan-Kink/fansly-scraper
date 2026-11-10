@@ -313,13 +313,14 @@ class TestAccountProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_name(self, respx_stash_processor):
-        """Test _find_existing_performer finds performer by username."""
+        """_find_existing_performer falls back to the name when no identifier matches."""
         acct_id = snowflake_id()
 
-        # Create account without stash_id
+        # No stash_id and no display name, so the name searched is the username
         account = AccountFactory.build(
             id=acct_id,
             username="test_user",
+            displayName=None,
             stash_id=None,
         )
 
@@ -327,16 +328,19 @@ class TestAccountProcessingMixin:
         await respx_stash_processor.context.get_client()
 
         performer_dict = create_performer_dict(id="999", name="test_user")
+        none_found = create_graphql_response(
+            "findPerformers", {"count": 0, "performers": []}
+        )
+        by_name = create_graphql_response(
+            "findPerformers", {"count": 1, "performers": [performer_dict]}
+        )
 
-        # Mock GraphQL response - findPerformers (plural) by name
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 1, "performers": [performer_dict]}
-                    ),
-                ),
+                httpx.Response(200, json=none_found),  # URL search
+                httpx.Response(200, json=none_found),  # alias search
+                httpx.Response(200, json=by_name),  # name search: count
+                httpx.Response(200, json=by_name),  # name search: fetch
             ]
         )
 
@@ -347,10 +351,9 @@ class TestAccountProcessingMixin:
                 graphql_route.calls, "test_find_existing_performer_by_name"
             )
 
-        # Verify performer was found by username
         assert performer.id == "999"
         assert performer.name == "test_user"
-        assert graphql_route.call_count == 1
+        assert graphql_route.call_count == 4
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -358,7 +361,10 @@ class TestAccountProcessingMixin:
         [
             pytest.param(
                 lambda: AccountFactory.build(
-                    id=snowflake_id(), username="dual_user", stash_id=None
+                    id=snowflake_id(),
+                    username="dual_user",
+                    displayName=None,
+                    stash_id=None,
                 ),
                 id="account_by_username",
             ),
@@ -376,23 +382,26 @@ class TestAccountProcessingMixin:
         """Both arms of the ``Account | PostMention`` param resolve a performer.
 
         Account resolves via ``username``, PostMention via ``handle`` (the
-        isinstance-narrowed branch). One backing name lets a single
-        findPerformers mock serve either type. Guards against re-narrowing the
-        param back to ``Account`` (which would drop the mention path).
+        isinstance-narrowed branch). One backing name lets the same
+        findPerformers sequence serve either type. Guards against re-narrowing
+        the param back to ``Account`` (which would drop the mention path).
         """
         entity = make_entity()
         await respx_stash_processor.context.get_client()
 
         performer_dict = create_performer_dict(id="999", name="dual_user")
+        none_found = create_graphql_response(
+            "findPerformers", {"count": 0, "performers": []}
+        )
+        by_name = create_graphql_response(
+            "findPerformers", {"count": 1, "performers": [performer_dict]}
+        )
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 1, "performers": [performer_dict]},
-                    ),
-                ),
+                httpx.Response(200, json=none_found),  # URL search
+                httpx.Response(200, json=none_found),  # alias search
+                httpx.Response(200, json=by_name),  # name search: count
+                httpx.Response(200, json=by_name),  # name search: fetch
             ]
         )
 
@@ -405,7 +414,7 @@ class TestAccountProcessingMixin:
 
         assert performer is not None
         assert performer.name == "dual_user"
-        assert graphql_route.call_count == 1
+        assert graphql_route.call_count == 4
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_not_found(self, respx_stash_processor):
@@ -422,15 +431,14 @@ class TestAccountProcessingMixin:
         # Setup context.client
         await respx_stash_processor.context.get_client()
 
-        # Mock GraphQL response - store.find_one() makes single call by name
+        none_found = create_graphql_response(
+            "findPerformers", {"count": 0, "performers": []}
+        )
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
+                httpx.Response(200, json=none_found),  # URL search
+                httpx.Response(200, json=none_found),  # alias search
+                httpx.Response(200, json=none_found),  # name search
             ]
         )
 
@@ -441,10 +449,9 @@ class TestAccountProcessingMixin:
                 graphql_route.calls, "test_find_existing_performer_not_found"
             )
 
-        # Verify performer is None
         assert performer is None
-        # Note: Library uses find_one() which makes 1 call (not 2)
-        assert graphql_route.call_count == 1
+        # An empty search stops after its count query: one call per step.
+        assert graphql_route.call_count == 3
 
     @pytest.mark.asyncio
     async def test_update_account_stash_id(self, respx_stash_processor, entity_store):
@@ -476,34 +483,31 @@ class TestAccountProcessingMixin:
     async def test_get_or_create_performer_found_by_alias_raw_syntax(
         self, respx_stash_processor
     ):
-        """Real _get_or_create_performer resolves a performer via the alias branch.
+        """_get_or_create_performer resolves a performer via the alias search.
 
-        Drives the REAL method (no reimplementation) over the respx Stash edge:
-        the name search returns empty, so production falls through to the alias
-        search (``store.find_one(Performer, aliases__contains=username)`` at
-        account.py:145), which returns a hit. Asserts the found performer is
-        returned without a create.
-
-        Merged from the former ``_found_by_alias_django_style`` test, which had
-        swapped in a test-authored ``django_style_method`` reimplementation and
-        therefore exercised ZERO production lines. Both old tests differed only
-        in the GraphQL filter SYNTAX they narrated; production emits exactly one
-        path (``aliases__contains``), so the reimplementation variant was
-        dropped and this real-method test is the single source of truth for the
-        alias-resolution branch.
+        The URL search returns nothing, so production falls through to
+        ``store.find(Performer, aliases__contains=username)``, which returns a
+        performer carrying the username as an alias. It is returned without a
+        create.
         """
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="test_user")
 
-        # Create performer data that will be found by alias
-        existing_performer_dict = create_performer_dict(
-            id="999", name="Test User", aliases=["test_user"]
+        by_alias = create_graphql_response(
+            "findPerformers",
+            {
+                "count": 1,
+                "performers": [
+                    create_performer_dict(
+                        id="999", name="Test User", alias_list=["test_user"]
+                    )
+                ],
+            },
         )
 
-        # Mock GraphQL: first call finds nothing by name, second call finds by alias
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # findPerformers by name - not found
+                # URL search - not found
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -511,14 +515,8 @@ class TestAccountProcessingMixin:
                         {"count": 0, "performers": []},
                     ),
                 ),
-                # findPerformers by alias using raw syntax - FOUND
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 1, "performers": [existing_performer_dict]},
-                    ),
-                ),
+                httpx.Response(200, json=by_alias),  # alias search: count
+                httpx.Response(200, json=by_alias),  # alias search: fetch
             ]
         )
 
@@ -531,49 +529,34 @@ class TestAccountProcessingMixin:
                 "test_get_or_create_performer_found_by_alias_raw_syntax",
             )
 
-        # Verify performer was found (not created) via the alias branch.
-        assert graphql_route.called
         assert result.id == "999"
-        assert graphql_route.call_count == 2  # Name search + alias search only
+        assert graphql_route.call_count == 3  # URL search + alias count and fetch
 
     @pytest.mark.asyncio
     async def test_get_or_create_performer_found_by_url(self, respx_stash_processor):
-        """Test _get_or_create_performer when performer found by URL (lines 131-132)."""
+        """_get_or_create_performer returns the performer carrying the Fansly URL."""
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="test_user")
 
-        # Create performer data that will be found by URL
-        existing_performer_dict = create_performer_dict(
-            id="888", name="Different Name", urls=["https://fansly.com/test_user"]
+        by_url = create_graphql_response(
+            "findPerformers",
+            {
+                "count": 1,
+                "performers": [
+                    create_performer_dict(
+                        id="888",
+                        name="Different Name",
+                        urls=["https://fansly.com/test_user"],
+                    )
+                ],
+            },
         )
 
-        # Mock GraphQL: name and alias searches fail, URL search succeeds
+        # The URL search is tried first, so nothing else is queried.
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # findPerformers by name - not found
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 0, "performers": []},
-                    ),
-                ),
-                # findPerformers by alias - not found
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 0, "performers": []},
-                    ),
-                ),
-                # findPerformers by URL - FOUND (lines 131-132)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers",
-                        {"count": 1, "performers": [existing_performer_dict]},
-                    ),
-                ),
+                httpx.Response(200, json=by_url),  # URL search: count
+                httpx.Response(200, json=by_url),  # URL search: fetch
             ]
         )
 
@@ -585,9 +568,8 @@ class TestAccountProcessingMixin:
                 graphql_route.calls, "test_get_or_create_performer_found_by_url"
             )
 
-        # Verify performer was found by URL
         assert result.id == "888"
-        assert graphql_route.call_count == 3  # Name + alias + URL searches
+        assert graphql_route.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_with_custom_image(
@@ -625,29 +607,32 @@ class TestAccountProcessingMixin:
     async def test_find_existing_performer_stash_id_returns_none(
         self, respx_stash_processor
     ):
-        """Test _find_existing_performer when stash_id lookup returns None (line 302->314)."""
+        """_find_existing_performer falls through to matching when the stash_id lookup fails."""
         acct_id = snowflake_id()
         account = AccountFactory.build(
             id=acct_id,
             username="test_user",
+            displayName=None,
             stash_id=999,  # Has stash_id but lookup fails
         )
 
-        # Mock HTTP responses - stash_id lookup fails (404), username search succeeds
         await respx_stash_processor.context.get_client()
-        performer_dict = {"id": "123", "name": "test_user"}
+        none_found = create_graphql_response(
+            "findPerformers", {"count": 0, "performers": []}
+        )
+        by_name = create_graphql_response(
+            "findPerformers",
+            {"count": 1, "performers": [{"id": "123", "name": "test_user"}]},
+        )
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # store.get() for stash_id - not found (returns empty)
+                # store.get() for stash_id - not found
                 httpx.Response(404, json={"error": "Not Found"}),
-                # store.find_one() by username - found
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 1, "performers": [performer_dict]}
-                    ),
-                ),
+                httpx.Response(200, json=none_found),  # URL search
+                httpx.Response(200, json=none_found),  # alias search
+                httpx.Response(200, json=by_name),  # name search: count
+                httpx.Response(200, json=by_name),  # name search: fetch
             ]
         )
 
@@ -659,94 +644,47 @@ class TestAccountProcessingMixin:
                 "test_find_existing_performer_stash_id_returns_none",
             )
 
-        # Verify it tried stash_id first (failed), then username (succeeded)
-        # Note: store.get() fails with exception when not found, triggers fallback
         assert result is not None
         assert result.id == "123"
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_performer_alias_cache_hit(self, respx_stash_processor):
-        """_get_or_create_performer finds performer by alias in cache (lines 141-142).
-
-        When a performer is already in the store cache with an alias matching
-        the username, the alias cache lookup succeeds without a GraphQL call.
-        """
-        acct_id = snowflake_id()
-        account = AccountFactory.build(id=acct_id, username="alias_user")
-
-        # Pre-populate store cache with a performer whose alias matches the username
-        cached_performer = PerformerFactory.build(
-            id="5704",
-            name="Real Name",
-            alias_list=["alias_user"],
-        )
-        # Save to store to populate identity map cache
-        performer_dict = create_performer_dict(
-            id="5704",
-            name="Real Name",
-            aliases=["alias_user"],
-        )
-        route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # performerUpdate from store.save()
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("performerUpdate", performer_dict),
-                ),
-                # findPerformers by name — cache filter doesn't match name, falls to GraphQL
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
-            ]
-        )
-
-        try:
-            await respx_stash_processor.store.save(cached_performer)
-            result = await respx_stash_processor._get_or_create_performer(account)
-        finally:
-            dump_graphql_calls(route.calls, "test_alias_cache_hit")
-
-        assert result is not None
-        assert result.name == "Real Name"
+        assert graphql_route.call_count == 5
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_stash_id_exception(
         self, respx_stash_processor
     ):
-        """_find_existing_performer handles exception in stash_id lookup (lines 321-322).
-
-        When store.get() raises an exception (e.g., GraphQL error),
-        the exception is caught and fallback to name search occurs.
-        """
+        """_find_existing_performer falls through to matching when the stash_id lookup raises."""
         acct_id = snowflake_id()
         account = AccountFactory.build(
             id=acct_id,
             username="test_user",
+            displayName=None,
             stash_id=999,
         )
 
         await respx_stash_processor.context.get_client()
 
-        performer_dict = create_performer_dict(id="5702", name="test_user")
+        none_found = create_graphql_response(
+            "findPerformers", {"count": 0, "performers": []}
+        )
+        by_name = create_graphql_response(
+            "findPerformers",
+            {
+                "count": 1,
+                "performers": [create_performer_dict(id="5702", name="test_user")],
+            },
+        )
 
         route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # store.get_cached → None (not in cache)
-                # store.get() → GraphQL error
+                # store.get() -> GraphQL error
                 httpx.Response(
                     200,
                     json={"errors": [{"message": "performer not found"}], "data": None},
                 ),
-                # Fallback: store.find_one() by name → found
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 1, "performers": [performer_dict]}
-                    ),
-                ),
+                httpx.Response(200, json=none_found),  # URL search
+                httpx.Response(200, json=none_found),  # alias search
+                httpx.Response(200, json=by_name),  # name search: count
+                httpx.Response(200, json=by_name),  # name search: fetch
             ]
         )
 
@@ -757,67 +695,7 @@ class TestAccountProcessingMixin:
 
         assert result is not None
         assert result.id == "5702"
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_performer_url_cache_hit(self, respx_stash_processor):
-        """Lines 148-154: _get_or_create_performer URL cache hit (zero GraphQL calls).
-
-        Pre-loads a Performer with the matching fansly_url into the store
-        cache. Name and alias cache filters miss; URL filter HITS — no
-        GraphQL search needed.
-        """
-        acct_id = snowflake_id()
-        username = f"cached_user_{acct_id}"
-        account = AccountFactory.build(id=acct_id, username=username)
-        fansly_url = f"https://fansly.com/{username}"
-
-        # Pre-load a performer with a different name/no alias but matching URL.
-        # Performer.id must be numeric (StashObject validator rejects non-numeric).
-        cached_perf_id = str(snowflake_id())
-        cached_performer = PerformerFactory.build(
-            id=cached_perf_id,
-            name="DifferentName",
-            alias_list=[],
-            urls=[fansly_url],
-        )
-        await respx_stash_processor.context.get_client()
-        respx_stash_processor.context.store.add(cached_performer)
-
-        # Production tries name + alias GraphQL queries before reaching the
-        # URL cache filter. Mock those as empty findPerformers so we fall
-        # through to the URL-cache-hit branch (lines 153-154) without an
-        # extra findPerformers-by-URL call (since cache hits before fallback).
-        respx.reset()
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
-                # findPerformers by name → empty
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
-                # findPerformers by alias → empty
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
-                # No third call expected — URL cache hits before find_one fires.
-            ]
-        )
-
-        try:
-            result = await respx_stash_processor._get_or_create_performer(account)
-        finally:
-            dump_graphql_calls(graphql_route.calls, "test_url_cache_hit")
-
-        # Found via URL cache. Exactly 2 GraphQL calls fired (name + alias);
-        # the URL find_one was skipped because the cache filter returned the
-        # preloaded performer at lines 153-154.
-        assert result.id == cached_perf_id
-        assert graphql_route.call_count == 2
+        assert route.call_count == 5
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_success_logs_avatar_updated(
