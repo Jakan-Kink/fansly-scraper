@@ -137,6 +137,36 @@ class StashProcessingBase(StashProcessingProtocol):
         """Convenient access to server capabilities."""
         return self.context.capabilities
 
+    @staticmethod
+    async def _link_tag(obj: Scene | Image | Gallery, tag: Tag) -> None:
+        """Add a tag to a scene, image or gallery without loading the tag's reverse side.
+
+        ``obj.add_tag`` also syncs the tag's own list of scenes/images/galleries,
+        which makes the store fetch every one in the library that carries the
+        tag. Appending to the loaded ``tags`` list is all the save needs;
+        ``add_tag`` is only used when that list has not been loaded.
+        """
+        if isinstance(obj.tags, list):
+            if all(existing.id != tag.id for existing in obj.tags):
+                obj.tags.append(tag)
+        else:
+            await obj.add_tag(tag)
+
+    @staticmethod
+    async def _link_performer(
+        obj: Scene | Image | Gallery, performer: Performer
+    ) -> None:
+        """Add a performer without loading the performer's reverse side.
+
+        Same reasoning as ``_link_tag``: ``obj.add_performer`` would fetch every
+        scene, image or gallery in the library that the performer is on.
+        """
+        if isinstance(obj.performers, list):
+            if all(existing.id != performer.id for existing in obj.performers):
+                obj.performers.append(performer)
+        else:
+            await obj.add_performer(performer)
+
     async def _preload_stash_entities(self) -> None:
         """Configure cache TTLs for Stash entity types and preload the tags.
 

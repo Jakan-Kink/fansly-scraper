@@ -133,6 +133,10 @@ class StashProcessingProtocol(Protocol):
         self, account: Account | PostMention
     ) -> Performer | None: ...
 
+    def _all_matched_performers(
+        self, account: Account | PostMention
+    ) -> list[Performer]: ...
+
     async def _get_or_create_performer(
         self, account: Account | PostMention
     ) -> Performer | None: ...
@@ -155,6 +159,14 @@ class StashProcessingProtocol(Protocol):
     # --- TagProcessingMixin methods ---
 
     async def _preload_tags(self) -> None: ...
+
+    @staticmethod
+    async def _link_tag(obj: Scene | Image | Gallery, tag: Tag) -> None: ...
+
+    @staticmethod
+    async def _link_performer(
+        obj: Scene | Image | Gallery, performer: Performer
+    ) -> None: ...
 
     async def _preload_galleries(
         self, items: Sequence[Post | Message], studio: Studio | None

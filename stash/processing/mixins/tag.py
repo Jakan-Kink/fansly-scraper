@@ -187,4 +187,4 @@ class TagProcessingMixin(StashProcessingProtocol):
         if not preview_tag:
             preview_tag = await self.store.find_one(Tag, name="Trailer")
         if preview_tag:
-            await file.add_tag(preview_tag)
+            await self._link_tag(file, preview_tag)

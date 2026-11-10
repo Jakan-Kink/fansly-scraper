@@ -18,7 +18,7 @@ import httpx
 import pytest
 import respx
 from stash_graphql_client import present
-from stash_graphql_client.types import VideoFile
+from stash_graphql_client.types import Scene, VideoFile
 
 from metadata import ContentType
 from pathio import get_stash_path
@@ -516,6 +516,77 @@ async def test_run_file_first_reads_synced_media_from_the_sweep(
     # The sweep's page size comes from stash_context.batches.files.
     sweep_request = json.loads(route.calls[0].request.content)
     assert sweep_request["variables"]["filter"]["per_page"] == 120
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("isolate_scene_create_input", "enable_scene_creation")
+async def test_create_split_scenes_saves_each_once_and_drops_refused(
+    respx_stash_processor, mock_item, mock_account
+):
+    """Split scenes are created before anything links to them, one bad one aside.
+
+    Two files split into new scenes. The first create succeeds: the scene gets
+    its real id, its media records it, and nothing new is left in the store for
+    ``save_all`` to create a second time. Stash refuses the second: that scene
+    is evicted and removed from the item's entities, and the first is kept.
+    """
+    processor = respx_stash_processor
+    processor._account = mock_account
+    processor._performer = PerformerFactory.build(
+        id="123", name=mock_account.username, scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
+
+    pairs = []
+    for file_id, leaf in (("500", "ok_id_1.mp4"), ("501", "refused_id_2.mp4")):
+        file = VideoFile(id=file_id, path=f"/dl/test_user/{leaf}")
+        media = MediaFactory.build(
+            is_downloaded=True, mimetype="video/mp4", local_filename=leaf
+        )
+        scene = await processor._split_scene_for_file(
+            file, media, mock_item, mock_account, studio
+        )
+        pairs.append((media, scene))
+    (ok_media, ok_scene), (refused_media, refused_scene) = pairs
+    item_entities = {mock_item.id: (mock_item, [ok_scene, refused_scene])}
+    split_pairs = list(pairs)
+
+    created = create_scene_dict(
+        id="900",
+        title="Split",
+        code=str(ok_media.id),
+        files=[create_video_file_dict("500", "/dl/test_user/ok_id_1.mp4")],
+    )
+    refusal = {
+        "errors": [
+            {
+                "message": "assigning file 501 to new scene: "
+                "cannot reassign primary file",
+                "path": ["sceneCreate"],
+            }
+        ]
+    }
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=create_graphql_response("sceneCreate", created)),
+            httpx.Response(200, json=refusal),
+        ]
+    )
+
+    try:
+        await processor._create_split_scenes(item_entities, split_pairs)
+    finally:
+        dump_graphql_calls(route.calls, "create_split_scenes")
+
+    assert route.call_count == 2
+    assert all(b"sceneCreate" in call.request.content for call in route.calls)
+    assert ok_scene.id == "900"
+    assert ok_media.stash_id == 900
+    assert refused_media.stash_id is None
+    assert split_pairs == [(ok_media, ok_scene)]
+    assert item_entities[mock_item.id][1] == [ok_scene]
+    # Nothing new is left for save_all to create again.
+    assert [s for s in processor.store.all_cached(Scene) if s.is_new()] == []
 
 
 @pytest.mark.asyncio

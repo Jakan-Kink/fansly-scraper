@@ -252,12 +252,11 @@ class TestGalleryCreation:
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
-        # One findPerformers per search (URL, alias, name), then the main
-        # performer's galleries inverse fetched by add_performer
-        assert len(graphql_route.calls) == 4
-        for call in graphql_route.calls[:3]:
+        # One findPerformers per search (URL, alias, name). Adding the main
+        # performer does not fetch that performer's other galleries.
+        assert len(graphql_route.calls) == 3
+        for call in graphql_route.calls:
             assert_op(call, "findPerformers")
-        assert_op(graphql_route.calls[3], "PopulateRelationship")
 
 
 class TestGalleryOrchestration:
@@ -670,9 +669,7 @@ class TestGalleryOrchestration:
                 empty_find_galleries,
                 # Call 2: url → not found
                 empty_find_galleries,
-                # Call 3: populate filter-query for gallery inverse
-                empty_find_galleries,
-                # Call 4: galleryCreate
+                # Call 3: galleryCreate
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -707,9 +704,10 @@ class TestGalleryOrchestration:
         assert gallery is not None
         assert gallery.title == "Test post content"
 
-        # 5 calls: code/title/url finds + populate filter-query + galleryCreate
-        assert len(graphql_route.calls) == 5, (
-            f"Expected exactly 5 GraphQL calls, got {len(graphql_route.calls)}"
+        # 4 calls: code/title/url finds + galleryCreate. Adding the performer
+        # does not fetch that performer's other galleries.
+        assert len(graphql_route.calls) == 4, (
+            f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
         # Call 0: code lookup

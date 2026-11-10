@@ -113,6 +113,18 @@ class AccountProcessingMixin(StashProcessingProtocol):
             self._performer_matches[key] = await self._lookup_performers(username, name)
         return self._performer_matches[key]
 
+    def _all_matched_performers(
+        self, account: Account | PostMention
+    ) -> list[Performer]:
+        """Every performer already matched to an account or mention this run.
+
+        An account can map to more than one Stash performer (each carries its
+        Fansly URL); content gets all of them. Reads the remembered match only,
+        so it is empty until the account has been looked up.
+        """
+        username, name = self._performer_identity(account)
+        return self._performer_matches.get((username.lower(), name)) or []
+
     async def _lookup_performers(
         self, username: str, name: str
     ) -> list[Performer] | None:

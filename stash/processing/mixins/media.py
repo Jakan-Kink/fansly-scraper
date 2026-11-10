@@ -131,10 +131,12 @@ class MediaProcessingMixin(StashProcessingProtocol):
         """
         new_scene = Scene(files=[file])
         # Brand-new scene has no server-side relationships; initialize the lists
-        # _stamp_metadata mutates so add_performer/add_tag stay in-memory rather
-        # than populating a not-yet-persisted (temp-id) scene from the server.
+        # stamping and gallery linking mutate so add_performer/add_tag/add_scene
+        # stay in-memory rather than populating a not-yet-persisted (temp-id)
+        # scene from the server.
         new_scene.performers = []
         new_scene.tags = []
+        new_scene.galleries = []
         self.store.add(new_scene)
         await self._stamp_metadata(new_scene, media, item, account, studio)
         return new_scene
@@ -521,20 +523,26 @@ class MediaProcessingMixin(StashProcessingProtocol):
     async def _stamp_performers(
         self, stash_obj: Scene | Image, item: Post | Message, account: Account
     ) -> None:
-        """Add the primary creator performer (cached) plus any mentioned ones."""
+        """Add the creator's performer(s) (cached) plus any mentioned ones.
+
+        An account or mention matched to several performers gets all of them.
+        """
         main_performer: Performer | None
         if self._account and account.id == self._account.id and self._performer:
             main_performer = self._performer
         else:
             main_performer = await self._find_existing_performer(account)
-        if main_performer:
-            await stash_obj.add_performer(main_performer)
+        performers = [main_performer] if main_performer else []
+        performers += self._all_matched_performers(account)
         for mention in getattr(item, "mentions", None) or []:
             mention_performer = await self._get_or_create_performer(mention)
             if mention_performer:
                 # PostMention has no stash_id; _update_account_stash_id no-ops it.
                 await self._update_account_stash_id(mention, mention_performer)
-                await stash_obj.add_performer(mention_performer)
+                performers.append(mention_performer)
+                performers += self._all_matched_performers(mention)
+        for performer in performers:
+            await self._link_performer(stash_obj, performer)
 
     async def _stamp_studio(
         self, stash_obj: Scene | Image, account: Account, studio: Studio | None
@@ -558,6 +566,6 @@ class MediaProcessingMixin(StashProcessingProtocol):
         hashtags = getattr(item, "hashtags", None)
         if hashtags:
             for tag in await self._process_hashtags_to_tags(hashtags):
-                await stash_obj.add_tag(tag)
+                await self._link_tag(stash_obj, tag)
         if media.is_preview:
             await self._add_preview_tag(stash_obj)

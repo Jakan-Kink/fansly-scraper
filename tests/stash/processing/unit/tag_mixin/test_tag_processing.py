@@ -13,14 +13,12 @@ from tests.fixtures.metadata import HashtagFactory
 from tests.fixtures.stash import (
     SceneFactory,
     TagFactory,
-    create_find_scenes_result,
     create_find_tags_result,
     create_graphql_response,
     create_tag_create_result,
     create_tag_dict,
 )
 from tests.fixtures.stash.stash_api_fixtures import (
-    assert_op,
     assert_op_with_vars,
     dump_graphql_calls,
 )
@@ -204,16 +202,12 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
     result = create_find_tags_result(count=1, tags=[trailer_tag_dict])
 
-    # _add_preview_tag makes exactly 2 GraphQL calls:
-    #   1. findTags — look up the Trailer tag by name
-    #   2. findScenes — dedup check: are there scenes that already have the tag?
-    empty_scenes = create_find_scenes_result(count=0, scenes=[])
+    # _add_preview_tag makes exactly 1 GraphQL call: findTags, to look up the
+    # Trailer tag by name. The tag joins the scene's own list; the tag's other
+    # scenes are not fetched.
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
             httpx.Response(200, json=create_graphql_response("findTags", result)),
-            httpx.Response(
-                200, json=create_graphql_response("findScenes", empty_scenes)
-            ),
         ]
     )
 
@@ -229,9 +223,8 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     assert scene_tags[0].name == "Trailer"
 
     # Exact count + per-call request + response verification.
-    assert len(graphql_route.calls) == 2, (
-        f"Expected exactly 2 calls (findTags + findScenes), "
-        f"got {len(graphql_route.calls)}"
+    assert len(graphql_route.calls) == 1, (
+        f"Expected exactly 1 call (findTags), got {len(graphql_route.calls)}"
     )
     # Call 0: findTags filtering on "Trailer"
     assert_op_with_vars(
@@ -242,10 +235,6 @@ async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     resp0 = graphql_route.calls[0].response.json()
     assert resp0["data"]["findTags"]["count"] == 1
     assert resp0["data"]["findTags"]["tags"][0]["name"] == "Trailer"
-    # Call 1: findScenes dedup check (tags.value includes the found tag id)
-    assert_op(graphql_route.calls[1], "findScenes")
-    resp1 = graphql_route.calls[1].response.json()
-    assert resp1["data"]["findScenes"]["count"] == 0
 
 
 @pytest.mark.asyncio

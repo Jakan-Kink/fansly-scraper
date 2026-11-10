@@ -300,19 +300,25 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         gallery: Gallery,
         item: HasMetadata,
         performer: Performer | None,
+        account: Account | None = None,
     ) -> None:
         """Set up performers for a gallery.
+
+        An account or mention matched to several performers gets all of them.
 
         Args:
             gallery: Gallery to set up
             item: Source item with mentions
             performer: Main performer
+            account: The creator's account, to add its other matched performers
         """
         performers = []
 
         # Add main performer (id is always loaded in library objects)
         if performer:
             performers.append(performer)
+        if account is not None:
+            performers.extend(self._all_matched_performers(account))
 
         # Add mentioned accounts as performers
         mentions = getattr(item, "mentions", None)
@@ -321,11 +327,14 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                 self._find_existing_performer(mention) for mention in mentions
             ]
             mention_results = await asyncio.gather(*mention_tasks)
-            performers.extend([p for p in mention_results if p is not None])
+            for mention, found in zip(mentions, mention_results, strict=True):
+                if found is not None:
+                    performers.append(found)
+                    performers.extend(self._all_matched_performers(mention))
 
         # Add performers using relationship helper for bidirectional sync
         for perf in performers:
-            await gallery.add_performer(perf)
+            await self._link_performer(gallery, perf)
 
     async def _check_aggregated_posts(self, posts: list[Post]) -> bool:
         """Check if any aggregated posts have media content.
@@ -447,7 +456,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         gallery = await self._create_new_gallery(item, title)
 
         # Set up performers
-        await self._setup_gallery_performers(gallery, item, performer)
+        await self._setup_gallery_performers(gallery, item, performer, account)
 
         # Set studio if provided (id is always loaded in library objects)
         if studio:

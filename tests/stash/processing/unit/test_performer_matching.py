@@ -11,14 +11,16 @@ import logging
 import httpx
 import pytest
 import respx
+from stash_graphql_client import present
 
 from metadata import PostMention
-from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_graphql_response,
     create_performer_dict,
 )
+from tests.fixtures.stash.stash_type_factories import GalleryFactory, SceneFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -104,6 +106,63 @@ async def test_returns_every_performer_carrying_the_account_url(respx_stash_proc
     assert primary is not None
     assert primary.id == "1086"
     assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_content_gets_every_performer_matched_to_the_account(
+    respx_stash_processor,
+):
+    """A scene and a gallery both get the two performers of a two-performer account.
+
+    The match is looked up once; stamping and gallery setup then read the
+    remembered result, so they add both performers without another request.
+    """
+    processor = respx_stash_processor
+    account = AccountFactory.build(id=snowflake_id(), username="somecouple")
+    item = PostFactory.build(id=snowflake_id(), accountId=account.id)
+    found = create_graphql_response(
+        "findPerformers",
+        {
+            "count": 2,
+            "performers": [
+                create_performer_dict(
+                    id="1086",
+                    name="First Person",
+                    urls=["https://fansly.com/someCouple/posts"],
+                ),
+                create_performer_dict(
+                    id="1087",
+                    name="Second Person",
+                    urls=["https://fansly.com/someCouple/posts"],
+                ),
+            ],
+        },
+    )
+    await processor.context.get_client()
+    route = respx.post(GRAPHQL_URL).mock(
+        side_effect=[httpx.Response(200, json=found), httpx.Response(200, json=found)]
+    )
+    scene = SceneFactory.build(id="700", title="Scene", performers=[])
+    gallery = GalleryFactory.build(id="5000", title="Gallery", performers=[])
+
+    try:
+        primary = await processor._get_or_create_performer(account)
+        matches = processor._all_matched_performers(account)
+        # Keep the reverse sides in memory so adding makes no request.
+        for performer in matches:
+            performer.scenes = []
+            performer.galleries = []
+        processor._account = account
+        processor._performer = primary
+        await processor._stamp_performers(scene, item, account)
+        await processor._setup_gallery_performers(gallery, item, primary, account)
+    finally:
+        dump_graphql_calls(route.calls, "test_content_gets_every_performer")
+
+    assert route.call_count == 2
+    assert [p.id for p in matches] == ["1086", "1087"]
+    assert [p.id for p in present(scene.performers)] == ["1086", "1087"]
+    assert [p.id for p in present(gallery.performers)] == ["1086", "1087"]
 
 
 @pytest.mark.asyncio

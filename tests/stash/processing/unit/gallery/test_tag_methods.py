@@ -12,14 +12,12 @@ from tests.fixtures.metadata import HashtagFactory
 from tests.fixtures.stash import (
     ImageFactory,
     TagFactory,
-    create_find_images_result,
     create_find_tags_result,
     create_graphql_response,
     create_tag_create_result,
     create_tag_dict,
 )
 from tests.fixtures.stash.stash_api_fixtures import (
-    assert_op,
     assert_op_with_vars,
     dump_graphql_calls,
 )
@@ -180,20 +178,16 @@ class TestTagMethods:
     async def test_add_preview_tag(self, respx_stash_processor, mock_image):
         """Test _add_preview_tag method."""
         # Note: respx_stash_processor already has respx.mock wrapper
-        # Create responses. _add_preview_tag makes exactly 2 GraphQL calls for
-        # an Image target: findTags (look up Trailer by name), then findImages
-        # (dedup check — are there images already tagged with it?).
+        # _add_preview_tag makes exactly 1 GraphQL call: findTags (look up
+        # Trailer by name). The tag joins the image's own list; the tag's other
+        # images are not fetched.
         trailer_tag_dict = create_tag_dict(id="400", name="Trailer")
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
-        empty_images = create_find_images_result(count=0, images=[])
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200, json=create_graphql_response("findTags", tag_results)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
                 ),
             ]
         )
@@ -212,9 +206,8 @@ class TestTagMethods:
         assert mock_image.tags[0].name == "Trailer"
 
         # Exact count + per-call request + response verification.
-        assert len(graphql_route.calls) == 2, (
-            f"Expected exactly 2 calls (findTags + findImages), "
-            f"got {len(graphql_route.calls)}"
+        assert len(graphql_route.calls) == 1, (
+            f"Expected exactly 1 call (findTags), got {len(graphql_route.calls)}"
         )
         # Call 0: findTags lookup for "Trailer"
         assert_op_with_vars(
@@ -225,10 +218,6 @@ class TestTagMethods:
         resp0 = graphql_route.calls[0].response.json()
         assert resp0["data"]["findTags"]["count"] == 1
         assert resp0["data"]["findTags"]["tags"][0]["id"] == "400"
-        # Call 1: findImages dedup check
-        assert_op(graphql_route.calls[1], "findImages")
-        resp1 = graphql_route.calls[1].response.json()
-        assert resp1["data"]["findImages"]["count"] == 0
 
     @pytest.mark.asyncio
     async def test_add_preview_tag_existing(self, respx_stash_processor):

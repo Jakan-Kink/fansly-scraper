@@ -193,9 +193,9 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         """Run the file-first Stash processing flow for a creator.
 
         Sweeps the creator's Stash files, adjudicates each against the
-        downloaded media (posts + messages), composes one gallery per owning
-        item, and flushes in a single batched ``save_all`` (split-scene
-        ``stash_id`` is assigned post-flush, then persisted to the metadata DB).
+        downloaded media (posts + messages), creates any split scenes, composes
+        one gallery per owning item, flushes the rest in a single batched
+        ``save_all``, and persists the stash ids to the metadata DB.
 
         Args:
             account: The Account being processed
@@ -339,7 +339,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]] = {}
         # Media that got a stash_id this run (owned scene / stamped image).
         media_with_id: list[Media] = []
-        # (media, new_scene) — stash_id assigned only AFTER save_all.
+        # (media, new_scene) — stash_id assigned once the scene is created.
         split_pairs: list[tuple[Media, Scene]] = []
         return index, item_entities, media_with_id, split_pairs
 
@@ -447,7 +447,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             item_entities.setdefault(item.id, (item, []))[1].extend(entities)
         for entity in entities:
             if isinstance(entity, Scene) and entity.is_new():
-                # A split — owned scenes are not new; stash_id set post-flush.
+                # A split — owned scenes are not new; stash_id set on create.
                 split_pairs.append((media, entity))
             else:
                 # Owned scene / stamped image already set media.stash_id.
@@ -522,12 +522,15 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         reported failed (not a clean success with stash_ids silently lost). The
         flow is idempotent — a failed creator self-heals on the next run.
         """
+        await self._create_split_scenes(item_entities, split_pairs)
         if item_entities:
             # One set of bulk reads instead of three searches per item.
             await self._preload_galleries(
                 [item for item, _entities in item_entities.values()], studio
             )
         for item, entities in item_entities.values():
+            if not entities:
+                continue  # its only entity was a split scene Stash refused
             # Per-item isolation: one bad compose must not abort the rest.
             try:
                 await self._compose_gallery_for_item(
@@ -548,13 +551,9 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                     }
                 )
         try:
-            # Creates split scenes, updates owned scenes/images, creates/links
-            # galleries (links ride save_all via gallery side-mutations).
+            # Updates owned scenes/images and links galleries (links ride
+            # save_all via gallery side-mutations).
             await self.store.save_all()
-
-            # Post-flush: split scenes now have real IDs — record on the Media.
-            for media, scene in split_pairs:
-                media.stash_id = int(scene.id)
 
             # Persist affected Media rows to the FDNG metadata DB (NOT the Stash
             # store). Dedupe by object identity so each Media is saved once.
@@ -579,6 +578,39 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 }
             )
             raise
+
+    async def _create_split_scenes(
+        self,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None:
+        """Create each split scene in Stash before anything links to it.
+
+        Left to ``save_all``, a new scene that a gallery links is created twice
+        (queued in the batch, then cascade-saved for the gallery), and Stash
+        rejects the second create. A scene Stash refuses is dropped from this
+        run so the rest of the creator still flushes.
+
+        Args:
+            item_entities: Accumulator: item.id -> (item, [Scene|Image, ...])
+            split_pairs: (media, new_scene) pairs; refused scenes are removed
+        """
+        created: list[tuple[Media, Scene]] = []
+        for media, scene in split_pairs:
+            try:
+                await self.store.save(scene)
+            except Exception as exc:
+                logger.exception(
+                    f"Failed to create split scene for media {media.id}",
+                    exc_info=exc,
+                )
+                self.store.invalidate(scene)
+                for _item, entities in item_entities.values():
+                    entities[:] = [e for e in entities if e is not scene]
+                continue
+            media.stash_id = int(scene.id)
+            created.append((media, scene))
+        split_pairs[:] = created
 
     async def _compose_gallery_for_item(
         self,
@@ -623,7 +655,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         hashtags = getattr(item, "hashtags", None)
         if hashtags:
             for tag in await self._process_hashtags_to_tags(hashtags):
-                await gallery.add_tag(tag)
+                await self._link_tag(gallery, tag)
 
         existing_images = gallery.images if isinstance(gallery.images, list) else []
         gallery.images = existing_images + [e for e in entities if isinstance(e, Image)]

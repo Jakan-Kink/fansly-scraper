@@ -10,7 +10,7 @@ import respx
 from stash_graphql_client import is_set, present
 from stash_graphql_client.types import Scene, SceneCreateInput, VideoFile
 
-from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.metadata.metadata_factories import HashtagFactory, MediaFactory
 from tests.fixtures.stash import graphql_op_fired
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
@@ -267,6 +267,54 @@ class TestStampMetadata:
         assert mock_scene.title == original_title
         assert getattr(mock_scene, "code", None) == original_code
         assert getattr(mock_scene, "details", None) == original_details
+
+    @pytest.mark.asyncio
+    async def test_stamp_links_tag_and_performer_without_reverse_fetch(
+        self, respx_stash_processor, mock_item, mock_account, mock_scene
+    ):
+        """Stamping adds the tag and performer with no request beyond the save.
+
+        Neither the tag nor the performer has its reverse lists loaded. Adding
+        them through the entity helpers would make the store fetch every scene
+        in the library that carries them; here the only request is the scene
+        update, and it carries both ids.
+        """
+        processor = respx_stash_processor
+        media = MediaFactory.build(is_downloaded=True)
+        mock_scene.tags = []
+        mock_scene.performers = []
+        processor.store.add(TagFactory.build(id="77", name="beach"))
+        mock_item.hashtags = [HashtagFactory.build(value="Beach")]
+        processor._account = mock_account
+        processor._performer = PerformerFactory.build(
+            id="123", name=mock_account.username
+        )
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "sceneUpdate", {"id": mock_scene.id, "code": str(media.id)}
+                    ),
+                ),
+            ]
+        )
+
+        try:
+            await processor._stamp_metadata(
+                mock_scene, media, mock_item, mock_account, studio
+            )
+            await processor.store.save(mock_scene)
+        finally:
+            dump_graphql_calls(graphql_route.calls, "test_stamp_links_without_fetch")
+
+        assert graphql_route.call_count == 1
+        variables = json.loads(graphql_route.calls[0].request.content)["variables"]
+        input_vars = variables.get("input", variables)
+        assert input_vars["tag_ids"] == ["77"]
+        assert input_vars["performer_ids"] == ["123"]
 
     @pytest.mark.asyncio
     async def test_stamp_metadata_skips_object_this_media_already_stamped(
