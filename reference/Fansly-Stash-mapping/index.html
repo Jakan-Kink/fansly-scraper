@@ -205,8 +205,8 @@
 </ol>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// snowflake ID (18-digit string)</span>
-<span class="w">  </span><span class="nx">username</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;example_creator&quot;</span>
-<span class="w">  </span><span class="nx">displayName</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;Example Creator&quot;</span>
+<span class="w">  </span><span class="nx">username</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., "example_creator"</span>
+<span class="w">  </span><span class="nx">displayName</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., "Example Creator"</span>
 <span class="w">  </span><span class="nx">about</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w"> </span><span class="c1">// Profile description</span>
 <span class="w">  </span><span class="nx">location</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
 <span class="w">  </span><span class="nx">flags</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
@@ -232,7 +232,7 @@
 <span class="w">  </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// 1 = image, 2 = video</span>
 <span class="w">  </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="w">  </span><span class="nx">accountId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-<span class="w">  </span><span class="nx">mimetype</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., &quot;image/jpeg&quot;</span>
+<span class="w">  </span><span class="nx">mimetype</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// e.g., "image/jpeg"</span>
 <span class="w">  </span><span class="nx">flags</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="w">  </span><span class="nx">location</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// Path to file</span>
 <span class="w">  </span><span class="nx">width</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
@@ -441,23 +441,23 @@
 </li>
 <li>
 <p>Direct primary name matches:</p>
-<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latex&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"latex"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Latex"</span><span class="p">)</span>
 </code></pre></div>
 </li>
 <li>
 <p>Space handling:</p>
-<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Model&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"latexmodel"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Latex Model"</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"latexmodel"</span><span class="p">])</span>
 </code></pre></div>
 </li>
 <li>
 <p>Multiple hashtags to one tag via aliases:</p>
-<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">])</span>
-<span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesdom&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"lesbiandomination"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Lesbian Domination"</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"lesbiandomination"</span><span class="p">,</span> <span class="s2">"lesdom"</span><span class="p">])</span>
+<span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"lesdom"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Lesbian Domination"</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"lesbiandomination"</span><span class="p">,</span> <span class="s2">"lesdom"</span><span class="p">])</span>
 </code></pre></div>
 </li>
 <li>
 <p>Regional variants:</p>
-<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederland&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Netherlands&quot;</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;nederland&quot;</span><span class="p">,</span> <span class="s2">&quot;nederlands&quot;</span><span class="p">])</span>
+<div class="highlight"><pre><span></span><code><span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"nederland"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Netherlands"</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"nederland"</span><span class="p">,</span> <span class="s2">"nederlands"</span><span class="p">])</span>
 </code></pre></div>
 </li>
 </ul>
@@ -504,47 +504,47 @@
 <h3 id="taghashtag-examples">Tag/Hashtag Examples<a class="headerlink" href="#taghashtag-examples" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># Fansly side - hashtags cannot contain spaces</span>
 <span class="n">hashtags</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latex&quot;</span><span class="p">),</span>           <span class="c1"># Maps to Tag &quot;Latex&quot;</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">),</span>      <span class="c1"># Could map to various Tags (see below)</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;latexfetish&quot;</span><span class="p">),</span>     <span class="c1"># Maps to Tag &quot;Latex Fetish&quot;</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">),</span> <span class="c1"># Maps to Tag &quot;Lesbian Domination&quot; via alias</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;lesdom&quot;</span><span class="p">),</span>          <span class="c1"># Maps to Tag &quot;Lesbian Domination&quot; via alias</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;netherlands&quot;</span><span class="p">),</span>      <span class="c1"># Maps to Tag &quot;Netherlands&quot;</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederland&quot;</span><span class="p">),</span>       <span class="c1"># Maps to Tag &quot;Netherlands&quot; via alias</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;nederlands&quot;</span><span class="p">),</span>      <span class="c1"># Maps to Tag &quot;Netherlands&quot; via alias</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;stockings&quot;</span><span class="p">),</span>       <span class="c1"># Maps to Tag &quot;Stockings&quot;</span>
-    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;fishnets&quot;</span><span class="p">),</span>        <span class="c1"># Maps to Tag &quot;Fishnets&quot; (child of &quot;Stockings&quot;)</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"latex"</span><span class="p">),</span>           <span class="c1"># Maps to Tag "Latex"</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"latexmodel"</span><span class="p">),</span>      <span class="c1"># Could map to various Tags (see below)</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"latexfetish"</span><span class="p">),</span>     <span class="c1"># Maps to Tag "Latex Fetish"</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"lesbiandomination"</span><span class="p">),</span> <span class="c1"># Maps to Tag "Lesbian Domination" via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"lesdom"</span><span class="p">),</span>          <span class="c1"># Maps to Tag "Lesbian Domination" via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"netherlands"</span><span class="p">),</span>      <span class="c1"># Maps to Tag "Netherlands"</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"nederland"</span><span class="p">),</span>       <span class="c1"># Maps to Tag "Netherlands" via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"nederlands"</span><span class="p">),</span>      <span class="c1"># Maps to Tag "Netherlands" via alias</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"stockings"</span><span class="p">),</span>       <span class="c1"># Maps to Tag "Stockings"</span>
+    <span class="n">Hashtag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"fishnets"</span><span class="p">),</span>        <span class="c1"># Maps to Tag "Fishnets" (child of "Stockings")</span>
 <span class="p">]</span>
 
 <span class="c1"># Stash side - both names and aliases can have spaces</span>
 <span class="n">tags</span> <span class="o">=</span> <span class="p">[</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex&quot;</span><span class="p">,</span>  <span class="c1"># Capitalized name</span>
-        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rubber&quot;</span><span class="p">,</span> <span class="s2">&quot;Latex Clothing&quot;</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Latex"</span><span class="p">,</span>  <span class="c1"># Capitalized name</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"rubber"</span><span class="p">,</span> <span class="s2">"Latex Clothing"</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Model&quot;</span><span class="p">,</span>  <span class="c1"># Name with space</span>
-        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;latexmodel&quot;</span><span class="p">,</span> <span class="s2">&quot;Latex Models&quot;</span><span class="p">],</span>  <span class="c1"># Mix of spaced and unspaced</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Latex Model"</span><span class="p">,</span>  <span class="c1"># Name with space</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"latexmodel"</span><span class="p">,</span> <span class="s2">"Latex Models"</span><span class="p">],</span>  <span class="c1"># Mix of spaced and unspaced</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Latex Fetish&quot;</span><span class="p">,</span>  <span class="c1"># Name with space</span>
-        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Latex Fetishism&quot;</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Latex Fetish"</span><span class="p">,</span>  <span class="c1"># Name with space</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"Latex Fetishism"</span><span class="p">],</span>  <span class="c1"># Alias with space</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Lesbian Domination&quot;</span><span class="p">,</span>
-        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;lesbiandomination&quot;</span><span class="p">,</span> <span class="s2">&quot;lesdom&quot;</span><span class="p">],</span>  <span class="c1"># Multiple hashtags map via aliases</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Lesbian Domination"</span><span class="p">,</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"lesbiandomination"</span><span class="p">,</span> <span class="s2">"lesdom"</span><span class="p">],</span>  <span class="c1"># Multiple hashtags map via aliases</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Netherlands&quot;</span><span class="p">,</span>
-        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;nederland&quot;</span><span class="p">,</span> <span class="s2">&quot;nederlands&quot;</span><span class="p">,</span> <span class="s2">&quot;dutch&quot;</span><span class="p">],</span>  <span class="c1"># Regional variants</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Netherlands"</span><span class="p">,</span>
+        <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"nederland"</span><span class="p">,</span> <span class="s2">"nederlands"</span><span class="p">,</span> <span class="s2">"dutch"</span><span class="p">],</span>  <span class="c1"># Regional variants</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Stockings&quot;</span><span class="p">,</span>  <span class="c1"># Parent tag</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Stockings"</span><span class="p">,</span>  <span class="c1"># Parent tag</span>
         <span class="n">aliases</span><span class="o">=</span><span class="p">[],</span>
     <span class="p">),</span>
     <span class="n">Tag</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Fishnets&quot;</span><span class="p">,</span>  <span class="c1"># Child tag</span>
-        <span class="n">parent_tags</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Stockings&quot;</span><span class="p">],</span>  <span class="c1"># Hierarchical relationship</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"Fishnets"</span><span class="p">,</span>  <span class="c1"># Child tag</span>
+        <span class="n">parent_tags</span><span class="o">=</span><span class="p">[</span><span class="s2">"Stockings"</span><span class="p">],</span>  <span class="c1"># Hierarchical relationship</span>
         <span class="n">aliases</span><span class="o">=</span><span class="p">[],</span>
     <span class="p">),</span>
 <span class="p">]</span>
@@ -734,22 +734,22 @@ references on the Stash side (see Tag System above).</p>
 <h3 id="studio-usage-example">Studio Usage Example<a class="headerlink" href="#studio-usage-example" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># Download configuration</span>
 <span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span>
-    <span class="n">user_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;creator&quot;</span><span class="p">],</span>
+    <span class="n">user_names</span><span class="o">=</span><span class="p">[</span><span class="s2">"creator"</span><span class="p">],</span>
     <span class="c1"># ...</span>
 <span class="p">)</span>
 
 <span class="c1"># Creates in Stash:</span>
 <span class="n">studio</span> <span class="o">=</span> <span class="n">Studio</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;creator&quot;</span><span class="p">,</span>
-    <span class="n">details</span><span class="o">=</span><span class="s2">&quot;Content from creator on Fansly&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"creator"</span><span class="p">,</span>
+    <span class="n">details</span><span class="o">=</span><span class="s2">"Content from creator on Fansly"</span><span class="p">,</span>
     <span class="n">parent_studio</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># Top-level studio</span>
 <span class="p">)</span>
 
 <span class="c1"># All downloaded content gets linked</span>
 <span class="n">scene</span> <span class="o">=</span> <span class="n">Scene</span><span class="p">(</span>
-    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Post 12345&quot;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Post 12345"</span><span class="p">,</span>
     <span class="n">studio</span><span class="o">=</span><span class="n">studio</span><span class="p">,</span>
-    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/path/to/video.mp4&quot;</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="s2">"/path/to/video.mp4"</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 <h2 id="file-organization">File Organization<a class="headerlink" href="#file-organization" title="Permanent link">&para;</a></h2>

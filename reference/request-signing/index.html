@@ -177,7 +177,7 @@ same set in <code>api/fansly.py</code>.</p>
 </table>
 <h2 id="digest-formula">Digest formula<a class="headerlink" href="#digest-formula" title="Permanent link">&para;</a></h2>
 <p>The <code>fansly-client-check</code> header is computed by the interceptor as:</p>
-<div class="highlight"><pre><span></span><code>hash(this.checkKey_ + &quot;_&quot; + URL(url).pathname + &quot;_&quot; + clientId)
+<div class="highlight"><pre><span></span><code>hash(this.checkKey_ + "_" + URL(url).pathname + "_" + clientId)
 </code></pre></div>
 <ul>
 <li><code>this.checkKey_</code> — a rotating secret string embedded in the frontend
@@ -216,8 +216,8 @@ session ID. The <code>f-s-c</code> cookie independently contains
 <code>&lt;sessionId&gt;:1:1:&lt;hash&gt;</code> — same session ID, different type code and
 hash.</p>
 <p>The session-id header is attached in <code>api/fansly.py</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span> <span class="o">!=</span> <span class="s2">&quot;null&quot;</span><span class="p">:</span>
-    <span class="n">fansly_headers</span><span class="p">[</span><span class="s2">&quot;fansly-session-id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span> <span class="o">!=</span> <span class="s2">"null"</span><span class="p">:</span>
+    <span class="n">fansly_headers</span><span class="p">[</span><span class="s2">"fansly-session-id"</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_id</span>
 </code></pre></div>
 <p>Session ID is <strong>internal only</strong> — there is no user-facing CLI flag or
 config field for it. A dead <code>--session-id</code> argparse stub was reaped

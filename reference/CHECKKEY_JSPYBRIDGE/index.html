@@ -199,19 +199,19 @@ npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> 
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span>
 
 <span class="c1"># Import JavaScript libraries directly in Python</span>
-<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
-<span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn-walk&quot;</span><span class="p">)</span>
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn"</span><span class="p">)</span>
+<span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn-walk"</span><span class="p">)</span>
 
 <span class="c1"># Parse JavaScript</span>
-<span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;ecmaVersion&quot;</span><span class="p">:</span> <span class="mi">2020</span><span class="p">,</span> <span class="s2">&quot;sourceType&quot;</span><span class="p">:</span> <span class="s2">&quot;script&quot;</span><span class="p">})</span>
+<span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">,</span> <span class="p">{</span><span class="s2">"ecmaVersion"</span><span class="p">:</span> <span class="mi">2020</span><span class="p">,</span> <span class="s2">"sourceType"</span><span class="p">:</span> <span class="s2">"script"</span><span class="p">})</span>
 
 <span class="c1"># Walk AST to find assignments</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">check_assignment</span><span class="p">(</span><span class="n">node</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">left</span><span class="o">.</span><span class="n">property</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;checkKey_&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">left</span><span class="o">.</span><span class="n">property</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"checkKey_"</span><span class="p">:</span>
         <span class="c1"># Found it!</span>
         <span class="o">...</span>
 
-<span class="n">acorn_walk</span><span class="o">.</span><span class="n">simple</span><span class="p">(</span><span class="n">ast</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;AssignmentExpression&quot;</span><span class="p">:</span> <span class="n">check_assignment</span><span class="p">})</span>
+<span class="n">acorn_walk</span><span class="o">.</span><span class="n">simple</span><span class="p">(</span><span class="n">ast</span><span class="p">,</span> <span class="p">{</span><span class="s2">"AssignmentExpression"</span><span class="p">:</span> <span class="n">check_assignment</span><span class="p">})</span>
 
 <span class="c1"># Execute expression</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">eval_js</span>
@@ -223,21 +223,21 @@ npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> 
 
 <span class="c1"># Extract from JavaScript content</span>
 <span class="n">checkkey</span> <span class="o">=</span> <span class="n">extract_checkkey_from_js</span><span class="p">(</span><span class="n">js_content</span><span class="p">)</span>
-<span class="c1"># Returns: &quot;oybZy8-fySzis-bubayf&quot;</span>
+<span class="c1"># Returns: "oybZy8-fySzis-bubayf"</span>
 </code></pre></div>
 <h3 id="via-configuration">Via Configuration<a class="headerlink" href="#via-configuration" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">helpers.checkkey</span><span class="w"> </span><span class="kn">import</span> <span class="n">guess_check_key</span>
 
 <span class="c1"># Download and extract automatically</span>
 <span class="n">checkkey</span> <span class="o">=</span> <span class="n">guess_check_key</span><span class="p">(</span><span class="n">user_agent</span><span class="p">)</span>
-<span class="c1"># Returns: &quot;oybZy8-fySzis-bubayf&quot;</span>
+<span class="c1"># Returns: "oybZy8-fySzis-bubayf"</span>
 </code></pre></div>
 <h2 id="code-structure">Code Structure<a class="headerlink" href="#code-structure" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># Import JSPyBridge (required — raises ImportError if unavailable)</span>
 <span class="k">try</span><span class="p">:</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">eval_js</span>
-    <span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
-    <span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn-walk&quot;</span><span class="p">)</span>
+    <span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn"</span><span class="p">)</span>
+    <span class="n">acorn_walk</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn-walk"</span><span class="p">)</span>
 <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
     <span class="k">raise</span>  <span class="c1"># JSPyBridge is required, no fallback</span>
 
@@ -255,18 +255,18 @@ npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> 
 </ul>
 <h3 id="2-direct-integration">2. <strong>Direct Integration</strong><a class="headerlink" href="#2-direct-integration" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># JSPyBridge - feels native!</span>
-<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn"</span><span class="p">)</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
 
 <span class="c1"># Subprocess - complex!</span>
-<span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">([</span><span class="s2">&quot;node&quot;</span><span class="p">,</span> <span class="s2">&quot;-e&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">],</span> <span class="o">...</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">([</span><span class="s2">"node"</span><span class="p">,</span> <span class="s2">"-e"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">],</span> <span class="o">...</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="3-better-error-handling">3. <strong>Better Error Handling</strong><a class="headerlink" href="#3-better-error-handling" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># JSPyBridge - Python exceptions</span>
 <span class="k">try</span><span class="p">:</span>
     <span class="n">ast</span> <span class="o">=</span> <span class="n">acorn</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">js_content</span><span class="p">)</span>
 <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Parse error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Parse error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="c1"># Subprocess - check return codes</span>
 <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
@@ -277,14 +277,14 @@ npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> 
 <span class="n">checkkey</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>
 
 <span class="c1"># Subprocess - JSON parsing</span>
-<span class="n">checkkey</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="p">)[</span><span class="s2">&quot;checkkey&quot;</span><span class="p">]</span>
+<span class="n">checkkey</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="p">)[</span><span class="s2">"checkkey"</span><span class="p">]</span>
 </code></pre></div>
 <h2 id="migration-from-subprocess">Migration from Subprocess<a class="headerlink" href="#migration-from-subprocess" title="Permanent link">&para;</a></h2>
 <h3 id="old-subprocess-only">Old (Subprocess Only)<a class="headerlink" href="#old-subprocess-only" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
 
 <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-    <span class="p">[</span><span class="s2">&quot;node&quot;</span><span class="p">,</span> <span class="s2">&quot;-e&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;console.log(</span><span class="si">{</span><span class="n">expression</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">],</span>
+    <span class="p">[</span><span class="s2">"node"</span><span class="p">,</span> <span class="s2">"-e"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"console.log(</span><span class="si">{</span><span class="n">expression</span><span class="si">}</span><span class="s2">)"</span><span class="p">],</span>
     <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
     <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
     <span class="n">timeout</span><span class="o">=</span><span class="mi">2</span>
@@ -294,26 +294,26 @@ npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> 
 <h3 id="new-jspybridge">New (JSPyBridge)<a class="headerlink" href="#new-jspybridge" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">javascript</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">eval_js</span>
 
-<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">&quot;acorn&quot;</span><span class="p">)</span>
+<span class="n">acorn</span> <span class="o">=</span> <span class="n">require</span><span class="p">(</span><span class="s2">"acorn"</span><span class="p">)</span>
 <span class="c1"># ... parse and find expression ...</span>
 <span class="n">checkkey</span> <span class="o">=</span> <span class="n">eval_js</span><span class="p">(</span><span class="n">expression</span><span class="p">)</span>  <span class="c1"># Fast!</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="jspybridge-not-found">JSPyBridge Not Found<a class="headerlink" href="#jspybridge-not-found" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code>ImportError: No module named &#39;javascript&#39;
+<div class="highlight"><pre><span></span><code>ImportError: No module named 'javascript'
 </code></pre></div>
 <p><strong>Solution</strong>: Install JSPyBridge</p>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>javascript
 </code></pre></div>
 <h3 id="acorn-not-found">Acorn Not Found<a class="headerlink" href="#acorn-not-found" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code>Error: Cannot find module &#39;acorn&#39;
+<div class="highlight"><pre><span></span><code>Error: Cannot find module 'acorn'
 </code></pre></div>
 <p><strong>Solution</strong>: Install npm packages</p>
 <div class="highlight"><pre><span></span><code>npm<span class="w"> </span>install<span class="w"> </span>acorn<span class="w"> </span>acorn-walk
 </code></pre></div>
 <h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># Test JSPyBridge works</span>
-python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from helpers.checkkey import extract_checkkey_from_js; print(&#39;JSPyBridge works!&#39;)&quot;</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"from helpers.checkkey import extract_checkkey_from_js; print('JSPyBridge works!')"</span>
 </code></pre></div>
 <h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
 <p><strong>Method</strong>: JSPyBridge (required)</p>

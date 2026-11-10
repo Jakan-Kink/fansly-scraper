@@ -167,11 +167,11 @@
 <h2 id="single-account-single-performer">Single Account → Single Performer<a class="headerlink" href="#single-account-single-performer" title="Permanent link">&para;</a></h2>
 <p>Basic mapping for a standalone account:</p>
 <div class="highlight"><pre><span></span><code><span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
     <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>
     <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">],</span>  <span class="c1"># Original username always in aliases</span>
     <span class="n">details</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">about</span><span class="p">,</span>
-    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="sa">f</span><span class="s2">"https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts"</span><span class="p">],</span>
     <span class="n">country</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -179,15 +179,15 @@
 <p>When multiple performers share an account (e.g., couples, groups):</p>
 <h3 id="primary-performer">Primary Performer<a class="headerlink" href="#primary-performer" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="n">primary</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="s2">&quot;Primary Name&quot;</span><span class="p">,</span>  <span class="c1"># Personal name if known</span>
-    <span class="n">disambiguation</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Shows which account they&#39;re from</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">displayName</span> <span class="ow">or</span> <span class="s2">"Primary Name"</span><span class="p">,</span>  <span class="c1"># Personal name if known</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Shows which account they're from</span>
     <span class="n">aliases</span><span class="o">=</span><span class="p">[</span>
         <span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Original account name</span>
-        <span class="s2">&quot;display name variations&quot;</span><span class="p">,</span>  <span class="c1"># Any known variations</span>
+        <span class="s2">"display name variations"</span><span class="p">,</span>  <span class="c1"># Any known variations</span>
     <span class="p">],</span>
     <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
-        <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">"https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts"</span><span class="p">,</span>
         <span class="c1"># Additional personal social links if known</span>
     <span class="p">],</span>
     <span class="n">details</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">about</span><span class="p">,</span>  <span class="c1"># Can include personal details</span>
@@ -195,15 +195,15 @@
 </code></pre></div>
 <h3 id="secondary-performers">Secondary Performer(s)<a class="headerlink" href="#secondary-performers" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="n">secondary</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Personal Name&quot;</span><span class="p">,</span>  <span class="c1"># Their individual name</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"Personal Name"</span><span class="p">,</span>  <span class="c1"># Their individual name</span>
     <span class="n">disambiguation</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>  <span class="c1"># Same as primary to show relationship</span>
     <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="p">],</span>  <span class="c1"># Include shared account name</span>
     <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
-        <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">"https://fansly.com/</span><span class="si">{</span><span class="n">account</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">/posts"</span><span class="p">,</span>
         <span class="c1"># Their personal links if known</span>
     <span class="p">],</span>
-    <span class="n">details</span><span class="o">=</span><span class="s2">&quot;Role or relationship description&quot;</span><span class="p">,</span>
+    <span class="n">details</span><span class="o">=</span><span class="s2">"Role or relationship description"</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 <h2 id="field-usage-guidelines">Field Usage Guidelines<a class="headerlink" href="#field-usage-guidelines" title="Permanent link">&para;</a></h2>
@@ -250,51 +250,51 @@ handles below are placeholders — substitute the actual account's values
 when processing real data.</p>
 <h3 id="primary-content-creator">Primary Content Creator<a class="headerlink" href="#primary-content-creator" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="n">performer_1</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Alex&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
-    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Shared account name</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"Alex"</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">"example-couple"</span><span class="p">,</span>  <span class="c1"># Shared account name</span>
     <span class="n">aliases</span><span class="o">=</span><span class="p">[</span>
-        <span class="s2">&quot;Example Couple&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;alex_example&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;example_couple&quot;</span><span class="p">,</span>
+        <span class="s2">"Example Couple"</span><span class="p">,</span>
+        <span class="s2">"alex_example"</span><span class="p">,</span>
+        <span class="s2">"example-couple"</span><span class="p">,</span>
+        <span class="s2">"example_couple"</span><span class="p">,</span>
     <span class="p">],</span>
     <span class="n">urls</span><span class="o">=</span><span class="p">[</span>
-        <span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;https://linktr.ee/alex_example&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;https://x.com/alex_example&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;https://fansly.com/example-couple&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;https://www.manyvids.com/Profile/0000000000/example-couple/Store/Videos&quot;</span><span class="p">,</span>
+        <span class="s2">"https://onlyfans.com/example-couple"</span><span class="p">,</span>
+        <span class="s2">"https://linktr.ee/alex_example"</span><span class="p">,</span>
+        <span class="s2">"https://x.com/alex_example"</span><span class="p">,</span>
+        <span class="s2">"https://fansly.com/example-couple"</span><span class="p">,</span>
+        <span class="s2">"https://www.manyvids.com/Profile/0000000000/example-couple/Store/Videos"</span><span class="p">,</span>
     <span class="p">],</span>
-    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;FEMALE&quot;</span><span class="p">,</span>
-    <span class="n">hair_color</span><span class="o">=</span><span class="s2">&quot;Brown&quot;</span><span class="p">,</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">"FEMALE"</span><span class="p">,</span>
+    <span class="n">hair_color</span><span class="o">=</span><span class="s2">"Brown"</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="partner-performer">Partner Performer<a class="headerlink" href="#partner-performer" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="n">performer_2</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Jordan&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
-    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Same as primary</span>
-    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;example-couple&quot;</span><span class="p">],</span>
-    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">],</span>
-    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;MALE&quot;</span><span class="p">,</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"Jordan"</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">"example-couple"</span><span class="p">,</span>  <span class="c1"># Same as primary</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"example-couple"</span><span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">"https://onlyfans.com/example-couple"</span><span class="p">],</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">"MALE"</span><span class="p">,</span>
     <span class="n">details</span><span class="o">=</span><span class="p">(</span>
-        <span class="s2">&quot;Partner in a shared creator account. Per-performer details can</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;describe role, pronouns, content niche, or anything else that</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;disambiguates this person from the other performers mapped to the</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="s2">&quot;same underlying Fansly account.&quot;</span>
+        <span class="s2">"Partner in a shared creator account. Per-performer details can</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"describe role, pronouns, content niche, or anything else that</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"disambiguates this person from the other performers mapped to the</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="s2">"same underlying Fansly account."</span>
     <span class="p">),</span>
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="additional-performer">Additional Performer<a class="headerlink" href="#additional-performer" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="n">performer_3</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span>
-    <span class="nb">id</span><span class="o">=</span><span class="s2">&quot;new&quot;</span><span class="p">,</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Sam&quot;</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
-    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">&quot;example-couple&quot;</span><span class="p">,</span>  <span class="c1"># Same as others</span>
-    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;example-couple&quot;</span><span class="p">],</span>
-    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;https://onlyfans.com/example-couple&quot;</span><span class="p">],</span>
-    <span class="n">gender</span><span class="o">=</span><span class="s2">&quot;FEMALE&quot;</span><span class="p">,</span>
-    <span class="n">hair_color</span><span class="o">=</span><span class="s2">&quot;Blond&quot;</span><span class="p">,</span>
+    <span class="nb">id</span><span class="o">=</span><span class="s2">"new"</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"Sam"</span><span class="p">,</span>  <span class="c1"># Personal/stage name</span>
+    <span class="n">disambiguation</span><span class="o">=</span><span class="s2">"example-couple"</span><span class="p">,</span>  <span class="c1"># Same as others</span>
+    <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"example-couple"</span><span class="p">],</span>
+    <span class="n">urls</span><span class="o">=</span><span class="p">[</span><span class="s2">"https://onlyfans.com/example-couple"</span><span class="p">],</span>
+    <span class="n">gender</span><span class="o">=</span><span class="s2">"FEMALE"</span><span class="p">,</span>
+    <span class="n">hair_color</span><span class="o">=</span><span class="s2">"Blond"</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 <h2 id="scenegallery-assignment">Scene/Gallery Assignment<a class="headerlink" href="#scenegallery-assignment" title="Permanent link">&para;</a></h2>
@@ -311,7 +311,7 @@ when processing real data.</p>
     <span class="n">post</span><span class="p">:</span> <span class="n">Post</span><span class="p">,</span>
     <span class="n">account_performers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Performer</span><span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Performer</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Determine which performers are in a post.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Determine which performers are in a post."""</span>
     <span class="n">performers</span> <span class="o">=</span> <span class="p">[]</span>
 
     <span class="c1"># Always include mentioned performers</span>
@@ -321,7 +321,7 @@ when processing real data.</p>
             <span class="n">performers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 
     <span class="c1"># Check content for performer hints</span>
-    <span class="n">content</span> <span class="o">=</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">if</span> <span class="n">post</span><span class="o">.</span><span class="n">content</span> <span class="k">else</span> <span class="s2">""</span>
     <span class="k">for</span> <span class="n">performer</span> <span class="ow">in</span> <span class="n">account_performers</span><span class="p">:</span>
         <span class="c1"># Check performer names/aliases in content</span>
         <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">alias</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="n">content</span> <span class="k">for</span> <span class="n">alias</span> <span class="ow">in</span> <span class="n">performer</span><span class="o">.</span><span class="n">aliases</span><span class="p">):</span>

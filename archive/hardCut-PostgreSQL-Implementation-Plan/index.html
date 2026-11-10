@@ -275,7 +275,7 @@ fansly_metadata (one database)
 <span class="n">postgresql</span><span class="p">:</span><span class="o">//</span><span class="n">user</span><span class="p">:</span><span class="k">pass</span><span class="nd">@host</span><span class="p">:</span><span class="n">port</span><span class="o">/</span><span class="n">fansly_metadata</span>
 <span class="c1"># Uses schema: public</span>
 
-<span class="c1"># When separate_metadata=True, creator=&quot;alice&quot;</span>
+<span class="c1"># When separate_metadata=True, creator="alice"</span>
 <span class="n">postgresql</span><span class="p">:</span><span class="o">//</span><span class="n">user</span><span class="p">:</span><span class="k">pass</span><span class="nd">@host</span><span class="p">:</span><span class="n">port</span><span class="o">/</span><span class="n">fansly_metadata</span>
 <span class="c1"># Uses schema: creator_alice</span>
 </code></pre></div>
@@ -294,17 +294,17 @@ fansly_metadata (one database)
     <span class="n">separate_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
     <span class="c1"># PostgreSQL configuration (NEW)</span>
-    <span class="n">pg_host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;localhost&quot;</span>
+    <span class="n">pg_host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"localhost"</span>
     <span class="n">pg_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5432</span>
-    <span class="n">pg_database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fansly_metadata&quot;</span>
-    <span class="n">pg_user</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fansly_user&quot;</span>
+    <span class="n">pg_database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"fansly_metadata"</span>
+    <span class="n">pg_user</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"fansly_user"</span>
     <span class="n">pg_password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="c1"># Optional schema override (defaults to auto-generated)</span>
     <span class="n">pg_schema</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="c1"># SSL/TLS settings</span>
-    <span class="n">pg_sslmode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;prefer&quot;</span>  <span class="c1"># disable, allow, prefer, require, verify-ca, verify-full</span>
+    <span class="n">pg_sslmode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"prefer"</span>  <span class="c1"># disable, allow, prefer, require, verify-ca, verify-full</span>
     <span class="n">pg_sslcert</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">pg_sslkey</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">pg_sslrootcert</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -316,42 +316,42 @@ fansly_metadata (one database)
 </code></pre></div>
 <p><strong>Add to <code>config/args.py</code>:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-    <span class="s2">&quot;--pg-host&quot;</span><span class="p">,</span>
-    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_host&quot;</span><span class="p">,</span>
-    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL host (default: localhost)&quot;</span><span class="p">,</span>
+    <span class="s2">"--pg-host"</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">"pg_host"</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">"PostgreSQL host (default: localhost)"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-    <span class="s2">&quot;--pg-port&quot;</span><span class="p">,</span>
+    <span class="s2">"--pg-port"</span><span class="p">,</span>
     <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
-    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_port&quot;</span><span class="p">,</span>
-    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL port (default: 5432)&quot;</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">"pg_port"</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">"PostgreSQL port (default: 5432)"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-    <span class="s2">&quot;--pg-database&quot;</span><span class="p">,</span>
-    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_database&quot;</span><span class="p">,</span>
-    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL database name&quot;</span><span class="p">,</span>
+    <span class="s2">"--pg-database"</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">"pg_database"</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">"PostgreSQL database name"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-    <span class="s2">&quot;--pg-user&quot;</span><span class="p">,</span>
-    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_user&quot;</span><span class="p">,</span>
-    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL username&quot;</span><span class="p">,</span>
+    <span class="s2">"--pg-user"</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">"pg_user"</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">"PostgreSQL username"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-    <span class="s2">&quot;--pg-password&quot;</span><span class="p">,</span>
-    <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;pg_password&quot;</span><span class="p">,</span>
-    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;PostgreSQL password (prefer environment variable)&quot;</span><span class="p">,</span>
+    <span class="s2">"--pg-password"</span><span class="p">,</span>
+    <span class="n">dest</span><span class="o">=</span><span class="s2">"pg_password"</span><span class="p">,</span>
+    <span class="n">help</span><span class="o">=</span><span class="s2">"PostgreSQL password (prefer environment variable)"</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 <p><strong>Update <code>config/config.py</code>:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="c1"># PostgreSQL configuration with environment variable fallback</span>
-<span class="n">config</span><span class="o">.</span><span class="n">pg_host</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_host&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">)</span>
-<span class="n">config</span><span class="o">.</span><span class="n">pg_port</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">getint</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_port&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="mi">5432</span><span class="p">)</span>
-<span class="n">config</span><span class="o">.</span><span class="n">pg_database</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_database&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;fansly_metadata&quot;</span><span class="p">)</span>
-<span class="n">config</span><span class="o">.</span><span class="n">pg_user</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_user&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">&quot;fansly_user&quot;</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_host</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">"pg_host"</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">"localhost"</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_port</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">getint</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">"pg_port"</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="mi">5432</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_database</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">"pg_database"</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">"fansly_metadata"</span><span class="p">)</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_user</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s2">"pg_user"</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="s2">"fansly_user"</span><span class="p">)</span>
 
 <span class="c1"># Password from env var or config (prefer env var)</span>
-<span class="n">config</span><span class="o">.</span><span class="n">pg_password</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FANSLY_PG_PASSWORD&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-    <span class="n">section</span><span class="p">,</span> <span class="s2">&quot;pg_password&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="kc">None</span>
+<span class="n">config</span><span class="o">.</span><span class="n">pg_password</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">"FANSLY_PG_PASSWORD"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+    <span class="n">section</span><span class="p">,</span> <span class="s2">"pg_password"</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="kc">None</span>
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="2-database-class-refactor">2. Database Class Refactor<a class="headerlink" href="#2-database-class-refactor" title="Permanent link">&para;</a></h3>
@@ -389,26 +389,26 @@ fansly_metadata (one database)
     <span class="n">creator_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">skip_migrations</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize PostgreSQL database manager.</span>
+<span class="w">    </span><span class="sd">"""Initialize PostgreSQL database manager.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        config: FanslyConfig instance</span>
 <span class="sd">        creator_name: Optional creator name for schema isolation</span>
 <span class="sd">        skip_migrations: Skip running migrations during initialization</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">creator_name</span> <span class="o">=</span> <span class="n">creator_name</span>
 
     <span class="c1"># Determine schema name</span>
     <span class="k">if</span> <span class="n">creator_name</span> <span class="ow">and</span> <span class="n">config</span><span class="o">.</span><span class="n">separate_metadata</span><span class="p">:</span>
-        <span class="n">safe_name</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">c</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span> <span class="k">else</span> <span class="s2">&quot;_&quot;</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">creator_name</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;creator_</span><span class="si">{</span><span class="n">safe_name</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">safe_name</span> <span class="o">=</span> <span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">c</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"_"</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">creator_name</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"creator_</span><span class="si">{</span><span class="n">safe_name</span><span class="si">}</span><span class="s2">"</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pg_schema</span> <span class="ow">or</span> <span class="s2">&quot;public&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">schema_name</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pg_schema</span> <span class="ow">or</span> <span class="s2">"public"</span>
 
     <span class="c1"># Build connection URLs</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_connection_url</span><span class="p">()</span>
-    <span class="bp">self</span><span class="o">.</span><span class="n">async_db_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;postgresql://&quot;</span><span class="p">,</span> <span class="s2">&quot;postgresql+asyncpg://&quot;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">async_db_url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_url</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"postgresql://"</span><span class="p">,</span> <span class="s2">"postgresql+asyncpg://"</span><span class="p">)</span>
 
     <span class="c1"># Create engines (much simpler than SQLite!)</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span>
@@ -432,8 +432,8 @@ fansly_metadata (one database)
     <span class="p">)</span>
 
     <span class="c1"># Set search_path on all connections</span>
-    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span><span class="p">,</span> <span class="s2">&quot;connect&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
-    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_async_engine</span><span class="o">.</span><span class="n">sync_engine</span><span class="p">,</span> <span class="s2">&quot;connect&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
+    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sync_engine</span><span class="p">,</span> <span class="s2">"connect"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
+    <span class="n">event</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_async_engine</span><span class="o">.</span><span class="n">sync_engine</span><span class="p">,</span> <span class="s2">"connect"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_search_path</span><span class="p">)</span>
 
     <span class="c1"># Create schema if needed</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_setup_schema</span><span class="p">()</span>
@@ -458,26 +458,26 @@ fansly_metadata (one database)
 <p><strong>File: <code>alembic/env.py</code></strong></p>
 <p>Add schema support:</p>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_migrations_online</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run migrations in &#39;online&#39; mode.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Run migrations in 'online' mode."""</span>
     <span class="c1"># Get schema from environment variable</span>
-    <span class="n">schema_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FANSLY_DB_SCHEMA&quot;</span><span class="p">,</span> <span class="s2">&quot;public&quot;</span><span class="p">)</span>
+    <span class="n">schema_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">"FANSLY_DB_SCHEMA"</span><span class="p">,</span> <span class="s2">"public"</span><span class="p">)</span>
 
     <span class="n">connectable</span> <span class="o">=</span> <span class="n">engine_from_config</span><span class="p">(</span>
         <span class="n">config</span><span class="o">.</span><span class="n">get_section</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">config_ini_section</span><span class="p">),</span>
-        <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;sqlalchemy.&quot;</span><span class="p">,</span>
+        <span class="n">prefix</span><span class="o">=</span><span class="s2">"sqlalchemy."</span><span class="p">,</span>
         <span class="n">poolclass</span><span class="o">=</span><span class="n">pool</span><span class="o">.</span><span class="n">NullPool</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="k">with</span> <span class="n">connectable</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span> <span class="k">as</span> <span class="n">connection</span><span class="p">:</span>
         <span class="c1"># Set search_path before running migrations</span>
-        <span class="n">connection</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">text</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SET search_path TO </span><span class="si">{</span><span class="n">schema_name</span><span class="si">}</span><span class="s2">, public&quot;</span><span class="p">))</span>
+        <span class="n">connection</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">text</span><span class="p">(</span><span class="sa">f</span><span class="s2">"SET search_path TO </span><span class="si">{</span><span class="n">schema_name</span><span class="si">}</span><span class="s2">, public"</span><span class="p">))</span>
         <span class="n">connection</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
         <span class="n">context</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span>
             <span class="n">connection</span><span class="o">=</span><span class="n">connection</span><span class="p">,</span>
             <span class="n">target_metadata</span><span class="o">=</span><span class="n">target_metadata</span><span class="p">,</span>
             <span class="c1"># Each schema has its own version table</span>
-            <span class="n">version_table_schema</span><span class="o">=</span><span class="n">schema_name</span> <span class="k">if</span> <span class="n">schema_name</span> <span class="o">!=</span> <span class="s2">&quot;public&quot;</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">version_table_schema</span><span class="o">=</span><span class="n">schema_name</span> <span class="k">if</span> <span class="n">schema_name</span> <span class="o">!=</span> <span class="s2">"public"</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">with</span> <span class="n">context</span><span class="o">.</span><span class="n">begin_transaction</span><span class="p">():</span>
@@ -489,12 +489,12 @@ fansly_metadata (one database)
 <span class="c1"># Remove: aiosqlite (SQLite async driver)</span>
 
 <span class="c1"># Add PostgreSQL drivers</span>
-<span class="n">asyncpg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^0.29.0&quot;</span><span class="w">  </span><span class="c1"># Async PostgreSQL driver</span>
-<span class="n">psycopg2-binary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^2.9.9&quot;</span><span class="w">  </span><span class="c1"># Sync PostgreSQL driver</span>
+<span class="n">asyncpg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"^0.29.0"</span><span class="w">  </span><span class="c1"># Async PostgreSQL driver</span>
+<span class="n">psycopg2-binary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"^2.9.9"</span><span class="w">  </span><span class="c1"># Sync PostgreSQL driver</span>
 
 <span class="c1"># Keep existing</span>
-<span class="n">sqlalchemy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^2.0.0&quot;</span>
-<span class="n">alembic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;^1.13.0&quot;</span>
+<span class="n">sqlalchemy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"^2.0.0"</span>
+<span class="n">alembic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"^1.13.0"</span>
 </code></pre></div>
 <h3 id="5-code-complexity-reduction">5. Code Complexity Reduction<a class="headerlink" href="#5-code-complexity-reduction" title="Permanent link">&para;</a></h3>
 <p><strong>Before (SQLite):</strong>
@@ -557,12 +557,12 @@ python<span class="w"> </span>scripts/migrate_to_postgres.py<span class="w"> </s
 <h3 id="initial-database-setup">Initial Database Setup<a class="headerlink" href="#initial-database-setup" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1">-- Create database</span>
 <span class="k">CREATE</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">fansly_metadata</span>
-<span class="w">    </span><span class="k">WITH</span><span class="w"> </span><span class="k">ENCODING</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;UTF8&#39;</span>
-<span class="w">         </span><span class="n">LC_COLLATE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;en_US.UTF-8&#39;</span>
-<span class="w">         </span><span class="n">LC_CTYPE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;en_US.UTF-8&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">WITH</span><span class="w"> </span><span class="k">ENCODING</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'UTF8'</span>
+<span class="w">         </span><span class="n">LC_COLLATE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'en_US.UTF-8'</span>
+<span class="w">         </span><span class="n">LC_CTYPE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'en_US.UTF-8'</span><span class="p">;</span>
 
 <span class="c1">-- Create user</span>
-<span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="n">fansly_user</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="n">PASSWORD</span><span class="w"> </span><span class="s1">&#39;your_secure_password&#39;</span><span class="p">;</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">USER</span><span class="w"> </span><span class="n">fansly_user</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="n">PASSWORD</span><span class="w"> </span><span class="s1">'your_secure_password'</span><span class="p">;</span>
 
 <span class="c1">-- Grant privileges</span>
 <span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">fansly_metadata</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">fansly_user</span><span class="p">;</span>
@@ -586,7 +586,7 @@ python<span class="w"> </span>scripts/migrate_to_postgres.py<span class="w"> </s
 </code></pre></div>
 <h3 id="docker-compose-setup-optional">Docker Compose Setup (Optional)<a class="headerlink" href="#docker-compose-setup-optional" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># docker-compose.yml</span>
-<span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;3.8&#39;</span>
+<span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="s">'3.8'</span>
 
 <span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">postgres</span><span class="p">:</span>
@@ -596,7 +596,7 @@ python<span class="w"> </span>scripts/migrate_to_postgres.py<span class="w"> </s
 <span class="w">      </span><span class="nt">POSTGRES_USER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fansly_user</span>
 <span class="w">      </span><span class="nt">POSTGRES_PASSWORD</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_secure_password</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;5432:5432&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"5432:5432"</span>
 <span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres_data:/var/lib/postgresql/data</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./init-db.sql:/docker-entrypoint-initdb.d/init.sql</span>

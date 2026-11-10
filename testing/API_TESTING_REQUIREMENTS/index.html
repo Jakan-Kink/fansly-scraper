@@ -381,25 +381,25 @@
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_get_creator_account_info</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test fetching creator account information.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test fetching creator account information."""</span>
 
     <span class="c1"># Mock CORS preflight (Fansly API requires this)</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
     <span class="p">)</span>
 
     <span class="c1"># Mock the actual API response</span>
-    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
                 <span class="mi">200</span><span class="p">,</span>
                 <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
-                        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;100000000000001&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test_creator&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;displayName&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Creator&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;profileAccessFlags&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                    <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+                    <span class="s2">"response"</span><span class="p">:</span> <span class="p">[{</span>
+                        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"100000000000001"</span><span class="p">,</span>
+                        <span class="s2">"username"</span><span class="p">:</span> <span class="s2">"test_creator"</span><span class="p">,</span>
+                        <span class="s2">"displayName"</span><span class="p">:</span> <span class="s2">"Test Creator"</span><span class="p">,</span>
+                        <span class="s2">"profileAccessFlags"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
                     <span class="p">}]</span>
                 <span class="p">}</span>
             <span class="p">)</span>
@@ -408,34 +408,34 @@
 
     <span class="c1"># Execute real client code</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test_creator&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test_creator"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify the result</span>
     <span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test_creator&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"username"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test_creator"</span>
 
     <span class="c1"># REQUIRED: Verify HTTP request</span>
     <span class="k">assert</span> <span class="n">account_route</span><span class="o">.</span><span class="n">called</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
-    <span class="k">assert</span> <span class="s2">&quot;usernames&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;usernames&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test_creator&quot;</span>
-    <span class="k">assert</span> <span class="s2">&quot;authorization&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+    <span class="k">assert</span> <span class="s2">"usernames"</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">"usernames"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test_creator"</span>
+    <span class="k">assert</span> <span class="s2">"authorization"</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
 </code></pre></div>
 <h3 id="pattern-2-multiple-http-calls">Pattern 2: Multiple HTTP Calls<a class="headerlink" href="#pattern-2-multiple-http-calls" title="Permanent link">&para;</a></h3>
 <p>When API methods make sequential HTTP calls, provide responses for ALL calls:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_with_pagination</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test API method that makes multiple paginated requests.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test API method that makes multiple paginated requests."""</span>
 
     <span class="c1"># Mock both CORS and actual requests for each page</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://apiv3\.fansly\.com/.*"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">),</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">),</span>
@@ -443,23 +443,23 @@
     <span class="p">)</span>
 
     <span class="n">timeline_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/api/v1/timeline.*&quot;</span>
+        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://apiv3\.fansly\.com/api/v1/timeline.*"</span>
     <span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="c1"># Page 1</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Post 1&quot;</span><span class="p">}],</span>
-                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+                <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+                <span class="s2">"response"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"posts"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"id"</span><span class="p">:</span> <span class="s2">"1"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Post 1"</span><span class="p">}],</span>
+                    <span class="s2">"aggregationData"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"hasMore"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
                 <span class="p">}</span>
             <span class="p">}),</span>
             <span class="c1"># Page 2 (last page)</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;2&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Post 2&quot;</span><span class="p">}],</span>
-                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+                <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+                <span class="s2">"response"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"posts"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"id"</span><span class="p">:</span> <span class="s2">"2"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Post 2"</span><span class="p">}],</span>
+                    <span class="s2">"aggregationData"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"hasMore"</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
                 <span class="p">}</span>
             <span class="p">}),</span>
         <span class="p">]</span>
@@ -467,24 +467,24 @@
 
     <span class="c1"># Execute real pagination logic</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">all_posts</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_all_timeline_posts</span><span class="p">(</span><span class="s2">&quot;100000000000001&quot;</span><span class="p">)</span>
+        <span class="n">all_posts</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_all_timeline_posts</span><span class="p">(</span><span class="s2">"100000000000001"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify both calls were made</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
 
     <span class="c1"># Verify first request</span>
     <span class="n">req0</span> <span class="o">=</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span>
-    <span class="k">assert</span> <span class="s2">&quot;before&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">req0</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># First page has no cursor</span>
+    <span class="k">assert</span> <span class="s2">"before"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">req0</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># First page has no cursor</span>
 
     <span class="c1"># Verify second request (pagination)</span>
     <span class="n">req1</span> <span class="o">=</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">request</span>
-    <span class="k">assert</span> <span class="s2">&quot;before&quot;</span> <span class="ow">in</span> <span class="n">req1</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># Pagination cursor present</span>
+    <span class="k">assert</span> <span class="s2">"before"</span> <span class="ow">in</span> <span class="n">req1</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span>  <span class="c1"># Pagination cursor present</span>
 
     <span class="c1"># Verify results</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_posts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
@@ -494,98 +494,98 @@
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_cors_options_request_includes_headers</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test that CORS OPTIONS requests include required headers.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test that CORS OPTIONS requests include required headers."""</span>
 
-    <span class="n">options_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">options_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
     <span class="p">)</span>
 
     <span class="c1"># Execute CORS preflight</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">fansly_api</span><span class="o">.</span><span class="n">cors_options_request</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span>
+        <span class="n">fansly_api</span><span class="o">.</span><span class="n">cors_options_request</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">options_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify request headers</span>
     <span class="k">assert</span> <span class="n">options_route</span><span class="o">.</span><span class="n">called</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">options_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
-    <span class="k">assert</span> <span class="s2">&quot;origin&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;origin&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;https://fansly.com&quot;</span>
-    <span class="k">assert</span> <span class="s2">&quot;access-control-request-method&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+    <span class="k">assert</span> <span class="s2">"origin"</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">"origin"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"https://fansly.com"</span>
+    <span class="k">assert</span> <span class="s2">"access-control-request-method"</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
 </code></pre></div>
 <h3 id="pattern-4-testing-error-handling">Pattern 4: Testing Error Handling<a class="headerlink" href="#pattern-4-testing-error-handling" title="Permanent link">&para;</a></h3>
 <p>Test real API errors from Fansly:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_handles_unauthorized</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test handling of 401 Unauthorized response.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test handling of 401 Unauthorized response."""</span>
 
-    <span class="n">error_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">error_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
                 <span class="mi">401</span><span class="p">,</span>
-                <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;false&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Invalid authorization token&quot;</span><span class="p">}</span>
+                <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">"success"</span><span class="p">:</span> <span class="s2">"false"</span><span class="p">,</span> <span class="s2">"error"</span><span class="p">:</span> <span class="s2">"Invalid authorization token"</span><span class="p">}</span>
             <span class="p">)</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
     <span class="k">try</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Invalid authorization token&quot;</span><span class="p">):</span>
-            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test_creator&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"Invalid authorization token"</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test_creator"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">error_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_api_handles_rate_limiting</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test handling of 429 Rate Limit response.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test handling of 429 Rate Limit response."""</span>
 
-    <span class="n">rate_limit_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/timeline&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">rate_limit_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/timeline"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
                 <span class="mi">429</span><span class="p">,</span>
-                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Retry-After&quot;</span><span class="p">:</span> <span class="s2">&quot;60&quot;</span><span class="p">}</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"Retry-After"</span><span class="p">:</span> <span class="s2">"60"</span><span class="p">}</span>
             <span class="p">)</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
     <span class="k">try</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Rate limit|429&quot;</span><span class="p">):</span>
-            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_timeline_posts</span><span class="p">(</span><span class="s2">&quot;100000000000001&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"Rate limit|429"</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_timeline_posts</span><span class="p">(</span><span class="s2">"100000000000001"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">rate_limit_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="pattern-5-testing-media-downloads">Pattern 5: Testing Media Downloads<a class="headerlink" href="#pattern-5-testing-media-downloads" title="Permanent link">&para;</a></h3>
 <p>Mock CDN responses for file downloads:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_media_file</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading a single media file.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test downloading a single media file."""</span>
 
-    <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/media/123456789.mp4&quot;</span>
-    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;123456789.mp4&quot;</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="s2">"https://cdn.fansly.com/media/123456789.mp4"</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"123456789.mp4"</span>
 
     <span class="c1"># Mock CDN response with realistic headers</span>
     <span class="n">media_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
                 <span class="mi">200</span><span class="p">,</span>
-                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span><span class="p">,</span>
+                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"fake video content"</span><span class="p">,</span>
                 <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
-                    <span class="s2">&quot;content-type&quot;</span><span class="p">:</span> <span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;content-length&quot;</span><span class="p">:</span> <span class="s2">&quot;18&quot;</span>
+                    <span class="s2">"content-type"</span><span class="p">:</span> <span class="s2">"video/mp4"</span><span class="p">,</span>
+                    <span class="s2">"content-length"</span><span class="p">:</span> <span class="s2">"18"</span>
                 <span class="p">}</span>
             <span class="p">)</span>
         <span class="p">]</span>
@@ -595,18 +595,18 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="k">await</span> <span class="n">download_media_file</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">media_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify HTTP request</span>
     <span class="k">assert</span> <span class="n">media_route</span><span class="o">.</span><span class="n">called</span>
 
     <span class="c1"># Verify real file was created</span>
     <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
-    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span>
+    <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">"fake video content"</span>
     <span class="k">assert</span> <span class="n">output_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">==</span> <span class="mi">18</span>
 </code></pre></div>
 <hr />
@@ -621,16 +621,16 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: No assertion on HTTP calls</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>  <span class="c1"># Missing call verification!</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"username"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span>  <span class="c1"># Missing call verification!</span>
 
 <span class="c1"># ✅ CORRECT: Complete verification</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_good_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://apiv3.fansly.com/api/v1/account&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="n">account_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://apiv3.fansly.com/api/v1/account"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
 
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
 
     <span class="c1"># REQUIRED: Verify exact call count</span>
     <span class="k">assert</span> <span class="n">account_route</span><span class="o">.</span><span class="n">called</span>
@@ -638,39 +638,39 @@
 
     <span class="c1"># REQUIRED: Verify request</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">account_route</span><span class="o">.</span><span class="n">calls</span><span class="o">.</span><span class="n">last</span><span class="o">.</span><span class="n">request</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">&quot;usernames&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>
-    <span class="k">assert</span> <span class="s2">&quot;authorization&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s2">"usernames"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span>
+    <span class="k">assert</span> <span class="s2">"authorization"</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">headers</span>
 
     <span class="c1"># REQUIRED: Verify response was used correctly</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"username"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span>
 </code></pre></div>
 <h3 id="requirement-2-complete-response-schemas">Requirement 2: Complete Response Schemas<a class="headerlink" href="#requirement-2-complete-response-schemas" title="Permanent link">&para;</a></h3>
 <p>All Fansly API mock responses must match actual API structure:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Incomplete response</span>
 <span class="p">{</span>
-    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test&quot;</span>
+    <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+    <span class="s2">"response"</span><span class="p">:</span> <span class="p">[{</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+        <span class="s2">"username"</span><span class="p">:</span> <span class="s2">"test"</span>
         <span class="c1"># Missing required fields!</span>
     <span class="p">}]</span>
 <span class="p">}</span>
 
 <span class="c1"># ✅ CORRECT: Complete account schema</span>
 <span class="p">{</span>
-    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">[{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;100000000000001&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="s2">&quot;test_creator&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;displayName&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Creator&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;profileAccessFlags&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-        <span class="s2">&quot;timelineStats&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;postCount&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
-            <span class="s2">&quot;imageCount&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
-            <span class="s2">&quot;videoCount&quot;</span><span class="p">:</span> <span class="mi">5</span>
+    <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+    <span class="s2">"response"</span><span class="p">:</span> <span class="p">[{</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"100000000000001"</span><span class="p">,</span>
+        <span class="s2">"username"</span><span class="p">:</span> <span class="s2">"test_creator"</span><span class="p">,</span>
+        <span class="s2">"displayName"</span><span class="p">:</span> <span class="s2">"Test Creator"</span><span class="p">,</span>
+        <span class="s2">"profileAccessFlags"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="s2">"timelineStats"</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">"postCount"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+            <span class="s2">"imageCount"</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+            <span class="s2">"videoCount"</span><span class="p">:</span> <span class="mi">5</span>
         <span class="p">},</span>
-        <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;about&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"location"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"about"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
         <span class="c1"># ... all required fields</span>
     <span class="p">}]</span>
 <span class="p">}</span>
@@ -680,38 +680,38 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal method</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">patch</span><span class="p">,</span> <span class="n">AsyncMock</span>
 
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">&#39;update_device_id&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">()):</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">'update_device_id'</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">()):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
 
 <span class="c1"># ✅ CORRECT: Mock only HTTP</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">test_example</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
-    <span class="n">api_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">api_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://apiv3\.fansly\.com/.*"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
-            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span> <span class="s2">"response"</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
         <span class="p">]</span>
     <span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">api_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="requirement-4-real-file-system-operations">Requirement 4: Real File System Operations<a class="headerlink" href="#requirement-4-real-file-system-operations" title="Permanent link">&para;</a></h3>
 <p>Test real file I/O with temporary files:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking file operations</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">test_save_media</span><span class="p">():</span>
-    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;builtins.open&quot;</span><span class="p">,</span> <span class="n">mock_open</span><span class="p">()):</span>
-        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.exists&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"builtins.open"</span><span class="p">,</span> <span class="n">mock_open</span><span class="p">()):</span>
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"pathlib.Path.exists"</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
             <span class="n">save_media</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
 
 <span class="c1"># ✅ CORRECT: Use real temporary files</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">test_save_media</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
-    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;test_media.mp4&quot;</span>
-    <span class="n">content</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;fake video content&quot;</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"test_media.mp4"</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">"fake video content"</span>
 
     <span class="n">save_media</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
 
@@ -725,8 +725,8 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal method with return_value</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_with_retry_wrong</span><span class="p">():</span>
-    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">&quot;_download_single_file&quot;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
-        <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Network error&quot;</span><span class="p">),</span>  <span class="c1"># First call fails</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">"_download_single_file"</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
+        <span class="ne">Exception</span><span class="p">(</span><span class="s2">"Network error"</span><span class="p">),</span>  <span class="c1"># First call fails</span>
         <span class="kc">True</span><span class="p">,</span>  <span class="c1"># Retry succeeds</span>
     <span class="p">])):</span>
         <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">downloader</span><span class="o">.</span><span class="n">download_batch</span><span class="p">([</span><span class="n">url</span><span class="p">])</span>
@@ -746,14 +746,14 @@
         <span class="k">return</span> <span class="k">await</span> <span class="n">original_download</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>  <span class="c1"># Real code executes!</span>
 
     <span class="c1"># Mock CDN to fail once, then succeed</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://cdn\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://cdn\.fansly\.com/.*"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">500</span><span class="p">),</span>  <span class="c1"># First attempt fails</span>
-            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;video data&quot;</span><span class="p">),</span>  <span class="c1"># Retry succeeds</span>
+            <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"video data"</span><span class="p">),</span>  <span class="c1"># Retry succeeds</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">&quot;_download_single_file&quot;</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_download</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">downloader</span><span class="p">,</span> <span class="s2">"_download_single_file"</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_download</span><span class="p">):</span>
         <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">downloader</span><span class="o">.</span><span class="n">download_batch</span><span class="p">([</span><span class="n">url</span><span class="p">])</span>
 
         <span class="c1"># Verify orchestration</span>
@@ -762,7 +762,7 @@
         <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span> <span class="ow">is</span> <span class="kc">True</span>
 
         <span class="c1"># Verify real file was created</span>
-        <span class="k">assert</span> <span class="p">(</span><span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;file.mp4&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="p">(</span><span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"file.mp4"</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
 </code></pre></div>
 <p><strong>Why spy pattern matters:</strong></p>
 <ul>
@@ -793,17 +793,17 @@
 <span class="n">original_parse</span> <span class="o">=</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">_parse_response</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">failing_parse</span><span class="p">(</span><span class="n">response</span><span class="p">):</span>
-    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Unexpected JSON decode failure&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">"Unexpected JSON decode failure"</span><span class="p">)</span>
 
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s2">&quot;_parse_response&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">failing_parse</span><span class="p">):</span>
-    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Unexpected JSON decode failure&quot;</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s2">"_parse_response"</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">failing_parse</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"Unexpected JSON decode failure"</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Some error conditions (memory errors, parse exceptions) are difficult to simulate via HTTP.</p>
 <h3 id="exception-2-external-binaries">Exception 2: External Binaries<a class="headerlink" href="#exception-2-external-binaries" title="Permanent link">&para;</a></h3>
 <p>Mocking truly external processes:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Mocking ffmpeg subprocess</span>
-<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;subprocess.run&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock_ffmpeg</span><span class="p">:</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"subprocess.run"</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock_ffmpeg</span><span class="p">:</span>
     <span class="n">mock_ffmpeg</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">returncode</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">convert_video_format</span><span class="p">(</span><span class="n">input_path</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
     <span class="n">mock_ffmpeg</span><span class="o">.</span><span class="n">assert_called_once</span><span class="p">()</span>
@@ -815,7 +815,7 @@
 <span class="n">mock_callback</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">()</span>
 <span class="n">api</span> <span class="o">=</span> <span class="n">FanslyApi</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">on_device_updated</span><span class="o">=</span><span class="n">mock_callback</span><span class="p">)</span>
 <span class="c1"># ... perform action</span>
-<span class="n">mock_callback</span><span class="o">.</span><span class="n">assert_called_once_with</span><span class="p">(</span><span class="s2">&quot;new_device_id&quot;</span><span class="p">)</span>
+<span class="n">mock_callback</span><span class="o">.</span><span class="n">assert_called_once_with</span><span class="p">(</span><span class="s2">"new_device_id"</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Callbacks are external to the library and user-controlled.</p>
 <h3 id="review-process-for-exceptions">Review Process for Exceptions<a class="headerlink" href="#review-process-for-exceptions" title="Permanent link">&para;</a></h3>
@@ -832,87 +832,87 @@
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_timeline_posts</span><span class="p">(</span><span class="n">download_state</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">tmp_path</span><span class="p">,</span> <span class="n">test_account</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading creator timeline posts with media.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test downloading creator timeline posts with media."""</span>
 
     <span class="c1"># Setup</span>
     <span class="n">download_state</span><span class="o">.</span><span class="n">base_path</span> <span class="o">=</span> <span class="n">tmp_path</span>
     <span class="n">download_state</span><span class="o">.</span><span class="n">creator_id</span> <span class="o">=</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span>
 
     <span class="c1"># Mock Fansly API</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/.*&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://apiv3\.fansly\.com/.*"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">)]</span>
     <span class="p">)</span>
 
     <span class="n">timeline_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">&quot;https://apiv3\.fansly\.com/api/v1/timeline.*&quot;</span>
+        <span class="n">url__regex</span><span class="o">=</span><span class="sa">r</span><span class="s2">"https://apiv3\.fansly\.com/api/v1/timeline.*"</span>
     <span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;posts&quot;</span><span class="p">:</span> <span class="p">[{</span>
-                        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;accountId&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
-                        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Test post&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;attachments&quot;</span><span class="p">:</span> <span class="p">[{</span>
-                            <span class="s2">&quot;contentId&quot;</span><span class="p">:</span> <span class="s2">&quot;200000000000001&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;contentType&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># Image</span>
-                            <span class="s2">&quot;locations&quot;</span><span class="p">:</span> <span class="p">[{</span>
-                                <span class="s2">&quot;location&quot;</span><span class="p">:</span> <span class="s2">&quot;https://cdn.fansly.com/image/123.jpg&quot;</span>
+                <span class="s2">"success"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+                <span class="s2">"response"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"posts"</span><span class="p">:</span> <span class="p">[{</span>
+                        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"300000000000001"</span><span class="p">,</span>
+                        <span class="s2">"accountId"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
+                        <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Test post"</span><span class="p">,</span>
+                        <span class="s2">"attachments"</span><span class="p">:</span> <span class="p">[{</span>
+                            <span class="s2">"contentId"</span><span class="p">:</span> <span class="s2">"200000000000001"</span><span class="p">,</span>
+                            <span class="s2">"contentType"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># Image</span>
+                            <span class="s2">"locations"</span><span class="p">:</span> <span class="p">[{</span>
+                                <span class="s2">"location"</span><span class="p">:</span> <span class="s2">"https://cdn.fansly.com/image/123.jpg"</span>
                             <span class="p">}]</span>
                         <span class="p">}]</span>
                     <span class="p">}],</span>
-                    <span class="s2">&quot;aggregationData&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;hasMore&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+                    <span class="s2">"aggregationData"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"hasMore"</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
                 <span class="p">}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
     <span class="c1"># Mock CDN</span>
-    <span class="n">media_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;https://cdn.fansly.com/image/123.jpg&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;image data&quot;</span><span class="p">)]</span>
+    <span class="n">media_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"https://cdn.fansly.com/image/123.jpg"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"image data"</span><span class="p">)]</span>
     <span class="p">)</span>
 
     <span class="c1"># Execute</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">download_timeline</span><span class="p">(</span><span class="n">download_state</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Timeline route calls:&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"Timeline route calls:"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">timeline_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Media route calls:&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"Media route calls:"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">media_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify HTTP calls</span>
     <span class="k">assert</span> <span class="n">timeline_route</span><span class="o">.</span><span class="n">called</span>
     <span class="k">assert</span> <span class="n">media_route</span><span class="o">.</span><span class="n">called</span>
 
     <span class="c1"># Verify real files</span>
-    <span class="n">downloaded_files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">tmp_path</span><span class="o">.</span><span class="n">rglob</span><span class="p">(</span><span class="s2">&quot;*.jpg&quot;</span><span class="p">))</span>
+    <span class="n">downloaded_files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">tmp_path</span><span class="o">.</span><span class="n">rglob</span><span class="p">(</span><span class="s2">"*.jpg"</span><span class="p">))</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">downloaded_files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="k">assert</span> <span class="n">downloaded_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">&quot;image data&quot;</span>
+    <span class="k">assert</span> <span class="n">downloaded_files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">read_bytes</span><span class="p">()</span> <span class="o">==</span> <span class="sa">b</span><span class="s2">"image data"</span>
 </code></pre></div>
 <h3 id="testing-m3u8-playlist-downloads">Testing M3U8 Playlist Downloads<a class="headerlink" href="#testing-m3u8-playlist-downloads" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_download_m3u8_video</span><span class="p">(</span><span class="n">tmp_path</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test downloading M3U8 video with segments.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test downloading M3U8 video with segments."""</span>
 
-    <span class="n">playlist_url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/video/123/master.m3u8&quot;</span>
-    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;video.mp4&quot;</span>
+    <span class="n">playlist_url</span> <span class="o">=</span> <span class="s2">"https://cdn.fansly.com/video/123/master.m3u8"</span>
+    <span class="n">output_path</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"video.mp4"</span>
 
     <span class="c1"># Mock M3U8 playlist</span>
     <span class="n">playlist_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">playlist_url</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
                 <span class="mi">200</span><span class="p">,</span>
-                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;&quot;&quot;#EXTM3U</span>
+                <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"""#EXTM3U</span>
 <span class="s2">#EXT-X-VERSION:3</span>
 <span class="s2">#EXT-X-TARGETDURATION:10</span>
 <span class="s2">#EXTINF:10.0,</span>
@@ -920,46 +920,46 @@
 <span class="s2">#EXTINF:10.0,</span>
 <span class="s2">segment1.ts</span>
 <span class="s2">#EXT-X-ENDLIST</span>
-<span class="s2">&quot;&quot;&quot;</span><span class="p">,</span>
-                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;content-type&quot;</span><span class="p">:</span> <span class="s2">&quot;application/vnd.apple.mpegurl&quot;</span><span class="p">}</span>
+<span class="s2">"""</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"content-type"</span><span class="p">:</span> <span class="s2">"application/vnd.apple.mpegurl"</span><span class="p">}</span>
             <span class="p">)</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
     <span class="c1"># Mock segments</span>
-    <span class="n">base_url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.fansly.com/video/123/&quot;</span>
-    <span class="n">segment0_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment0.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;segment 0 data&quot;</span><span class="p">)]</span>
+    <span class="n">base_url</span> <span class="o">=</span> <span class="s2">"https://cdn.fansly.com/video/123/"</span>
+    <span class="n">segment0_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment0.ts"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"segment 0 data"</span><span class="p">)]</span>
     <span class="p">)</span>
-    <span class="n">segment1_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment1.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;segment 1 data&quot;</span><span class="p">)]</span>
+    <span class="n">segment1_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">base_url</span><span class="si">}</span><span class="s2">segment1.ts"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"segment 1 data"</span><span class="p">)]</span>
     <span class="p">)</span>
 
     <span class="c1"># Execute</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">await</span> <span class="n">download_m3u8_video</span><span class="p">(</span><span class="n">playlist_url</span><span class="p">,</span> <span class="n">output_path</span><span class="p">)</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;****RESPX Call Debugging****&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Playlist route calls:&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"****RESPX Call Debugging****"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"Playlist route calls:"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">playlist_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Segment 0 route calls:&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"Segment 0 route calls:"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">segment0_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Segment 1 route calls:&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"Segment 1 route calls:"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">call</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">segment1_route</span><span class="o">.</span><span class="n">calls</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Call </span><span class="si">{</span><span class="n">index</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--request: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">request</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"--response: </span><span class="si">{</span><span class="n">call</span><span class="o">.</span><span class="n">response</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
     <span class="c1"># Verify segments were downloaded</span>
-    <span class="n">segment_dir</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;segments&quot;</span>
-    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">&quot;segment0.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
-    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">&quot;segment1.ts&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+    <span class="n">segment_dir</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"segments"</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">"segment0.ts"</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="p">(</span><span class="n">segment_dir</span> <span class="o">/</span> <span class="s2">"segment1.ts"</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
 
     <span class="c1"># Verify concatenated output (if applicable)</span>
     <span class="k">if</span> <span class="n">output_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
@@ -968,13 +968,13 @@
 <h3 id="testing-database-integration">Testing Database Integration<a class="headerlink" href="#testing-database-integration" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_save_post_to_database</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">test_account</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test saving post metadata to database.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test saving post metadata to database."""</span>
 
     <span class="n">post_data</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;accountId&quot;</span><span class="p">:</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
-        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Test post content&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;createdAt&quot;</span><span class="p">:</span> <span class="mi">1234567890</span><span class="p">,</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"300000000000001"</span><span class="p">,</span>
+        <span class="s2">"accountId"</span><span class="p">:</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Test post content"</span><span class="p">,</span>
+        <span class="s2">"createdAt"</span><span class="p">:</span> <span class="mi">1234567890</span><span class="p">,</span>
     <span class="p">}</span>
 
     <span class="c1"># Use real factory</span>
@@ -984,11 +984,11 @@
 
     <span class="c1"># Verify in database</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
-        <span class="n">select</span><span class="p">(</span><span class="n">Post</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Post</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;300000000000001&quot;</span><span class="p">)</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Post</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Post</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"300000000000001"</span><span class="p">)</span>
     <span class="p">)</span>
     <span class="n">saved_post</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalar_one</span><span class="p">()</span>
 
-    <span class="k">assert</span> <span class="n">saved_post</span><span class="o">.</span><span class="n">content</span> <span class="o">==</span> <span class="s2">&quot;Test post content&quot;</span>
+    <span class="k">assert</span> <span class="n">saved_post</span><span class="o">.</span><span class="n">content</span> <span class="o">==</span> <span class="s2">"Test post content"</span>
     <span class="k">assert</span> <span class="n">saved_post</span><span class="o">.</span><span class="n">accountId</span> <span class="o">==</span> <span class="n">test_account</span><span class="o">.</span><span class="n">id</span>
 </code></pre></div>
 <hr />
@@ -998,18 +998,18 @@
 <span class="nd">@respx</span><span class="o">.</span><span class="n">mock</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">):</span>
     <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;username&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;test&quot;</span>  <span class="c1"># Missing verification!</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">fansly_api</span><span class="o">.</span><span class="n">get_creator_account_info</span><span class="p">(</span><span class="s2">"test"</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"username"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span>  <span class="c1"># Missing verification!</span>
 </code></pre></div>
 <h3 id="anti-pattern-2-mocking-internal-methods">❌ Anti-Pattern 2: Mocking Internal Methods<a class="headerlink" href="#anti-pattern-2-mocking-internal-methods" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking internal API method</span>
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">&#39;get_creator_account_info&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="o">...</span><span class="p">)):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">fansly_api</span><span class="p">,</span> <span class="s1">'get_creator_account_info'</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="o">...</span><span class="p">)):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">download_creator_content</span><span class="p">(</span><span class="n">creator_id</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="anti-pattern-3-mocking-file-operations">❌ Anti-Pattern 3: Mocking File Operations<a class="headerlink" href="#anti-pattern-3-mocking-file-operations" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking Path operations</span>
-<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.exists&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;pathlib.Path.read_bytes&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;data&quot;</span><span class="p">):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"pathlib.Path.exists"</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"pathlib.Path.read_bytes"</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="sa">b</span><span class="s2">"data"</span><span class="p">):</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">load_media_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="anti-pattern-4-magicmock-for-models">❌ Anti-Pattern 4: MagicMock for Models<a class="headerlink" href="#anti-pattern-4-magicmock-for-models" title="Permanent link">&para;</a></h3>

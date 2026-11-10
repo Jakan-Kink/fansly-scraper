@@ -296,19 +296,19 @@
 <h3 id="dual-testing-architecture">Dual Testing Architecture<a class="headerlink" href="#dual-testing-architecture" title="Permanent link">&para;</a></h3>
 <p>This project has <strong>two distinct testing domains</strong> that require different strategies:</p>
 <h4 id="1-sqlalchemy-tests-fansly-metadata">1. SQLAlchemy Tests (Fansly Metadata)<a class="headerlink" href="#1-sqlalchemy-tests-fansly-metadata" title="Permanent link">&para;</a></h4>
-<p><strong>Domain</strong>: Fansly API data → Local SQLite database
+<p><strong>Domain</strong>: Fansly API data → Local PostgreSQL database
 <strong>Models</strong>: <code>metadata/</code> (Account, Media, Post, Message, Story, etc. defined in account.py, media.py, post.py, etc.)
 <strong>Strategy</strong>: Real PostgreSQL UUID fixtures - <strong>NO mocking of database or sessions</strong></p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ CORRECT: Real database with fixtures</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_media_processing</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">session_sync</span><span class="p">):</span>
-    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">"test_user"</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
     <span class="c1"># Real SQL query execution</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">select</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="mi">12345</span><span class="p">))</span>
     <span class="n">found</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalar_one</span><span class="p">()</span>
-    <span class="k">assert</span> <span class="n">found</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">&quot;test_user&quot;</span>
+    <span class="k">assert</span> <span class="n">found</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">"test_user"</span>
 </code></pre></div>
 <p><strong>Why</strong>: Mocking SQLAlchemy hides bugs in SQL queries, constraints, and relationships. Real database tests catch these issues.</p>
 <h4 id="2-stash-graphql-tests-stash-integration">2. Stash GraphQL Tests (Stash Integration)<a class="headerlink" href="#2-stash-graphql-tests-stash-integration" title="Permanent link">&para;</a></h4>
@@ -318,24 +318,24 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ CORRECT: Mock only HTTP boundary</span>
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_create_performer</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">):</span>
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerCreate&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Performer&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerCreate"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test Performer"</span><span class="p">,</span>
+                    <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
                     <span class="c1"># ... all required fields</span>
                 <span class="p">}}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Performer&quot;</span><span class="p">)</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Test Performer"</span><span class="p">)</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
 </code></pre></div>
 <p><strong>Why</strong>: StashClient is a thin wrapper around GraphQL - mock the HTTP layer, not the client logic.</p>
@@ -348,10 +348,10 @@
 <span class="p">)</span>
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_account_relationships</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">session_sync</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test Account → Media relationship with real database.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test Account → Media relationship with real database."""</span>
 
     <span class="c1"># Create account with factory</span>
-    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">"test_user"</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
@@ -362,7 +362,7 @@
 
     <span class="c1"># Real SQL query with JOIN</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
-        <span class="n">select</span><span class="p">(</span><span class="n">Media</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Media</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">"test_user"</span><span class="p">)</span>
     <span class="p">)</span>
     <span class="n">found_media</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalars</span><span class="p">()</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 
@@ -397,31 +397,31 @@
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_find_scene</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test finding a scene by ID.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test finding a scene by ID."""</span>
 
     <span class="c1"># Mock the GraphQL HTTP response</span>
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;findScene&quot;</span><span class="p">:</span> <span class="p">{</span>
-                        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Scene&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://example.com/scene&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="s2">&quot;Test details&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;rating100&quot;</span><span class="p">:</span> <span class="mi">85</span><span class="p">,</span>
-                        <span class="s2">&quot;organized&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-                        <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;https://example.com/scene&quot;</span><span class="p">],</span>
-                        <span class="s2">&quot;files&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;performers&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;studio&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                        <span class="s2">&quot;galleries&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;groups&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                        <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                        <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"findScene"</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+                        <span class="s2">"title"</span><span class="p">:</span> <span class="s2">"Test Scene"</span><span class="p">,</span>
+                        <span class="s2">"url"</span><span class="p">:</span> <span class="s2">"https://example.com/scene"</span><span class="p">,</span>
+                        <span class="s2">"date"</span><span class="p">:</span> <span class="s2">"2024-01-01"</span><span class="p">,</span>
+                        <span class="s2">"details"</span><span class="p">:</span> <span class="s2">"Test details"</span><span class="p">,</span>
+                        <span class="s2">"rating100"</span><span class="p">:</span> <span class="mi">85</span><span class="p">,</span>
+                        <span class="s2">"organized"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"https://example.com/scene"</span><span class="p">],</span>
+                        <span class="s2">"files"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"performers"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"studio"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                        <span class="s2">"galleries"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"groups"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+                        <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                        <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
                     <span class="p">}</span>
                 <span class="p">}</span>
             <span class="p">})</span>
@@ -429,70 +429,70 @@
     <span class="p">)</span>
 
     <span class="c1"># Execute real client code</span>
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
-    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_scene</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
+    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_scene</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
     <span class="c1"># Verify the result is a real Scene Pydantic object</span>
     <span class="k">assert</span> <span class="n">scene</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
-    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">title</span> <span class="o">==</span> <span class="s2">&quot;Test Scene&quot;</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">title</span> <span class="o">==</span> <span class="s2">"Test Scene"</span>
 
     <span class="c1"># REQUIRED: Verify GraphQL request</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="s2">&quot;findScene&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
+    <span class="k">assert</span> <span class="s2">"findScene"</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"123"</span>
 </code></pre></div>
 <h3 id="pattern-2-multiple-graphql-calls">Pattern 2: Multiple GraphQL Calls<a class="headerlink" href="#pattern-2-multiple-graphql-calls" title="Permanent link">&para;</a></h3>
 <p>When methods make sequential GraphQL calls, provide responses for ALL calls:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_create_and_update_performer</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test creating then updating a performer.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test creating then updating a performer."""</span>
 
     <span class="c1"># Provide responses for EACH GraphQL call in sequence</span>
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="c1"># Call 1: performerCreate mutation</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerCreate&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;new_123&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;New Performer&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;favorite&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                    <span class="s2">&quot;ignore_auto_tag&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                    <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerCreate"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"new_123"</span><span class="p">,</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"New Performer"</span><span class="p">,</span>
+                    <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"favorite"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">"ignore_auto_tag"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                    <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
                 <span class="p">}}</span>
             <span class="p">}),</span>
             <span class="c1"># Call 2: performerUpdate mutation</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerUpdate&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;new_123&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Updated Performer&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;favorite&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                    <span class="s2">&quot;ignore_auto_tag&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                    <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerUpdate"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"new_123"</span><span class="p">,</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Updated Performer"</span><span class="p">,</span>
+                    <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"favorite"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">"ignore_auto_tag"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                    <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
                 <span class="p">}}</span>
             <span class="p">}),</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
 
     <span class="c1"># Execute real code</span>
-    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;New Performer&quot;</span><span class="p">)</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"New Performer"</span><span class="p">)</span>
     <span class="n">created</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 
-    <span class="n">created</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;Updated Performer&quot;</span>
+    <span class="n">created</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">"Updated Performer"</span>
     <span class="n">updated</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">update_performer</span><span class="p">(</span><span class="n">created</span><span class="p">)</span>
 
     <span class="c1"># Verify both calls were made</span>
@@ -500,13 +500,13 @@
 
     <span class="c1"># Verify first call (create)</span>
     <span class="n">req0</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="s2">&quot;performerCreate&quot;</span> <span class="ow">in</span> <span class="n">req0</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">req0</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;input&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;New Performer&quot;</span>
+    <span class="k">assert</span> <span class="s2">"performerCreate"</span> <span class="ow">in</span> <span class="n">req0</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">req0</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"input"</span><span class="p">][</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"New Performer"</span>
 
     <span class="c1"># Verify second call (update)</span>
     <span class="n">req1</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="s2">&quot;performerUpdate&quot;</span> <span class="ow">in</span> <span class="n">req1</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">req1</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;input&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Updated Performer&quot;</span>
+    <span class="k">assert</span> <span class="s2">"performerUpdate"</span> <span class="ow">in</span> <span class="n">req1</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">req1</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"input"</span><span class="p">][</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"Updated Performer"</span>
 </code></pre></div>
 <h3 id="pattern-3-testing-type-validation-pydantic-models">Pattern 3: Testing Type Validation (Pydantic Models)<a class="headerlink" href="#pattern-3-testing-type-validation-pydantic-models" title="Permanent link">&para;</a></h3>
 <p>Test that Pydantic models correctly validate GraphQL responses:</p>
@@ -514,51 +514,51 @@
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_performer_model_validation</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test Performer model validates required fields.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test Performer model validates required fields."""</span>
 
     <span class="c1"># Missing required field (name)</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findPerformer&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"findPerformer"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
                     <span class="c1"># Missing name - should cause validation error</span>
-                    <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
                 <span class="p">}}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
 
     <span class="c1"># Should raise ValidationError from Pydantic</span>
     <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ValidationError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc_info</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="s2">&quot;name&quot;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="s2">"name"</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="pattern-4-testing-error-handling">Pattern 4: Testing Error Handling<a class="headerlink" href="#pattern-4-testing-error-handling" title="Permanent link">&para;</a></h3>
 <p>Test real GraphQL errors from the server:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_graphql_error_handling</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test handling of GraphQL errors.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test handling of GraphQL errors."""</span>
 
-    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;errors&quot;</span><span class="p">:</span> <span class="p">[{</span>
-                    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Performer not found&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;findPerformer&quot;</span><span class="p">]</span>
+                <span class="s2">"errors"</span><span class="p">:</span> <span class="p">[{</span>
+                    <span class="s2">"message"</span><span class="p">:</span> <span class="s2">"Performer not found"</span><span class="p">,</span>
+                    <span class="s2">"path"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"findPerformer"</span><span class="p">]</span>
                 <span class="p">}]</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
 
-    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Performer not found&quot;</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;nonexistent&quot;</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"Performer not found"</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"nonexistent"</span><span class="p">)</span>
 </code></pre></div>
 <hr />
 <h2 id="critical-requirements">Critical Requirements<a class="headerlink" href="#critical-requirements" title="Permanent link">&para;</a></h2>
@@ -571,72 +571,72 @@
 </ol>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: No assertion on GraphQL calls</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad_example</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>  <span class="c1"># Missing call verification!</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>  <span class="c1"># Missing call verification!</span>
 
 <span class="c1"># ✅ CORRECT: Complete verification</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_good_example</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
     <span class="c1"># REQUIRED: Verify exact call count</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
 
     <span class="c1"># REQUIRED: Verify request</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="s2">&quot;findPerformer&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
+    <span class="k">assert</span> <span class="s2">"findPerformer"</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"123"</span>
 
     <span class="c1"># REQUIRED: Verify response was used correctly</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>
 </code></pre></div>
 <h3 id="requirement-2-complete-type-schemas">Requirement 2: Complete Type Schemas<a class="headerlink" href="#requirement-2-complete-type-schemas" title="Permanent link">&para;</a></h3>
 <p>All Pydantic model test data must include ALL required fields:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Incomplete Performer data</span>
-<span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span>
-    <span class="s2">&quot;findPerformer&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test&quot;</span>
+<span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"findPerformer"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test"</span>
         <span class="c1"># Missing required fields!</span>
     <span class="p">}</span>
 <span class="p">}</span>
 
 <span class="c1"># ✅ CORRECT: Complete Performer schema</span>
-<span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span>
-    <span class="s2">&quot;findPerformer&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Performer&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;favorite&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="s2">&quot;ignore_auto_tag&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="s2">&quot;gender&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;birthdate&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;ethnicity&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;country&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;eye_color&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;height_cm&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;measurements&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;fake_tits&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;penis_length&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;circumcised&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;career_length&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;tattoos&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;piercings&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;image_path&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;death_date&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;hair_color&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;rating100&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+<span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"findPerformer"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test Performer"</span><span class="p">,</span>
+        <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"favorite"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">"ignore_auto_tag"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">"gender"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"birthdate"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"ethnicity"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"country"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"eye_color"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"height_cm"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"measurements"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"fake_tits"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"penis_length"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"circumcised"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"career_length"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"tattoos"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"piercings"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"image_path"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"details"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"death_date"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"hair_color"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"weight"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"rating100"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+        <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
     <span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -645,19 +645,19 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal StashClient method</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">unittest.mock</span><span class="w"> </span><span class="kn">import</span> <span class="n">patch</span><span class="p">,</span> <span class="n">AsyncMock</span>
 
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="s1">&#39;_execute_query&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="p">{})):</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="s1">'_execute_query'</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="p">{})):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
 <span class="c1"># ❌ WRONG: Mocking SQLAlchemy session</span>
 <span class="n">mock_session</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">AsyncSession</span><span class="p">)</span>
-<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">&#39;metadata.database.get_session&#39;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">mock_session</span><span class="p">):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">'metadata.database.get_session'</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">mock_session</span><span class="p">):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_account</span><span class="p">(</span><span class="n">account_data</span><span class="p">)</span>
 
 <span class="c1"># ✅ CORRECT: Mock only HTTP for Stash (use side_effect always)</span>
-<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})]</span>
+<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})]</span>
 <span class="p">)</span>
-<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
 <span class="c1"># ✅ CORRECT: Use real database session for SQLAlchemy</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_function</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">session_sync</span><span class="p">):</span>
@@ -671,79 +671,79 @@
 <p>Test the full data flow from GraphQL JSON → Pydantic models:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_complex_type_deserialization</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test Scene with nested relationships deserializes correctly.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test Scene with nested relationships deserializes correctly."""</span>
 
-    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;findScene&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;title&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Scene&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">],</span>
-                    <span class="s2">&quot;organized&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-                    <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span>
-                        <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;tag1&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Tag 1&quot;</span><span class="p">},</span>
-                        <span class="p">{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;tag2&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Tag 2&quot;</span><span class="p">}</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"findScene"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+                    <span class="s2">"title"</span><span class="p">:</span> <span class="s2">"Test Scene"</span><span class="p">,</span>
+                    <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"https://example.com"</span><span class="p">],</span>
+                    <span class="s2">"organized"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[</span>
+                        <span class="p">{</span><span class="s2">"id"</span><span class="p">:</span> <span class="s2">"tag1"</span><span class="p">,</span> <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Tag 1"</span><span class="p">},</span>
+                        <span class="p">{</span><span class="s2">"id"</span><span class="p">:</span> <span class="s2">"tag2"</span><span class="p">,</span> <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Tag 2"</span><span class="p">}</span>
                     <span class="p">],</span>
-                    <span class="s2">&quot;performers&quot;</span><span class="p">:</span> <span class="p">[</span>
+                    <span class="s2">"performers"</span><span class="p">:</span> <span class="p">[</span>
                         <span class="p">{</span>
-                            <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;perf1&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Performer 1&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                            <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                            <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                            <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                            <span class="s2">&quot;favorite&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                            <span class="s2">&quot;ignore_auto_tag&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-                            <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+                            <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"perf1"</span><span class="p">,</span>
+                            <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Performer 1"</span><span class="p">,</span>
+                            <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+                            <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+                            <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+                            <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[],</span>
+                            <span class="s2">"favorite"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                            <span class="s2">"ignore_auto_tag"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                            <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                            <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
                         <span class="p">}</span>
                     <span class="p">],</span>
-                    <span class="s2">&quot;files&quot;</span><span class="p">:</span> <span class="p">[</span>
+                    <span class="s2">"files"</span><span class="p">:</span> <span class="p">[</span>
                         <span class="p">{</span>
-                            <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;file1&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;/path/to/file.mp4&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;basename&quot;</span><span class="p">:</span> <span class="s2">&quot;file.mp4&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="mi">1024000</span><span class="p">,</span>
-                            <span class="s2">&quot;parent_folder_id&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                            <span class="s2">&quot;format&quot;</span><span class="p">:</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;width&quot;</span><span class="p">:</span> <span class="mi">1920</span><span class="p">,</span>
-                            <span class="s2">&quot;height&quot;</span><span class="p">:</span> <span class="mi">1080</span><span class="p">,</span>
-                            <span class="s2">&quot;duration&quot;</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
-                            <span class="s2">&quot;video_codec&quot;</span><span class="p">:</span> <span class="s2">&quot;h264&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;audio_codec&quot;</span><span class="p">:</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;frame_rate&quot;</span><span class="p">:</span> <span class="mf">30.0</span><span class="p">,</span>
-                            <span class="s2">&quot;bit_rate&quot;</span><span class="p">:</span> <span class="mi">5000000</span><span class="p">,</span>
-                            <span class="s2">&quot;mod_time&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                            <span class="s2">&quot;fingerprints&quot;</span><span class="p">:</span> <span class="p">[],</span>
+                            <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"file1"</span><span class="p">,</span>
+                            <span class="s2">"path"</span><span class="p">:</span> <span class="s2">"/path/to/file.mp4"</span><span class="p">,</span>
+                            <span class="s2">"basename"</span><span class="p">:</span> <span class="s2">"file.mp4"</span><span class="p">,</span>
+                            <span class="s2">"size"</span><span class="p">:</span> <span class="mi">1024000</span><span class="p">,</span>
+                            <span class="s2">"parent_folder_id"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                            <span class="s2">"format"</span><span class="p">:</span> <span class="s2">"mp4"</span><span class="p">,</span>
+                            <span class="s2">"width"</span><span class="p">:</span> <span class="mi">1920</span><span class="p">,</span>
+                            <span class="s2">"height"</span><span class="p">:</span> <span class="mi">1080</span><span class="p">,</span>
+                            <span class="s2">"duration"</span><span class="p">:</span> <span class="mf">120.0</span><span class="p">,</span>
+                            <span class="s2">"video_codec"</span><span class="p">:</span> <span class="s2">"h264"</span><span class="p">,</span>
+                            <span class="s2">"audio_codec"</span><span class="p">:</span> <span class="s2">"aac"</span><span class="p">,</span>
+                            <span class="s2">"frame_rate"</span><span class="p">:</span> <span class="mf">30.0</span><span class="p">,</span>
+                            <span class="s2">"bit_rate"</span><span class="p">:</span> <span class="mi">5000000</span><span class="p">,</span>
+                            <span class="s2">"mod_time"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                            <span class="s2">"fingerprints"</span><span class="p">:</span> <span class="p">[],</span>
                         <span class="p">}</span>
                     <span class="p">],</span>
-                    <span class="s2">&quot;studio&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="s2">&quot;galleries&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;groups&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-                    <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="s2">&quot;rating100&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-                    <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+                    <span class="s2">"studio"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="s2">"galleries"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"groups"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+                    <span class="s2">"date"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="s2">"details"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="s2">"rating100"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+                    <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
                 <span class="p">}}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
-    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_scene</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
+    <span class="n">scene</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_scene</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 
     <span class="c1"># Verify nested objects deserialized correctly</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">scene</span><span class="o">.</span><span class="n">tags</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span>
-    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Tag 1&quot;</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">tags</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"Tag 1"</span>
 
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">scene</span><span class="o">.</span><span class="n">performers</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Performer 1&quot;</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"Performer 1"</span>
 
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">scene</span><span class="o">.</span><span class="n">files</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">format</span> <span class="o">==</span> <span class="s2">&quot;mp4&quot;</span>
+    <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">format</span> <span class="o">==</span> <span class="s2">"mp4"</span>
     <span class="k">assert</span> <span class="n">scene</span><span class="o">.</span><span class="n">files</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">duration</span> <span class="o">==</span> <span class="mf">120.0</span>
 </code></pre></div>
 <hr />
@@ -760,7 +760,7 @@
 <span class="p">)</span>
 
 <span class="c1"># Create SQLAlchemy models with factories</span>
-<span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+<span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">"test_user"</span><span class="p">)</span>
 <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">67890</span><span class="p">,</span> <span class="n">accountId</span><span class="o">=</span><span class="mi">12345</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="stash-pydantic-factories">Stash Pydantic Factories<a class="headerlink" href="#stash-pydantic-factories" title="Permanent link">&para;</a></h3>
@@ -777,12 +777,12 @@
 <span class="p">)</span>
 
 <span class="c1"># Create Pydantic models with factories (temp UUID auto-generated)</span>
-<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Performer&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># e.g., &quot;f47ac10b-58cc-...&quot; (temp UUID)</span>
+<span class="n">performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Test Performer"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># e.g., "f47ac10b-58cc-..." (temp UUID)</span>
 
 <span class="c1"># Simulate server-returned object (override temp UUID with real ID)</span>
-<span class="n">existing_performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="s2">&quot;123&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Performer&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">existing_performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># &quot;123&quot; (real server ID)</span>
+<span class="n">existing_performer</span> <span class="o">=</span> <span class="n">PerformerFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="s2">"123"</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"Test Performer"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">existing_performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>  <span class="c1"># "123" (real server ID)</span>
 </code></pre></div>
 <h3 id="factory-usage-guidelines">Factory Usage Guidelines<a class="headerlink" href="#factory-usage-guidelines" title="Permanent link">&para;</a></h3>
 <ol>
@@ -797,28 +797,28 @@
 <p>All Stash integration tests <strong>MUST</strong> use the <code>stash_cleanup_tracker</code> fixture to prevent resource leaks:</p>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_create_performer</span><span class="p">(</span><span class="n">stash_cleanup_tracker</span><span class="p">,</span> <span class="n">respx_mock</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test creating a performer with cleanup tracking.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test creating a performer with cleanup tracking."""</span>
 
     <span class="c1"># Mock the create response</span>
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerCreate&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Performer&quot;</span><span class="p">,</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerCreate"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test Performer"</span><span class="p">,</span>
                     <span class="c1"># ... complete schema</span>
                 <span class="p">}}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
-    <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Performer&quot;</span><span class="p">))</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Test Performer"</span><span class="p">))</span>
 
     <span class="c1"># Register for cleanup (if test creates real resources)</span>
-    <span class="n">stash_cleanup_tracker</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">&quot;performer&quot;</span><span class="p">,</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">stash_cleanup_tracker</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">"performer"</span><span class="p">,</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
+    <span class="k">assert</span> <span class="n">performer</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>
 </code></pre></div>
 <h3 id="why-cleanup-tracking-matters">Why Cleanup Tracking Matters<a class="headerlink" href="#why-cleanup-tracking-matters" title="Permanent link">&para;</a></h3>
 <ul>
@@ -900,7 +900,7 @@
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">session</span><span class="p">(</span><span class="n">db_url</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Async database session for SQLAlchemy tests.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Async database session for SQLAlchemy tests."""</span>
     <span class="n">engine</span> <span class="o">=</span> <span class="n">create_async_engine</span><span class="p">(</span><span class="n">db_url</span><span class="p">,</span> <span class="n">echo</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
     <span class="k">async</span> <span class="k">with</span> <span class="n">engine</span><span class="o">.</span><span class="n">begin</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
@@ -916,7 +916,7 @@
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">session_sync</span><span class="p">(</span><span class="n">db_url_sync</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sync database session for SQLAlchemy tests.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Sync database session for SQLAlchemy tests."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">sqlalchemy</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_engine</span>
 
     <span class="n">engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="n">db_url_sync</span><span class="p">,</span> <span class="n">echo</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
@@ -938,61 +938,61 @@
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">stash_client</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stash client with test URL.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Stash client with test URL."""</span>
+    <span class="k">return</span> <span class="n">StashClient</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span>
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">sample_performer_data</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Complete Performer GraphQL response data.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Complete Performer GraphQL response data."""</span>
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Performer&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;alias_list&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;urls&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;favorite&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="s2">&quot;ignore_auto_tag&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-        <span class="s2">&quot;gender&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;birthdate&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;ethnicity&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;country&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;eye_color&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;height_cm&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;measurements&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;fake_tits&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;penis_length&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;circumcised&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;career_length&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;tattoos&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;piercings&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;image_path&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;death_date&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;hair_color&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;weight&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;rating100&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test Performer"</span><span class="p">,</span>
+        <span class="s2">"alias_list"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"urls"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"favorite"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">"ignore_auto_tag"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">"gender"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"birthdate"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"ethnicity"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"country"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"eye_color"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"height_cm"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"measurements"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"fake_tits"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"penis_length"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"circumcised"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"career_length"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"tattoos"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"piercings"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"image_path"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"details"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"death_date"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"hair_color"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"weight"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"rating100"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+        <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
     <span class="p">}</span>
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">sample_studio_data</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Complete Studio GraphQL response data.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Complete Studio GraphQL response data."""</span>
     <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;456&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test Studio&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://example.com/studio&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;parent_studio&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;child_studios&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;stash_ids&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;rating100&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;aliases&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[],</span>
-        <span class="s2">&quot;image_path&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;updated_at&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01T00:00:00Z&quot;</span><span class="p">,</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"456"</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test Studio"</span><span class="p">,</span>
+        <span class="s2">"url"</span><span class="p">:</span> <span class="s2">"https://example.com/studio"</span><span class="p">,</span>
+        <span class="s2">"parent_studio"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"child_studios"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"stash_ids"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"rating100"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"details"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"aliases"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"tags"</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="s2">"image_path"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">"created_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
+        <span class="s2">"updated_at"</span><span class="p">:</span> <span class="s2">"2024-01-01T00:00:00Z"</span><span class="p">,</span>
     <span class="p">}</span>
 </code></pre></div>
 <hr />
@@ -1000,7 +1000,7 @@
 <h3 id="spy-pattern-for-internal-orchestration-tests">Spy Pattern for Internal Orchestration Tests<a class="headerlink" href="#spy-pattern-for-internal-orchestration-tests" title="Permanent link">&para;</a></h3>
 <p>For tests that need to verify internal method coordination (e.g., early returns, call counts) while still executing real code:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Mocking internal method with return_value/side_effect</span>
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">&quot;_process_single_media&quot;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">)):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">"_process_single_media"</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="kc">False</span><span class="p">)):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">process_media_batch</span><span class="p">(</span><span class="n">media_list</span><span class="p">)</span>
 
 <span class="c1"># ✅ CORRECT: Spy pattern with wraps - real code executes</span>
@@ -1012,7 +1012,7 @@
     <span class="n">call_count</span> <span class="o">+=</span> <span class="mi">1</span>
     <span class="k">return</span> <span class="k">await</span> <span class="n">original_process</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>  <span class="c1"># Real code executes!</span>
 
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">&quot;_process_single_media&quot;</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_process</span><span class="p">):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">"_process_single_media"</span><span class="p">,</span> <span class="n">wraps</span><span class="o">=</span><span class="n">spy_process</span><span class="p">):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">process_media_batch</span><span class="p">([</span><span class="n">media1</span><span class="p">,</span> <span class="n">media2</span><span class="p">])</span>
 
     <span class="c1"># Verify orchestration</span>
@@ -1042,17 +1042,17 @@
 <span class="n">original_method</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">_parse_graphql_response</span>
 
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">failing_parse</span><span class="p">(</span><span class="n">response</span><span class="p">):</span>
-    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Unexpected parse failure&quot;</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">"Unexpected parse failure"</span><span class="p">)</span>
 
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="s2">&quot;_parse_graphql_response&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">failing_parse</span><span class="p">):</span>
-    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;Unexpected parse failure&quot;</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="s2">"_parse_graphql_response"</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">failing_parse</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"Unexpected parse failure"</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Some error conditions (disk failures, memory errors, parse exceptions) are difficult to simulate via HTTP responses.</p>
 <h3 id="exception-2-deep-call-trees-3-4-layers">Exception 2: Deep Call Trees (3-4+ layers)<a class="headerlink" href="#exception-2-deep-call-trees-3-4-layers" title="Permanent link">&para;</a></h3>
 <p>When setup would require extremely complex external state:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Testing deep call tree without complex setup</span>
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">&quot;_validate_nested_relationships&quot;</span><span class="p">):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">processor</span><span class="p">,</span> <span class="s2">"_validate_nested_relationships"</span><span class="p">):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">process_complex_account</span><span class="p">(</span><span class="n">account_data</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Setting up HTTP responses for 4+ nested GraphQL calls may be impractical.</p>
@@ -1061,14 +1061,14 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Testing utility function behavior</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">test_timestamp_conversion</span><span class="p">():</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">metadata.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">FanslyObject</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="n">FanslyObject</span><span class="o">.</span><span class="n">convert_timestamps</span><span class="p">({</span><span class="s2">&quot;createdAt&quot;</span><span class="p">:</span> <span class="mi">1704067200000</span><span class="p">},</span> <span class="p">(</span><span class="s2">&quot;createdAt&quot;</span><span class="p">,))</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;createdAt&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">FanslyObject</span><span class="o">.</span><span class="n">convert_timestamps</span><span class="p">({</span><span class="s2">"createdAt"</span><span class="p">:</span> <span class="mi">1704067200000</span><span class="p">},</span> <span class="p">(</span><span class="s2">"createdAt"</span><span class="p">,))</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="p">[</span><span class="s2">"createdAt"</span><span class="p">]</span> <span class="o">==</span> <span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Pure logic tests don't need external boundaries.</p>
 <h3 id="exception-4-slow-external-library-calls">Exception 4: Slow External Library Calls<a class="headerlink" href="#exception-4-slow-external-library-calls" title="Permanent link">&para;</a></h3>
 <p>Mocking computationally expensive operations:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ ACCEPTABLE: Mocking imagehash for performance</span>
-<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">&#39;imagehash.phash&#39;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">imagehash</span><span class="o">.</span><span class="n">hex_to_hash</span><span class="p">(</span><span class="s1">&#39;0&#39;</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">'imagehash.phash'</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">imagehash</span><span class="o">.</span><span class="n">hex_to_hash</span><span class="p">(</span><span class="s1">'0'</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)):</span>
     <span class="n">hash_result</span> <span class="o">=</span> <span class="n">get_image_hash</span><span class="p">(</span><span class="n">image_path</span><span class="p">)</span>
 </code></pre></div>
 <p><strong>Justification</strong>: Tests should run quickly; mocking slow image hashing is pragmatic.</p>
@@ -1085,7 +1085,7 @@
 <p><strong>Example - Why Human Review Matters:</strong></p>
 <p>When testing database connection errors, the naive approach would mock <code>AsyncSession.execute</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># ❌ WRONG: Automated guess would mock SQLAlchemy internals</span>
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">AsyncSession</span><span class="p">,</span> <span class="s2">&quot;execute&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Connection refused&quot;</span><span class="p">)):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">AsyncSession</span><span class="p">,</span> <span class="s2">"execute"</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="ne">Exception</span><span class="p">(</span><span class="s2">"Connection refused"</span><span class="p">)):</span>
     <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
         <span class="k">await</span> <span class="n">process_account</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">account_data</span><span class="p">)</span>
 </code></pre></div>
@@ -1093,9 +1093,9 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># ✅ CORRECT: Human-guided solution uses real database fixtures</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_db_connection_error</span><span class="p">(</span><span class="n">db_url</span><span class="p">):</span>
     <span class="c1"># Use invalid connection string to trigger real connection error</span>
-    <span class="n">engine</span> <span class="o">=</span> <span class="n">create_async_engine</span><span class="p">(</span><span class="s2">&quot;postgresql+asyncpg://invalid:invalid@localhost/invalid&quot;</span><span class="p">)</span>
+    <span class="n">engine</span> <span class="o">=</span> <span class="n">create_async_engine</span><span class="p">(</span><span class="s2">"postgresql+asyncpg://invalid:invalid@localhost/invalid"</span><span class="p">)</span>
 
-    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;connection&quot;</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="ne">Exception</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"connection"</span><span class="p">):</span>
         <span class="k">async</span> <span class="k">with</span> <span class="n">AsyncSession</span><span class="p">(</span><span class="n">engine</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
             <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">select</span><span class="p">(</span><span class="n">Account</span><span class="p">))</span>
 </code></pre></div>
@@ -1106,47 +1106,47 @@
 <h3 id="testing-create-operations-stash-graphql">Testing Create Operations (Stash GraphQL)<a class="headerlink" href="#testing-create-operations-stash-graphql" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_create_performer</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">,</span> <span class="n">sample_performer_data</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test creating a new performer.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test creating a new performer."""</span>
 
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerCreate&quot;</span><span class="p">:</span> <span class="n">sample_performer_data</span><span class="p">}</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerCreate"</span><span class="p">:</span> <span class="n">sample_performer_data</span><span class="p">}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
-    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test Performer&quot;</span><span class="p">)</span>
+    <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"Test Performer"</span><span class="p">)</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">create_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 
     <span class="c1"># Verify call</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="s2">&quot;performerCreate&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;input&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Test Performer&quot;</span>
+    <span class="k">assert</span> <span class="s2">"performerCreate"</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"input"</span><span class="p">][</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"Test Performer"</span>
 
     <span class="c1"># Verify result</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Test Performer&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"Test Performer"</span>
 </code></pre></div>
 <h3 id="testing-update-operations-stash-graphql">Testing Update Operations (Stash GraphQL)<a class="headerlink" href="#testing-update-operations-stash-graphql" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_update_performer</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">,</span> <span class="n">sample_performer_data</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test updating an existing performer.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test updating an existing performer."""</span>
 
-    <span class="n">updated_data</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">sample_performer_data</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Updated Name&quot;</span><span class="p">}</span>
+    <span class="n">updated_data</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">sample_performer_data</span><span class="p">,</span> <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Updated Name"</span><span class="p">}</span>
 
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;performerUpdate&quot;</span><span class="p">:</span> <span class="n">updated_data</span><span class="p">}</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"performerUpdate"</span><span class="p">:</span> <span class="n">updated_data</span><span class="p">}</span>
             <span class="p">})</span>
         <span class="p">]</span>
     <span class="p">)</span>
 
     <span class="n">performer</span> <span class="o">=</span> <span class="n">Performer</span><span class="p">(</span><span class="o">**</span><span class="n">sample_performer_data</span><span class="p">)</span>
-    <span class="n">performer</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;Updated Name&quot;</span>
+    <span class="n">performer</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">"Updated Name"</span>
 
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">update_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 
@@ -1154,38 +1154,38 @@
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="s2">&quot;performerUpdate&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;input&quot;</span><span class="p">][</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;input&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Updated Name&quot;</span>
+    <span class="k">assert</span> <span class="s2">"performerUpdate"</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"input"</span><span class="p">][</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"123"</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"input"</span><span class="p">][</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"Updated Name"</span>
 
     <span class="c1"># Verify result</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Updated Name&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"Updated Name"</span>
 </code></pre></div>
 <h3 id="testing-database-operations-sqlalchemy">Testing Database Operations (SQLAlchemy)<a class="headerlink" href="#testing-database-operations-sqlalchemy" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_account_creation</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">session_sync</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test creating and querying an account.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test creating and querying an account."""</span>
 
     <span class="c1"># Create account with factory</span>
-    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">"test_user"</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
     <span class="c1"># Query with async session</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
-        <span class="n">select</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">"test_user"</span><span class="p">)</span>
     <span class="p">)</span>
     <span class="n">found</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalar_one</span><span class="p">()</span>
 
     <span class="c1"># Verify account</span>
     <span class="k">assert</span> <span class="n">found</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="mi">12345</span>
-    <span class="k">assert</span> <span class="n">found</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">&quot;test_user&quot;</span>
+    <span class="k">assert</span> <span class="n">found</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">"test_user"</span>
 </code></pre></div>
 <h3 id="testing-relationships-sqlalchemy">Testing Relationships (SQLAlchemy)<a class="headerlink" href="#testing-relationships-sqlalchemy" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_account_media_relationship</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">session_sync</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test Account → Media relationship.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test Account → Media relationship."""</span>
 
     <span class="c1"># Create account</span>
-    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+    <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">12345</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s2">"test_user"</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
     <span class="n">session_sync</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
 
@@ -1197,7 +1197,7 @@
 
     <span class="c1"># Query with JOIN</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span>
-        <span class="n">select</span><span class="p">(</span><span class="n">Media</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">&quot;test_user&quot;</span><span class="p">)</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Media</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Account</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Account</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s2">"test_user"</span><span class="p">)</span>
     <span class="p">)</span>
     <span class="n">found_media</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scalars</span><span class="p">()</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 
@@ -1208,15 +1208,15 @@
 <h3 id="testing-find-operations-with-filters-stash-graphql">Testing Find Operations with Filters (Stash GraphQL)<a class="headerlink" href="#testing-find-operations-with-filters-stash-graphql" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_find_performers_with_filter</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">,</span> <span class="n">sample_performer_data</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Test finding performers with filters.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Test finding performers with filters."""</span>
 
-    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">graphql_route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
         <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
             <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span>
-                    <span class="s2">&quot;findPerformers&quot;</span><span class="p">:</span> <span class="p">{</span>
-                        <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-                        <span class="s2">&quot;performers&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">sample_performer_data</span><span class="p">]</span>
+                <span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">"findPerformers"</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">"count"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                        <span class="s2">"performers"</span><span class="p">:</span> <span class="p">[</span><span class="n">sample_performer_data</span><span class="p">]</span>
                     <span class="p">}</span>
                 <span class="p">}</span>
             <span class="p">})</span>
@@ -1224,10 +1224,10 @@
     <span class="p">)</span>
 
     <span class="n">filter_dict</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">&quot;performer_filter&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="s2">&quot;Test&quot;</span><span class="p">,</span> <span class="s2">&quot;modifier&quot;</span><span class="p">:</span> <span class="s2">&quot;INCLUDES&quot;</span><span class="p">}</span>
+        <span class="s2">"performer_filter"</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">"name"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"value"</span><span class="p">:</span> <span class="s2">"Test"</span><span class="p">,</span> <span class="s2">"modifier"</span><span class="p">:</span> <span class="s2">"INCLUDES"</span><span class="p">}</span>
         <span class="p">},</span>
-        <span class="s2">&quot;filter&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;page&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;per_page&quot;</span><span class="p">:</span> <span class="mi">25</span><span class="p">}</span>
+        <span class="s2">"filter"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"page"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">"per_page"</span><span class="p">:</span> <span class="mi">25</span><span class="p">}</span>
     <span class="p">}</span>
 
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">find_performers</span><span class="p">(</span><span class="o">**</span><span class="n">filter_dict</span><span class="p">)</span>
@@ -1236,14 +1236,14 @@
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="n">request</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">graphql_route</span><span class="o">.</span><span class="n">calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
 
-    <span class="k">assert</span> <span class="s2">&quot;findPerformers&quot;</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">]</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;performer_filter&quot;</span><span class="p">][</span><span class="s2">&quot;name&quot;</span><span class="p">][</span><span class="s2">&quot;value&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;Test&quot;</span>
-    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">&quot;variables&quot;</span><span class="p">][</span><span class="s2">&quot;filter&quot;</span><span class="p">][</span><span class="s2">&quot;page&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span>
+    <span class="k">assert</span> <span class="s2">"findPerformers"</span> <span class="ow">in</span> <span class="n">request</span><span class="p">[</span><span class="s2">"query"</span><span class="p">]</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"performer_filter"</span><span class="p">][</span><span class="s2">"name"</span><span class="p">][</span><span class="s2">"value"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"Test"</span>
+    <span class="k">assert</span> <span class="n">request</span><span class="p">[</span><span class="s2">"variables"</span><span class="p">][</span><span class="s2">"filter"</span><span class="p">][</span><span class="s2">"page"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span>
 
     <span class="c1"># Verify result</span>
     <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">count</span> <span class="o">==</span> <span class="mi">1</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;Test Performer&quot;</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">performers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"Test Performer"</span>
 </code></pre></div>
 <hr />
 <h2 id="anti-patterns-to-avoid">Anti-Patterns to Avoid<a class="headerlink" href="#anti-patterns-to-avoid" title="Permanent link">&para;</a></h2>
@@ -1251,18 +1251,18 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Only verifies result, not the GraphQL call</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_bad</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">):</span>
     <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">&quot;123&quot;</span>  <span class="c1"># Missing call verification!</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s2">"123"</span>  <span class="c1"># Missing call verification!</span>
 </code></pre></div>
 <h3 id="anti-pattern-2-mocking-internal-methods">❌ Anti-Pattern 2: Mocking Internal Methods<a class="headerlink" href="#anti-pattern-2-mocking-internal-methods" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking internal client method</span>
-<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">stash_client</span><span class="p">,</span> <span class="s1">&#39;find_performer&#39;</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="o">...</span><span class="p">)):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">stash_client</span><span class="p">,</span> <span class="s1">'find_performer'</span><span class="p">,</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="o">...</span><span class="p">)):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">update_performer</span><span class="p">(</span><span class="n">performer</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="anti-pattern-3-mocking-sqlalchemy-sessions">❌ Anti-Pattern 3: Mocking SQLAlchemy Sessions<a class="headerlink" href="#anti-pattern-3-mocking-sqlalchemy-sessions" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Mocking database session</span>
 <span class="n">mock_session</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">AsyncSession</span><span class="p">)</span>
-<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">&#39;metadata.database.get_session&#39;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">mock_session</span><span class="p">):</span>
+<span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s1">'metadata.database.get_session'</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">mock_session</span><span class="p">):</span>
     <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_account</span><span class="p">(</span><span class="n">account_data</span><span class="p">)</span>
 
 <span class="c1"># CORRECT: Use real session fixture</span>
@@ -1274,24 +1274,24 @@
 </code></pre></div>
 <h3 id="anti-pattern-4-incomplete-type-data">❌ Anti-Pattern 4: Incomplete Type Data<a class="headerlink" href="#anti-pattern-4-incomplete-type-data" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Missing required fields</span>
-<span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span>
-    <span class="s2">&quot;findPerformer&quot;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="s2">&quot;123&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;Test&quot;</span>
+<span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"findPerformer"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"id"</span><span class="p">:</span> <span class="s2">"123"</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"Test"</span>
         <span class="c1"># Missing alias_list, tags, stash_ids, etc.</span>
     <span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="anti-pattern-5-using-return_value-instead-of-side_effect">❌ Anti-Pattern 5: Using return_value Instead of side_effect<a class="headerlink" href="#anti-pattern-5-using-return_value-instead-of-side_effect" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># WRONG: Using return_value for respx mocks</span>
-<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-    <span class="n">return_value</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
+<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+    <span class="n">return_value</span><span class="o">=</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
 <span class="p">)</span>
 
 <span class="c1"># CORRECT: Always use side_effect with list</span>
-<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;http://localhost:9999/graphql&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+<span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"http://localhost:9999/graphql"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
     <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
+        <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">}})</span>
     <span class="p">]</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -1299,7 +1299,7 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># INCOMPLETE: Only tests success case</span>
 <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_find_performer</span><span class="p">(</span><span class="n">respx_mock</span><span class="p">,</span> <span class="n">stash_client</span><span class="p">):</span>
     <span class="n">respx</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span><span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">success_response</span><span class="p">])</span>
-    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">&quot;123&quot;</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">stash_client</span><span class="o">.</span><span class="n">find_performer</span><span class="p">(</span><span class="s2">"123"</span><span class="p">)</span>
     <span class="k">assert</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 
 <span class="c1"># ALSO TEST: GraphQL errors, validation errors, not found cases</span>
@@ -1317,7 +1317,7 @@ pytest<span class="w"> </span>tests/stash/processing/unit/<span class="w">  </sp
 <span class="c1"># Run with markers</span>
 pytest<span class="w"> </span>-m<span class="w"> </span>unit<span class="w">  </span><span class="c1"># Unit tests only</span>
 pytest<span class="w"> </span>-m<span class="w"> </span>integration<span class="w">  </span><span class="c1"># Integration tests only</span>
-pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not slow&quot;</span><span class="w">  </span><span class="c1"># Skip slow tests</span>
+pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">"not slow"</span><span class="w">  </span><span class="c1"># Skip slow tests</span>
 
 <span class="c1"># Run in parallel for speed</span>
 pytest<span class="w"> </span>-n<span class="w"> </span>auto

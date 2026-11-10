@@ -146,40 +146,40 @@ Branch: continues on <code>wall-filters</code> (or a fresh branch off fork-main;
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrEnum</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">Resolution</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
-    <span class="n">P240</span> <span class="o">=</span> <span class="s2">&quot;240p&quot;</span>
-    <span class="n">P360</span> <span class="o">=</span> <span class="s2">&quot;360p&quot;</span>
-    <span class="n">P480</span> <span class="o">=</span> <span class="s2">&quot;480p&quot;</span>
-    <span class="n">P720</span> <span class="o">=</span> <span class="s2">&quot;720p&quot;</span>
-    <span class="n">P1080</span> <span class="o">=</span> <span class="s2">&quot;1080p&quot;</span>
-    <span class="n">P1440</span> <span class="o">=</span> <span class="s2">&quot;1440p&quot;</span>
-    <span class="n">UHD</span> <span class="o">=</span> <span class="s2">&quot;4k&quot;</span>
+    <span class="n">P240</span> <span class="o">=</span> <span class="s2">"240p"</span>
+    <span class="n">P360</span> <span class="o">=</span> <span class="s2">"360p"</span>
+    <span class="n">P480</span> <span class="o">=</span> <span class="s2">"480p"</span>
+    <span class="n">P720</span> <span class="o">=</span> <span class="s2">"720p"</span>
+    <span class="n">P1080</span> <span class="o">=</span> <span class="s2">"1080p"</span>
+    <span class="n">P1440</span> <span class="o">=</span> <span class="s2">"1440p"</span>
+    <span class="n">UHD</span> <span class="o">=</span> <span class="s2">"4k"</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;240p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">426</span><span class="p">,</span> <span class="mi">240</span><span class="p">),</span>
-            <span class="s2">&quot;360p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">640</span><span class="p">,</span> <span class="mi">360</span><span class="p">),</span>
-            <span class="s2">&quot;480p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">854</span><span class="p">,</span> <span class="mi">480</span><span class="p">),</span>
-            <span class="s2">&quot;720p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1280</span><span class="p">,</span> <span class="mi">720</span><span class="p">),</span>
-            <span class="s2">&quot;1080p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
-            <span class="s2">&quot;1440p&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">2560</span><span class="p">,</span> <span class="mi">1440</span><span class="p">),</span>
-            <span class="s2">&quot;4k&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
+            <span class="s2">"240p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">426</span><span class="p">,</span> <span class="mi">240</span><span class="p">),</span>
+            <span class="s2">"360p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">640</span><span class="p">,</span> <span class="mi">360</span><span class="p">),</span>
+            <span class="s2">"480p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">854</span><span class="p">,</span> <span class="mi">480</span><span class="p">),</span>
+            <span class="s2">"720p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">1280</span><span class="p">,</span> <span class="mi">720</span><span class="p">),</span>
+            <span class="s2">"1080p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">1920</span><span class="p">,</span> <span class="mi">1080</span><span class="p">),</span>
+            <span class="s2">"1440p"</span><span class="p">:</span> <span class="p">(</span><span class="mi">2560</span><span class="p">,</span> <span class="mi">1440</span><span class="p">),</span>
+            <span class="s2">"4k"</span><span class="p">:</span> <span class="p">(</span><span class="mi">3840</span><span class="p">,</span> <span class="mi">2160</span><span class="p">),</span>
         <span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">value</span><span class="p">]</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel count for this tier (the &#39;p&#39; number).&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Shorter-edge pixel count for this tier (the 'p' number)."""</span>
         <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_missing_</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;Resolution | None&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Case-insensitive lookup plus the 2160p -&gt; 4k alias.&quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_missing_</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"Resolution | None"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Case-insensitive lookup plus the 2160p -&gt; 4k alias."""</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
             <span class="n">v</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
             <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="bp">cls</span><span class="p">:</span>
                 <span class="k">if</span> <span class="n">member</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">v</span><span class="p">:</span>
                     <span class="k">return</span> <span class="n">member</span>
-            <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="s2">&quot;2160p&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="s2">"2160p"</span><span class="p">:</span>
                 <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">UHD</span>
         <span class="k">return</span> <span class="kc">None</span>
 </code></pre></div>
@@ -193,12 +193,12 @@ Branch: continues on <code>wall-filters</code> (or a fresh branch off fork-main;
 </ul>
 <h3 id="conversion-validation-single-source-of-truth">Conversion + validation (single source of truth)<a class="headerlink" href="#conversion-validation-single-source-of-truth" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolution_threshold</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Shorter-edge pixel cap for a max_resolution value; None = disabled.</span>
+<span class="w">    </span><span class="sd">"""Shorter-edge pixel cap for a max_resolution value; None = disabled.</span>
 
-<span class="sd">    Accepts a Resolution tier name (case-insensitive, &#39;2160p&#39; alias),</span>
+<span class="sd">    Accepts a Resolution tier name (case-insensitive, '2160p' alias),</span>
 <span class="sd">    a bare pixel integer or digit-string, or 0/None (disabled).</span>
 <span class="sd">    Raises ConfigError on anything else.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 </code></pre></div>
 <ul>
 <li><code>None</code> / <code>0</code> / <code>""</code> -&gt; <code>None</code> (disabled; <code>0</code> mirrors the other filters' 0-disables convention).</li>

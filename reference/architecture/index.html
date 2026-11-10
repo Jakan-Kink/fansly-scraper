@@ -321,9 +321,9 @@ rather than duplicating them.</p>
 <p>All entity operations follow this shape:</p>
 <div class="highlight"><pre><span></span><code><span class="n">store</span> <span class="o">=</span> <span class="n">get_store</span><span class="p">()</span>
 
-<span class="c1"># model_validate handles identity map dedup via model_validator(mode=&quot;wrap&quot;).</span>
+<span class="c1"># model_validate handles identity map dedup via model_validator(mode="wrap").</span>
 <span class="c1"># Auto-coerces str IDs → int, int timestamps → datetime. Unknown fields</span>
-<span class="c1"># from the API are silently ignored (`extra=&quot;ignore&quot;`).</span>
+<span class="c1"># from the API are silently ignored (`extra="ignore"`).</span>
 <span class="n">obj</span> <span class="o">=</span> <span class="n">Model</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span><span class="n">api_dict</span><span class="p">)</span>
 
 <span class="c1"># Save related entities first if FK constraints require it.</span>
@@ -342,10 +342,10 @@ rather than duplicating them.</p>
 <p>The render symptom is "two block/replacement glyphs for one character" in terminals — one half of the broken pair rendered as an empty box, paired with a substitution glyph. Not a consumer bug; upstream truncation already happened.</p>
 <h3 id="identity-map-via-wrap-validator">Identity map via wrap validator<a class="headerlink" href="#identity-map-via-wrap-validator" title="Permanent link">&para;</a></h3>
 <p>Every model defines:</p>
-<div class="highlight"><pre><span></span><code><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;wrap&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">"wrap"</span><span class="p">)</span>
 <span class="nd">@classmethod</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_identity_map_check</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">handler</span><span class="p">:</span> <span class="n">ValidatorFunctionWrapHandler</span><span class="p">):</span>
-    <span class="c1"># If ID already in the store&#39;s identity map, return the cached</span>
+    <span class="c1"># If ID already in the store's identity map, return the cached</span>
     <span class="c1"># instance and merge incoming fields into it. Otherwise, construct</span>
     <span class="c1"># a new instance and register it.</span>
     <span class="o">...</span>
@@ -410,12 +410,12 @@ there's no intermediate <code>process_data()</code> layer. The key enablers:</p>
 <h2 id="entitystore-filter-syntax">EntityStore Filter Syntax<a class="headerlink" href="#entitystore-filter-syntax" title="Permanent link">&para;</a></h2>
 <p>Queries mirror the Django ORM / <code>stash-graphql-client</code> filter DSL:</p>
 <div class="highlight"><pre><span></span><code><span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">is_downloaded</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>            <span class="c1"># EQUALS (default)</span>
-<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">mimetype__contains</span><span class="o">=</span><span class="s2">&quot;video&quot;</span><span class="p">)</span>    <span class="c1"># ILIKE</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">mimetype__contains</span><span class="o">=</span><span class="s2">"video"</span><span class="p">)</span>    <span class="c1"># ILIKE</span>
 <span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">duration__gte</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>             <span class="c1"># &gt;=</span>
 <span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Post</span><span class="p">,</span> <span class="n">id__in</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span>              <span class="c1"># = ANY(...)</span>
 <span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">content_hash__null</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>      <span class="c1"># IS NULL</span>
 <span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Media</span><span class="p">,</span> <span class="n">updatedAt__between</span><span class="o">=</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span> <span class="n">t1</span><span class="p">))</span>  <span class="c1"># BETWEEN</span>
-<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Account</span><span class="p">,</span> <span class="n">username__iexact</span><span class="o">=</span><span class="s2">&quot;ALICE&quot;</span><span class="p">)</span>    <span class="c1"># ILIKE (case-insensitive exact)</span>
+<span class="n">store</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">Account</span><span class="p">,</span> <span class="n">username__iexact</span><span class="o">=</span><span class="s2">"ALICE"</span><span class="p">)</span>    <span class="c1"># ILIKE (case-insensitive exact)</span>
 </code></pre></div>
 <p>Additional operations:</p>
 <ul>

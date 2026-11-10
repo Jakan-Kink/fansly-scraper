@@ -226,7 +226,7 @@ in.</p>
 
 <span class="nt">my_account</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">authorization_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_session_token_here</span>
-<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Mozilla/5.0</span><span class="nv"> </span><span class="s">…&quot;</span>
+<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">"Mozilla/5.0</span><span class="nv"> </span><span class="s">…"</span>
 
 <span class="nt">options</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">download_directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/mnt/media/Fansly</span>
@@ -292,7 +292,7 @@ in.</p>
 <p>Authentication credentials.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">my_account</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">authorization_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your_session_token_here</span>
-<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Mozilla/5.0</span><span class="nv"> </span><span class="s">…&quot;</span>
+<span class="w">  </span><span class="nt">user_agent</span><span class="p">:</span><span class="w"> </span><span class="s">"Mozilla/5.0</span><span class="nv"> </span><span class="s">…"</span>
 <span class="w">  </span><span class="nt">check_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qybZy9-fyszis-bybxyf</span>
 <span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 <span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
@@ -600,17 +600,17 @@ stripped from the YAML on load. Keeping them in your file is harmless:</p>
 <span class="w">  </span><span class="nt">download_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">wall</span>
 <span class="nt">filters</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">wall</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">creator1</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;FULL</span><span class="nv"> </span><span class="s">VIDEOS&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">creator1</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"FULL</span><span class="nv"> </span><span class="s">VIDEOS"</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">creator2</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">includes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Promos&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;1234567890123&quot;</span><span class="p p-Indicator">]</span>
-<span class="w">      </span><span class="nt">excludes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;previews&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">includes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"Promos"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"1234567890123"</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">excludes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"previews"</span><span class="p p-Indicator">]</span>
 </code></pre></div>
 <p>Wall names match case-insensitively against the names shown as tabs on the creator's page; all-digit tokens of 10+ characters are treated as wall IDs (visible in DevTools). <code>excludes</code> without <code>includes</code> means "all walls except these". An empty entry prompts interactively (download all walls? / enter wall names) and errors in non-interactive runs.</p>
 <p>CLI equivalent (ephemeral, never written back to <code>config.yaml</code>):</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># one creator, bare form</span>
-python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>-u<span class="w"> </span>creator1<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s2">&quot;FULL VIDEOS,Promos&quot;</span>
+python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>-u<span class="w"> </span>creator1<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s2">"FULL VIDEOS,Promos"</span>
 <span class="c1"># multiple creators, JSON form</span>
-python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s1">&#39;{&quot;creator1&quot;: [&quot;FULL VIDEOS&quot;], &quot;creator2&quot;: {&quot;excludes&quot;: [&quot;previews&quot;]}}&#39;</span>
+python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--wall-filters<span class="w"> </span><span class="s1">'{"creator1": ["FULL VIDEOS"], "creator2": {"excludes": ["previews"]}}'</span>
 </code></pre></div>
 <p>With <code>-u</code> alongside YAML <code>filters.wall</code>, <code>-u</code> must name a subset of the filter keys and narrows the run to those creators. Wall names containing commas (and excludes) require the JSON form.</p>
 <h3 id="filtersmedia"><code>filters.media</code><a class="headerlink" href="#filtersmedia" title="Permanent link">&para;</a></h3>
@@ -619,7 +619,7 @@ python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--w
 <span class="w">  </span><span class="nt">media</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">file_size_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100KB</span>
 <span class="w">    </span><span class="nt">file_size_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4GB</span>
-<span class="w">    </span><span class="nt">duration_min</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0:03&quot;</span>
+<span class="w">    </span><span class="nt">duration_min</span><span class="p">:</span><span class="w"> </span><span class="s">"0:03"</span>
 <span class="w">    </span><span class="nt">duration_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2h</span>
 <span class="w">    </span><span class="nt">by_creator</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">vod_streamer</span><span class="p">:</span>
@@ -714,25 +714,25 @@ python<span class="w"> </span>fansly_downloader_ng.py<span class="w"> </span>--w
 <td><code>pg_sslmode</code></td>
 <td><code>str</code></td>
 <td><code>"prefer"</code></td>
-<td>libpq-style SSL mode. <strong>Currently NOT wired to <code>asyncpg.create_pool</code></strong> — the value is parsed and stored but not passed to the pool. A future task should pass <code>ssl=</code> when any <code>pg_ssl*</code> value is set</td>
+<td>libpq SSL mode: <code>disable</code>, <code>allow</code>, <code>prefer</code>, <code>require</code>, <code>verify-ca</code>, <code>verify-full</code>. Applied to every connection (the asyncpg pools and the migration engine). Ignored for Unix-socket hosts</td>
 </tr>
 <tr>
 <td><code>pg_sslcert</code></td>
 <td><code>str \| None</code></td>
 <td><code>null</code></td>
-<td>SSL client certificate path. Same NOT-wired caveat as <code>pg_sslmode</code></td>
+<td>SSL client certificate path (libpq <code>sslcert</code>)</td>
 </tr>
 <tr>
 <td><code>pg_sslkey</code></td>
 <td><code>str \| None</code></td>
 <td><code>null</code></td>
-<td>SSL client key path. Same NOT-wired caveat</td>
+<td>SSL client key path (libpq <code>sslkey</code>)</td>
 </tr>
 <tr>
 <td><code>pg_sslrootcert</code></td>
 <td><code>str \| None</code></td>
 <td><code>null</code></td>
-<td>SSL root cert path. Same NOT-wired caveat</td>
+<td>CA certificate used by <code>verify-ca</code> / <code>verify-full</code> (libpq <code>sslrootcert</code>)</td>
 </tr>
 <tr>
 <td><code>pg_pool_size</code></td>
@@ -1033,7 +1033,7 @@ without warning.</p>
 <span class="w">  </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9999</span>
-<span class="w">  </span><span class="nt">apikey</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<span class="w">  </span><span class="nt">apikey</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
 <span class="w">  </span><span class="nt">mapped_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 <span class="w">  </span><span class="nt">override_dldir_w_mapped</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">require_stash_only_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
@@ -1317,8 +1317,8 @@ machine-precise.</p>
 These rarely need user adjustment — the defaults track Fansly's current
 <code>main.js</code> shape and are auto-applied on every fresh extraction.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">logic</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">check_key_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;this\.checkKey_\s*=\s*[&quot;</span><span class="se">&#39;&#39;</span><span class="s">]([^&quot;</span><span class="se">&#39;&#39;</span><span class="s">]+)[&quot;</span><span class="se">&#39;&#39;</span><span class="s">]&#39;</span>
-<span class="w">  </span><span class="nt">main_js_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;\ssrc\s*=\s*&quot;(main\..*?\.js)&quot;&#39;</span>
+<span class="w">  </span><span class="nt">check_key_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">'this\.checkKey_\s*=\s*["</span><span class="se">''</span><span class="s">]([^"</span><span class="se">''</span><span class="s">]+)["</span><span class="se">''</span><span class="s">]'</span>
+<span class="w">  </span><span class="nt">main_js_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">'\ssrc\s*=\s*"(main\..*?\.js)"'</span>
 </code></pre></div>
 <table>
 <thead>

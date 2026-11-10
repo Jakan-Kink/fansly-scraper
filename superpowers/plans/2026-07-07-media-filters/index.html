@@ -156,7 +156,7 @@
 <li>[ ] <strong>Step 1: Write the failing tests</strong></li>
 </ul>
 <p>Create <code>tests/config/unit/test_media_filters.py</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Unit tests for config.media_filters parsing and resolution.&quot;&quot;&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="sd">"""Unit tests for config.media_filters parsing and resolution."""</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
 
@@ -171,57 +171,57 @@
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestParseSize</span><span class="p">:</span>
     <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span>
-        <span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="s2">&quot;expected&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"value"</span><span class="p">,</span> <span class="s2">"expected"</span><span class="p">),</span>
         <span class="p">[</span>
             <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
             <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;0&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">""</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"0"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
             <span class="p">(</span><span class="mi">102400</span><span class="p">,</span> <span class="mi">102400</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;102400&quot;</span><span class="p">,</span> <span class="mi">102400</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;100KB&quot;</span><span class="p">,</span> <span class="mi">100_000</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;100 kb&quot;</span><span class="p">,</span> <span class="mi">100_000</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;4GB&quot;</span><span class="p">,</span> <span class="mi">4_000_000_000</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;1GiB&quot;</span><span class="p">,</span> <span class="mi">1_073_741_824</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;2MiB&quot;</span><span class="p">,</span> <span class="mi">2_097_152</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;1.5MB&quot;</span><span class="p">,</span> <span class="mi">1_500_000</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"102400"</span><span class="p">,</span> <span class="mi">102400</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"100KB"</span><span class="p">,</span> <span class="mi">100_000</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"100 kb"</span><span class="p">,</span> <span class="mi">100_000</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"4GB"</span><span class="p">,</span> <span class="mi">4_000_000_000</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"1GiB"</span><span class="p">,</span> <span class="mi">1_073_741_824</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"2MiB"</span><span class="p">,</span> <span class="mi">2_097_152</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"1.5MB"</span><span class="p">,</span> <span class="mi">1_500_000</span><span class="p">),</span>
         <span class="p">],</span>
     <span class="p">)</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_accepted_forms</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">expected</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">==</span> <span class="n">expected</span>
 
-    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;huge&quot;</span><span class="p">,</span> <span class="s2">&quot;10XB&quot;</span><span class="p">,</span> <span class="s2">&quot;GB4&quot;</span><span class="p">,</span> <span class="s2">&quot;-5MB&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">"value"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"huge"</span><span class="p">,</span> <span class="s2">"10XB"</span><span class="p">,</span> <span class="s2">"GB4"</span><span class="p">,</span> <span class="s2">"-5MB"</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_raises_with_example</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;file_size&quot;</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"file_size"</span><span class="p">):</span>
             <span class="n">parse_size</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestParseDuration</span><span class="p">:</span>
     <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span>
-        <span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="s2">&quot;expected&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">"value"</span><span class="p">,</span> <span class="s2">"expected"</span><span class="p">),</span>
         <span class="p">[</span>
             <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
             <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;0&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">""</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"0"</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
             <span class="p">(</span><span class="mi">90</span><span class="p">,</span> <span class="mf">90.0</span><span class="p">),</span>
             <span class="p">(</span><span class="mf">90.5</span><span class="p">,</span> <span class="mf">90.5</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;90&quot;</span><span class="p">,</span> <span class="mf">90.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;1:30&quot;</span><span class="p">,</span> <span class="mf">90.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;1:30:00&quot;</span><span class="p">,</span> <span class="mf">5400.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;0:03&quot;</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;45s&quot;</span><span class="p">,</span> <span class="mf">45.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;45m&quot;</span><span class="p">,</span> <span class="mf">2700.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;2h&quot;</span><span class="p">,</span> <span class="mf">7200.0</span><span class="p">),</span>
-            <span class="p">(</span><span class="s2">&quot;2h30m&quot;</span><span class="p">,</span> <span class="mf">9000.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"90"</span><span class="p">,</span> <span class="mf">90.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"1:30"</span><span class="p">,</span> <span class="mf">90.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"1:30:00"</span><span class="p">,</span> <span class="mf">5400.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"0:03"</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"45s"</span><span class="p">,</span> <span class="mf">45.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"45m"</span><span class="p">,</span> <span class="mf">2700.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"2h"</span><span class="p">,</span> <span class="mf">7200.0</span><span class="p">),</span>
+            <span class="p">(</span><span class="s2">"2h30m"</span><span class="p">,</span> <span class="mf">9000.0</span><span class="p">),</span>
         <span class="p">],</span>
     <span class="p">)</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_accepted_forms</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">expected</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">==</span> <span class="n">expected</span>
 
-    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;soon&quot;</span><span class="p">,</span> <span class="s2">&quot;1:2:3:4&quot;</span><span class="p">,</span> <span class="s2">&quot;-30&quot;</span><span class="p">,</span> <span class="s2">&quot;10x&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">"value"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"soon"</span><span class="p">,</span> <span class="s2">"1:2:3:4"</span><span class="p">,</span> <span class="s2">"-30"</span><span class="p">,</span> <span class="s2">"10x"</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]])</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_raises_with_example</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;duration&quot;</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"duration"</span><span class="p">):</span>
             <span class="n">parse_duration</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
 
 
@@ -236,19 +236,19 @@
         <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">is_active</span> <span class="ow">is</span> <span class="kc">True</span>
         <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="mi">500</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;file_size_min&quot;</span>
-        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="mi">5000</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"file_size_min"</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">size_verdict</span><span class="p">(</span><span class="mi">5000</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
         <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="mf">30.0</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;duration_min&quot;</span>
-        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="mf">600.0</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;duration_max&quot;</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"duration_min"</span>
+        <span class="k">assert</span> <span class="n">f</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="mf">600.0</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"duration_max"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_ensure_valid_raises_on_min_over_max</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;file_size&quot;</span><span class="p">):</span>
-            <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_min</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">file_size_max</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">&quot;global&quot;</span><span class="p">)</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;duration&quot;</span><span class="p">):</span>
-            <span class="n">MediaFilters</span><span class="p">(</span><span class="n">duration_min</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">duration_max</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">&quot;global&quot;</span><span class="p">)</span>
-        <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_min</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">file_size_max</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">&quot;global&quot;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"file_size"</span><span class="p">):</span>
+            <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_min</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">file_size_max</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">"global"</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"duration"</span><span class="p">):</span>
+            <span class="n">MediaFilters</span><span class="p">(</span><span class="n">duration_min</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">duration_max</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">"global"</span><span class="p">)</span>
+        <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_min</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">file_size_max</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">"global"</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestForCreator</span><span class="p">:</span>
@@ -257,35 +257,35 @@
             <span class="n">file_size_max</span><span class="o">=</span><span class="mi">4_000_000_000</span><span class="p">,</span>
             <span class="n">duration_max</span><span class="o">=</span><span class="mf">7200.0</span><span class="p">,</span>
             <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span>
-                <span class="s2">&quot;vod_streamer&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">2700.0</span><span class="p">),</span>
-                <span class="s2">&quot;archived&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">duration_max</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
-                <span class="s2">&quot;noop&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(),</span>
-                <span class="s2">&quot;1234567890123&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_min</span><span class="o">=</span><span class="mf">5.0</span><span class="p">),</span>
+                <span class="s2">"vod_streamer"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">2700.0</span><span class="p">),</span>
+                <span class="s2">"archived"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">duration_max</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>
+                <span class="s2">"noop"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(),</span>
+                <span class="s2">"1234567890123"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_min</span><span class="o">=</span><span class="mf">5.0</span><span class="p">),</span>
             <span class="p">},</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_value_override_and_inherit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;vod_streamer&quot;</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"vod_streamer"</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">2700.0</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">file_size_max</span> <span class="o">==</span> <span class="mi">4_000_000_000</span>  <span class="c1"># inherited</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_explicit_none_disables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;archived&quot;</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"archived"</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">file_size_max</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">duration_max</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">is_active</span> <span class="ow">is</span> <span class="kc">False</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_empty_override_inherits_all</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;noop&quot;</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">r</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"noop"</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">r</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="mi">111</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_id_key_lookup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;someone&quot;</span><span class="p">,</span> <span class="mi">1234567890123</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"someone"</span><span class="p">,</span> <span class="mi">1234567890123</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">duration_min</span> <span class="o">==</span> <span class="mf">5.0</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_unknown_creator_gets_globals</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filters</span><span class="p">()</span>
-        <span class="n">r</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="mi">999</span><span class="p">)</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="mi">999</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">file_size_max</span> <span class="o">==</span> <span class="n">base</span><span class="o">.</span><span class="n">file_size_max</span>
         <span class="k">assert</span> <span class="n">r</span><span class="o">.</span><span class="n">by_creator</span> <span class="o">==</span> <span class="p">{}</span>
 </code></pre></div>
@@ -298,13 +298,13 @@ Expected: <code>ModuleNotFoundError: No module named 'config.media_filters'</cod
 <ul>
 <li>[ ] <strong>Step 3: Implement <code>config/media_filters.py</code></strong></li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Media-filter value parsing and the frozen runtime limits model.</span>
+<div class="highlight"><pre><span></span><code><span class="sd">"""Media-filter value parsing and the frozen runtime limits model.</span>
 
 <span class="sd">parse_size/parse_duration normalize human-friendly config values to bytes</span>
 <span class="sd">and seconds, delegating to pydantic.ByteSize and pytimeparse2. MediaFilters</span>
 <span class="sd">holds the resolved limits plus per-creator overrides and answers</span>
 <span class="sd">pass/violate verdicts for the download gates.</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
 
@@ -321,104 +321,104 @@ Expected: <code>ModuleNotFoundError: No module named 'config.media_filters'</cod
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigError</span>
 
-<span class="n">MEDIA_FILTERS_EXAMPLE</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="n">MEDIA_FILTERS_EXAMPLE</span> <span class="o">=</span> <span class="s2">"""</span><span class="se">\</span>
 <span class="s2">filters:</span>
 <span class="s2">  media:</span>
 <span class="s2">    file_size_min: 100KB</span>
 <span class="s2">    file_size_max: 4GB</span>
-<span class="s2">    duration_min: &quot;0:03&quot;</span>
+<span class="s2">    duration_min: "0:03"</span>
 <span class="s2">    duration_max: 2h</span>
 <span class="s2">    by_creator:</span>
 <span class="s2">      vod_streamer:</span>
-<span class="s2">        duration_max: 45m&quot;&quot;&quot;</span>
+<span class="s2">        duration_max: 45m"""</span>
 
 <span class="n">_BYTE_SIZE</span><span class="p">:</span> <span class="n">TypeAdapter</span><span class="p">[</span><span class="n">ByteSize</span><span class="p">]</span> <span class="o">=</span> <span class="n">TypeAdapter</span><span class="p">(</span><span class="n">ByteSize</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_shape_error</span><span class="p">(</span><span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigError</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">ConfigError</span><span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;media_filters: could not parse </span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2"> value </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">.</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;Expected shape:</span><span class="se">\n</span><span class="si">{</span><span class="n">MEDIA_FILTERS_EXAMPLE</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"media_filters: could not parse </span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2"> value </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">.</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="sa">f</span><span class="s2">"Expected shape:</span><span class="se">\n</span><span class="si">{</span><span class="n">MEDIA_FILTERS_EXAMPLE</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">parse_size</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalize a size value to bytes; 0/None/empty disables (None).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Normalize a size value to bytes; 0/None/empty disables (None)."""</span>
     <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;file_size&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"file_size"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;file_size&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"file_size"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
         <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">or</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="n">text</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">""</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">_BYTE_SIZE</span><span class="o">.</span><span class="n">validate_python</span><span class="p">(</span><span class="n">text</span><span class="p">))</span>
         <span class="k">except</span> <span class="n">ValidationError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;file_size&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"file_size"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
         <span class="k">if</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;file_size&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"file_size"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">size</span> <span class="ow">or</span> <span class="kc">None</span>
-    <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;file_size&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"file_size"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">parse_duration</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Normalize a duration value to seconds; 0/None/empty disables (None).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Normalize a duration value to seconds; 0/None/empty disables (None)."""</span>
     <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
         <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">or</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
         <span class="n">text</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">""</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">numeric</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
             <span class="n">parsed</span> <span class="o">=</span> <span class="n">_parse_timespan</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">parsed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
             <span class="n">seconds</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">parsed</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">seconds</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">seconds</span> <span class="ow">or</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">numeric</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">numeric</span> <span class="ow">or</span> <span class="kc">None</span>
-    <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">&quot;duration&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="n">_shape_error</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MediaFilterOverride</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-creator partial override; absent fields inherit the globals.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Per-creator partial override; absent fields inherit the globals."""</span>
 
-    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">&quot;forbid&quot;</span><span class="p">)</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">"forbid"</span><span class="p">)</span>
 
     <span class="n">file_size_min</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">file_size_max</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">duration_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">duration_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;file_size_min&quot;</span><span class="p">,</span> <span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"file_size_min"</span><span class="p">,</span> <span class="s2">"file_size_max"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_parse_sizes</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;duration_min&quot;</span><span class="p">,</span> <span class="s2">&quot;duration_max&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"duration_min"</span><span class="p">,</span> <span class="s2">"duration_max"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_parse_durations</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MediaFilters</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolved media-filter limits; None means that limit is disabled.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Resolved media-filter limits; None means that limit is disabled."""</span>
 
     <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
@@ -441,51 +441,51 @@ Expected: <code>ModuleNotFoundError: No module named 'config.media_filters'</cod
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">size_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Violated-limit name for a byte count, or None to pass.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Violated-limit name for a byte count, or None to pass."""</span>
         <span class="k">if</span> <span class="n">size_bytes</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">size_bytes</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;file_size_min&quot;</span>
+            <span class="k">return</span> <span class="s2">"file_size_min"</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">size_bytes</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;file_size_max&quot;</span>
+            <span class="k">return</span> <span class="s2">"file_size_max"</span>
         <span class="k">return</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">duration_verdict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">duration</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Violated-limit name for a duration in seconds, or None to pass.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Violated-limit name for a duration in seconds, or None to pass."""</span>
         <span class="k">if</span> <span class="n">duration</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">duration</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_min</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;duration_min&quot;</span>
+            <span class="k">return</span> <span class="s2">"duration_min"</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">duration</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_max</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s2">&quot;duration_max&quot;</span>
+            <span class="k">return</span> <span class="s2">"duration_max"</span>
         <span class="k">return</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">for_creator</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">username</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">creator_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;MediaFilters&quot;</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Resolve the per-creator override (username key, then ID key).&quot;&quot;&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"MediaFilters"</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Resolve the per-creator override (username key, then ID key)."""</span>
         <span class="n">override</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">username</span><span class="p">:</span>
-            <span class="n">override</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">by_creator</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">username</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;@&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+            <span class="n">override</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">by_creator</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">username</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">"@"</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
         <span class="k">if</span> <span class="n">override</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">creator_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">override</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">by_creator</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">creator_id</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">override</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_copy</span><span class="p">(</span><span class="n">update</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;by_creator&quot;</span><span class="p">:</span> <span class="p">{}})</span>
-        <span class="n">update</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;by_creator&quot;</span><span class="p">:</span> <span class="p">{}}</span>
-        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;file_size_min&quot;</span><span class="p">,</span> <span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span> <span class="s2">&quot;duration_min&quot;</span><span class="p">,</span> <span class="s2">&quot;duration_max&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_copy</span><span class="p">(</span><span class="n">update</span><span class="o">=</span><span class="p">{</span><span class="s2">"by_creator"</span><span class="p">:</span> <span class="p">{}})</span>
+        <span class="n">update</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"by_creator"</span><span class="p">:</span> <span class="p">{}}</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"file_size_min"</span><span class="p">,</span> <span class="s2">"file_size_max"</span><span class="p">,</span> <span class="s2">"duration_min"</span><span class="p">,</span> <span class="s2">"duration_max"</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">override</span><span class="o">.</span><span class="n">model_fields_set</span><span class="p">:</span>
                 <span class="n">update</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">override</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">model_copy</span><span class="p">(</span><span class="n">update</span><span class="o">=</span><span class="n">update</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">ensure_valid</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Raise ConfigError when a min exceeds its max.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Raise ConfigError when a min exceeds its max."""</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span>
         <span class="p">):</span>
             <span class="k">raise</span> <span class="n">ConfigError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;media_filters (</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">): file_size_min exceeds file_size_max.&quot;</span>
+                <span class="sa">f</span><span class="s2">"media_filters (</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">): file_size_min exceeds file_size_max."</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">duration_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
@@ -493,7 +493,7 @@ Expected: <code>ModuleNotFoundError: No module named 'config.media_filters'</cod
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_min</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">duration_max</span>
         <span class="p">):</span>
             <span class="k">raise</span> <span class="n">ConfigError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;media_filters (</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">): duration_min exceeds duration_max.&quot;</span>
+                <span class="sa">f</span><span class="s2">"media_filters (</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">): duration_min exceeds duration_max."</span>
             <span class="p">)</span>
 </code></pre></div>
 <ul>
@@ -524,38 +524,38 @@ Expected: clean. If mypy flags the <code>pytimeparse2</code> import as untyped (
     <span class="k">def</span><span class="w"> </span><span class="nf">test_wall_lives_under_filters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
             <span class="p">{</span>
-                <span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;download_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;wall&quot;</span><span class="p">},</span>
-                <span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;wall&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;FULL VIDEOS&quot;</span><span class="p">]}},</span>
+                <span class="s2">"options"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"download_mode"</span><span class="p">:</span> <span class="s2">"wall"</span><span class="p">},</span>
+                <span class="s2">"filters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"wall"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"FULL VIDEOS"</span><span class="p">]}},</span>
             <span class="p">}</span>
         <span class="p">)</span>
-        <span class="k">assert</span> <span class="n">schema</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">wall</span> <span class="o">==</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="n">WallFilterSpec</span><span class="p">(</span><span class="n">includes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;FULL VIDEOS&quot;</span><span class="p">])}</span>
+        <span class="k">assert</span> <span class="n">schema</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">wall</span> <span class="o">==</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="n">WallFilterSpec</span><span class="p">(</span><span class="n">includes</span><span class="o">=</span><span class="p">[</span><span class="s2">"FULL VIDEOS"</span><span class="p">])}</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_wall_null_normalizes_to_empty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">assert</span> <span class="n">FiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">({</span><span class="s2">&quot;wall&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">})</span><span class="o">.</span><span class="n">wall</span> <span class="o">==</span> <span class="p">{}</span>
+        <span class="k">assert</span> <span class="n">FiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">({</span><span class="s2">"wall"</span><span class="p">:</span> <span class="kc">None</span><span class="p">})</span><span class="o">.</span><span class="n">wall</span> <span class="o">==</span> <span class="p">{}</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_options_wall_filters_rejected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ValidationError</span><span class="p">):</span>
-            <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">({</span><span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;wall_filters&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">]}}})</span>
+            <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">({</span><span class="s2">"options"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"wall_filters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"A"</span><span class="p">]}}})</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_media_subsection_parses_and_resolves</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">section</span> <span class="o">=</span> <span class="n">MediaFiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
             <span class="p">{</span>
-                <span class="s2">&quot;file_size_max&quot;</span><span class="p">:</span> <span class="s2">&quot;4GB&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;duration_max&quot;</span><span class="p">:</span> <span class="s2">&quot;2h&quot;</span><span class="p">,</span>
-                <span class="s2">&quot;by_creator&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;@VOD_Streamer&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;duration_max&quot;</span><span class="p">:</span> <span class="s2">&quot;45m&quot;</span><span class="p">}},</span>
+                <span class="s2">"file_size_max"</span><span class="p">:</span> <span class="s2">"4GB"</span><span class="p">,</span>
+                <span class="s2">"duration_max"</span><span class="p">:</span> <span class="s2">"2h"</span><span class="p">,</span>
+                <span class="s2">"by_creator"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"@VOD_Streamer"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"duration_max"</span><span class="p">:</span> <span class="s2">"45m"</span><span class="p">}},</span>
             <span class="p">}</span>
         <span class="p">)</span>
         <span class="n">runtime</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">to_runtime</span><span class="p">()</span>
         <span class="k">assert</span> <span class="n">runtime</span><span class="o">.</span><span class="n">file_size_max</span> <span class="o">==</span> <span class="mi">4_000_000_000</span>
         <span class="k">assert</span> <span class="n">runtime</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">7200.0</span>
-        <span class="k">assert</span> <span class="n">runtime</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;vod_streamer&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">2700.0</span>
+        <span class="k">assert</span> <span class="n">runtime</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"vod_streamer"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">2700.0</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_resolved_min_over_max_raises_at_load</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ValidationError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;duration&quot;</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ValidationError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"duration"</span><span class="p">):</span>
             <span class="n">MediaFiltersSection</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
                 <span class="p">{</span>
-                    <span class="s2">&quot;duration_min&quot;</span><span class="p">:</span> <span class="s2">&quot;1:00&quot;</span><span class="p">,</span>
-                    <span class="s2">&quot;by_creator&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;duration_max&quot;</span><span class="p">:</span> <span class="s2">&quot;0:30&quot;</span><span class="p">}},</span>
+                    <span class="s2">"duration_min"</span><span class="p">:</span> <span class="s2">"1:00"</span><span class="p">,</span>
+                    <span class="s2">"by_creator"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"duration_max"</span><span class="p">:</span> <span class="s2">"0:30"</span><span class="p">}},</span>
                 <span class="p">}</span>
             <span class="p">)</span>
 
@@ -566,23 +566,23 @@ Expected: clean. If mypy flags the <code>pytimeparse2</code> import as untyped (
 <span class="k">class</span><span class="w"> </span><span class="nc">TestFanslyConfigMediaFilters</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_populate_from_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
-            <span class="p">{</span><span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;media&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;file_size_max&quot;</span><span class="p">:</span> <span class="s2">&quot;1MB&quot;</span><span class="p">}}}</span>
+            <span class="p">{</span><span class="s2">"filters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"media"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"file_size_max"</span><span class="p">:</span> <span class="s2">"1MB"</span><span class="p">}}}</span>
         <span class="p">)</span>
-        <span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span><span class="n">program_version</span><span class="o">=</span><span class="s2">&quot;0.14.5-test&quot;</span><span class="p">)</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span><span class="n">program_version</span><span class="o">=</span><span class="s2">"0.14.5-test"</span><span class="p">)</span>
         <span class="n">_populate_config_from_schema</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">file_size_max</span> <span class="o">==</span> <span class="mi">1_000_000</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_wall_populates_from_new_location</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">schema</span> <span class="o">=</span> <span class="n">ConfigSchema</span><span class="o">.</span><span class="n">model_validate</span><span class="p">(</span>
             <span class="p">{</span>
-                <span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;download_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;wall&quot;</span><span class="p">},</span>
-                <span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;wall&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">]}},</span>
+                <span class="s2">"options"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"download_mode"</span><span class="p">:</span> <span class="s2">"wall"</span><span class="p">},</span>
+                <span class="s2">"filters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"wall"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"A"</span><span class="p">]}},</span>
             <span class="p">}</span>
         <span class="p">)</span>
-        <span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span><span class="n">program_version</span><span class="o">=</span><span class="s2">&quot;0.14.5-test&quot;</span><span class="p">)</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">FanslyConfig</span><span class="p">(</span><span class="n">program_version</span><span class="o">=</span><span class="s2">"0.14.5-test"</span><span class="p">)</span>
         <span class="n">_populate_config_from_schema</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">wall_filters</span> <span class="o">==</span> <span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="n">WallFilterSpec</span><span class="p">(</span><span class="n">includes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">])}</span>
-        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">wall_filters</span><span class="p">[</span><span class="s2">&quot;c1&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">schema</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">wall</span><span class="p">[</span><span class="s2">&quot;c1&quot;</span><span class="p">]</span>  <span class="c1"># deep copy</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">wall_filters</span> <span class="o">==</span> <span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="n">WallFilterSpec</span><span class="p">(</span><span class="n">includes</span><span class="o">=</span><span class="p">[</span><span class="s2">"A"</span><span class="p">])}</span>
+        <span class="k">assert</span> <span class="n">config</span><span class="o">.</span><span class="n">wall_filters</span><span class="p">[</span><span class="s2">"c1"</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">schema</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">wall</span><span class="p">[</span><span class="s2">"c1"</span><span class="p">]</span>  <span class="c1"># deep copy</span>
 </code></pre></div>
 <ul>
 <li>[ ] <strong>Step 2: Run tests to verify they fail</strong></li>
@@ -597,9 +597,9 @@ Expected: <code>ImportError: cannot import name 'FiltersSection'</code></p>
 2. DELETE from <code>OptionsSection</code>: the <code>wall_filters</code> field (~line 311-314, including its comment) and the <code>_normalize_wall_filters</code> validator (~line 332-336). Keep the <code>config.wall_filters</code> import line — it is reused below.
 3. Add two section classes directly above <code>class ConfigSchema</code> (~line 805):</p>
 <div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MediaFiltersSection</span><span class="p">(</span><span class="n">_BaseSection</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Min/max file-size and duration limits (global + per-creator).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Min/max file-size and duration limits (global + per-creator)."""</span>
 
-    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">&quot;forbid&quot;</span><span class="p">)</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">"forbid"</span><span class="p">)</span>
 
     <span class="n">file_size_min</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">file_size_max</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -607,33 +607,33 @@ Expected: <code>ImportError: cannot import name 'FiltersSection'</code></p>
     <span class="n">duration_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">by_creator</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">MediaFilterOverride</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;file_size_min&quot;</span><span class="p">,</span> <span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"file_size_min"</span><span class="p">,</span> <span class="s2">"file_size_max"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_parse_sizes</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;duration_min&quot;</span><span class="p">,</span> <span class="s2">&quot;duration_max&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"duration_min"</span><span class="p">,</span> <span class="s2">"duration_max"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_parse_durations</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;by_creator&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"by_creator"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_sanitize_creator_keys</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-            <span class="k">return</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">&quot;@&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span> <span class="n">val</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+            <span class="k">return</span> <span class="p">{</span><span class="nb">str</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s2">"@"</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span> <span class="n">val</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">v</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
         <span class="k">return</span> <span class="n">v</span>
 
-    <span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">&quot;after&quot;</span><span class="p">)</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_resolved_bounds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;MediaFiltersSection&quot;</span><span class="p">:</span>
+    <span class="nd">@model_validator</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s2">"after"</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_resolved_bounds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">"MediaFiltersSection"</span><span class="p">:</span>
         <span class="n">runtime</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_runtime</span><span class="p">()</span>
-        <span class="n">runtime</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">&quot;global&quot;</span><span class="p">)</span>
+        <span class="n">runtime</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">"global"</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">creator</span> <span class="ow">in</span> <span class="n">runtime</span><span class="o">.</span><span class="n">by_creator</span><span class="p">:</span>
-            <span class="n">runtime</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="n">creator</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;by_creator.</span><span class="si">{</span><span class="n">creator</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">runtime</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="n">creator</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="sa">f</span><span class="s2">"by_creator.</span><span class="si">{</span><span class="n">creator</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">to_runtime</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MediaFilters</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the frozen runtime model from this section.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Build the frozen runtime model from this section."""</span>
         <span class="k">return</span> <span class="n">MediaFilters</span><span class="p">(</span>
             <span class="n">file_size_min</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">file_size_min</span><span class="p">,</span>
             <span class="n">file_size_max</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">file_size_max</span><span class="p">,</span>
@@ -644,14 +644,14 @@ Expected: <code>ImportError: cannot import name 'FiltersSection'</code></p>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">FiltersSection</span><span class="p">(</span><span class="n">_BaseSection</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Content filters: per-creator wall selection and media size/duration limits.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Content filters: per-creator wall selection and media size/duration limits."""</span>
 
-    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">&quot;forbid&quot;</span><span class="p">)</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">"forbid"</span><span class="p">)</span>
 
     <span class="n">wall</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">WallFilterSpec</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
     <span class="n">media</span><span class="p">:</span> <span class="n">MediaFiltersSection</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">MediaFiltersSection</span><span class="p">)</span>
 
-    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">&quot;wall&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;before&quot;</span><span class="p">)</span>
+    <span class="nd">@field_validator</span><span class="p">(</span><span class="s2">"wall"</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"before"</span><span class="p">)</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_normalize_wall</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">WallFilterSpec</span><span class="p">]:</span>
         <span class="k">return</span> <span class="n">normalize_wall_filters</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
@@ -691,33 +691,33 @@ Expected: clean (pre-existing mypy debt aside). Commit message: <code>feat(confi
 <p>Append to <code>tests/config/unit/test_media_filters.py</code> (reuse/import the wall-filters <code>_map</code> helper pattern — file-top imports only):</p>
 <div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">TestMediaFilterCli</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_flags_override_globals_ephemerally</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
-        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--file-size-max&quot;</span><span class="p">,</span> <span class="s2">&quot;2GB&quot;</span><span class="p">,</span> <span class="s2">&quot;--duration-min&quot;</span><span class="p">,</span> <span class="s2">&quot;0:05&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">"--file-size-max"</span><span class="p">,</span> <span class="s2">"2GB"</span><span class="p">,</span> <span class="s2">"--duration-min"</span><span class="p">,</span> <span class="s2">"0:05"</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">file_size_max</span> <span class="o">==</span> <span class="mi">2_000_000_000</span>
         <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">duration_min</span> <span class="o">==</span> <span class="mf">5.0</span>
-        <span class="k">assert</span> <span class="s2">&quot;media_filters&quot;</span> <span class="ow">in</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">_ephemeral_overrides</span>
+        <span class="k">assert</span> <span class="s2">"media_filters"</span> <span class="ow">in</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">_ephemeral_overrides</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_zero_disables_for_run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
         <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">100.0</span><span class="p">)</span>
-        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--duration-max&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">"--duration-max"</span><span class="p">,</span> <span class="s2">"0"</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">duration_max</span> <span class="ow">is</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_by_creator_survives_cli_global_override</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
         <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span>
             <span class="n">duration_max</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>
-            <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;c1&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)},</span>
+            <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span><span class="s2">"c1"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)},</span>
         <span class="p">)</span>
-        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--duration-max&quot;</span><span class="p">,</span> <span class="s2">&quot;200&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
-        <span class="n">resolved</span> <span class="o">=</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">&quot;c1&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">"--duration-max"</span><span class="p">,</span> <span class="s2">"200"</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="n">resolved</span> <span class="o">=</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">for_creator</span><span class="p">(</span><span class="s2">"c1"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">resolved</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">50.0</span>
         <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">200.0</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_garbage_flag_value_raises</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
-        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">&quot;file_size&quot;</span><span class="p">):</span>
-            <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;--file-size-max&quot;</span><span class="p">,</span> <span class="s2">&quot;huge&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ConfigError</span><span class="p">,</span> <span class="n">match</span><span class="o">=</span><span class="s2">"file_size"</span><span class="p">):</span>
+            <span class="n">_map</span><span class="p">([</span><span class="s2">"--file-size-max"</span><span class="p">,</span> <span class="s2">"huge"</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_absent_flags_leave_config_untouched</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">validation_config</span><span class="p">):</span>
         <span class="n">before</span> <span class="o">=</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span>
-        <span class="n">_map</span><span class="p">([</span><span class="s2">&quot;-u&quot;</span><span class="p">,</span> <span class="s2">&quot;validuser1&quot;</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
+        <span class="n">_map</span><span class="p">([</span><span class="s2">"-u"</span><span class="p">,</span> <span class="s2">"validuser1"</span><span class="p">],</span> <span class="n">validation_config</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">validation_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">==</span> <span class="n">before</span>
 </code></pre></div>
 <ul>
@@ -735,61 +735,61 @@ Expected: <code>unrecognized arguments: --file-size-max</code></p>
 <li>Four plain arguments (NOT in the <code>download_modes</code> group), placed with the other value options:</li>
 </ul>
 <div class="highlight"><pre><span></span><code>    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-        <span class="s2">&quot;--file-size-min&quot;</span><span class="p">,</span>
+        <span class="s2">"--file-size-min"</span><span class="p">,</span>
         <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;SIZE&quot;</span><span class="p">,</span>
-        <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;file_size_min&quot;</span><span class="p">,</span>
-        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Skip media smaller than SIZE (e.g. 100KB, 5MB, raw bytes). &quot;</span>
-        <span class="s2">&quot;0 disables the limit for this run. Ephemeral override of &quot;</span>
-        <span class="s2">&quot;filters.media in config.yaml.&quot;</span><span class="p">,</span>
+        <span class="n">metavar</span><span class="o">=</span><span class="s2">"SIZE"</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s2">"file_size_min"</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Skip media smaller than SIZE (e.g. 100KB, 5MB, raw bytes). "</span>
+        <span class="s2">"0 disables the limit for this run. Ephemeral override of "</span>
+        <span class="s2">"filters.media in config.yaml."</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-        <span class="s2">&quot;--file-size-max&quot;</span><span class="p">,</span>
+        <span class="s2">"--file-size-max"</span><span class="p">,</span>
         <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;SIZE&quot;</span><span class="p">,</span>
-        <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span>
-        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Skip media larger than SIZE (e.g. 4GB). 0 disables for this run.&quot;</span><span class="p">,</span>
+        <span class="n">metavar</span><span class="o">=</span><span class="s2">"SIZE"</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s2">"file_size_max"</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Skip media larger than SIZE (e.g. 4GB). 0 disables for this run."</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-        <span class="s2">&quot;--duration-min&quot;</span><span class="p">,</span>
+        <span class="s2">"--duration-min"</span><span class="p">,</span>
         <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;DURATION&quot;</span><span class="p">,</span>
-        <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;duration_min&quot;</span><span class="p">,</span>
-        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Skip videos shorter than DURATION (e.g. 3, 0:03, 45s). &quot;</span>
-        <span class="s2">&quot;0 disables for this run.&quot;</span><span class="p">,</span>
+        <span class="n">metavar</span><span class="o">=</span><span class="s2">"DURATION"</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s2">"duration_min"</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Skip videos shorter than DURATION (e.g. 3, 0:03, 45s). "</span>
+        <span class="s2">"0 disables for this run."</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
-        <span class="s2">&quot;--duration-max&quot;</span><span class="p">,</span>
+        <span class="s2">"--duration-max"</span><span class="p">,</span>
         <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-        <span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;DURATION&quot;</span><span class="p">,</span>
-        <span class="n">dest</span><span class="o">=</span><span class="s2">&quot;duration_max&quot;</span><span class="p">,</span>
-        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Skip videos longer than DURATION (e.g. 5400, 1:30:00, 2h). &quot;</span>
-        <span class="s2">&quot;0 disables for this run.&quot;</span><span class="p">,</span>
+        <span class="n">metavar</span><span class="o">=</span><span class="s2">"DURATION"</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s2">"duration_max"</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">"Skip videos longer than DURATION (e.g. 5400, 1:30:00, 2h). "</span>
+        <span class="s2">"0 disables for this run."</span><span class="p">,</span>
     <span class="p">)</span>
 </code></pre></div>
 <ol>
 <li>Beside <code>_apply_cli_wall_filters</code>:</li>
 </ol>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_apply_media_filter_args</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">argparse</span><span class="o">.</span><span class="n">Namespace</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply --file-size-*/--duration-* as ephemeral global-layer overrides.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Apply --file-size-*/--duration-* as ephemeral global-layer overrides."""</span>
     <span class="n">update</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">file_size_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">update</span><span class="p">[</span><span class="s2">&quot;file_size_min&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file_size_min</span><span class="p">)</span>
+        <span class="n">update</span><span class="p">[</span><span class="s2">"file_size_min"</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file_size_min</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">file_size_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">update</span><span class="p">[</span><span class="s2">&quot;file_size_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file_size_max</span><span class="p">)</span>
+        <span class="n">update</span><span class="p">[</span><span class="s2">"file_size_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_size</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file_size_max</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">duration_min</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">update</span><span class="p">[</span><span class="s2">&quot;duration_min&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">duration_min</span><span class="p">)</span>
+        <span class="n">update</span><span class="p">[</span><span class="s2">"duration_min"</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">duration_min</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">duration_max</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">update</span><span class="p">[</span><span class="s2">&quot;duration_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">duration_max</span><span class="p">)</span>
+        <span class="n">update</span><span class="p">[</span><span class="s2">"duration_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">parse_duration</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">duration_max</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">update</span><span class="p">:</span>
         <span class="k">return</span>
     <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">model_copy</span><span class="p">(</span><span class="n">update</span><span class="o">=</span><span class="n">update</span><span class="p">)</span>
-    <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">&quot;CLI&quot;</span><span class="p">)</span>
-    <span class="n">config</span><span class="o">.</span><span class="n">_ephemeral_overrides</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;media_filters&quot;</span><span class="p">)</span>
+    <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">ensure_valid</span><span class="p">(</span><span class="s2">"CLI"</span><span class="p">)</span>
+    <span class="n">config</span><span class="o">.</span><span class="n">_ephemeral_overrides</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">"media_filters"</span><span class="p">)</span>
 </code></pre></div>
 <ol>
 <li>In <code>map_args_to_config</code>, directly after <code>_apply_cli_wall_filters(args, config)</code>: <code>_apply_media_filter_args(args, config)</code>.</li>
@@ -824,7 +824,7 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
 <li>[ ] <strong>Step 1: Write the failing tests</strong></li>
 </ul>
 <p>Create <code>tests/download/unit/test_mediafilters.py</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Unit tests for download.mediafilters gates and recording.&quot;&quot;&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="sd">"""Unit tests for download.mediafilters gates and recording."""</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
@@ -845,7 +845,7 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_state</span><span class="p">(</span><span class="n">download_type</span><span class="o">=</span><span class="n">DownloadType</span><span class="o">.</span><span class="n">TIMELINE</span><span class="p">):</span>
-    <span class="n">state</span> <span class="o">=</span> <span class="n">DownloadState</span><span class="p">(</span><span class="n">creator_name</span><span class="o">=</span><span class="s2">&quot;creator1&quot;</span><span class="p">)</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">DownloadState</span><span class="p">(</span><span class="n">creator_name</span><span class="o">=</span><span class="s2">"creator1"</span><span class="p">)</span>
     <span class="n">state</span><span class="o">.</span><span class="n">creator_id</span> <span class="o">=</span> <span class="n">snowflake_id</span><span class="p">()</span>
     <span class="n">state</span><span class="o">.</span><span class="n">download_type</span> <span class="o">=</span> <span class="n">download_type</span>
     <span class="k">return</span> <span class="n">state</span>
@@ -863,7 +863,7 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
     <span class="k">def</span><span class="w"> </span><span class="nf">test_per_creator_resolution</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mock_config</span><span class="p">):</span>
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span>
             <span class="n">duration_max</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>
-            <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;creator1&quot;</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)},</span>
+            <span class="n">by_creator</span><span class="o">=</span><span class="p">{</span><span class="s2">"creator1"</span><span class="p">:</span> <span class="n">MediaFilterOverride</span><span class="p">(</span><span class="n">duration_max</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)},</span>
         <span class="p">)</span>
         <span class="n">resolved</span> <span class="o">=</span> <span class="n">resolve_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">_state</span><span class="p">())</span>
         <span class="k">assert</span> <span class="n">resolved</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">resolved</span><span class="o">.</span><span class="n">duration_max</span> <span class="o">==</span> <span class="mf">50.0</span>
@@ -874,15 +874,15 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">duration_min</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">duration_max</span><span class="o">=</span><span class="mf">100.0</span><span class="p">)</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
         <span class="n">long_video</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
-            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">500.0</span>
+            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">500.0</span>
         <span class="p">)</span>
         <span class="n">image</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
-            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;image/jpeg&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="kc">None</span>
+            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">"image/jpeg"</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="kc">None</span>
         <span class="p">)</span>
         <span class="n">unknown</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
-            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="kc">None</span>
+            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="kc">None</span>
         <span class="p">)</span>
-        <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">long_video</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;duration_max&quot;</span>
+        <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">long_video</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"duration_max"</span>
         <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">image</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">unknown</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 
@@ -891,14 +891,14 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
         <span class="n">media</span> <span class="o">=</span> <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
             <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span>
-            <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
+            <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span>
             <span class="n">meta_info</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
-                <span class="p">{</span><span class="s2">&quot;estimatedContentLength&quot;</span><span class="p">:</span> <span class="mi">5000</span><span class="p">,</span> <span class="s2">&quot;observedContentLength&quot;</span><span class="p">:</span> <span class="mi">500</span><span class="p">}</span>
+                <span class="p">{</span><span class="s2">"estimatedContentLength"</span><span class="p">:</span> <span class="mi">5000</span><span class="p">,</span> <span class="s2">"observedContentLength"</span><span class="p">:</span> <span class="mi">500</span><span class="p">}</span>
             <span class="p">),</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
-        <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">&quot;estimatedContentLength&quot;</span><span class="p">:</span> <span class="mi">5000</span><span class="p">})</span>
-        <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">"estimatedContentLength"</span><span class="p">:</span> <span class="mi">5000</span><span class="p">})</span>
+        <span class="k">assert</span> <span class="n">check_media_filters</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_no_evidence_defers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mock_config</span><span class="p">):</span>
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
@@ -906,7 +906,7 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
             <span class="n">check_media_filters</span><span class="p">(</span>
                 <span class="n">mock_config</span><span class="p">,</span>
                 <span class="n">_state</span><span class="p">(),</span>
-                <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">),</span>
+                <span class="n">MediaFactory</span><span class="o">.</span><span class="n">build</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">),</span>
             <span class="p">)</span>
             <span class="ow">is</span> <span class="kc">None</span>
         <span class="p">)</span>
@@ -915,43 +915,43 @@ Expected: clean. Commit message: <code>feat(cli): --file-size-min/max and --dura
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">TestRecording</span><span class="p">:</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_merges_without_marking</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entity_store</span><span class="p">):</span>
-        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;creator1&quot;</span><span class="p">)</span>
+        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">"creator1"</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
         <span class="n">media</span> <span class="o">=</span> <span class="n">Media</span><span class="p">(</span>
             <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span>
             <span class="n">accountId</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
-            <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
-            <span class="n">meta_info</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">&quot;duration&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">}),</span>
+            <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span>
+            <span class="n">meta_info</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">"duration"</span><span class="p">:</span> <span class="mi">30</span><span class="p">}),</span>
         <span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">record_filter_observation</span><span class="p">(</span>
-            <span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="mi">6_000_000_000</span>
+            <span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">"file_size_max"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="mi">6_000_000_000</span>
         <span class="p">)</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">meta_info</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;lastFilteredReason&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
-        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;observedContentLength&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">6_000_000_000</span>
-        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;duration&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">30</span>  <span class="c1"># existing keys preserved</span>
+        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"lastFilteredReason"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
+        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"observedContentLength"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">6_000_000_000</span>
+        <span class="k">assert</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"duration"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">30</span>  <span class="c1"># existing keys preserved</span>
         <span class="k">assert</span> <span class="n">media</span><span class="o">.</span><span class="n">is_downloaded</span> <span class="ow">is</span> <span class="kc">False</span>
         <span class="k">assert</span> <span class="n">media</span><span class="o">.</span><span class="n">content_hash</span> <span class="ow">is</span> <span class="kc">None</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_malformed_meta_info_skips_merge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entity_store</span><span class="p">):</span>
-        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;creator1&quot;</span><span class="p">)</span>
+        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">"creator1"</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
         <span class="n">media</span> <span class="o">=</span> <span class="n">Media</span><span class="p">(</span>
             <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span>
             <span class="n">accountId</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
-            <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
-            <span class="n">meta_info</span><span class="o">=</span><span class="s2">&quot;not-json{&quot;</span><span class="p">,</span>
+            <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span>
+            <span class="n">meta_info</span><span class="o">=</span><span class="s2">"not-json{"</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
-        <span class="k">await</span> <span class="n">record_filter_observation</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;duration_max&quot;</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span> <span class="o">==</span> <span class="s2">&quot;not-json{&quot;</span>  <span class="c1"># untouched, no crash</span>
+        <span class="k">await</span> <span class="n">record_filter_observation</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">"duration_max"</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span> <span class="o">==</span> <span class="s2">"not-json{"</span>  <span class="c1"># untouched, no crash</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestMediaFilteredError</span><span class="p">:</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_carries_attrs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="n">e</span> <span class="o">=</span> <span class="n">MediaFilteredError</span><span class="p">(</span><span class="s2">&quot;file_size_max&quot;</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">e</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
+        <span class="n">e</span> <span class="o">=</span> <span class="n">MediaFilteredError</span><span class="p">(</span><span class="s2">"file_size_max"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="mi">123</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">e</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
         <span class="k">assert</span> <span class="n">e</span><span class="o">.</span><span class="n">observed</span> <span class="o">==</span> <span class="mi">123</span>
         <span class="k">assert</span> <span class="n">e</span><span class="o">.</span><span class="n">estimated</span> <span class="ow">is</span> <span class="kc">None</span>
 </code></pre></div>
@@ -965,7 +965,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
 </ul>
 <p><code>errors/__init__.py</code>, beside <code>MediaError</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">MediaFilteredError</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Control-flow signal: media skipped by filters.media limits (not a failure).&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Control-flow signal: media skipped by filters.media limits (not a failure)."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -981,7 +981,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
 </code></pre></div>
 <p>(Export it wherever the module's <code>__all__</code>/re-export convention requires — mirror <code>MediaError</code>.)</p>
 <p>Create <code>download/mediafilters.py</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="sd">&quot;&quot;&quot;Media-filter gates (size/duration) and meta_info observation recording.&quot;&quot;&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="sd">"""Media-filter gates (size/duration) and meta_info observation recording."""</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 
@@ -996,7 +996,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
 <span class="k">def</span><span class="w"> </span><span class="nf">resolve_media_filters</span><span class="p">(</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">DownloadState</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MediaFilters</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Per-creator resolved limits, or None when filtering is exempt/inactive.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Per-creator resolved limits, or None when filtering is exempt/inactive."""</span>
     <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">download_type</span> <span class="o">==</span> <span class="n">DownloadType</span><span class="o">.</span><span class="n">SINGLE</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">is_active</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">config</span><span class="o">.</span><span class="n">media_filters</span><span class="o">.</span><span class="n">by_creator</span><span class="p">:</span>
@@ -1006,7 +1006,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_size_evidence</span><span class="p">(</span><span class="n">media</span><span class="p">:</span> <span class="n">Media</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Best size evidence from meta_info: observed wins over estimated.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Best size evidence from meta_info: observed wins over estimated."""</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">try</span><span class="p">:</span>
@@ -1015,7 +1015,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
         <span class="k">return</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;observedContentLength&quot;</span><span class="p">,</span> <span class="s2">&quot;estimatedContentLength&quot;</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"observedContentLength"</span><span class="p">,</span> <span class="s2">"estimatedContentLength"</span><span class="p">):</span>
         <span class="n">value</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
             <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
@@ -1025,11 +1025,11 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
 <span class="k">def</span><span class="w"> </span><span class="nf">check_media_filters</span><span class="p">(</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">DownloadState</span><span class="p">,</span> <span class="n">media</span><span class="p">:</span> <span class="n">Media</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Metadata gate: violated-limit name, or None to proceed.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Metadata gate: violated-limit name, or None to proceed."""</span>
     <span class="n">filters</span> <span class="o">=</span> <span class="n">resolve_media_filters</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">filters</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">mimetype</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;video/&quot;</span><span class="p">):</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">mimetype</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"video/"</span><span class="p">):</span>
         <span class="n">verdict</span> <span class="o">=</span> <span class="n">filters</span><span class="o">.</span><span class="n">duration_verdict</span><span class="p">(</span><span class="n">media</span><span class="o">.</span><span class="n">duration</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">verdict</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">verdict</span>
@@ -1043,27 +1043,27 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
     <span class="n">observed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">estimated</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge filter observations into meta_info; never touches download state.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Merge filter observations into meta_info; never touches download state."""</span>
     <span class="n">raw</span> <span class="o">=</span> <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="n">raw</span> <span class="k">else</span> <span class="p">{}</span>
     <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
         <span class="n">print_debug</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;media_filters: meta_info for media </span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> is not valid JSON; &quot;</span>
-            <span class="s2">&quot;skipping observation merge.&quot;</span>
+            <span class="sa">f</span><span class="s2">"media_filters: meta_info for media </span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> is not valid JSON; "</span>
+            <span class="s2">"skipping observation merge."</span>
         <span class="p">)</span>
         <span class="k">return</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
         <span class="n">print_debug</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;media_filters: meta_info for media </span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> is not a JSON object; &quot;</span>
-            <span class="s2">&quot;skipping observation merge.&quot;</span>
+            <span class="sa">f</span><span class="s2">"media_filters: meta_info for media </span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> is not a JSON object; "</span>
+            <span class="s2">"skipping observation merge."</span>
         <span class="p">)</span>
         <span class="k">return</span>
-    <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;lastFilteredReason&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">reason</span>
+    <span class="n">payload</span><span class="p">[</span><span class="s2">"lastFilteredReason"</span><span class="p">]</span> <span class="o">=</span> <span class="n">reason</span>
     <span class="k">if</span> <span class="n">observed</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;observedContentLength&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">observed</span>
+        <span class="n">payload</span><span class="p">[</span><span class="s2">"observedContentLength"</span><span class="p">]</span> <span class="o">=</span> <span class="n">observed</span>
     <span class="k">if</span> <span class="n">estimated</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">payload</span><span class="p">[</span><span class="s2">&quot;estimatedContentLength&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">estimated</span>
+        <span class="n">payload</span><span class="p">[</span><span class="s2">"estimatedContentLength"</span><span class="p">]</span> <span class="o">=</span> <span class="n">estimated</span>
     <span class="n">media</span><span class="o">.</span><span class="n">meta_info</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
     <span class="k">await</span> <span class="n">get_store</span><span class="p">()</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
 </code></pre></div>
@@ -1074,9 +1074,9 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
                     <span class="k">await</span> <span class="n">record_filter_observation</span><span class="p">(</span><span class="n">media</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="n">filter_reason</span><span class="p">)</span>
                     <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">show_downloads</span> <span class="ow">and</span> <span class="n">config</span><span class="o">.</span><span class="n">show_skipped_downloads</span><span class="p">:</span>
                         <span class="n">print_info</span><span class="p">(</span>
-                            <span class="sa">f</span><span class="s2">&quot;Filtered [</span><span class="si">{</span><span class="n">filter_reason</span><span class="si">}</span><span class="s2">]: &quot;</span>
-                            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">mimetype</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">)[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2"> &quot;</span>
-                            <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">get_file_name</span><span class="p">()</span><span class="si">}</span><span class="s2">&#39; -&gt; skipped&quot;</span>
+                            <span class="sa">f</span><span class="s2">"Filtered [</span><span class="si">{</span><span class="n">filter_reason</span><span class="si">}</span><span class="s2">]: "</span>
+                            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">mimetype</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'/'</span><span class="p">)[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2"> "</span>
+                            <span class="sa">f</span><span class="s2">"'</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">get_file_name</span><span class="p">()</span><span class="si">}</span><span class="s2">' -&gt; skipped"</span>
                         <span class="p">)</span>
                     <span class="n">state</span><span class="o">.</span><span class="n">filtered_count</span> <span class="o">+=</span> <span class="mi">1</span>
                     <span class="k">continue</span>
@@ -1088,7 +1088,7 @@ Expected: <code>ModuleNotFoundError: No module named 'download.mediafilters'</co
                 <span class="p">)</span>
                 <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">show_downloads</span> <span class="ow">and</span> <span class="n">config</span><span class="o">.</span><span class="n">show_skipped_downloads</span><span class="p">:</span>
                     <span class="n">print_info</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Filtered [</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">reason</span><span class="si">}</span><span class="s2">]: &#39;</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">get_file_name</span><span class="p">()</span><span class="si">}</span><span class="s2">&#39; -&gt; skipped&quot;</span>
+                        <span class="sa">f</span><span class="s2">"Filtered [</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">reason</span><span class="si">}</span><span class="s2">]: '</span><span class="si">{</span><span class="n">media</span><span class="o">.</span><span class="n">get_file_name</span><span class="p">()</span><span class="si">}</span><span class="s2">' -&gt; skipped"</span>
                     <span class="p">)</span>
                 <span class="n">state</span><span class="o">.</span><span class="n">filtered_count</span> <span class="o">+=</span> <span class="mi">1</span>
                 <span class="k">continue</span>
@@ -1118,13 +1118,13 @@ Expected: clean. Commit message: <code>feat(download): media-filter metadata gat
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">TestWireGate</span><span class="p">:</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_media</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entity_store</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
-        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;creator1&quot;</span><span class="p">)</span>
+        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">"creator1"</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
         <span class="n">media</span> <span class="o">=</span> <span class="n">Media</span><span class="p">(</span>
-            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">accountId</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span>
+            <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">accountId</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span>
         <span class="p">)</span>
         <span class="n">media</span><span class="o">.</span><span class="n">download_url</span> <span class="o">=</span> <span class="n">url</span>
-        <span class="n">media</span><span class="o">.</span><span class="n">file_extension</span> <span class="o">=</span> <span class="s2">&quot;mp4&quot;</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">file_extension</span> <span class="o">=</span> <span class="s2">"mp4"</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">media</span>
 
@@ -1133,41 +1133,41 @@ Expected: clean. Commit message: <code>feat(download): media-filter metadata gat
     <span class="p">):</span>
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
-        <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.example.com/big.mp4?Key-Pair-Id=x&quot;</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s2">"https://cdn.example.com/big.mp4?Key-Pair-Id=x"</span>
         <span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_media</span><span class="p">(</span><span class="n">entity_store</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span>
-        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">&quot;https://cdn.example.com/big.mp4&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">"https://cdn.example.com/big.mp4"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
             <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span>
                 <span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span>
-                    <span class="mi">200</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;content-length&quot;</span><span class="p">:</span> <span class="s2">&quot;5000&quot;</span><span class="p">},</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;x&quot;</span> <span class="o">*</span> <span class="mi">5000</span>
+                    <span class="mi">200</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"content-length"</span><span class="p">:</span> <span class="s2">"5000"</span><span class="p">},</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"x"</span> <span class="o">*</span> <span class="mi">5000</span>
                 <span class="p">)</span>
             <span class="p">]</span>
         <span class="p">)</span>
-        <span class="n">target</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;big.mp4&quot;</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"big.mp4"</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">MediaFilteredError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc_info</span><span class="p">:</span>
                 <span class="k">await</span> <span class="n">_download_regular_file</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
         <span class="k">finally</span><span class="p">:</span>
-            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">&quot;test_oversized_header_aborts&quot;</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
+            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">"test_oversized_header_aborts"</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
         <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">observed</span> <span class="o">==</span> <span class="mi">5000</span>
         <span class="k">assert</span> <span class="ow">not</span> <span class="n">target</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
-        <span class="k">assert</span> <span class="ow">not</span> <span class="nb">list</span><span class="p">(</span><span class="n">tmp_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;.*part*&quot;</span><span class="p">))</span>  <span class="c1"># no temp file created</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="nb">list</span><span class="p">(</span><span class="n">tmp_path</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">".*part*"</span><span class="p">))</span>  <span class="c1"># no temp file created</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_missing_header_passes</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">respx_fansly_api</span><span class="p">,</span> <span class="n">mock_config</span><span class="p">,</span> <span class="n">entity_store</span><span class="p">,</span> <span class="n">tmp_path</span>
     <span class="p">):</span>
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
-        <span class="n">url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.example.com/nolen.mp4?Key-Pair-Id=x&quot;</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s2">"https://cdn.example.com/nolen.mp4?Key-Pair-Id=x"</span>
         <span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_media</span><span class="p">(</span><span class="n">entity_store</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span>
-        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">&quot;https://cdn.example.com/nolen.mp4&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
-            <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">&quot;x&quot;</span> <span class="o">*</span> <span class="mi">5000</span><span class="p">)]</span>
+        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">"https://cdn.example.com/nolen.mp4"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+            <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="sa">b</span><span class="s2">"x"</span> <span class="o">*</span> <span class="mi">5000</span><span class="p">)]</span>
         <span class="p">)</span>
-        <span class="n">target</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">&quot;nolen.mp4&quot;</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="n">tmp_path</span> <span class="o">/</span> <span class="s2">"nolen.mp4"</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">await</span> <span class="n">_download_regular_file</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
         <span class="k">finally</span><span class="p">:</span>
-            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">&quot;test_missing_header_passes&quot;</span><span class="p">)</span>
+            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">"test_missing_header_passes"</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">target</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">target</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">==</span> <span class="mi">5000</span>
 </code></pre></div>
 <p>(Before finalizing: check how existing <code>_download_regular_file</code>/CDN tests in <code>tests/download/unit/test_media_download.py</code> register CDN routes and construct media — mirror their conventions for the URL shape and any required media fields; keep the assertions above intact. Note whether httpx auto-sets <code>content-length</code> from <code>content=</code> in the missing-header case — if it does, use <code>stream=</code> or a transport-level response so the header is genuinely absent, mirroring how sibling tests build header-controlled responses.)</p>
@@ -1221,16 +1221,16 @@ Expected: clean. Commit message: <code>feat(download): content-length wire gate 
 <div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">TestEstimateGate</span><span class="p">:</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_m3u8_media</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entity_store</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">duration</span><span class="p">):</span>
-        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">&quot;creator1&quot;</span><span class="p">)</span>
+        <span class="n">account</span> <span class="o">=</span> <span class="n">AccountFactory</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span> <span class="n">username</span><span class="o">=</span><span class="s2">"creator1"</span><span class="p">)</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
         <span class="n">media</span> <span class="o">=</span> <span class="n">Media</span><span class="p">(</span>
             <span class="nb">id</span><span class="o">=</span><span class="n">snowflake_id</span><span class="p">(),</span>
             <span class="n">accountId</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
-            <span class="n">mimetype</span><span class="o">=</span><span class="s2">&quot;video/mp4&quot;</span><span class="p">,</span>
+            <span class="n">mimetype</span><span class="o">=</span><span class="s2">"video/mp4"</span><span class="p">,</span>
             <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">media</span><span class="o">.</span><span class="n">download_url</span> <span class="o">=</span> <span class="n">url</span>
-        <span class="n">media</span><span class="o">.</span><span class="n">file_extension</span> <span class="o">=</span> <span class="s2">&quot;m3u8&quot;</span>
+        <span class="n">media</span><span class="o">.</span><span class="n">file_extension</span> <span class="o">=</span> <span class="s2">"m3u8"</span>
         <span class="k">await</span> <span class="n">entity_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">media</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">media</span>
 
@@ -1240,21 +1240,21 @@ Expected: clean. Commit message: <code>feat(download): content-length wire gate 
         <span class="c1"># 4,000,000 bps / 8 * 2000 s = 1_000_000_000 bytes &gt; 500 MB max</span>
         <span class="n">mock_config</span><span class="o">.</span><span class="n">media_filters</span> <span class="o">=</span> <span class="n">MediaFilters</span><span class="p">(</span><span class="n">file_size_max</span><span class="o">=</span><span class="mi">500_000_000</span><span class="p">)</span>
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
-        <span class="n">master_url</span> <span class="o">=</span> <span class="s2">&quot;https://cdn.example.com/vod/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s&quot;</span>
+        <span class="n">master_url</span> <span class="o">=</span> <span class="s2">"https://cdn.example.com/vod/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s"</span>
         <span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_m3u8_media</span><span class="p">(</span><span class="n">entity_store</span><span class="p">,</span> <span class="n">master_url</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mf">2000.0</span><span class="p">)</span>
         <span class="n">playlist_text</span> <span class="o">=</span> <span class="n">build_master_playlist</span><span class="p">(</span>
-            <span class="n">variant_url</span><span class="o">=</span><span class="s2">&quot;https://cdn.example.com/vod/720.m3u8&quot;</span><span class="p">,</span>
+            <span class="n">variant_url</span><span class="o">=</span><span class="s2">"https://cdn.example.com/vod/720.m3u8"</span><span class="p">,</span>
             <span class="n">bandwidth</span><span class="o">=</span><span class="mi">4_000_000</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">&quot;https://cdn.example.com/vod/master&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
+        <span class="n">route</span> <span class="o">=</span> <span class="n">respx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url__startswith</span><span class="o">=</span><span class="s2">"https://cdn.example.com/vod/master"</span><span class="p">)</span><span class="o">.</span><span class="n">mock</span><span class="p">(</span>
             <span class="n">side_effect</span><span class="o">=</span><span class="p">[</span><span class="n">httpx</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">playlist_text</span><span class="p">)]</span>
         <span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">MediaFilteredError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc_info</span><span class="p">:</span>
                 <span class="k">await</span> <span class="n">estimate_stream_size_gate</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span>
         <span class="k">finally</span><span class="p">:</span>
-            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">&quot;test_estimate_violation&quot;</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">&quot;file_size_max&quot;</span>
+            <span class="n">dump_fansly_calls</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">calls</span><span class="p">,</span> <span class="s2">"test_estimate_violation"</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">reason</span> <span class="o">==</span> <span class="s2">"file_size_max"</span>
         <span class="k">assert</span> <span class="n">exc_info</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">estimated</span> <span class="o">==</span> <span class="mi">1_000_000_000</span>
 
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_unknown_duration_passes</span><span class="p">(</span>
@@ -1264,7 +1264,7 @@ Expected: clean. Commit message: <code>feat(download): content-length wire gate 
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
         <span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_m3u8_media</span><span class="p">(</span>
             <span class="n">entity_store</span><span class="p">,</span>
-            <span class="s2">&quot;https://cdn.example.com/vod2/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s&quot;</span><span class="p">,</span>
+            <span class="s2">"https://cdn.example.com/vod2/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s"</span><span class="p">,</span>
             <span class="n">duration</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">await</span> <span class="n">estimate_stream_size_gate</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span>  <span class="c1"># no raise</span>
@@ -1274,7 +1274,7 @@ Expected: clean. Commit message: <code>feat(download): content-length wire gate 
         <span class="n">state</span> <span class="o">=</span> <span class="n">_state</span><span class="p">()</span>
         <span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_m3u8_media</span><span class="p">(</span>
             <span class="n">entity_store</span><span class="p">,</span>
-            <span class="s2">&quot;https://cdn.example.com/vod3/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s&quot;</span><span class="p">,</span>
+            <span class="s2">"https://cdn.example.com/vod3/master.m3u8?Policy=p&amp;Key-Pair-Id=k&amp;Signature=s"</span><span class="p">,</span>
             <span class="n">duration</span><span class="o">=</span><span class="mf">100.0</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">await</span> <span class="n">estimate_stream_size_gate</span><span class="p">(</span><span class="n">mock_config</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">media</span><span class="p">)</span>  <span class="c1"># no HTTP, no raise</span>
@@ -1292,11 +1292,11 @@ Expected: <code>ImportError: cannot import name 'estimate_stream_size_gate'</cod
 <div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">estimate_stream_size_gate</span><span class="p">(</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">FanslyConfig</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="n">DownloadState</span><span class="p">,</span> <span class="n">media</span><span class="p">:</span> <span class="n">Media</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bitrate x duration estimate gate for HLS VODs; passes on unknowns.</span>
+<span class="w">    </span><span class="sd">"""Bitrate x duration estimate gate for HLS VODs; passes on unknowns.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        MediaFilteredError: When the estimated size violates a limit.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">filters</span> <span class="o">=</span> <span class="n">resolve_media_filters</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">filters</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">file_size_min</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">filters</span><span class="o">.</span><span class="n">file_size_max</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>
         <span class="k">return</span>

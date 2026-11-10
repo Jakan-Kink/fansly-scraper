@@ -191,7 +191,7 @@
     <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← formatted: about + creation date + source info</span>
     <span class="n">country</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← location</span>
     <span class="n">image</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← downloaded avatar path</span>
-    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ← f&quot;https://fansly.com/{username}/posts&quot;</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>              <span class="c1"># ← f"https://fansly.com/{username}/posts"</span>
     <span class="c1"># Not used:</span>
     <span class="n">favorite</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">ignore_auto_tag</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -211,7 +211,7 @@
     <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← title or generated from content</span>
     <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← formatted: description + metadata</span>
     <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>            <span class="c1"># ← createdAt (ISO 8601)</span>
-    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># ← f"https://fansly.com/{username}/posts/{id}"</span>
     <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] (mapped to Performer)</span>
     <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>       <span class="c1"># ← from config.user_names current creator</span>
     <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>     <span class="c1"># ← downloaded media paths</span>
@@ -229,7 +229,7 @@
     <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from content or defaults</span>
     <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># ← Formatted: content + metadata + source</span>
     <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← createdAt (ISO 8601)</span>
-    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f"https://fansly.com/{username}/posts/{id}"</span>
     <span class="n">path</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Downloaded video path</span>
     <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] + mentions</span>
     <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>     <span class="c1"># ← from config.user_names current creator</span>
@@ -251,7 +251,7 @@
     <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from content</span>
     <span class="n">details</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># ← Formatted: content + metadata</span>
     <span class="n">date</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← createdAt (ISO 8601)</span>
-    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f&quot;https://fansly.com/{username}/posts/{id}&quot;</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># ← f"https://fansly.com/{username}/posts/{id}"</span>
     <span class="n">performer_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="c1"># ← [accountId] + mentions</span>
     <span class="n">studio_id</span><span class="p">:</span> <span class="nb">int</span>     <span class="c1"># ← from config.user_names current creator</span>
     <span class="n">files</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>   <span class="c1"># ← Downloaded media paths</span>
@@ -266,7 +266,7 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">GalleryChapter</span><span class="p">:</span>
     <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>          <span class="c1"># ← Generated from post content</span>
     <span class="n">image_index</span><span class="p">:</span> <span class="nb">int</span>    <span class="c1"># ← First image from post</span>
-    <span class="c1"># Each post&#39;s media becomes part of gallery.files</span>
+    <span class="c1"># Each post's media becomes part of gallery.files</span>
 </code></pre></div>
 <h3 id="hashtag-tag">Hashtag → Tag<a class="headerlink" href="#hashtag-tag" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Hashtag</span><span class="p">:</span>
@@ -316,7 +316,7 @@
 <h2 id="field-transformations">Field Transformations<a class="headerlink" href="#field-transformations" title="Permanent link">&para;</a></h2>
 <h3 id="timestamps">Timestamps<a class="headerlink" href="#timestamps" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">convert_timestamp</span><span class="p">(</span><span class="n">ts</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert Fansly timestamp to ISO 8601 date.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Convert Fansly timestamp to ISO 8601 date."""</span>
     <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">ts</span> <span class="o">/</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
 </code></pre></div>
@@ -327,40 +327,40 @@
     <span class="n">created_at</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format content and metadata as details.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Format content and metadata as details."""</span>
     <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="sa">f</span><span class="s2">&quot;Source: </span><span class="si">{</span><span class="n">source_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-        <span class="sa">f</span><span class="s2">&quot;Created: </span><span class="si">{</span><span class="n">convert_timestamp</span><span class="p">(</span><span class="n">created_at</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">"Source: </span><span class="si">{</span><span class="n">source_url</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">"Created: </span><span class="si">{</span><span class="n">convert_timestamp</span><span class="p">(</span><span class="n">created_at</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
     <span class="p">]</span>
 
     <span class="k">if</span> <span class="n">content</span><span class="p">:</span>
-        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">strip_html</span><span class="p">(</span><span class="n">content</span><span class="p">)])</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">""</span><span class="p">,</span> <span class="n">strip_html</span><span class="p">(</span><span class="n">content</span><span class="p">)])</span>
 
     <span class="k">if</span> <span class="n">metadata</span><span class="p">:</span>
-        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;Metadata:&quot;</span><span class="p">])</span>
-        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">""</span><span class="p">,</span> <span class="s2">"Metadata:"</span><span class="p">])</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">"- </span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
 
-    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="tag-formatting">Tag Formatting<a class="headerlink" href="#tag-formatting" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">format_tag</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format hashtag as tag name and aliases.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Format hashtag as tag name and aliases."""</span>
     <span class="c1"># Original form becomes alias</span>
     <span class="n">aliases</span> <span class="o">=</span> <span class="p">[</span><span class="n">value</span><span class="p">]</span>
 
     <span class="c1"># Split and capitalize words</span>
-    <span class="n">words</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;[A-Z]?[a-z]+|\d+&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">words</span><span class="p">)</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s1">'[A-Z]?[a-z]+|\d+'</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s1">' '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">words</span><span class="p">)</span>
 
     <span class="c1"># Add common variations</span>
-    <span class="n">aliases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">))</span>
+    <span class="n">aliases</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">' '</span><span class="p">,</span> <span class="s1">''</span><span class="p">))</span>
 
     <span class="k">return</span> <span class="n">name</span><span class="p">,</span> <span class="n">aliases</span>
 </code></pre></div>
 <h3 id="url-generation">URL Generation<a class="headerlink" href="#url-generation" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_fansly_url</span><span class="p">(</span><span class="n">username</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">type_</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">id_</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate Fansly URL.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;https://fansly.com/</span><span class="si">{</span><span class="n">username</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">type_</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">id_</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="sd">"""Generate Fansly URL."""</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"https://fansly.com/</span><span class="si">{</span><span class="n">username</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">type_</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">id_</span><span class="si">}</span><span class="s2">"</span>
 </code></pre></div>
               
             </div>

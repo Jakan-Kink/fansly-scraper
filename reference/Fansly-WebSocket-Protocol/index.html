@@ -287,26 +287,26 @@ All observations verified against live traffic on 2026-04-15.</p>
 includes <code>ip</code> and <code>metadata</code> (user agent) fields that <code>wsv3</code> returns as null.</p>
 <h2 id="authentication-handshake">Authentication Handshake<a class="headerlink" href="#authentication-handshake" title="Permanent link">&para;</a></h2>
 <h3 id="client-request-t1">Client Request (t=1)<a class="headerlink" href="#client-request-t1" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">&quot;t&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;d&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;token\&quot;: \&quot;&lt;BASE64_TOKEN&gt;\&quot;, \&quot;v\&quot;: 3}&quot;</span><span class="w"> </span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">"t"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"d"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"token\": \"&lt;BASE64_TOKEN&gt;\", \"v\": 3}"</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 <p>The token is base64-encoded and decodes to <code>&lt;sessionId&gt;:1:2:&lt;hex&gt;</code>.</p>
 <h3 id="server-response-t1">Server Response (t=1)<a class="headerlink" href="#server-response-t1" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;t&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;d&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;session\&quot;: {</span>
-<span class="s2">    \&quot;id\&quot;: \&quot;&lt;sessionId&gt;\&quot;,</span>
-<span class="s2">    \&quot;token\&quot;: \&quot;&lt;refreshed_token&gt;\&quot;,</span>
-<span class="s2">    \&quot;accountId\&quot;: \&quot;&lt;accountId&gt;\&quot;,</span>
-<span class="s2">    \&quot;deviceId\&quot;: null,</span>
-<span class="s2">    \&quot;status\&quot;: 2,</span>
-<span class="s2">    \&quot;ip\&quot;: null,</span>
-<span class="s2">    \&quot;lastUsed\&quot;: 1776222201000,</span>
-<span class="s2">    \&quot;twofa_at\&quot;: null,</span>
-<span class="s2">    \&quot;metadata\&quot;: null,</span>
-<span class="s2">    \&quot;createdAt\&quot;: 1763047608000,</span>
-<span class="s2">    \&quot;checkToken\&quot;: null,</span>
-<span class="s2">    \&quot;websocketSessionId\&quot;: \&quot;&lt;wsSessionId&gt;\&quot;</span>
-<span class="s2">  }}&quot;</span>
+<span class="w">  </span><span class="nt">"t"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"d"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"session\": {</span>
+<span class="s2">    \"id\": \"&lt;sessionId&gt;\",</span>
+<span class="s2">    \"token\": \"&lt;refreshed_token&gt;\",</span>
+<span class="s2">    \"accountId\": \"&lt;accountId&gt;\",</span>
+<span class="s2">    \"deviceId\": null,</span>
+<span class="s2">    \"status\": 2,</span>
+<span class="s2">    \"ip\": null,</span>
+<span class="s2">    \"lastUsed\": 1776222201000,</span>
+<span class="s2">    \"twofa_at\": null,</span>
+<span class="s2">    \"metadata\": null,</span>
+<span class="s2">    \"createdAt\": 1763047608000,</span>
+<span class="s2">    \"checkToken\": null,</span>
+<span class="s2">    \"websocketSessionId\": \"&lt;wsSessionId&gt;\"</span>
+<span class="s2">  }}"</span>
 <span class="p">}</span>
 </code></pre></div>
 <p>Notable: The response <code>token</code> is different (refreshed) from what was sent.
@@ -530,17 +530,17 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 <h4 id="media-like-type2">Media Like (type=2)<a class="headerlink" href="#media-like-type2" title="Permanent link">&para;</a></h4>
 <p>The <code>(2, 2)</code> payload carries an <code>accountId</code> (the liker), <code>accountMediaId</code>, plus an optional discovery-breadcrumb cluster — <code>locationType</code>, <code>locationCorrelationId</code>, <code>locationMetadata</code> — that's present only when the like originated from a discovery surface (FYP, tag-browse). Likes from profile pages or post-detail surfaces carry these as <code>null</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;like&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;liker-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountMediaId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;media-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountMediaBundleId&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountMediaAccess&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;locationType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;locationCorrelationId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;client-minted-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;locationMetadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;TIDS\&quot;:[\&quot;&lt;tag-id&gt;\&quot;],\&quot;TID\&quot;:\&quot;&lt;tag-id&gt;\&quot;}&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;like-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142878714</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"like"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;liker-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountMediaId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;media-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountMediaBundleId"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountMediaAccess"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"locationType"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"locationCorrelationId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;client-minted-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"locationMetadata"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"TIDS\":[\"&lt;tag-id&gt;\"],\"TID\":\"&lt;tag-id&gt;\"}"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;like-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142878714</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -561,13 +561,13 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 <p>A single bundle purchase fans out into one <code>(2, 7) order.type=2</code> for the bundle + one <code>(2, 7) order.type=1</code> per child media item + a terminating <code>(2, 8)</code> for the bundle. Wire order within the burst is racy — don't depend on child-vs-parent arrival order.</p>
 <h4 id="ppv-order-payload-type7">PPV Order Payload (type=7)<a class="headerlink" href="#ppv-order-payload-type7" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;order&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;orderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;order-snowflake&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountMediaId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;media-snowflake&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;correlationAccountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;buyer-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"order"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"orderId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;order-snowflake&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountMediaId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;media-snowflake&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"correlationAccountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;creator-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;buyer-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -610,12 +610,12 @@ Some payloads have quad-JSON nesting (e.g., chat message metadata).</p>
 </table>
 <p>Unfollow payload (<code>type=3</code>) carries the <strong>same <code>id</code> as the original follow record</strong> plus a <code>createdAt</code> (the original follow's creation time, in milliseconds), <code>followerId</code>, and <code>accountId</code>. The <code>id</code> re-use means an archiver can join "unfollow → original follow event" by ID directly; the event is the original follow record being marked removed, not a new entity.</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;follow&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;followerId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;follow-record-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779136747000</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"follow"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"followerId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;self-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;creator-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;follow-record-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779136747000</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -741,32 +741,32 @@ sorted by Snowflake ID. Treat the array as an unordered set.</p>
 </table>
 <h4 id="new-message-type1">New Message (type=1)<a class="headerlink" href="#new-message-type1" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;contentType&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;contentId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;pos&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"message text"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"senderId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"groupId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;groupId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"attachments"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"contentType"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">"contentId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;id&gt;"</span><span class="p">,</span><span class="w"> </span><span class="nt">"messageId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;id&gt;"</span><span class="p">,</span><span class="w"> </span><span class="nt">"pos"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;interactions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="nt">"interactions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">      </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;readAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;deliveredAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<span class="w">        </span><span class="nt">"groupId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"userId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"readAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"deliveredAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"messageId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;inReplyToMessage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"inReplyTo"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"inReplyToRoot"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"inReplyToMessage"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="cm">/* full parent message object */</span>
 <span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1776225990.786</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mf">1776225990.786</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"embeds"</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -774,13 +774,13 @@ sorted by Snowflake ID. Treat the array as an unordered set.</p>
 <p><code>inReplyTo</code> sentinel: empty string <code>""</code> means the message is standalone; a non-empty string is the parent message ID (and <code>inReplyToMessage</code> will be populated with the full parent message object as a nested dict, not just an ID). Both <code>inReplyTo</code> and <code>inReplyToRoot</code> follow this convention.</p>
 <h4 id="message-reaction-type3">Message Reaction (type=3)<a class="headerlink" href="#message-reaction-type3" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;like&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;messageId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;reac</span><span class="kc">t</span><span class="err">io</span><span class="kc">n</span><span class="err">_</span><span class="kc">t</span><span class="err">ype&gt;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;likeId&gt;&quot;</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"like"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"messageId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;reac</span><span class="kc">t</span><span class="err">io</span><span class="kc">n</span><span class="err">_</span><span class="kc">t</span><span class="err">ype&gt;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"groupId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;groupId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;likeId&gt;"</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -833,25 +833,25 @@ sorted by Snowflake ID. Treat the array as an unordered set.</p>
 </table>
 <h4 id="message-deleted-type10">Message Deleted (type=10)<a class="headerlink" href="#message-deleted-type10" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;dataVersion&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;original message content&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;senderId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;correlationId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;inReplyTo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId or empty&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;inReplyToRoot&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId or empty&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138794</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;interactions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;recipientId&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;readAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;deliveredAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138799404</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"dataVersion"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;original message content&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"groupId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;groupId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"senderId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;senderId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"correlationId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"inReplyTo"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId or empty&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"inReplyToRoot"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId or empty&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138794</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"attachments"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"embeds"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"interactions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"userId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;recipientId&gt;"</span><span class="p">,</span><span class="w"> </span><span class="nt">"readAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"deliveredAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779138799404</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;likes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;deletedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142014</span>
+<span class="w">    </span><span class="nt">"likes"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"deletedAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779142014</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -861,11 +861,11 @@ sorted by Snowflake ID. Treat the array as an unordered set.</p>
 <p>Daemon dispatch: <code>_handle_message_deleted</code> produces a <code>MarkMessagesDeleted</code> WorkItem with <code>message_ids=(message.id,)</code> and <code>deleted_at_epoch=message.deletedAt</code>. The handler also reads <code>message.ids</code> and <code>message.messageIds</code> array forms as fallbacks, but those array shapes have not been observed in live traffic — single-<code>id</code> is the form Fansly emits for the captured deletions.</p>
 <h4 id="typing-indicator-type22">Typing Indicator (type=22)<a class="headerlink" href="#typing-indicator-type22" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;typingAnnounceEvent&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;groupId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;groupId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;lastAnnounce&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1776291298537</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"typingAnnounceEvent"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"groupId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;groupId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"lastAnnounce"</span><span class="p">:</span><span class="w"> </span><span class="mi">1776291298537</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1184,32 +1184,32 @@ sorted by Snowflake ID. Treat the array as an unordered set.</p>
 <h4 id="subscription-tier-entity-shape">Subscription Tier Entity Shape<a class="headerlink" href="#subscription-tier-entity-shape" title="Permanent link">&para;</a></h4>
 <p>The <code>subscriptionTiers</code> array on an <code>account</code> object (returned by REST timeline / account endpoints) is the underlying entity the SubscriptionService events reference. Shape:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;subscriptionTiers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;tier-snowflake&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;color&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#XXXXXX&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;pos&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;price&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills&gt;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;subscriptionBenefits&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;...&quot;</span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;includedTierIds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;&lt;lower-tier-snowflake&gt;&quot;</span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;plans&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
-<span class="w">      </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;plan-snowflake&gt;&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;billingCycle&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;days&gt;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;price&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills&gt;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;useAmounts&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;promos&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
-<span class="w">        </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;promo-snowflake&gt;&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;price&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills</span><span class="p">,</span><span class="w"> </span><span class="err">discou</span><span class="kc">nte</span><span class="err">d&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;duration&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;days&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;startsAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;endsAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;maxUses&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;maxUsesBefore&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;newSubscribersOnly&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;uses&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span>
+<span class="w">  </span><span class="nt">"subscriptionTiers"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;tier-snowflake&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;creator-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">,</span><span class="w">  </span><span class="nt">"color"</span><span class="p">:</span><span class="w"> </span><span class="s2">"#XXXXXX"</span><span class="p">,</span><span class="w">  </span><span class="nt">"pos"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="nt">"price"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills&gt;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"subscriptionBenefits"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"..."</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"includedTierIds"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"&lt;lower-tier-snowflake&gt;"</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">"plans"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">      </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;plan-snowflake&gt;"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"billingCycle"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;days&gt;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"price"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills&gt;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"useAmounts"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"promos"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;promo-snowflake&gt;"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"price"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;mills</span><span class="p">,</span><span class="w"> </span><span class="err">discou</span><span class="kc">nte</span><span class="err">d&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;days&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"startsAt"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"endsAt"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"maxUses"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"maxUsesBefore"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;ms&gt;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"newSubscribersOnly"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"uses"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span>
 <span class="w">      </span><span class="p">}],</span>
-<span class="w">      </span><span class="nt">&quot;uses&quot;</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span>
+<span class="w">      </span><span class="nt">"uses"</span><span class="p">:</span><span class="w"> </span><span class="err">&lt;i</span><span class="kc">nt</span><span class="err">&gt;</span>
 <span class="w">    </span><span class="p">}]</span>
 <span class="w">  </span><span class="p">}]</span>
 <span class="p">}</span>
@@ -1500,33 +1500,33 @@ t+60.5s   (42, 21) unsub id=B
 <p>Subscriptions are renewed on a <strong>~30 second cycle</strong> as long as the user dwells on the poll-bearing post. Each renewal mints a NEW <code>pollSubscription.id</code>; the previous subscription's <code>unsub</code> fires ~0.5s after the new one is registered. So a single dwell of N seconds produces ⌈N/30⌉ subscribe events and N⌈/30⌉ unsubscribe events — <strong>not</strong> one of each.</p>
 <p>Distinguishing renewal from true leave: if a new <code>(42, 20)</code> for the same <code>pollId</code> arrives within ~1s of a <code>(42, 21)</code>, it's a renewal cycle (still in viewport). If no new sub follows, that unsub is the true viewport-leave.</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;pollSubscription&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;subscription-record-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779143185450</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"pollSubscription"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;self-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"pollId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;poll-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;subscription-record-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779143185450</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <p>The matching unsub mirrors the same fields except <code>createdAt</code> is omitted, and the <code>id</code> matches the original subscription (see <em>Lifecycle ID-Reuse</em>):</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;pollSubscription&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;subscription-record-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"pollSubscription"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;subscription-record-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;self-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"pollId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;poll-id&gt;"</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h4 id="poll-vote-type10">Poll Vote (type=10)<a class="headerlink" href="#poll-vote-type10" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;pollVote&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;self-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;pollId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;optionId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;vote-id&gt;&quot;</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"pollVote"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;self-accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"pollId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;poll-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"optionId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;option-id&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;vote-id&gt;"</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1534,28 +1534,28 @@ t+60.5s   (42, 21) unsub id=B
 <h4 id="rest-side-poll-entity-context">REST-Side Poll Entity (context)<a class="headerlink" href="#rest-side-poll-entity-context" title="Permanent link">&para;</a></h4>
 <p>The underlying poll being subscribed to is fetched via REST (a <code>/api/.../polls</code> endpoint, not WS). Shape:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;poll-id&gt;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;accountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creator-accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1779139234</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;updatedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id-1&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Yes&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;voteCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="w"> </span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;option-id-2&gt;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;No&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;voteCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;poll-id&gt;"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"accountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;creator-accountId&gt;"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"title"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1779139234</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"updatedAt"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"options"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;option-id-1&gt;"</span><span class="p">,</span><span class="w"> </span><span class="nt">"title"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Yes"</span><span class="p">,</span><span class="w"> </span><span class="nt">"voteCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;option-id-2&gt;"</span><span class="p">,</span><span class="w"> </span><span class="nt">"title"</span><span class="p">:</span><span class="w"> </span><span class="s2">"No"</span><span class="p">,</span><span class="w"> </span><span class="nt">"voteCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;permissions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;permissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;accountPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;flags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;4\&quot;:\&quot;{\\\&quot;subscriptionTierId\\\&quot;:\\\&quot;651898882694848512\\\&quot;}\&quot;}&quot;</span>
+<span class="w">  </span><span class="nt">"permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"permissionFlags"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"accountPermissionFlags"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"flags"</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"4\":\"{\\\"subscriptionTierId\\\":\\\"651898882694848512\\\"}\"}"</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;whitelisted&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;accountPermissionFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;access&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">  </span><span class="nt">"whitelisted"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"accountPermissionFlags"</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"access"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 <span class="p">}</span>
 </code></pre></div>
 <p><code>option.id</code> is <code>poll.id + 1</code>, <code>+ 2</code>, ... (Snowflake-sequential within the poll). <code>permissions.accountPermissionFlags.metadata</code> is a <strong>JSON-encoded JSON string</strong> keyed by flag-bit, with the inner value carrying tier-gating data (e.g., <code>subscriptionTierId</code> for tier-gated polls). The top-level <code>accountPermissionFlags: 6</code> is a bitmask matching <code>permissions.accountPermissionFlags.flags</code>.</p>
@@ -1689,14 +1689,14 @@ t+60.5s   (42, 21) unsub id=B
 </table>
 <p>Tip-in-chat payload (attached to chat message send request):</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;chatRoomId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;id&gt;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;private&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;messageTip&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;receiverId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;creatorAccountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;amount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;customTargetId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;chatRoomGoalId or null&gt;&quot;</span>
+<span class="w">  </span><span class="nt">"chatRoomId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;id&gt;"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"message text"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"private"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"messageTip"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"receiverId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;creatorAccountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"amount"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"message text"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"customTargetId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;chatRoomGoalId or null&gt;"</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1768,23 +1768,23 @@ poll result updates. They fire automatically when a poll scrolls into/out of vie
 </tbody>
 </table>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;chatRoomMessage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;chatRoomId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;roomId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;senderId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;message text&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;private&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;accountFlags&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;metadata&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;senderIsCreator\&quot;: true, \&quot;senderIsStaff\&quot;: false}&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;chatRoomAccountId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;accountId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;messageId&gt;&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1776273660119</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;embeds&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">    </span><span class="nt">&quot;usernameColor&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#ff0000&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;username&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;example_creator&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;displayname&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Example Creator&quot;</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"chatRoomMessage"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"chatRoomId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;roomId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"senderId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"message text"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"private"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"attachments"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"accountFlags"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"senderIsCreator\": true, \"senderIsStaff\": false}"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"chatRoomAccountId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;accountId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;messageId&gt;"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"createdAt"</span><span class="p">:</span><span class="w"> </span><span class="mi">1776273660119</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"embeds"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nt">"usernameColor"</span><span class="p">:</span><span class="w"> </span><span class="s2">"#ff0000"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"username"</span><span class="p">:</span><span class="w"> </span><span class="s2">"example_creator"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"displayname"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Example Creator"</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1885,7 +1885,7 @@ t+4.2s  svc=15 type=5  Subscription created   $12.00  status=2 (pending)
 t+4.5s  svc=15 type=5  Subscription confirmed         status=3 (with tier name, endsAt)
 t+4.8s  svc=6  type=3  Sub debit              $12.00  (wallet → null, type=58000)
 t+4.8s  svc=6  type=2  Wallet balance updated         (-12000, walletVersion++)
-t+5.7s  svc=5  type=1  Auto-welcome message           (creator&#39;s automated DM)
+t+5.7s  svc=5  type=1  Auto-welcome message           (creator's automated DM)
 </code></pre></div>
 <p>All events are correlated via <code>correlationId</code> ↔ <code>historyId</code> chains. The above timeline is the <em>backend pipeline's emit order</em>; wire-order can race within the ~1s burst (live captures have shown wallet events arriving before/after the subscription confirmation, and child-media <code>(2, 7)</code> events arriving before their parent bundle <code>(2, 7)</code>). Daemon dispatch keys off the terminal confirmation (<code>svc=15 type=5 status=3</code> for subs, <code>svc=2 type=7</code> for PPV) — order-agnostic by design.</p>
 <h2 id="full-ppv-media-purchase-flow-observed">Full PPV Media Purchase Flow (observed)<a class="headerlink" href="#full-ppv-media-purchase-flow-observed" title="Permanent link">&para;</a></h2>
