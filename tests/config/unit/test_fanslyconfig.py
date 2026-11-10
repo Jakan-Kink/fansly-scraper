@@ -736,3 +736,56 @@ class TestStashEnableSceneSplitRoundTrip:
     def test_default_is_false(self):
         """A bare ``FanslyConfig`` defaults ``stash_enable_scene_split`` to False."""
         assert FanslyConfig(program_version="1.0.0").stash_enable_scene_split is False
+
+
+class TestStashLoadedOnlySettingsRoundTrip:
+    """``scan_settle_s`` and ``batches`` reach the runtime and survive a save.
+
+    Neither has a runtime writer, so the save path must carry them over from
+    the loaded section exactly as the user left them: a value they set stays
+    set, and one they never wrote is not added to the file.
+    """
+
+    def test_forward_schema_to_runtime(self, unit_config):
+        schema = ConfigSchema(
+            stash_context=StashContextSection.model_validate(
+                {"batches": {"tags": 60, "files": 500, "galleries": 120}}
+            ),
+        )
+
+        _populate_config_from_schema(unit_config, schema)
+
+        assert unit_config.stash_tags_batch == 60
+        assert unit_config.stash_files_batch == 500
+        assert unit_config.stash_galleries_batch == 120
+
+    def test_reverse_keeps_what_the_user_set(self, unit_config):
+        loaded = ConfigSchema(
+            stash_context=StashContextSection.model_validate(
+                {"scan_settle_s": 1.0, "batches": {"files": 500}}
+            ),
+        )
+        _populate_config_from_schema(unit_config, loaded)
+        unit_config._schema = loaded
+
+        rebuilt = _rebuild_schema_from_config(unit_config).stash_context
+
+        assert rebuilt is not None
+        assert rebuilt.scan_settle_s == 1.0
+        assert rebuilt.batches.files == 500
+        assert rebuilt.batches.model_fields_set == {"files"}
+        assert {"scan_settle_s", "batches"} <= rebuilt.model_fields_set
+
+    def test_reverse_does_not_invent_unset_settings(self, unit_config):
+        unit_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_key",
+        }
+
+        rebuilt = _rebuild_schema_from_config(unit_config).stash_context
+
+        assert rebuilt is not None
+        assert rebuilt.apikey == "test_key"
+        assert not {"scan_settle_s", "batches"} & rebuilt.model_fields_set

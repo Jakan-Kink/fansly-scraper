@@ -37,6 +37,20 @@ if TYPE_CHECKING:
     from metadata import Message, Post
 
 
+# Scene/Image fields that stamping reads or writes.
+_STAMP_FIELDS = (
+    "code",
+    "date",
+    "details",
+    "organized",
+    "performers",
+    "studio",
+    "tags",
+    "title",
+    "urls",
+)
+
+
 class MediaProcessingMixin(StashProcessingProtocol):
     """Media processing functionality."""
 
@@ -54,6 +68,28 @@ class MediaProcessingMixin(StashProcessingProtocol):
             (s for s in scenes if is_set(s.files) and s.files and file == s.files[0]),
             None,
         )
+
+    async def _complete_entity[EntityT: Scene | Image](
+        self, entity: EntityT
+    ) -> EntityT | None:
+        """Return ``entity`` with everything stamping and ownership checks read.
+
+        The store's copy is returned untouched when it already received those
+        fields and every file's path; otherwise it is re-read once by id.
+
+        Args:
+            entity: Scene or Image from the store
+
+        Returns:
+            The complete entity, or None when Stash no longer has it.
+        """
+        files_field = "visual_files" if isinstance(entity, Image) else "files"
+        if not self.store.missing_fields_nested(
+            entity, f"{files_field}__path", *_STAMP_FIELDS
+        ):
+            return entity
+        self.store.invalidate(type(entity), entity.id)
+        return await self.store.get(type(entity), entity.id)
 
     def _image_files_all_local(self, image: Image) -> bool:
         """True iff every visual file of the image is under our creator root.
@@ -175,11 +211,9 @@ class MediaProcessingMixin(StashProcessingProtocol):
         a shared scene). If every visual file is ours, we stamp and record
         ``media.stash_id``.
 
-        Path-resolution caveat: ``populate(image, ["visual_files"])`` does not
-        reliably resolve ``visual_files[].path`` (it can silently leave them
-        UNSET), so ownership is checked by re-fetching each Image fresh via the
-        find fragment — image IDs off ``file.images`` + ``get_many``, invalidating
-        first so a cached path-less copy is not read.
+        Ownership needs every visual file's path. The Image nested on the file
+        is used as is when the store holds those; a copy without them (SGC can
+        nest path-less visual files) is re-read once by id.
         """
         if not is_set(file.path):
             raise ValueError(
@@ -189,12 +223,8 @@ class MediaProcessingMixin(StashProcessingProtocol):
         if not is_set(file.images):
             file = await self.store.populate(file, ["images"])  # REBIND
         stamped: list[Scene | Image] = []
-        for stale in file.images if is_set(file.images) and file.images else []:
-            # Evict any cached copy (whose visual_files paths may be UNSET) so the
-            # find-fragment re-fetch returns visual_files WITH paths resolved.
-            self.store.invalidate(Image, stale.id)
-            fresh = await self.store.get_many(Image, [stale.id])
-            image = fresh[0] if fresh else None
+        for found in file.images if is_set(file.images) and file.images else []:
+            image = await self._complete_entity(found)
             if image is None or not self._image_files_all_local(image):
                 # Foreign co-resident OR ownership unresolvable -> fail safe: skip.
                 files = (
@@ -207,7 +237,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
                     )
                 )
                 logger.error(
-                    f"Image {stale.id} for {leaf_name} has a "
+                    f"Image {found.id} for {leaf_name} has a "
                     f"foreign co-resident (or paths unresolved); not stamping "
                     f"shared image. Files: {[getattr(vf, 'path', None) for vf in files]}"
                 )
@@ -314,10 +344,15 @@ class MediaProcessingMixin(StashProcessingProtocol):
             return []
         is_image = media.mimetype is not None and media.mimetype.startswith("image/")
         entity_type = Image if is_image else Scene
-        # store.get is cache-first; a cached entity can hold UNSET file paths,
-        # which break the basename match. Evict so the get re-fetches with paths.
-        self.store.invalidate(entity_type, str(media.stash_id))
-        entity = await self.store.get(entity_type, str(media.stash_id))
+        entity_id = str(media.stash_id)
+        # A copy the store already holds (e.g. returned with the swept files)
+        # is used when complete; anything else is read once by id.
+        cached = self.store.get_cached(entity_type, entity_id)
+        entity = (
+            await self._complete_entity(cached)
+            if isinstance(cached, (Scene, Image))
+            else await self.store.get(entity_type, entity_id)
+        )
         if not isinstance(entity, (Scene, Image)):
             return []  # stale/deleted stash_id — caller may fall back to sweep
         leaf = PurePath(media.local_filename).name
@@ -420,7 +455,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
             account: Account that created the content
             studio: Pre-resolved studio (avoids repeated lookups per media item)
         """
-        if self._should_skip_stamp(stash_obj, item):
+        if self._should_skip_stamp(stash_obj, item, media):
             return
         self._apply_core_fields(stash_obj, media, item, account)
         await self._stamp_performers(stash_obj, item, account)
@@ -428,17 +463,20 @@ class MediaProcessingMixin(StashProcessingProtocol):
         await self._stamp_tags(stash_obj, item, media)
 
     def _should_skip_stamp(
-        self, stash_obj: Scene | Image, item: Post | Message
+        self, stash_obj: Scene | Image, item: Post | Message, media: Media
     ) -> bool:
         """Whether to leave the object untouched.
 
-        Skip an already-organized object, or one whose stored date is earlier
-        than the item (preserve the earliest). A legacy "Media from..." title
-        forces a re-stamp regardless.
+        Skip an object this media already stamped (its ``code`` is the media
+        id), an organized one, or one whose stored date is earlier than the
+        item (preserve the earliest). A legacy "Media from..." title forces a
+        re-stamp regardless.
         """
         current_title = getattr(stash_obj, "title", None) or ""
         if "Media from" in current_title:
             return False
+        if getattr(stash_obj, "code", None) == str(media.id):
+            return True
         if getattr(stash_obj, "organized", False):
             return True
         current_date_str = getattr(stash_obj, "date", None)

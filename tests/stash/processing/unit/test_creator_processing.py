@@ -431,9 +431,14 @@ class TestCreatorProcessing:
         # Mock GraphQL HTTP responses for the full workflow
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: connect_async() connection establishment
-                httpx.Response(200, json={"data": {}}),
+                # Connect: the tag preload
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findTags", {"count": 0, "tags": []}),
+                ),
                 # === scan_creator_folder() (sets base_path, triggers Stash scan) ===
+                # ConfigurationDefaults query (scan defaults)
+                httpx.Response(200, json={"data": {}}),
                 # metadataScan mutation (returns job ID string)
                 httpx.Response(200, json={"data": {"metadataScan": "job_123"}}),
                 # findJob query (finished immediately for speed)
@@ -458,16 +463,17 @@ class TestCreatorProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "start_creator_processing")
 
-        # 5 calls: connect, scan (metadataScan + findJob), then the performer
-        # URL search's count and fetch. No preload.
-        assert len(graphql_route.calls) == 5, (
-            f"Expected exactly 5 GraphQL calls, got {len(graphql_route.calls)}"
+        # 6 calls: the tag preload, the scan (defaults + metadataScan + findJob),
+        # then the performer URL search's count and fetch.
+        assert len(graphql_route.calls) == 6, (
+            f"Expected exactly 6 GraphQL calls, got {len(graphql_route.calls)}"
         )
-        assert_op(graphql_route.calls[0], "ConfigurationDefaults")
-        assert_op(graphql_route.calls[1], "metadataScan")
-        assert_op(graphql_route.calls[2], "findJob")
-        assert_op(graphql_route.calls[3], "findPerformers")
+        assert_op(graphql_route.calls[0], "findTags")
+        assert_op(graphql_route.calls[1], "ConfigurationDefaults")
+        assert_op(graphql_route.calls[2], "metadataScan")
+        assert_op(graphql_route.calls[3], "findJob")
         assert_op(graphql_route.calls[4], "findPerformers")
+        assert_op(graphql_route.calls[5], "findPerformers")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None

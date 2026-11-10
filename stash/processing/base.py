@@ -118,6 +118,10 @@ class StashProcessingBase(StashProcessingProtocol):
 
         # (lowercased username, name) -> matched performers; None = ambiguous
         self._performer_matches: dict[tuple[str, str], list[Performer] | None] = {}
+        # lowercased tag name or alias -> tag
+        self._tags_by_name: dict[str, Tag] = {}
+        # True once the galleries the current items could have are in the store
+        self._galleries_preloaded = False
 
     @property
     def store(self) -> StashEntityStore:
@@ -134,19 +138,20 @@ class StashProcessingBase(StashProcessingProtocol):
         return self.context.capabilities
 
     async def _preload_stash_entities(self) -> None:
-        """Configure cache TTLs for Stash entity types.
+        """Configure cache TTLs for Stash entity types and preload the tags.
 
         Pins TTL to None (no expiration) since the script is the sole writer
         to Stash during processing — cached entities stay valid for the run.
-        Mixin call sites use the ``store.filter(...) → store.find_one(...)``
-        pattern, so the cache populates lazily as entities are actually
-        looked up; no upfront fetch is needed.
+        Tags are fetched up front (hashtags resolve against all of them);
+        performers and studios populate lazily through the mixins'
+        ``store.filter(...) → store.find_one(...)`` lookups.
 
         Per-creator entities (Gallery, Image, Scene) also get TTL=None but
         are invalidated per-creator (see processing/__init__.py).
         """
         for entity_type in (Performer, Tag, Studio, Gallery, Image, Scene):
             self.store.set_ttl(entity_type, None)
+        await self._preload_tags()
 
     @classmethod
     def from_config(
@@ -593,5 +598,9 @@ class StashProcessingBase(StashProcessingProtocol):
         root = get_stash_path(self.state.base_path, self.config).rstrip("/")
         # Trailing sep anchors the scope: a bare 'root' substring would also pull
         # a sibling creator '/dl/annabelle/...' into '/dl/anna's sweep.
-        async for file in self.store.find_iter(BaseFile, path__contains=root + "/"):
+        async for file in self.store.find_iter(
+            BaseFile,
+            query_batch=self.config.stash_files_batch,
+            path__contains=root + "/",
+        ):
             yield file

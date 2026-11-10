@@ -92,7 +92,6 @@ from textio import (
     print_warning,
     set_window_title,
 )
-from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
 def _resolve_version() -> str:
@@ -189,9 +188,6 @@ async def _safe_cleanup_database(config: FanslyConfig) -> None:
         with contextlib.suppress(Exception):
             config._database.close_sync()
 
-    with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)
-
 
 async def cleanup_database(config: FanslyConfig) -> None:
     """Clean up database connections when the program exits.
@@ -207,10 +203,6 @@ async def cleanup_database(config: FanslyConfig) -> None:
             print_error(f"Error during database cleanup: {e}")
     else:
         print_info("No database to clean up or database already closed.")
-
-    # Always check for leaked semaphores
-    with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)
 
 
 def cleanup_database_sync(config: FanslyConfig) -> None:
@@ -236,8 +228,6 @@ def cleanup_database_sync(config: FanslyConfig) -> None:
             print_info("Database connections closed successfully.")
         except Exception as e:
             print_error(f"Error closing database connections: {e}")
-    monitor_semaphores(threshold=20)  # Report any leaked semaphores
-    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
 
 def print_logo() -> None:
@@ -328,9 +318,6 @@ async def main(config: FanslyConfig) -> int:
     :return: The exit code of the program.
     :rtype: int
     """
-    # Check semaphores at start of main
-    monitor_semaphores(threshold=20)  # Check what semaphores exist at main start
-
     exit_code = EXIT_SUCCESS
 
     timer = Timer("Total")
@@ -370,9 +357,6 @@ async def main(config: FanslyConfig) -> int:
         raise RuntimeError(
             "Internal error - user name and download mode should not be empty after validation."
         )
-
-    # Check semaphores before database initialization
-    monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
     # Initialize database first since we need it for deduplication
     print_info(
@@ -616,8 +600,6 @@ async def main(config: FanslyConfig) -> int:
                                     exit_code = SOME_USERS_FAILED
 
                             await stash_processor.cleanup()
-                        monitor_semaphores(threshold=20)
-                        cleanup_semaphores(r"/mp-.*")
 
                     finally:
                         # Log creator processing time
@@ -776,9 +758,6 @@ async def main(config: FanslyConfig) -> int:
             print_error(f"Error in background tasks: {e}")
             config.cancel_background_tasks()
         print_info("All background tasks completed or cancelled.")
-
-    monitor_semaphores(threshold=20)  # Warn if too many semaphores
-    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
     # CBT-delta apply: process WS events captured during the initial
     # sync. Downstream handlers dedup against the database, so items
@@ -948,21 +927,6 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             print_error(f"Error during database cleanup: {db_error}")
         phase_done("db")
 
-        # Finally clean up any remaining semaphores if time allows
-        phase_starts["semaphores"] = time.perf_counter()
-        try:
-            remaining_time = max_cleanup_time - (time.time() - cleanup_start)
-            if remaining_time > 0:
-                print_info("Cleaning up semaphores...")
-                monitor_semaphores(threshold=20)
-                cleanup_semaphores(r"/mp-.*")
-                print_info("Semaphore cleanup completed")
-            else:
-                print_warning("No time remaining for semaphore cleanup")
-        except Exception as e:
-            print_warning(f"Error during semaphore cleanup: {e}")
-        phase_done("semaphores")
-
         total_cleanup_time = time.time() - cleanup_start
         print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
 
@@ -1097,9 +1061,6 @@ async def _async_main(config: FanslyConfig) -> int:
 
 
 if __name__ == "__main__":
-    # Start monitoring semaphores before anything else
-    monitor_semaphores(threshold=20)  # Initial baseline check
-
     # Increase file descriptor limit
     increase_file_descriptor_limit()
 

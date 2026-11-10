@@ -93,6 +93,8 @@ class StashProcessingProtocol(Protocol):
     _studio: Studio | None
     _stash_parent_task: str | None
     _performer_matches: dict[tuple[str, str], list[Performer] | None]
+    _tags_by_name: dict[str, Tag]
+    _galleries_preloaded: bool
 
     # --- Base class properties ---
 
@@ -151,6 +153,12 @@ class StashProcessingProtocol(Protocol):
     ) -> Studio | None: ...
 
     # --- TagProcessingMixin methods ---
+
+    async def _preload_tags(self) -> None: ...
+
+    async def _preload_galleries(
+        self, items: Sequence[Post | Message], studio: Studio | None
+    ) -> None: ...
 
     async def _process_hashtags_to_tags(self, hashtags: list[Any]) -> list[Tag]: ...
 

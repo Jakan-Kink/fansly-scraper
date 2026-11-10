@@ -697,6 +697,20 @@ class LoggingSection(_BaseSection):
         return self
 
 
+class StashBatchesSection(_BaseSection):
+    """Page sizes for the paged queries sent to Stash.
+
+    Same meaning as the per-page dropdown in the Stash UI. Scenes and images
+    have no entry of their own: they are fetched attached to their files.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tags: int = Field(default=250, ge=1)
+    files: int = Field(default=40, ge=1)
+    galleries: int = Field(default=250, ge=1)
+
+
 class StashContextSection(_BaseSection):
     """Stash media server connection settings.
 
@@ -722,6 +736,7 @@ class StashContextSection(_BaseSection):
     # Stash's index commit can lag the job-FINISHED signal by a few hundred
     # ms; reading File/Scene/Image back without a settle window races.
     scan_settle_s: float = Field(default=3.5, ge=0.0, le=30.0)
+    batches: StashBatchesSection = Field(default_factory=StashBatchesSection)
 
     @field_validator("enable_scene_split", mode="before")
     @classmethod

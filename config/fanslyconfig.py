@@ -228,6 +228,9 @@ class FanslyConfig:
     stash_require_stash_only_mode: bool = False
     stash_enable_scene_split: bool | Literal["dry-run"] = False
     stash_scan_settle_s: float = 3.5
+    stash_tags_batch: int = 250
+    stash_files_batch: int = 40
+    stash_galleries_batch: int = 250
 
     # Logging
     # ``log_levels`` is the legacy flat ``{logger_name: level_string}``
@@ -545,17 +548,22 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     stash_section: StashContextSection | None = None
     if config.stash_context_conn is not None:
         conn = config.stash_context_conn
-        stash_section = StashContextSection(
-            scheme=str(conn.get("scheme", "http")),
-            host=str(conn.get("host", "localhost")),
-            port=int(conn.get("port", 9999)),
-            apikey=str(conn.get("apikey", "")),
-            mapped_path=str(config.stash_mapped_path)
-            if config.stash_mapped_path is not None
-            else None,
-            override_dldir_w_mapped=config.stash_override_dldir_w_mapped,
-            require_stash_only_mode=config.stash_require_stash_only_mode,
-            enable_scene_split=config.stash_enable_scene_split,
+        loaded = config._schema.stash_context if config._schema is not None else None
+        # Settings with no runtime writer (scan_settle_s, batches) ride along
+        # from the loaded section, set-or-unset as the user left them.
+        stash_section = (loaded or StashContextSection()).model_copy(
+            update={
+                "scheme": str(conn.get("scheme", "http")),
+                "host": str(conn.get("host", "localhost")),
+                "port": int(conn.get("port", 9999)),
+                "apikey": str(conn.get("apikey", "")),
+                "mapped_path": str(config.stash_mapped_path)
+                if config.stash_mapped_path is not None
+                else None,
+                "override_dldir_w_mapped": config.stash_override_dldir_w_mapped,
+                "require_stash_only_mode": config.stash_require_stash_only_mode,
+                "enable_scene_split": config.stash_enable_scene_split,
+            }
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic

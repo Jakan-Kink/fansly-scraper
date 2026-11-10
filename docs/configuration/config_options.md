@@ -477,6 +477,12 @@ stash_context:
   mapped_path: null
   override_dldir_w_mapped: false
   require_stash_only_mode: false
+  enable_scene_split: false
+  scan_settle_s: 3.5
+  batches:
+    tags: 250
+    files: 40
+    galleries: 250
 ```
 
 | Field                     | Type          | Default       | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -488,6 +494,11 @@ stash_context:
 | `mapped_path`             | `str \| None` | `null`        | **Docker / NFS path mapping.** Set this when Stash runs in a container that mounts your download directory under a different path prefix than the scraper sees. For example: if the scraper writes to `/home/user/downloads/` but the Stash container mounts the same share as `/data/fansly/`, set `mapped_path: /data/fansly`. The scraper will substitute the `options.download_directory` prefix with this value in every path it sends to Stash (scan jobs, path filters, regex queries). Leave `null` when both environments share identical paths                                                                                                                    |
 | `override_dldir_w_mapped` | `bool`        | `false`       | **Override the download-directory tree with `mapped_path`.** Set `true` when the scraper's per-creator subfolder structure isn't preserved in Stash — for example, files copied to the Stash host and reorganised into `Videos/<studio>/` and `Photos/<studio>/` rather than living under `<creator>_fansly/`. With this flag on, the path the scraper sends to Stash is `mapped_path` itself (no creator-subfolder appended); scan jobs and path filters scope to the whole fansly area, and matching falls back to media-ID code lookups in filenames. Requires `mapped_path` to be set — config load fails otherwise. Leave `false` for the prefix-substitution semantic |
 | `require_stash_only_mode` | `bool`        | `false`       | **Engage Stash integration only when `--stash-only` is the download mode.** Set `true` when your Stash server runs on a separate host that the scraper can't reach during downloads — for example, you scrape locally on a workstation, manually copy files to the Stash host, then run `--stash-only` to attribute metadata. With this flag on, regular download runs (`NORMAL`, `TIMELINE`, `MESSAGES`, `WALL`, `SINGLE`, `STORIES`, `COLLECTION`) skip every Stash code path even when `stash_context` is fully populated; `--stash-only` runs engage Stash as usual. Leave `false` to engage Stash after every download mode                                            |
+| `enable_scene_split` | `bool \| "dry-run"` | `false` | **What to do when a downloaded video is a secondary file on a Stash scene another source owns.** `false` logs a warning and skips it, `"dry-run"` logs the split it would make, `true` splits the file into a new scene of its own |
+| `scan_settle_s` | `float` | `3.5` | Seconds to wait after a metadata scan finishes before reading files, scenes and images back (0 to 30). Stash can report the job finished slightly before its index is readable |
+| `batches.tags` | `int` | `250` | **Page size for the tag preload.** All Stash tags are fetched once per connection, this many per request. Same meaning as the per-page dropdown in the Stash UI |
+| `batches.files` | `int` | `40` | **Page size for the creator file sweep.** Each file comes back with its scene or image attached, so a larger page means fewer but heavier requests. The daemon's lookup of a cycle's downloaded files uses it too. Scenes and images have no page size of their own |
+| `batches.galleries` | `int` | `250` | **Page size for the gallery preload.** Before galleries are created for new posts and messages, the creator studio's galleries and any whose code or URL names one of those items are fetched this many per request, and this many items are named per code or URL query |
 
 ---
 

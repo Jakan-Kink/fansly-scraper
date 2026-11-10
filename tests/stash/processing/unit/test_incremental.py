@@ -9,6 +9,7 @@ guard that the per-media lookup matches by basename, never by a mapped-root path
 """
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
 
@@ -243,9 +244,13 @@ class TestLocalPathSeamAndOverrideLookup:
         ]
         assert find_files_reqs, "incremental pass issued no findFiles lookup"
         file_filter = find_files_reqs[0].get("variables", {}).get("file_filter") or {}
-        # Matched by basename (the snowflake-bearing leaf), not by path.
+        # Matched by basename (the snowflake-bearing leaf), not by path: one
+        # query names every file downloaded this cycle.
         assert "basename" in file_filter, f"lookup not by basename: {file_filter}"
-        assert file_filter["basename"]["value"] == leaf
+        assert file_filter["basename"] == {
+            "value": f"^({re.escape(leaf)})$",
+            "modifier": "MATCHES_REGEX",
+        }
         # The mapped root must NEVER appear as a path criterion (the too-wide gate).
         assert "path" not in file_filter, (
             f"lookup regressed to a path filter under override: {file_filter}"

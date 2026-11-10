@@ -13,6 +13,8 @@ in xdist parallel test environments, including:
 import asyncio
 import contextlib
 import gc
+import logging
+import sys
 from unittest import mock
 
 import httpx
@@ -20,14 +22,10 @@ import pytest
 from loguru import logger
 
 import metadata.subscriptions as subs_mod
-
-
-# NOTE: imports of ``config.logging`` and ``helpers.rich_progress`` MUST stay
-# inside the fixture bodies below (lazy import). Hoisting them to module
-# scope triggers a circular import: cleanup_fixtures → tests.fixtures
-# package init → config.logging → config.config → config.fanslyconfig →
-# api.FanslyApi → ImportError. PEP 8 ("imports at top of file") explicitly
-# allows this exception when "imports cause circular dependencies".
+from api.rate_limiter_display import RateLimiterDisplay
+from api.websocket import FanslyWebSocket
+from config import logging as config_logging
+from helpers import rich_progress
 
 
 @pytest.fixture(autouse=True)
@@ -35,33 +33,28 @@ def cleanup_rich_progress_state():
     """Clean up Rich progress manager and console state between tests."""
     yield  # Run the test
 
-    try:
-        # Lazy import — see top-of-file note about the circular-dependency cycle
-        from helpers.rich_progress import _console, _progress_manager
+    progress_manager = rich_progress._progress_manager
+    console = rich_progress._console
 
-        # Reset progress manager state
-        with _progress_manager._lock:
-            # Stop any active Live instances
-            if _progress_manager.live is not None:
-                with contextlib.suppress(Exception):
-                    _progress_manager.live.stop()
-                _progress_manager.live = None
+    # Reset progress manager state
+    with progress_manager._lock:
+        # Stop any active Live instances
+        if progress_manager.live is not None:
+            with contextlib.suppress(Exception):
+                progress_manager.live.stop()
+            progress_manager.live = None
 
-            # Clear active tasks
-            _progress_manager.active_tasks.clear()
-            _progress_manager._session_count = 0
+        # Clear active tasks
+        progress_manager.active_tasks.clear()
+        progress_manager._session_count = 0
 
-        # Reset console state if possible (defensive approach for internal APIs)
-        with contextlib.suppress(AttributeError, Exception):
-            # Clear any pushed themes (if supported by this Rich version)
-            if hasattr(_console, "_theme_stack"):
-                theme_stack = getattr(_console, "_theme_stack", None)
-                if theme_stack and hasattr(theme_stack, "clear"):
-                    theme_stack.clear()
-
-    except ImportError:
-        # Rich progress module not available
-        pass
+    # Reset console state if possible (defensive approach for internal APIs)
+    with contextlib.suppress(AttributeError, Exception):
+        # Clear any pushed themes (if supported by this Rich version)
+        if hasattr(console, "_theme_stack"):
+            theme_stack = getattr(console, "_theme_stack", None)
+            if theme_stack and hasattr(theme_stack, "clear"):
+                theme_stack.clear()
 
 
 def _close_handler_safely(handler):
@@ -88,21 +81,16 @@ def cleanup_loguru_handlers():
     """Clean up loguru handlers and file handles between tests."""
     yield  # Run the test
 
-    try:
-        # Lazy import — see top-of-file note about the circular-dependency cycle
-        from config.logging import _handler_ids
+    handler_ids = config_logging._handler_ids
 
-        # Remove loguru handlers but don't manually close file handlers
-        # Let loguru handle the file closure to avoid double-close issues
-        for handler_id in list(_handler_ids.keys()):
-            with contextlib.suppress(ValueError):
-                logger.remove(handler_id)
+    # Remove loguru handlers but don't manually close file handlers
+    # Let loguru handle the file closure to avoid double-close issues
+    for handler_id in list(handler_ids.keys()):
+        with contextlib.suppress(ValueError):
+            logger.remove(handler_id)
 
-        # Clear handler tracking without manual file closes
-        _handler_ids.clear()
-    except ImportError:
-        # Logging module not available
-        pass
+    # Clear handler tracking without manual file closes
+    handler_ids.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -162,16 +150,14 @@ def cleanup_global_config_state():
     """Clean up global configuration state between tests."""
     yield  # Run the test
 
-    try:
-        # Lazy import — see top-of-file note about the circular-dependency cycle
-        import config.logging as _logging_mod
+    # Reset global configuration variables
+    config_logging._config = None
+    config_logging._debug_enabled = False
 
-        # Reset global configuration variables
-        _logging_mod._config = None
-        _logging_mod._debug_enabled = False
-
-    except ImportError:
-        pass
+    # init_logging_config attaches a handler and level to the Stash client logger
+    stash_client_logger = logging.getLogger("stash_graphql_client")
+    stash_client_logger.handlers.clear()
+    stash_client_logger.setLevel(logging.NOTSET)
 
 
 @pytest.fixture(autouse=True)
@@ -238,11 +224,6 @@ def cleanup_rate_limiter_displays():
     mp = pytest.MonkeyPatch()  # dedicated instance — see cleanup_http_sessions
 
     with contextlib.suppress(Exception):
-        # Lazy import — RateLimiterDisplay is in api/, which depends on
-        # config indirectly; top-level import here triggers the same
-        # circular cycle documented at the top of this file.
-        from api.rate_limiter_display import RateLimiterDisplay
-
         original_init = RateLimiterDisplay.__init__
 
         def tracking_init(self, *args, **kwargs):
@@ -277,9 +258,6 @@ def cleanup_fansly_websockets():
     mp = pytest.MonkeyPatch()  # dedicated instance — see cleanup_http_sessions
 
     with contextlib.suppress(Exception):
-        # Lazy import — same circular-cycle rationale as above.
-        from api.websocket import FanslyWebSocket
-
         original_init = FanslyWebSocket.__init__
 
         def tracking_init(self, *args, **kwargs):
@@ -334,11 +312,12 @@ def cleanup_jspybridge():
     """
     yield  # Run the test
 
-    with contextlib.suppress(Exception):
-        # Lazy import — see top-of-file note about the circular-dependency cycle
-        from helpers.checkkey import _shutdown_js_bridge
-
-        _shutdown_js_bridge()
+    # Importing helpers.checkkey starts the bridge, so only tear down a
+    # bridge some test already loaded.
+    checkkey = sys.modules.get("helpers.checkkey")
+    if checkkey is not None:
+        with contextlib.suppress(Exception):
+            checkkey._shutdown_js_bridge()
 
 
 # Export all cleanup fixtures

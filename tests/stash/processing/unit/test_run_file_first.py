@@ -11,6 +11,7 @@ is routed via respx:
    creator as a clean success with stash_ids lost.
 """
 
+import json
 from pathlib import PurePath
 
 import httpx
@@ -143,7 +144,8 @@ async def test_run_file_first_isolates_failing_file(
     #  [1] BAD file _owned_scene populate → findScenes(bad) → error → isolated
     #  [2][3] GOOD file _owned_scene populate → findScenes(good) (direct + nested)
     #         → good is files[0] → OWNED → stamp scene + media.stash_id
-    #  [4][5][6] gallery find-or-create probes findGalleries (code/title/url) empty
+    #  [4][5][6] gallery preload, all empty: the studio's galleries, then those
+    #         whose code or URL names the post
     #  [7] galleryCreate (new gallery id 5000) → [8] findGallery(5000) re-fetch
     #  [9] save_all Batch(op0: SceneUpdateInput) — the stamped scene flush
     route = respx.post(_GRAPHQL_URL).mock(
@@ -172,6 +174,12 @@ async def test_run_file_first_isolates_failing_file(
 
     # Discriminator: the loop survived the bad file and stamped the good media.
     assert media_good.stash_id == 700
+    # The post's gallery id is written to the metadata DB once the flush lands.
+    assert post.stash_id == 5000
+    stored_gallery_id = await entity_store.pool.fetchval(
+        "SELECT stash_id FROM posts WHERE id = $1", post.id
+    )
+    assert stored_gallery_id == 5000
 
 
 @pytest.mark.asyncio
@@ -342,3 +350,233 @@ async def test_fast_path_known_media_reverifies_and_drops_from_index(
     assert set(item_entities) == {mock_item.id, post_b.id}
     assert media_with_id == [stamped]
     assert split_pairs == []
+
+
+@pytest.mark.asyncio
+async def test_fast_path_skips_gallery_link_only_when_both_ids_were_flushed(
+    entity_store, respx_stash_processor
+):
+    """A re-verified entity is re-linked unless media AND post ids are persisted.
+
+    ``media_done`` carries a saved stash_id, so its scene is skipped for the
+    post whose gallery id is also saved, and linked for the post whose gallery
+    id is only in memory and the post with none. ``media_retry`` carries an
+    unsaved stash_id (a flush that never landed), so its scene is linked even
+    for the post with a saved gallery id.
+    """
+    processor = respx_stash_processor
+    acct_id = snowflake_id()
+    account = AccountFactory.build(id=acct_id, username="test_user")
+    await entity_store.save(account)
+
+    media_done = MediaFactory.build(
+        id=snowflake_id(),
+        accountId=acct_id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename="done_id_1.mp4",
+        stash_id=700,
+    )
+    media_retry = MediaFactory.build(
+        id=snowflake_id(),
+        accountId=acct_id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename="retry_id_2.mp4",
+    )
+    post_done = PostFactory.build(id=snowflake_id(), accountId=acct_id, stash_id=5000)
+    post_retry = PostFactory.build(id=snowflake_id(), accountId=acct_id)
+    post_new = PostFactory.build(id=snowflake_id(), accountId=acct_id)
+    for saved in (media_done, media_retry, post_done, post_retry, post_new):
+        await entity_store.save(saved)
+    media_retry.stash_id = 701
+    post_retry.stash_id = 5001
+
+    index = {
+        "done_id_1.mp4": (media_done, [post_done, post_retry, post_new]),
+        "retry_id_2.mp4": (media_retry, [post_done]),
+    }
+
+    processor._account = account
+    processor._performer = PerformerFactory(
+        id="123", name="test_user", scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory(id="200", name="test_user (Fansly)")
+
+    def _scene(scene_id: str, file_id: str, leaf: str) -> httpx.Response:
+        scene = create_scene_dict(
+            id=scene_id,
+            title="Test Scene",
+            performers=[],
+            tags=[],
+            files=[create_video_file_dict(file_id, f"/dl/test_user/{leaf}")],
+        )
+        return httpx.Response(200, json=create_graphql_response("findScene", scene))
+
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[
+            _scene("700", "500", "done_id_1.mp4"),
+            _scene("701", "501", "retry_id_2.mp4"),
+        ]
+    )
+
+    item_entities: dict = {}
+    media_with_id: list = []
+    split_pairs: list = []
+    try:
+        await processor._fast_path_known_media(
+            index, account, studio, item_entities, media_with_id, split_pairs
+        )
+    finally:
+        dump_graphql_calls(route.calls, "fast_path_skips_flushed_links")
+
+    assert route.call_count == 2
+    assert index == {}
+    linked = {
+        item_id: [entity.id for entity in entities]
+        for item_id, (_item, entities) in item_entities.items()
+    }
+    assert linked == {
+        post_retry.id: ["700"],
+        post_new.id: ["700"],
+        post_done.id: ["701"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_file_first_reads_synced_media_from_the_sweep(
+    entity_store, respx_stash_processor
+):
+    """A synced creator costs one sweep request when files carry their scenes.
+
+    The swept file comes back with its scene, so re-verifying the already
+    stamped media reads the store's copy instead of asking for it by id. The
+    scene's code already matches and the post's gallery id is saved, so nothing
+    else is read and nothing is written.
+    """
+    processor = respx_stash_processor
+    processor.config.stash_files_batch = 120
+    root = get_stash_path(processor.state.base_path, processor.config).rstrip("/")
+    acct_id = snowflake_id()
+    account = AccountFactory.build(id=acct_id, username="test_user")
+    await entity_store.save(account)
+
+    path = f"{root}/test_user/done_id_1.mp4"
+    media = MediaFactory.build(
+        id=snowflake_id(),
+        accountId=acct_id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename="done_id_1.mp4",
+        stash_id=700,
+    )
+    await entity_store.save(media)
+    await entity_store.save(
+        AccountMediaFactory.build(id=media.id, accountId=acct_id, mediaId=media.id)
+    )
+    post = PostFactory.build(id=snowflake_id(), accountId=acct_id, stash_id=5000)
+    await entity_store.save(post)
+    await entity_store.save(
+        AttachmentFactory.build(
+            id=snowflake_id(),
+            postId=post.id,
+            contentId=media.id,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+    )
+
+    processor._account = account
+    processor._performer = PerformerFactory(
+        id="123", name="test_user", scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory(id="200", name="test_user (Fansly)")
+
+    file_dict = create_video_file_dict("20", path)
+    scene = create_scene_dict(
+        id="700",
+        title="Done",
+        code=str(media.id),
+        date="2024-01-01",
+        details="synced",
+        files=[file_dict],
+    )
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[find_files_response({**file_dict, "scenes": [scene]})]
+    )
+
+    try:
+        await processor._run_file_first(account, processor._performer, studio)
+    finally:
+        dump_graphql_calls(route.calls, "reads_synced_media_from_sweep")
+
+    assert route.call_count == 1
+    assert media.stash_id == 700
+    assert post.stash_id == 5000
+    # The sweep's page size comes from stash_context.batches.files.
+    sweep_request = json.loads(route.calls[0].request.content)
+    assert sweep_request["variables"]["filter"]["per_page"] == 120
+
+
+@pytest.mark.asyncio
+async def test_fast_path_current_only_leaves_earlier_media_unread(
+    respx_stash_processor, mock_item, mock_account
+):
+    """The daemon pass re-verifies only media downloaded this cycle.
+
+    Both media carry a stash_id; only the one with ``local_path`` (this cycle's
+    download) is read from Stash. The other stays in the index, unread.
+    """
+    processor = respx_stash_processor
+    current = MediaFactory.build(
+        is_downloaded=True, mimetype="video/mp4", local_filename="new_id_1.mp4"
+    )
+    current.stash_id = 700
+    current.local_path = "/dl/test_user/new_id_1.mp4"
+    earlier = MediaFactory.build(
+        is_downloaded=True, mimetype="video/mp4", local_filename="old_id_2.mp4"
+    )
+    earlier.stash_id = 701
+    index = {
+        "new_id_1.mp4": (current, [mock_item]),
+        "old_id_2.mp4": (earlier, [mock_item]),
+    }
+
+    processor._account = mock_account
+    processor._performer = PerformerFactory(
+        id="123", name=mock_account.username, scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory(id="200", name=f"{mock_account.username} (Fansly)")
+
+    scene_data = create_scene_dict(
+        id="700",
+        title="Test Scene",
+        performers=[],
+        tags=[],
+        files=[create_video_file_dict("500", "/dl/test_user/new_id_1.mp4")],
+    )
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=create_graphql_response("findScene", scene_data))
+        ]
+    )
+
+    item_entities: dict = {}
+    media_with_id: list = []
+    split_pairs: list = []
+    try:
+        await processor._fast_path_known_media(
+            index,
+            mock_account,
+            studio,
+            item_entities,
+            media_with_id,
+            split_pairs,
+            current_only=True,
+        )
+    finally:
+        dump_graphql_calls(route.calls, "fast_path_current_only")
+
+    assert route.call_count == 1
+    assert list(index) == ["old_id_2.mp4"]
+    assert media_with_id == [current]

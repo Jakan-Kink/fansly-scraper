@@ -27,6 +27,7 @@ from config.logging import (
     textio_logger,
     update_logging_config,
 )
+from config.schema import LoggingSection
 from errors import InvalidTraceLogError
 
 
@@ -153,8 +154,6 @@ def test_get_log_level_with_yaml_global_trace(tmp_path):
     ``"trace"`` branch, so explicit ``websocket.level: TRACE`` got
     clamped to DEBUG and TRACE records had no sink.
     """
-    from config.schema import LoggingSection  # circular guard
-
     config = FanslyConfig(program_version="test")
     config.logging = LoggingSection()
     config.logging.global_.trace = True
@@ -622,6 +621,35 @@ class TestSetupHandlers:
             py_warnings_logger.propagate = original_propagate
             py_warnings_logger.setLevel(original_level)
             logging.captureWarnings(False)
+
+    def test_stash_client_stdlib_records_reach_stash_log(self, tmp_path):
+        """Records the Stash client logs through stdlib logging land in stash.log.
+
+        The client's loggers have no handler of their own, so without the
+        bridge its job-poll and error lines reach no sink. Records below the
+        stash sinks' level are dropped at the stdlib logger.
+        """
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        client_logger = logging.getLogger("stash_graphql_client.client")
+        try:
+            config = FanslyConfig(program_version="test")
+            config.log_levels = {"stash_file": "INFO", "stash_console": "INFO"}
+            init_logging_config(config)
+            client_logger.info("Job 7 - Status: RUNNING, Progress: 0.5%")
+            client_logger.debug("request detail below the configured level")
+            debug_enabled = client_logger.isEnabledFor(logging.DEBUG)
+        finally:
+            logger.remove()
+            os.chdir(original_cwd)
+
+        logs = {p.name: p.read_text() for p in (tmp_path / "logs").iterdir()}
+        assert "Job 7 - Status: RUNNING, Progress: 0.5%" in logs["stash.log"]
+        assert debug_enabled is False
+        assert "request detail below the configured level" not in logs["stash.log"]
+        assert [name for name, text in logs.items() if "Job 7 - Status" in text] == [
+            "stash.log"
+        ]
 
     def test_format_record_escapes_loguru_tags_in_message(self, tmp_path, capsys):
         """Messages containing `<module>` (and similar) must not crash colorizer.

@@ -269,6 +269,27 @@ class TestStampMetadata:
         assert getattr(mock_scene, "details", None) == original_details
 
     @pytest.mark.asyncio
+    async def test_stamp_metadata_skips_object_this_media_already_stamped(
+        self, respx_stash_processor, mock_item, mock_account, mock_scene
+    ):
+        """An object whose code is already this media's id is left untouched.
+
+        No route is registered and no performer is cached, so a stamp that went
+        ahead would fail on its performer lookup.
+        """
+        media = MediaFactory.build(is_downloaded=True)
+        mock_scene.code = str(media.id)
+        original_title = mock_scene.title
+        original_details = getattr(mock_scene, "details", None)
+
+        await respx_stash_processor._stamp_metadata(
+            mock_scene, media, mock_item, mock_account
+        )
+
+        assert mock_scene.title == original_title
+        assert getattr(mock_scene, "details", None) == original_details
+
+    @pytest.mark.asyncio
     async def test_stamp_metadata_forces_on_bad_title(
         self, respx_stash_processor, mock_item, mock_account, mock_scene
     ):

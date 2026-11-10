@@ -226,9 +226,8 @@ Remaining actionable DbMockModel violations:
 - `tests/config/unit/test_version.py:18,30,39` — 3 `mock_open()` + `Path.open` patches (use real tmp_path TOML files)
 - `tests/config/unit/test_validation.py:246,288` — Path mocks (should use tmp_path)
 - `tests/pathio/test_pathio.py:52-114` — patches `pathio.pathio.Path` constructor
-- `tests/utils/unit/test_semaphore_monitor.py:197` — patches `Path.unlink`
 
-**Legitimate exceptions (don't fix)**: `test_logging.py:405,655,679,690,787,808` (OSError/PermissionError simulation), `test_version.py:30` (FileNotFoundError), `test_semaphore_monitor.py:213` (OSError on unlink).
+**Legitimate exceptions (don't fix)**: `test_logging.py:405,655,679,690,787,808` (OSError/PermissionError simulation), `test_version.py:30` (FileNotFoundError).
 
 Total actionable: **~30 violations**; legitimate exceptions: ~11.
 

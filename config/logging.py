@@ -714,6 +714,7 @@ def init_logging_config(config: FanslyConfig | None) -> None:
     # files. Without captureWarnings(True), warnings.warn() goes to stderr
     # and bypasses every loguru sink.
     _configure_warnings_capture()
+    _configure_stash_client_logging()
 
 
 def set_debug_enabled(enabled: bool) -> None:
@@ -812,6 +813,7 @@ def update_logging_config(config: FanslyConfig, enabled: bool) -> None:
     setup_handlers()
     _configure_sqlalchemy_logging()
     _configure_warnings_capture()
+    _configure_stash_client_logging()
 
 
 def _configure_warnings_capture() -> None:
@@ -831,6 +833,20 @@ def _configure_warnings_capture() -> None:
     py_warnings_logger.addHandler(InterceptHandler())
     py_warnings_logger.propagate = False
     py_warnings_logger.setLevel(logging.WARNING)
+
+
+def _configure_stash_client_logging() -> None:
+    """Route ``stash_graphql_client`` stdlib log records to the stash sinks.
+
+    The client logs through stdlib ``logging``; with no handler attached its
+    records (job polls, request errors, batch-save warnings) reach no sink.
+    """
+    client_logger = logging.getLogger("stash_graphql_client")
+    client_logger.handlers.clear()
+    client_logger.addHandler(InterceptHandler())
+    client_logger.setLevel(
+        min(get_log_level("stash_console", "INFO"), get_log_level("stash_file", "INFO"))
+    )
 
 
 def _configure_sqlalchemy_logging() -> None:

@@ -981,6 +981,32 @@ class TestEnableSceneSplitValidator:
             StashContextSection.model_validate({"enable_scene_split": 123})
 
 
+class TestStashBatches:
+    """stash_context.batches: page sizes for the tag preload and file sweep."""
+
+    def test_defaults_and_overrides(self) -> None:
+        assert StashContextSection.model_validate({}).batches.model_dump() == {
+            "tags": 250,
+            "files": 40,
+            "galleries": 250,
+        }
+        section = StashContextSection.model_validate({"batches": {"files": 500}})
+        assert section.batches.files == 500
+        assert section.batches.tags == 250
+
+    @pytest.mark.parametrize(
+        "batches",
+        [
+            pytest.param({"tags": 0}, id="zero-page-size"),
+            pytest.param({"files": -1}, id="negative-page-size"),
+            pytest.param({"scenes": 40}, id="unknown-key"),
+        ],
+    )
+    def test_invalid_rejected(self, batches: dict[str, int]) -> None:
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"batches": batches})
+
+
 class TestScanSettleSeconds:
     """scan_settle_s: post-scan settle window, default 3.5, bounded 0..30."""
 
