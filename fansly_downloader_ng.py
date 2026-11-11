@@ -57,6 +57,7 @@ from download.core import (
     print_download_info,
 )
 from download.statistics import (
+    memory_summary,
     print_global_statistics,
     print_statistics,
     print_timing_statistics,
@@ -572,6 +573,7 @@ async def main(config: FanslyConfig) -> int:
                             global_download_state, download_state=state
                         )
                         print_statistics(config, state)
+                        print_info(f"Memory: {memory_summary()}")
 
                         # open download folder
                         if state.base_path is not None:

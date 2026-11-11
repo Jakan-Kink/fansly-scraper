@@ -17,6 +17,8 @@ Fansly REST endpoint are mocked at the HTTP layer (``respx_ivs_cdn`` /
 from __future__ import annotations
 
 import asyncio
+import gc
+import os
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -48,6 +50,7 @@ from tests.fixtures.api import (
     FakeAvVerifyContainerEmpty,
     FakeAvVerifyContainerRaises,
     FakeVideoStream,
+    TruncatedSegmentStream,
     bad_packet_av_segment,
     build_streaming_channel_response,
     build_variant_playlist,
@@ -145,6 +148,68 @@ class TestDownloadSegment:
 
         assert ok is False
         assert not dest.exists()
+
+    @pytest.mark.asyncio
+    async def test_segment_is_written_without_being_held_in_memory(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """The segment reaches disk in pieces; no response object keeps its body.
+
+        A finished httpx response is only freed by the garbage collector, which
+        can leave it in memory for the rest of the run. One that buffered a
+        whole segment kept the recording's size in memory.
+        """
+        seg_url = "https://use14.playlist.live-video.net/seg-ok.ts"
+        dest = tmp_path / "segment_000000.ts"
+        payload = bytes(range(256)) * 12_000
+        mocked = httpx.Response(200, content=payload)
+        route = respx.get(seg_url).mock(side_effect=[mocked])
+
+        def holds_segment(obj: object) -> bool:
+            # The mock's own response and respx's record of it are test
+            # scaffolding; only the client's response is the recorder's doing.
+            scaffolding = [mocked, *(call.response for call in route.calls)]
+            if not isinstance(obj, httpx.Response) or any(
+                obj is known for known in scaffolding
+            ):
+                return False
+            try:
+                return len(obj.content) == len(payload)
+            except httpx.ResponseNotRead:
+                return False
+
+        # Collector off so the finished response is still there to inspect.
+        gc.collect()
+        gc.disable()
+        try:
+            ok = await _download_segment(respx_ivs_cdn, seg_url, dest, "test")
+            holders = [obj for obj in gc.get_objects() if holds_segment(obj)]
+        finally:
+            gc.enable()
+            dump_fansly_calls(route.calls, "download_segment_streamed")
+
+        assert ok is True
+        assert dest.read_bytes() == payload
+        assert await asyncio.to_thread(os.listdir, tmp_path) == ["segment_000000.ts"]
+        assert holders == []
+
+    @pytest.mark.asyncio
+    async def test_body_cut_short_leaves_no_segment_file(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """A connection dropped mid-body returns False and leaves nothing behind."""
+        seg_url = "https://use14.playlist.live-video.net/seg-cut.ts"
+        dest = tmp_path / "segment_000000.ts"
+        route = respx.get(seg_url).mock(
+            side_effect=[httpx.Response(200, stream=TruncatedSegmentStream())]
+        )
+        try:
+            ok = await _download_segment(respx_ivs_cdn, seg_url, dest, "test")
+        finally:
+            dump_fansly_calls(route.calls, "download_segment_cut_short")
+
+        assert ok is False
+        assert await asyncio.to_thread(os.listdir, tmp_path) == []
 
 
 class TestGetAuthenticatedPlaybackUrl:

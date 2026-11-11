@@ -1,12 +1,14 @@
 """Tests for download/statistics.py — content stats, file stats, and formatted output."""
 
 import logging
+import re
 from datetime import UTC, datetime
 
 import pytest
 
 from download.core import DownloadState, GlobalState
 from download.statistics import (
+    memory_summary,
     print_global_statistics,
     print_statistics,
     print_statistics_helper,
@@ -14,6 +16,8 @@ from download.statistics import (
     update_global_statistics,
 )
 from helpers.timer import Timer
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestPrintTimingStatistics:
@@ -288,3 +292,24 @@ class TestPrintGlobalStatistics:
             assert expected_fragment in output
         else:
             assert missing_footer not in output
+
+
+class TestMemorySummary:
+    @pytest.mark.asyncio
+    async def test_counts_metadata_by_type_largest_first(self, entity_store):
+        """The line carries process memory and what the metadata map holds."""
+        account = AccountFactory.build(id=snowflake_id())
+        await entity_store.save(account)
+        for _ in range(2):
+            await entity_store.save(
+                PostFactory.build(id=snowflake_id(), accountId=account.id)
+            )
+
+        match = re.fullmatch(
+            r"RSS \d+\.\d{2} GiB, ([\d,]+) live blocks, "
+            r"metadata 3 entries \(Post=2, Account=1\)",
+            memory_summary(),
+        )
+
+        assert match is not None
+        assert int(match[1].replace(",", "")) > 0

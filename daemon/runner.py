@@ -93,6 +93,7 @@ from download.core import (
     get_following_accounts,
 )
 from download.media import fetch_and_process_media
+from download.statistics import memory_summary
 from download.types import DownloadType
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
 from helpers.common import JsonDict, expect_int
@@ -682,6 +683,7 @@ async def _handle_work_item(config: FanslyConfig, item: WorkItem) -> None:
         return
 
     await handler(config, item)
+    logger.info("daemon.runner: {} done - {}", type(item).__name__, memory_summary())
 
 
 # ---------------------------------------------------------------------------

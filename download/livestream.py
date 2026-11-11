@@ -647,11 +647,21 @@ async def _download_segment(
     Returns:
         ``True`` on success, ``False`` on any network or I/O error.
     """
+    # Streamed, never buffered: a finished httpx response is freed only by the
+    # garbage collector, so one holding a whole segment can outlive the recording.
+    part = dest.with_name(f"{dest.name}.part")
     try:
-        response = await client.get(url, timeout=20.0)
-        response.raise_for_status()
-        await asyncio.to_thread(dest.write_bytes, response.content)
+        async with client.stream("GET", url, timeout=20.0) as response:
+            response.raise_for_status()
+            out = await asyncio.to_thread(part.open, "wb")
+            try:
+                async for chunk in response.aiter_bytes(chunk_size=1_048_576):
+                    await asyncio.to_thread(out.write, chunk)
+            finally:
+                await asyncio.to_thread(out.close)
+        await asyncio.to_thread(part.replace, dest)
     except Exception as exc:
+        await asyncio.to_thread(part.unlink, missing_ok=True)
         logger.warning(
             "download.livestream: {} segment {} failed — {}",
             log_prefix,
