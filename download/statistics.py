@@ -4,6 +4,7 @@ This module handles both content statistics (pictures, videos, etc.) and file do
 statistics (total files, sizes, etc.), as well as timing statistics.
 """
 
+import gc
 import sys
 
 import psutil
@@ -22,7 +23,8 @@ def memory_summary() -> str:
     drop when the OS swaps pages out.
 
     Returns:
-        RSS, live block count, and metadata entries by type, largest first
+        RSS, live block count, garbage collector totals, and metadata entries
+        by type, largest first
     """
     stats = get_store().cache_stats()
     by_type = ", ".join(
@@ -30,8 +32,13 @@ def memory_summary() -> str:
         for name, count in sorted(stats["by_type"].items(), key=lambda kv: -kv[1])
     )
     rss_gib = psutil.Process().memory_info().rss / 1024**3
+    generations = gc.get_stats()
+    runs = sum(generation["collections"] for generation in generations)
+    freed = sum(generation["collected"] for generation in generations)
     return (
         f"RSS {rss_gib:.2f} GiB, {sys.getallocatedblocks():,} live blocks, "
+        f"collector {runs:,} runs, {freed:,} freed, "
+        f"{gc.get_freeze_count():,} frozen, "
         f"metadata {stats['total']:,} entries ({by_type})"
     )
 

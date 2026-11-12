@@ -297,7 +297,8 @@ class TestPrintGlobalStatistics:
 class TestMemorySummary:
     @pytest.mark.asyncio
     async def test_counts_metadata_by_type_largest_first(self, entity_store):
-        """The line carries process memory and what the metadata map holds."""
+        """The line carries process memory, collector activity, and what the
+        metadata map holds."""
         account = AccountFactory.build(id=snowflake_id())
         await entity_store.save(account)
         for _ in range(2):
@@ -307,6 +308,7 @@ class TestMemorySummary:
 
         match = re.fullmatch(
             r"RSS \d+\.\d{2} GiB, ([\d,]+) live blocks, "
+            r"collector [\d,]+ runs, [\d,]+ freed, [\d,]+ frozen, "
             r"metadata 3 entries \(Post=2, Account=1\)",
             memory_summary(),
         )

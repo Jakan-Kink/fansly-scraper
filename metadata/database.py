@@ -9,6 +9,7 @@ This module provides:
 from __future__ import annotations
 
 import atexit
+import gc
 import os
 import threading
 from contextlib import suppress
@@ -69,6 +70,7 @@ class Database:
         # Cleanup tracking
         self._cleanup_done = threading.Event()
         self._cleanup_lock = threading.Lock()
+        self._heap_frozen = False
 
         # Build connection URL
         self.db_url = self._build_connection_url()
@@ -241,6 +243,30 @@ class Database:
             db_logger.error(f"Error running migrations: {e}")
             raise
 
+    def freeze_heap(self) -> None:
+        """Exempt every object alive now from cyclic garbage collection.
+
+        Called once the preload is in memory, so collections scan only what is
+        created afterwards and stay frequent however large the preload is.
+        Frozen objects are still freed when their last reference goes; one that
+        becomes unreachable only through a reference cycle waits for cleanup.
+        """
+        gc.collect()
+        gc.freeze()
+        # The collector's long-lived total still counts the frozen objects
+        # until a full collection recounts it.
+        gc.collect()
+        self._heap_frozen = True
+        db_logger.info(
+            f"Heap frozen after preload: {gc.get_freeze_count():,} objects "
+            "exempt from garbage collection"
+        )
+
+    def _unfreeze_heap(self) -> None:
+        if self._heap_frozen:
+            gc.unfreeze()
+            self._heap_frozen = False
+
     async def cleanup(self) -> None:
         """Clean up all database connections.
 
@@ -283,6 +309,7 @@ class Database:
             except Exception as e:
                 db_logger.error(f"Error during cleanup: {e}")
             finally:
+                self._unfreeze_heap()
                 self._cleanup_done.set()
                 db_logger.info("Database cleanup complete")
 
@@ -301,6 +328,7 @@ class Database:
             except Exception as e:
                 db_logger.error(f"Error during sync cleanup: {e}")
             finally:
+                self._unfreeze_heap()
                 self._cleanup_done.set()
 
     def __del__(self) -> None:

@@ -7,7 +7,6 @@ import math
 import time
 from collections.abc import Callable, Sequence
 from ctypes import c_int32
-from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote, urlencode, urlparse
@@ -344,9 +343,8 @@ class FanslyApi:
 
         if len(cookies) > 0:
             arguments["cookies"] = cookies
-        response: httpx.Response = field(default=httpx.Response(500))
 
-        max_retries = self.config.api_max_retries if self.config else 1
+        max_retries = max(1, self.config.api_max_retries if self.config else 1)
         rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):
@@ -443,9 +441,8 @@ class FanslyApi:
         }
         if len(cookies) > 0:
             arguments["cookies"] = cookies
-        response: httpx.Response = field(default=httpx.Response(500))
 
-        max_retries = self.config.api_max_retries if self.config else 1
+        max_retries = max(1, self.config.api_max_retries if self.config else 1)
         rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):

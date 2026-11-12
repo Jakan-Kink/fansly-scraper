@@ -368,6 +368,8 @@ async def main(config: FanslyConfig) -> int:
     await config._database.create_entity_store()
     # Register cleanup function to ensure database is closed on exit
     _register_db_cleanup_once(config)
+    # Before any Stash entity exists: those must stay collectable.
+    config._database.freeze_heap()
 
     # Set up and print API information
     await config.setup_api()

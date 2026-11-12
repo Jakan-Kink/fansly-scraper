@@ -14,7 +14,9 @@ need to set download mode + (optionally) register specific per-mode routes.
 """
 
 import asyncio
+import gc
 import logging
+import re
 from collections.abc import Callable, Coroutine
 from typing import Any
 from unittest.mock import patch
@@ -191,6 +193,16 @@ async def test_main_iterates_multiple_creators(main_integration_env, caplog):
         assert any(name in m and "Completed processing" in m for m in info_messages), (
             f"Expected 'Completed processing @{name}' info log"
         )
+
+    # The preload is frozen while creators are worked and released by cleanup.
+    frozen_counts = [
+        int(found[1].replace(",", ""))
+        for found in (re.search(r"([\d,]+) frozen", m) for m in info_messages)
+        if found
+    ]
+    assert frozen_counts, "Expected a per-creator 'Memory:' line"
+    assert min(frozen_counts) > 0
+    assert gc.get_freeze_count() == 0
 
 
 async def test_main_use_following_returns_error_when_list_empty(

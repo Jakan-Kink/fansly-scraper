@@ -665,6 +665,51 @@ class TestPollSegmentsLoop:
         assert len(segments) == 2
         assert variant_route.call_count == 3
 
+    @pytest.mark.asyncio
+    async def test_failed_segment_is_retried_and_files_stay_distinct(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """A segment that fails while a later one succeeds is fetched again on
+        the next poll, and every segment keeps its own file in playlist order."""
+        base = "https://use14.playlist.live-video.net"
+        seg_a, seg_b, seg_c = f"{base}/a.ts", f"{base}/b.ts", f"{base}/c.ts"
+        window1 = build_variant_playlist(media_sequence=10, segment_uris=[seg_a, seg_b])
+        window2 = build_variant_playlist(
+            media_sequence=10, segment_uris=[seg_a, seg_b, seg_c]
+        )
+        endlist = build_variant_playlist(
+            media_sequence=13, segment_uris=[], endlist=True
+        )
+        variant_route = respx.get(_VARIANT_URL).mock(
+            side_effect=[
+                httpx.Response(200, text=window1),
+                httpx.Response(200, text=window2),
+                httpx.Response(200, text=endlist),
+            ]
+        )
+        route_a = respx.get(seg_a).mock(
+            side_effect=[httpx.Response(503), httpx.Response(200, content=b"A")]
+        )
+        route_b = respx.get(seg_b).mock(side_effect=[httpx.Response(200, content=b"B")])
+        route_c = respx.get(seg_c).mock(side_effect=[httpx.Response(200, content=b"C")])
+
+        stop = asyncio.Event()
+        try:
+            segments, durations = await _poll_segments_loop(
+                _VARIANT_URL, tmp_path, stop, "test", manifest_poll_interval=0.0
+            )
+        finally:
+            dump_fansly_calls(variant_route.calls, "poll_retry_failed_segment")
+            dump_fansly_calls(route_a.calls, "poll_retry_failed_segment_a")
+
+        names = [path.name for path in segments]
+        assert [path.read_bytes() for path in segments] == [b"A", b"B", b"C"]
+        assert names == sorted(set(names))
+        assert sorted(await asyncio.to_thread(os.listdir, tmp_path)) == names
+        assert len(durations) == 3
+        assert variant_route.call_count == 3
+        assert (route_a.call_count, route_b.call_count, route_c.call_count) == (2, 1, 1)
+
 
 class TestSalvageOrphanSegments:
     """Branch coverage for _salvage_orphan_segments skip/edge arms (the happy

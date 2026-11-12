@@ -380,7 +380,9 @@ async def _poll_segments_loop(
     IVS publishes a sliding window of ~15 recent 6-second segments.  Each
     manifest fetch rotates the auth token in the segment URLs, so URL-based
     dedup is unreliable.  Dedup is done by ``EXT-X-MEDIA-SEQUENCE`` index
-    instead (stable across fetches for the same segment).
+    instead (stable across fetches for the same segment).  Files are named by
+    that index, and a segment whose download fails is retried on later polls
+    for as long as the manifest still lists it.
 
     ``EXT-X-PREFETCH`` hint lines (leading-edge segments that are still being
     written) are also collected to minimise the gap at the head of the window.
@@ -403,8 +405,8 @@ async def _poll_segments_loop(
         and their declared durations in seconds.  Both lists may be empty if
         the stream ended before any segments were downloaded.
     """
-    segments_collected: list[Path] = []
-    durations: list[float] = []
+    collected: dict[int, tuple[Path, float]] = {}
+    retry_msns: set[int] = set()
     last_msn = -1
 
     # Manifest requests go directly to AWS IVS/CloudFront — no Fansly auth.
@@ -446,11 +448,10 @@ async def _poll_segments_loop(
 
             for seg_pos, segment in enumerate(playlist.segments):
                 seg_msn = playlist_msn + seg_pos
-                if seg_msn <= last_msn:
+                if seg_msn <= last_msn and seg_msn not in retry_msns:
                     continue
                 abs_uri = urljoin(variant_url, segment.uri)
-                seg_idx = len(segments_collected) + len(jobs)
-                seg_path = temp_dir / f"segment_{seg_idx:06d}.ts"
+                seg_path = temp_dir / f"segment_{seg_msn:010d}.ts"
                 jobs.append((seg_msn, abs_uri, seg_path, segment.duration or 6.0))
 
             # EXT-X-PREFETCH: leading-edge hint lines for segments that are
@@ -461,11 +462,10 @@ async def _poll_segments_loop(
                 if not pf_uri:
                     continue
                 seg_msn = prefetch_base + pf_idx
-                if seg_msn <= last_msn:
+                if seg_msn <= last_msn and seg_msn not in retry_msns:
                     continue
                 abs_uri = urljoin(variant_url, pf_uri)
-                seg_idx = len(segments_collected) + len(jobs)
-                seg_path = temp_dir / f"segment_{seg_idx:06d}.ts"
+                seg_path = temp_dir / f"segment_{seg_msn:010d}.ts"
                 jobs.append((seg_msn, abs_uri, seg_path, 6.0))
 
             if jobs:
@@ -479,15 +479,17 @@ async def _poll_segments_loop(
 
                 for (seg_msn, _, seg_path, dur), ok in zip(jobs, results, strict=True):
                     if ok is True:
-                        segments_collected.append(seg_path)
-                        durations.append(dur)
-                        last_msn = seg_msn
+                        collected[seg_msn] = (seg_path, dur)
+                        retry_msns.discard(seg_msn)
+                    else:
+                        retry_msns.add(seg_msn)
+                    last_msn = max(last_msn, seg_msn)
 
                 logger.debug(
                     "download.livestream: {} +{} segments (total {}), msn={}",
                     log_prefix,
                     sum(1 for ok in results if ok is True),
-                    len(segments_collected),
+                    len(collected),
                     last_msn,
                 )
 
@@ -500,7 +502,8 @@ async def _poll_segments_loop(
 
             await asyncio.sleep(manifest_poll_interval)
 
-    return segments_collected, durations
+    ordered = [collected[msn] for msn in sorted(collected)]
+    return [path for path, _ in ordered], [dur for _, dur in ordered]
 
 
 async def _salvage_orphan_segments(
