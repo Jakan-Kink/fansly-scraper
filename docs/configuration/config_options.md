@@ -127,6 +127,7 @@ options:
   rate_limiting_retry_after_seconds: 30
   rate_limiting_backoff_factor: 1.5
   rate_limiting_max_backoff_seconds: 300
+  rate_limiting_success_requests: 250
   respect_timeline_stats: true
   temp_folder: null
 ```
@@ -178,8 +179,9 @@ the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
 | `rate_limiting_requests_per_minute` | `int`   | `60`    | Target sustained outbound rate                                                                                                                                             |
 | `rate_limiting_burst_size`          | `int`   | `10`    | Token-bucket capacity — max requests in a burst before refill matters                                                                                                      |
 | `rate_limiting_retry_after_seconds` | `int`   | `30`    | Default wait when the server's `Retry-After` header is absent on a 429                                                                                                     |
-| `rate_limiting_backoff_factor`      | `float` | `1.5`   | Multiplicative backoff applied on each rate-limit (429) response                                                                                                           |
+| `rate_limiting_backoff_factor`      | `float` | `1.5`   | Multiplicative backoff applied on each rate-limit (429) response. The backoff and the learned gap between requests are divided by it again as requests succeed                                                                                                           |
 | `rate_limiting_max_backoff_seconds` | `int`   | `300`   | Cap on the backoff sleep duration                                                                                                                                          |
+| `rate_limiting_success_requests` | `int` | `250` | Successful requests in a row before the gap the limiter learned after a 429 is lowered one step (divided by `rate_limiting_backoff_factor`). A new rate-limit response restarts the count |
 | `respect_timeline_stats`            | `bool`  | `true`  | When `true`, the timeline/wall downloaders short-circuit a full scan when `TimelineStats` counts and wall structure match the local DB. Set `false` to force a full scan   |
 
 ### Retired fields (silently dropped on load)

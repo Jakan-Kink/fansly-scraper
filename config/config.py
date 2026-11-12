@@ -178,6 +178,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.rate_limiting_retry_after_seconds = opts.rate_limiting_retry_after_seconds
     config.rate_limiting_backoff_factor = opts.rate_limiting_backoff_factor
     config.rate_limiting_max_backoff_seconds = opts.rate_limiting_max_backoff_seconds
+    config.rate_limiting_success_requests = opts.rate_limiting_success_requests
 
     # Temp folder
     if opts.temp_folder:

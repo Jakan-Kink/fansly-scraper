@@ -272,6 +272,7 @@ def test_rate_limiting_round_trip(config_dir: Path, fresh_config: FanslyConfig) 
     schema.options.rate_limiting_requests_per_minute = 30
     schema.options.rate_limiting_burst_size = 5
     schema.options.rate_limiting_backoff_factor = 2.0
+    schema.options.rate_limiting_success_requests = 120
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
@@ -280,6 +281,7 @@ def test_rate_limiting_round_trip(config_dir: Path, fresh_config: FanslyConfig) 
     assert fresh_config.rate_limiting_requests_per_minute == 30
     assert fresh_config.rate_limiting_burst_size == 5
     assert fresh_config.rate_limiting_backoff_factor == 2.0
+    assert fresh_config.rate_limiting_success_requests == 120
 
 
 # ---------------------------------------------------------------------------

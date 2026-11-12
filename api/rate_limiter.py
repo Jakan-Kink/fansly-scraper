@@ -50,6 +50,7 @@ class RateLimiter:
         self.adaptive_rate_limiting = config.rate_limiting_adaptive
         self.backoff_factor = config.rate_limiting_backoff_factor
         self.max_backoff_seconds = config.rate_limiting_max_backoff_seconds
+        self.success_requests = config.rate_limiting_success_requests
 
         # Calculate rate parameters
         self.rate_per_second = self.requests_per_minute / 60.0
@@ -76,8 +77,11 @@ class RateLimiter:
         self.current_backoff_seconds = 0.0
         self.last_backoff_time = 0.0
 
-        # Learned persistent floor: ramps up quickly on 429s, decays slowly with sustained success
+        # Learned persistent floor: raised by a rate-limit response, lowered one
+        # step per run of successes
         self.learned_floor = 0.0
+        self._floor_review_due = False
+        self._successes_in_a_row = 0
 
         # Shared reservation cursor for serializing concurrent waiters.
         self._next_allowed_at = 0.0
@@ -116,61 +120,56 @@ class RateLimiter:
         return elapsed < self.current_backoff_seconds
 
     def _calculate_minimum_floor(self) -> float:
-        """Calculate the minimum delay between requests based on learned behavior.
+        """Return the minimum delay between requests, raising it when one is due.
 
-        The learned floor:
-        - Ramps up QUICKLY when we get 429s (even while respecting current floor)
-        - Decays SLOWLY only after proving 1000 consecutive successes
-        - Never resets to 0 once we've learned we need rate limiting
-
-        This ensures the floor adapts to API behavior without oscillation.
+        A rate-limit response raises the floor once, by the share of recent
+        requests that were rate limited, as soon as 10 requests are on record.
+        ``_lower_floor_after_success`` brings it back down in steps.
         """
-        # Need at least 10 requests in history to calculate a meaningful rate
-        if len(self.request_outcomes) < 10:
+        if not self._floor_review_due or len(self.request_outcomes) < 10:
             return self.learned_floor
+        self._floor_review_due = False
 
-        # Count recent violations (False = 429)
         recent_violations = sum(1 for outcome in self.request_outcomes if not outcome)
+        violation_rate = recent_violations / len(self.request_outcomes)
+        rate_multiplier = 20.0 * self.backoff_factor
+        calculated_floor = min(20.0, 1.0 + (violation_rate * rate_multiplier))
 
-        if recent_violations > 0:
-            # We're getting 429s - floor is too low, increase it quickly
-            violation_rate = recent_violations / len(self.request_outcomes)
-
-            # Calculate what floor should be based on violation rate
-            # Use aggressive multiplier for quick ramp-up
-            rate_multiplier = 20.0 * self.backoff_factor
-            calculated_floor = 1.0 + (violation_rate * rate_multiplier)
-            calculated_floor = min(20.0, calculated_floor)  # Cap at 20s
-
-            # Increase learned floor immediately (ramp up quickly)
-            if calculated_floor > self.learned_floor:
-                old_floor = self.learned_floor
-                self.learned_floor = calculated_floor
-                logger.info(
-                    f"Floor increased: {old_floor:.1f}s → {self.learned_floor:.1f}s "
-                    f"(violation rate: {violation_rate * 100:.1f}%)"
-                )
-
-        elif len(self.request_outcomes) == 1000 and self.learned_floor > 0:
-            # Full window of success! Floor is working, can slowly decrease
+        if calculated_floor > self.learned_floor:
             old_floor = self.learned_floor
+            self.learned_floor = calculated_floor
+            logger.info(
+                f"Floor increased: {old_floor:.1f}s → {self.learned_floor:.1f}s "
+                f"(violation rate: {violation_rate * 100:.1f}%)"
+            )
 
-            # Decay by 5% but never below 0.5s if we've ever had violations
-            if self.rate_limit_violations > 0:
-                self.learned_floor = max(0.5, self.learned_floor * 0.95)
-            else:
-                # No lifetime violations - can go to 0
-                self.learned_floor = self.learned_floor * 0.95
-                if self.learned_floor < 0.1:
-                    self.learned_floor = 0.0
-
-            if old_floor != self.learned_floor:
-                logger.info(
-                    f"Floor decayed after 1000 successes: {old_floor:.1f}s → {self.learned_floor:.1f}s"
-                )
-
-        # Return current learned floor (stable between adjustments)
         return self.learned_floor
+
+    def _lower_floor_after_success(self) -> None:
+        """Count a success; a full run of them divides the floor by the backoff factor.
+
+        The floor stops at 0.5s once there has been a 429, and otherwise drops
+        to zero when it falls under 0.1s.
+        """
+        if self.learned_floor <= 0:
+            return
+        self._successes_in_a_row += 1
+        if self._successes_in_a_row < self.success_requests:
+            return
+        self._successes_in_a_row = 0
+
+        lowered = self.learned_floor / self.backoff_factor
+        if self.rate_limit_violations > 0:
+            lowered = max(0.5, lowered)
+        elif lowered < 0.1:
+            lowered = 0.0
+
+        if lowered != self.learned_floor:
+            logger.info(
+                f"Floor lowered after {self.success_requests} successes in a row: "
+                f"{self.learned_floor:.1f}s → {lowered:.1f}s"
+            )
+            self.learned_floor = lowered
 
     def _apply_adaptive_backoff(self, status_code: int) -> None:
         """Apply adaptive backoff based on server response."""
@@ -414,6 +413,11 @@ class RateLimiter:
                 status_code not in rate_limit_errors
             )
             self.request_outcomes.append(is_success)
+            if is_success:
+                self._lower_floor_after_success()
+            else:
+                self._floor_review_due = True
+                self._successes_in_a_row = 0
 
             self._apply_adaptive_backoff(status_code)
 
@@ -487,6 +491,7 @@ class RateLimiter:
             self.adaptive_rate_limiting = config.rate_limiting_adaptive
             self.backoff_factor = config.rate_limiting_backoff_factor
             self.max_backoff_seconds = config.rate_limiting_max_backoff_seconds
+            self.success_requests = config.rate_limiting_success_requests
 
             # Recalculate rate parameters
             self.rate_per_second = self.requests_per_minute / 60.0

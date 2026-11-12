@@ -149,6 +149,8 @@ class FanslyConfig:
     rate_limiting_retry_after_seconds: int = 30  # Base backoff duration
     rate_limiting_backoff_factor: float = 1.5  # Exponential backoff multiplier
     rate_limiting_max_backoff_seconds: int = 300  # Cap backoff at 5 minutes
+    # Successes in a row before the learned gap between requests drops a step
+    rate_limiting_success_requests: int = 250
 
     # PostgreSQL configuration
     pg_host: str = "localhost"
@@ -662,6 +664,11 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         base.options,
         "rate_limiting_max_backoff_seconds",
         config.rate_limiting_max_backoff_seconds,
+    )
+    _maybe_set(
+        base.options,
+        "rate_limiting_success_requests",
+        config.rate_limiting_success_requests,
     )
     _maybe_set(
         base.options,

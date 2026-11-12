@@ -336,6 +336,8 @@ class OptionsSection(_BaseSection):
     rate_limiting_retry_after_seconds: int = 30
     rate_limiting_backoff_factor: float = 1.5
     rate_limiting_max_backoff_seconds: int = 300
+    # Successes in a row before the learned gap between requests drops a step
+    rate_limiting_success_requests: int = Field(default=250, ge=1)
     temp_folder: str | None = Field(default=None, json_schema_extra=_ALWAYS)
 
     @field_validator("download_mode", mode="before")
