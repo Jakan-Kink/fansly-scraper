@@ -119,6 +119,7 @@ options:
   timeline_delay_seconds: 60
   api_max_retries: 10
   account_ids_batch_size: 5
+  account_media_batch_size: 100
   rate_limiting_enabled: true
   rate_limiting_adaptive: true
   rate_limiting_requests_per_minute: 60
@@ -171,6 +172,7 @@ the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
 | `timeline_delay_seconds`            | `int`   | `60`    | Cooldown between retries on the same creator's timeline                                                                                                                    |
 | `api_max_retries`                   | `int`   | `10`    | Total retry attempts for any API call before giving up                                                                                                                     |
 | `account_ids_batch_size`            | `int`   | `5`     | ids per batched `/account?ids=` lookup — the Fansly web client uses 5                                                                                                      |
+| `account_media_batch_size` | `int` | `100` | ids per `/account/media?ids=` lookup (1 or more). Fansly rate-limits lookups that ask for more than 100 |
 | `rate_limiting_enabled`             | `bool`  | `true`  | Master switch for the outbound rate limiter                                                                                                                                |
 | `rate_limiting_adaptive`            | `bool`  | `true`  | When `true`, the limiter widens its window after sustained 200s and narrows after 429s. When `false`, the configured static rate is enforced regardless of server feedback |
 | `rate_limiting_requests_per_minute` | `int`   | `60`    | Target sustained outbound rate                                                                                                                                             |

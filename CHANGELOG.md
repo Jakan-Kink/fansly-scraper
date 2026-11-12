@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Media lookups ask for fewer items per request.** Fansly was rate-limiting the larger lookups; `options.account_media_batch_size` sets the size (default 100).
 - **Dependency updates.** asyncpg, `filelock` and others moved to newer versions, and `sniffio` is now required. Run `poetry install` after updating.
 
 ### Performance

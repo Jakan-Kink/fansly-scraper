@@ -117,7 +117,7 @@ async def fetch_and_process_media(
             show_elapsed=True,
         )
 
-        for ids in batch_list(media_ids, config.BATCH_SIZE):
+        for ids in batch_list(media_ids, config.account_media_batch_size):
             media_ids_str = ",".join(str(mid) for mid in ids)
 
             response = await api.get_account_media(media_ids_str)
@@ -226,7 +226,7 @@ async def refresh_locked_account_media(
     )
 
     api = config.get_api()
-    for ids in batch_list(sorted(refresh_ids), config.BATCH_SIZE):
+    for ids in batch_list(sorted(refresh_ids), config.account_media_batch_size):
         media_ids_str = ",".join(str(mid) for mid in ids)
         try:
             response = await api.get_account_media(media_ids_str)

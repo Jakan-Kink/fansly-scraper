@@ -322,6 +322,8 @@ class OptionsSection(_BaseSection):
     api_max_retries: int = 10
     # ids per batched /account?ids= lookup; the Fansly web client uses 5
     account_ids_batch_size: int = 5
+    # ids per /account/media?ids= lookup; Fansly rate-limits lookups over 100
+    account_media_batch_size: int = Field(default=100, ge=1)
     # Set to ``false`` to ignore the creator_content_unchanged short-circuit
     # in download/timeline.py and download/wall.py — forces a full scan even
     # when TimelineStats counts and wall structure match the DB. Conditional

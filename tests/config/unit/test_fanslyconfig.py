@@ -78,7 +78,7 @@ class TestFanslyConfigBasics:
         assert unit_config.program_version == "1.0.0"
         assert unit_config.use_following is False
         assert unit_config.DUPLICATE_THRESHOLD == 50
-        assert unit_config.BATCH_SIZE == 150
+        assert unit_config.account_media_batch_size == 100
         assert unit_config.token is None
         assert unit_config.user_agent is None
         assert unit_config.debug is False
