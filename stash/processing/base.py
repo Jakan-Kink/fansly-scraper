@@ -9,6 +9,7 @@ import time
 import traceback
 import warnings
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Self
@@ -24,6 +25,7 @@ from stash_graphql_client.types import (
     BaseFile,
     Gallery,
     Image,
+    Job,
     JobStatus,
     Performer,
     Scene,
@@ -53,6 +55,27 @@ if TYPE_CHECKING:
 _SCAN_POLL_S = 1.5
 # Consecutive polls a scan job may be absent before it is treated as gone.
 _SCAN_MISSING_POLLS = 3
+# A READY scan with nothing running in Stash for this long will never start
+# (stashapp/stash#7347).
+_SCAN_FROZEN_S = 15.0
+_GENERATE_JOB_PREFIX = "Generating for scanned file"
+_ACTIVE_JOB_STATUSES = (JobStatus.RUNNING, JobStatus.STOPPING)
+
+
+@dataclass
+class _ScanWatch:
+    """What the scan wait last saw of one job, and when."""
+
+    seen: tuple[object, object] | None = None
+    changed_at: float = field(default_factory=time.monotonic)
+    idle_since: float | None = None
+    requeue: bool = False
+
+
+def _is_generate_job(job: Job) -> bool:
+    return isinstance(job.description, str) and job.description.startswith(
+        _GENERATE_JOB_PREFIX
+    )
 
 
 class StashProcessingBase(StashProcessingProtocol):
@@ -252,12 +275,21 @@ class StashProcessingBase(StashProcessingProtocol):
         }
         scan_paths = paths or [get_stash_path(self.state.base_path, self.config)]
         try:
-            job_id = await self.context.client.metadata_scan(
-                paths=scan_paths,
-                flags=flags,
-            )
-            print_info(f"Metadata scan job ID: {job_id}")
-            await self._wait_for_scan_job(job_id)
+            # A scan cancelled because Stash would never start it is queued once more.
+            for _ in range(2):
+                await self._wait_for_generate_jobs()
+                job_id = await self.context.client.metadata_scan(
+                    paths=scan_paths,
+                    flags=flags,
+                )
+                print_info(f"Metadata scan job ID: {job_id}")
+                if not await self._wait_for_scan_job(job_id):
+                    break
+            else:
+                logger.warning(
+                    "Stash did not start the scan after it was queued again; "
+                    "continuing with what Stash has indexed"
+                )
 
             # The job-FINISHED signal can precede Stash's index commit; settle
             # before any File/Scene/Image read-back.
@@ -269,16 +301,20 @@ class StashProcessingBase(StashProcessingProtocol):
             # ``ValueError("Failed to start metadata scan: ...")``
             raise RuntimeError(f"Failed to process metadata: {e}") from e
 
-    async def _wait_for_scan_job(self, job_id: str) -> None:
+    async def _wait_for_scan_job(self, job_id: str) -> bool:
         """Poll a scan job until Stash reports it over, showing its progress.
 
         A job that is cancelled, fails, drops out of Stash's job queue, or does
         not change for the stall timeout is logged and treated as over; the
-        caller continues with what is indexed. A shutdown request ends the
-        wait, cancelling the job in Stash if it has not started.
+        caller continues with what is indexed. A job left READY while Stash
+        runs nothing is cancelled. A shutdown request ends the wait, cancelling
+        the job in Stash if it has not started.
 
         Args:
             job_id: Scan job ID returned by ``metadata_scan``.
+
+        Returns:
+            True when the job was cancelled as frozen and should be queued again.
         """
         progress = get_progress_manager()
         with progress.session():
@@ -289,16 +325,41 @@ class StashProcessingBase(StashProcessingProtocol):
                 show_elapsed=True,
             )
             try:
-                await self._poll_scan_job(job_id, task)
+                return await self._poll_scan_job(job_id, task)
             finally:
                 progress.remove_task(task)
 
-    async def _poll_scan_job(self, job_id: str, task: str) -> None:
+    async def _wait_for_generate_jobs(self) -> None:
+        """Wait while Stash's job queue holds only generate jobs from earlier scans.
+
+        A scan queued in that state is never started (stashapp/stash#7347). The
+        wait ends after the stall timeout or on a shutdown request.
+        """
         stall_timeout = self.config.stash_scan_stall_timeout_s
         shutdown = self.config._shutdown_event
+        deadline = time.monotonic() + stall_timeout
+        announced = False
+        while True:
+            jobs = await self.context.client.job_queue()
+            if not jobs or not all(_is_generate_job(job) for job in jobs):
+                return
+            ids = ", ".join(str(job.id) for job in jobs)
+            if not announced:
+                print_info(f"Waiting for Stash generate job {ids} before scanning")
+                announced = True
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    f"Stash generate job {ids} still running after "
+                    f"{stall_timeout:g} s; scanning anyway"
+                )
+                return
+            if shutdown is not None and shutdown.is_set():
+                return
+            await asyncio.sleep(_SCAN_POLL_S)
+
+    async def _poll_scan_job(self, job_id: str, task: str) -> bool:
         misses = 0
-        last_seen: tuple[object, object] | None = None
-        last_change = time.monotonic()
+        watch = _ScanWatch()
         while True:
             job = await self.context.client.find_job(job_id)
             if job is None:
@@ -308,42 +369,70 @@ class StashProcessingBase(StashProcessingProtocol):
                         f"Scan job {job_id} is not in Stash's job queue; "
                         "continuing with what Stash has indexed"
                     )
-                    return
+                    return False
             elif job.status == JobStatus.FINISHED:
-                return
+                return False
             elif job.status in (JobStatus.CANCELLED, JobStatus.FAILED):
                 detail = f": {job.error}" if isinstance(job.error, str) else ""
                 logger.warning(
                     f"Scan job {job_id} ended as {job.status}{detail}; "
                     "continuing with what Stash has indexed"
                 )
-                return
+                return False
             else:
                 misses = 0
-                seen = (job.status, job.progress)
-                if seen != last_seen:
-                    logger.debug(
-                        f"Scan job {job_id}: {job.status}, progress {job.progress}"
-                    )
-                    last_seen = seen
-                    last_change = time.monotonic()
-                    done = job.progress if isinstance(job.progress, float) else 0.0
-                    get_progress_manager().update_task(
-                        task,
-                        advance=0,
-                        description=f"Stash scan job {job_id}: {job.status}",
-                        completed=int(done * 100),
-                    )
-                elif time.monotonic() - last_change >= stall_timeout:
-                    logger.warning(
-                        f"Scan job {job_id} has not changed from {job.status} in "
-                        f"{stall_timeout:g} s; continuing with what Stash has indexed"
-                    )
-                    return
-                if shutdown is not None and shutdown.is_set():
-                    await self._abandon_scan_job(job_id, job.status)
-                    return
+                if await self._scan_wait_over(job_id, job, task, watch):
+                    return watch.requeue
             await asyncio.sleep(_SCAN_POLL_S)
+
+    async def _scan_wait_over(
+        self, job_id: str, job: Job, task: str, watch: _ScanWatch
+    ) -> bool:
+        """Show a queued or running scan's state; True when the wait should end."""
+        stall_timeout = self.config.stash_scan_stall_timeout_s
+        shutdown = self.config._shutdown_event
+        now = time.monotonic()
+        seen = (job.status, job.progress)
+        if seen != watch.seen:
+            logger.debug(f"Scan job {job_id}: {job.status}, progress {job.progress}")
+            watch.seen = seen
+            watch.changed_at = now
+            done = job.progress if isinstance(job.progress, float) else 0.0
+            get_progress_manager().update_task(
+                task,
+                advance=0,
+                description=f"Stash scan job {job_id}: {job.status}",
+                completed=int(done * 100),
+            )
+        elif now - watch.changed_at >= stall_timeout:
+            logger.warning(
+                f"Scan job {job_id} has not changed from {job.status} in "
+                f"{stall_timeout:g} s; continuing with what Stash has indexed"
+            )
+            return True
+        if shutdown is not None and shutdown.is_set():
+            await self._abandon_scan_job(job_id, job.status)
+            return True
+        if job.status != JobStatus.READY or await self._other_job_active(job_id):
+            watch.idle_since = None
+        elif watch.idle_since is None:
+            watch.idle_since = now
+        elif now - watch.idle_since >= _SCAN_FROZEN_S:
+            watch.requeue = await self.context.client.stop_job(job_id)
+            outcome = "cancelled it" if watch.requeue else "Stash did not cancel it"
+            logger.warning(
+                f"Scan job {job_id} stayed READY for {_SCAN_FROZEN_S:g} s with "
+                f"nothing running in Stash; {outcome}"
+            )
+            return True
+        return False
+
+    async def _other_job_active(self, job_id: str) -> bool:
+        """Whether Stash is running any job other than this one."""
+        jobs = await self.context.client.job_queue()
+        return any(
+            job.id != job_id and job.status in _ACTIVE_JOB_STATUSES for job in jobs
+        )
 
     async def _abandon_scan_job(self, job_id: str, status: object) -> None:
         """Stop waiting on a scan at shutdown; a job still queued is cancelled."""

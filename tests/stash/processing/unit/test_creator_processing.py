@@ -438,6 +438,8 @@ class TestCreatorProcessing:
                     json=create_graphql_response("findTags", {"count": 0, "tags": []}),
                 ),
                 # === scan_creator_folder() (sets base_path, triggers Stash scan) ===
+                # jobQueue query (nothing queued, so the scan goes straight in)
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
                 # ConfigurationDefaults query (scan defaults)
                 httpx.Response(200, json={"data": {}}),
                 # metadataScan mutation (returns job ID string)
@@ -464,17 +466,18 @@ class TestCreatorProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "start_creator_processing")
 
-        # 6 calls: the tag preload, the scan (defaults + metadataScan + findJob),
-        # then the performer URL search's count and fetch.
-        assert len(graphql_route.calls) == 6, (
-            f"Expected exactly 6 GraphQL calls, got {len(graphql_route.calls)}"
+        # 7 calls: the tag preload, the scan (jobQueue + defaults + metadataScan +
+        # findJob), then the performer URL search's count and fetch.
+        assert len(graphql_route.calls) == 7, (
+            f"Expected exactly 7 GraphQL calls, got {len(graphql_route.calls)}"
         )
         assert_op(graphql_route.calls[0], "findTags")
-        assert_op(graphql_route.calls[1], "ConfigurationDefaults")
-        assert_op(graphql_route.calls[2], "metadataScan")
-        assert_op(graphql_route.calls[3], "findJob")
-        assert_op(graphql_route.calls[4], "findPerformers")
+        assert_op(graphql_route.calls[1], "jobQueue")
+        assert_op(graphql_route.calls[2], "ConfigurationDefaults")
+        assert_op(graphql_route.calls[3], "metadataScan")
+        assert_op(graphql_route.calls[4], "findJob")
         assert_op(graphql_route.calls[5], "findPerformers")
+        assert_op(graphql_route.calls[6], "findPerformers")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None
@@ -518,15 +521,17 @@ class TestCreatorProcessing:
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: connect_async() connection establishment
+                # jobQueue query (nothing queued)
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
+                # ConfigurationDefaults query (scan defaults)
                 httpx.Response(200, json={"data": {}}),
-                # Second call: metadataScan mutation (returns job ID as string)
+                # metadataScan mutation (returns job ID as string)
                 httpx.Response(200, json={"data": {"metadataScan": "job_123"}}),
-                # Third call: findJob query (job still running)
+                # findJob query (job still running)
                 httpx.Response(
                     200, json=create_graphql_response("findJob", running_job_dict)
                 ),
-                # Fourth call: findJob query (job finished)
+                # findJob query (job finished)
                 httpx.Response(
                     200, json=create_graphql_response("findJob", finished_job_dict)
                 ),
@@ -542,18 +547,19 @@ class TestCreatorProcessing:
         finally:
             dump_graphql_calls(graphql_route.calls, "test_scan_creator_folder")
 
-        # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
-        assert graphql_route.call_count == 4
+        # jobQueue + defaults + metadataScan + 2x findJob
+        assert graphql_route.call_count == 5
+        assert_op(graphql_route.calls[0], "jobQueue")
 
-        # Verify first call was metadataScan with the correct paths
-        assert_op(graphql_route.calls[1], "metadataScan")
-        first_request = json.loads(graphql_route.calls[1].request.content)
+        # metadataScan carries the creator folder
+        assert_op(graphql_route.calls[2], "metadataScan")
+        first_request = json.loads(graphql_route.calls[2].request.content)
         input_data = first_request.get("variables", {}).get("input", {})
         assert str(processor.state.base_path) in input_data.get("paths", [])
 
-        # Verify second and third calls were findJob with the same job_id
-        assert_op_with_vars(graphql_route.calls[2], "findJob", input__id="job_123")
+        # Both polls were findJob with the same job_id
         assert_op_with_vars(graphql_route.calls[3], "findJob", input__id="job_123")
+        assert_op_with_vars(graphql_route.calls[4], "findJob", input__id="job_123")
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_metadata_scan_error(
@@ -573,21 +579,25 @@ class TestCreatorProcessing:
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        # scan_creator_folder() first fetches ConfigurationDefaults (to get scan
-        # defaults), then issues the MetadataScan mutation. Both will hit this
-        # error response, and the code falls back to hardcoded defaults before
-        # raising on the scan itself. So exactly 2 GraphQL calls are expected.
+        # scan_creator_folder() checks the job queue, fetches ConfigurationDefaults
+        # (to get scan defaults), then issues the MetadataScan mutation. The last
+        # two hit this error response, and the code falls back to hardcoded
+        # defaults before raising on the scan itself. So exactly 3 GraphQL calls
+        # are expected.
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "data": {"metadataScan": None},
-                        "errors": [{"message": "Test error"}],
-                    },
-                )
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
+                *[
+                    httpx.Response(
+                        200,
+                        json={
+                            "data": {"metadataScan": None},
+                            "errors": [{"message": "Test error"}],
+                        },
+                    )
+                ]
+                * 2,
             ]
-            * 2
         )
 
         await processor.context.get_client()
@@ -611,20 +621,21 @@ class TestCreatorProcessing:
         assert "Failed to start metadata scan" in str(excinfo.value.__cause__)
 
         # Exact count + per-call request + response verification.
-        assert len(graphql_route.calls) == 2, (
-            f"Expected exactly 2 GraphQL calls "
-            f"(ConfigurationDefaults + MetadataScan), got {len(graphql_route.calls)}"
+        assert len(graphql_route.calls) == 3, (
+            f"Expected exactly 3 GraphQL calls (jobQueue + ConfigurationDefaults "
+            f"+ MetadataScan), got {len(graphql_route.calls)}"
         )
-        assert_op(graphql_route.calls[0], "ConfigurationDefaults")
-        resp0 = graphql_route.calls[0].response.json()
+        assert_op(graphql_route.calls[0], "jobQueue")
+        assert_op(graphql_route.calls[1], "ConfigurationDefaults")
+        resp0 = graphql_route.calls[1].response.json()
         assert resp0["errors"][0]["message"] == "Test error"
 
         assert_op_with_vars(
-            graphql_route.calls[1],
+            graphql_route.calls[2],
             "MetadataScan",
             input__paths=[str(processor.state.base_path)],
         )
-        resp1 = graphql_route.calls[1].response.json()
+        resp1 = graphql_route.calls[2].response.json()
         assert resp1["errors"][0]["message"] == "Test error"
 
     @pytest.mark.asyncio
@@ -664,11 +675,13 @@ class TestCreatorProcessing:
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: connect_async() connection establishment
+                # jobQueue query (nothing queued)
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
+                # ConfigurationDefaults query (scan defaults)
                 httpx.Response(200, json={"data": {}}),
-                # Second call: metadataScan mutation
+                # metadataScan mutation
                 httpx.Response(200, json={"data": {"metadataScan": "job_456"}}),
-                # Third call: findJob query (finished)
+                # findJob query (finished)
                 httpx.Response(
                     200, json=create_graphql_response("findJob", finished_job_dict)
                 ),
@@ -695,13 +708,14 @@ class TestCreatorProcessing:
         assert download_root in created_path.parents or created_path == download_root
 
         # === PERMANENT GraphQL call sequence assertions ===
-        assert len(graphql_route.calls) == 3, (
-            f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+        assert len(graphql_route.calls) == 4, (
+            f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
         )
+        assert_op(graphql_route.calls[0], "jobQueue")
 
-        # Call 2: metadataScan mutation with the real created path
-        assert_op(graphql_route.calls[1], "metadataScan")
-        call2_body = json.loads(graphql_route.calls[1].request.content)
+        # metadataScan mutation with the real created path
+        assert_op(graphql_route.calls[2], "metadataScan")
+        call2_body = json.loads(graphql_route.calls[2].request.content)
         assert str(created_path) in call2_body["variables"]["input"]["paths"]
 
         # Verify the "No download path set" info log was emitted via print_info → loguru.
@@ -749,15 +763,17 @@ class TestCreatorProcessing:
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: connect_async() connection establishment
+                # jobQueue query (nothing queued)
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
+                # ConfigurationDefaults query (scan defaults)
                 httpx.Response(200, json={"data": {}}),
-                # Second call: metadataScan mutation
+                # metadataScan mutation
                 httpx.Response(200, json={"data": {"metadataScan": "job_123"}}),
-                # Third call: findJob query (job with error)
+                # findJob query (job with error)
                 httpx.Response(
                     200, json=create_graphql_response("findJob", error_job_dict)
                 ),
-                # Fourth call: findJob query (job finished)
+                # findJob query (job finished)
                 httpx.Response(
                     200, json=create_graphql_response("findJob", finished_job_dict)
                 ),
@@ -776,19 +792,25 @@ class TestCreatorProcessing:
                 "test_scan_creator_folder_wait_for_job_exception_handling",
             )
 
-        # Verify respx was hit 4 times (connect_async + metadataScan + 2x findJob)
-        assert graphql_route.call_count == 4
+        # jobQueue + defaults + metadataScan + 2x findJob
+        assert graphql_route.call_count == 5
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_stops_waiting_on_unfinished_job(
         self, respx_stash_processor, tmp_path, caplog, monkeypatch
     ):
-        """A scan job that will not reach FINISHED ends the wait with a warning.
+        """A scan that cannot simply run to FINISHED is waited out or given up on.
 
-        Seven scans in a row: cancelled, failed, gone from the job queue,
-        briefly missing before finishing, unchanged for longer than the stall
-        timeout, and two that are waiting when shutdown is requested (one still
-        queued, which is cancelled in Stash, and one running, which is left).
+        Fourteen scans in a row. Four end early: cancelled, failed, gone from the
+        job queue, briefly missing before finishing. Six meet Stash's frozen
+        queue (stashapp/stash#7347): one waits for two generate jobs to leave the
+        queue, one goes ahead because another scan is running beside it, one sits
+        READY with nothing running but starts before the freeze limit, one is
+        cancelled as frozen and runs when queued again, one freezes both times
+        and is given up on, and one Stash refuses to cancel. Two hit the stall
+        timeout (a scan behind a busy queue, generate jobs that outlast it). Two
+        are waiting when shutdown is requested (one still queued, which is
+        cancelled in Stash, and one running, which is left).
         """
         caplog.set_level(logging.DEBUG)
         monkeypatch.setattr("stash.processing.base._SCAN_POLL_S", 0.01)
@@ -797,18 +819,32 @@ class TestCreatorProcessing:
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        def job_response(
+        generating = "Generating for scanned files..."
+
+        def job(
+            job_id: str,
+            status: JobStatus,
+            description: str = "Scanning...",
+            **fields: str | float,
+        ) -> dict:
+            built = JobFactory.build(
+                id=job_id, status=status, description=description, **fields
+            )
+            return json.loads(built.model_dump_json())
+
+        def find_job(
             job_id: str, status: JobStatus, **fields: str | float
         ) -> httpx.Response:
-            job = JobFactory.build(
-                id=job_id, status=status, description="Scanning metadata", **fields
-            )
             return httpx.Response(
                 200,
-                json=create_graphql_response(
-                    "findJob", json.loads(job.model_dump_json())
-                ),
+                json=create_graphql_response("findJob", job(job_id, status, **fields)),
             )
+
+        def missing() -> httpx.Response:
+            return httpx.Response(200, json={"data": {"findJob": None}})
+
+        def queue(*jobs: dict) -> httpx.Response:
+            return httpx.Response(200, json={"data": {"jobQueue": list(jobs) or None}})
 
         def scan_started(job_id: str) -> list[httpx.Response]:
             return [
@@ -816,40 +852,125 @@ class TestCreatorProcessing:
                 httpx.Response(200, json={"data": {"metadataScan": job_id}}),
             ]
 
-        missing = {"data": {"findJob": None}}
+        def stopped(cancelled: bool = True) -> httpx.Response:
+            return httpx.Response(200, json={"data": {"stopJob": cancelled}})
+
+        def frozen_scan(job_id: str, cancelled: bool = True) -> list[httpx.Response]:
+            alone = job(job_id, JobStatus.READY)
+            return [
+                queue(),
+                *scan_started(job_id),
+                find_job(job_id, JobStatus.READY),
+                queue(alone),
+                find_job(job_id, JobStatus.READY),
+                queue(alone),
+                stopped(cancelled),
+            ]
+
+        frozen = job("job_frozen", JobStatus.READY)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                queue(),
                 *scan_started("job_cancelled"),
-                job_response("job_cancelled", JobStatus.CANCELLED),
+                find_job("job_cancelled", JobStatus.CANCELLED),
+                queue(),
                 *scan_started("job_failed"),
-                job_response("job_failed", JobStatus.FAILED, error="disk full"),
+                find_job("job_failed", JobStatus.FAILED, error="disk full"),
+                queue(),
                 *scan_started("job_gone"),
-                httpx.Response(200, json=missing),
-                httpx.Response(200, json=missing),
-                httpx.Response(200, json=missing),
+                missing(),
+                missing(),
+                missing(),
+                queue(),
                 *scan_started("job_blip"),
-                httpx.Response(200, json=missing),
-                job_response("job_blip", JobStatus.RUNNING, progress=0.5),
-                job_response("job_blip", JobStatus.RUNNING, progress=0.5),
-                job_response("job_blip", JobStatus.FINISHED, progress=1.0),
+                missing(),
+                find_job("job_blip", JobStatus.RUNNING, progress=0.5),
+                find_job("job_blip", JobStatus.RUNNING, progress=0.5),
+                find_job("job_blip", JobStatus.FINISHED, progress=1.0),
+                # Only generate jobs in the queue: wait until all are gone.
+                queue(
+                    job("gen_1", JobStatus.RUNNING, generating, progress=0.2),
+                    job("gen_1b", JobStatus.RUNNING, generating),
+                ),
+                queue(job("gen_1b", JobStatus.RUNNING, generating, progress=0.6)),
+                queue(),
+                *scan_started("job_after_generate"),
+                find_job("job_after_generate", JobStatus.FINISHED),
+                # A generate job beside a running scan: no wait.
+                queue(
+                    job("gen_2", JobStatus.RUNNING, generating),
+                    job("other_scan", JobStatus.RUNNING),
+                ),
+                *scan_started("job_beside_scan"),
+                find_job("job_beside_scan", JobStatus.FINISHED),
+                # READY with nothing else running, but started before the freeze
+                # limit: left alone.
+                queue(),
+                *scan_started("job_slow_start"),
+                find_job("job_slow_start", JobStatus.READY),
+                queue(job("job_slow_start", JobStatus.READY)),
+                find_job("job_slow_start", JobStatus.READY),
+                queue(job("job_slow_start", JobStatus.READY)),
+                find_job("job_slow_start", JobStatus.FINISHED),
+                # Freeze limit at zero: cancelled on the second idle poll in a
+                # row; a generate job seen in between restarts the count.
+                queue(),
+                *scan_started("job_frozen"),
+                find_job("job_frozen", JobStatus.READY),
+                queue(frozen),
+                find_job("job_frozen", JobStatus.READY),
+                queue(frozen, job("gen_3", JobStatus.RUNNING, generating)),
+                find_job("job_frozen", JobStatus.READY),
+                queue(frozen),
+                find_job("job_frozen", JobStatus.READY),
+                queue(frozen),
+                stopped(),
+                # ...and the scan is queued again and runs.
+                queue(),
+                *scan_started("job_requeued"),
+                find_job("job_requeued", JobStatus.FINISHED),
+                # Frozen again after being queued again: given up on.
+                *frozen_scan("job_frozen_a"),
+                *frozen_scan("job_frozen_b"),
+                # Stash refuses the cancel: not queued again.
+                *frozen_scan("job_kept", cancelled=False),
+                # Stall timeout: READY behind a busy queue is left in Stash.
+                queue(),
                 *scan_started("job_stalled"),
-                job_response("job_stalled", JobStatus.READY, progress=0.0),
-                job_response("job_stalled", JobStatus.READY, progress=0.0),
+                find_job("job_stalled", JobStatus.READY, progress=0.0),
+                queue(
+                    job("job_stalled", JobStatus.READY),
+                    job("other_scan", JobStatus.RUNNING),
+                ),
+                find_job("job_stalled", JobStatus.READY, progress=0.0),
+                # Stall timeout: a generate job still there when it runs out is
+                # not waited on any longer.
+                queue(job("gen_4", JobStatus.RUNNING, generating, progress=0.2)),
+                *scan_started("job_after_slow_generate"),
+                find_job("job_after_slow_generate", JobStatus.FINISHED),
+                # Shutdown: the generate wait ends at once, the queued scan is
+                # cancelled, the running one is left.
+                queue(job("gen_5", JobStatus.RUNNING, generating)),
                 *scan_started("job_queued"),
-                job_response("job_queued", JobStatus.READY, progress=0.0),
-                httpx.Response(200, json={"data": {"stopJob": True}}),
+                find_job("job_queued", JobStatus.READY, progress=0.0),
+                stopped(),
+                queue(),
                 *scan_started("job_running"),
-                job_response("job_running", JobStatus.RUNNING, progress=0.4),
+                find_job("job_running", JobStatus.RUNNING, progress=0.4),
             ]
         )
 
         await processor.context.get_client()
 
         try:
-            for _ in range(4):
+            for _ in range(7):
                 await processor.scan_creator_folder()
-            processor.config.stash_scan_stall_timeout_s = 0.001
-            await processor.scan_creator_folder()
+            monkeypatch.setattr("stash.processing.base._SCAN_FROZEN_S", 0.0)
+            for _ in range(3):
+                await processor.scan_creator_folder()
+            processor.config.stash_scan_stall_timeout_s = 1e-6
+            for _ in range(2):
+                await processor.scan_creator_folder()
             processor.config.stash_scan_stall_timeout_s = 1800.0
             processor.config._shutdown_event = asyncio.Event()
             processor.config._shutdown_event.set()
@@ -861,39 +982,64 @@ class TestCreatorProcessing:
                 "test_scan_creator_folder_stops_waiting_on_unfinished_job",
             )
 
-        # (job id, findJob polls, stopJob calls)
+        start = ["jobQueue", "ConfigurationDefaults", "metadataScan"]
         expected = [
-            ("job_cancelled", 1, 0),
-            ("job_failed", 1, 0),
-            ("job_gone", 3, 0),
-            ("job_blip", 4, 0),
-            ("job_stalled", 2, 0),
-            ("job_queued", 1, 1),
-            ("job_running", 1, 0),
+            ("job_cancelled", [*start, "findJob"]),
+            ("job_failed", [*start, "findJob"]),
+            ("job_gone", [*start, *["findJob"] * 3]),
+            ("job_blip", [*start, *["findJob"] * 4]),
+            ("job_after_generate", [*["jobQueue"] * 2, *start, "findJob"]),
+            ("job_beside_scan", [*start, "findJob"]),
+            ("job_slow_start", [*start, *["findJob", "jobQueue"] * 2, "findJob"]),
+            ("job_frozen", [*start, *["findJob", "jobQueue"] * 4, "stopJob"]),
+            ("job_requeued", [*start, "findJob"]),
+            ("job_frozen_a", [*start, *["findJob", "jobQueue"] * 2, "stopJob"]),
+            ("job_frozen_b", [*start, *["findJob", "jobQueue"] * 2, "stopJob"]),
+            ("job_kept", [*start, *["findJob", "jobQueue"] * 2, "stopJob"]),
+            ("job_stalled", [*start, "findJob", "jobQueue", "findJob"]),
+            ("job_after_slow_generate", [*start, "findJob"]),
+            ("job_queued", [*start, "findJob", "stopJob"]),
+            ("job_running", [*start, "findJob"]),
         ]
-        assert graphql_route.call_count == sum(2 + n + s for _, n, s in expected)
-        index = 0
-        for job_id, polls, stops in expected:
-            assert_op(graphql_route.calls[index + 1], "metadataScan")
-            for poll in range(polls):
-                assert_op_with_vars(
-                    graphql_route.calls[index + 2 + poll], "findJob", input__id=job_id
-                )
-            if stops:
-                assert_op_with_vars(
-                    graphql_route.calls[index + 2 + polls], "stopJob", job_id=job_id
-                )
-            index += 2 + polls + stops
+        assert graphql_route.call_count == sum(len(ops) for _, ops in expected)
+        calls = iter(graphql_route.calls)
+        for job_id, ops in expected:
+            for op in ops:
+                call = next(calls)
+                if op == "findJob":
+                    assert_op_with_vars(call, "findJob", input__id=job_id)
+                elif op == "stopJob":
+                    assert_op_with_vars(call, "stopJob", job_id=job_id)
+                else:
+                    assert_op(call, op)
 
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         carry_on = "; continuing with what Stash has indexed"
-        assert [w for w in warnings if "Scan job" in w] == [
+        idle = "stayed READY for 0 s with nothing running in Stash"
+        assert [
+            w
+            for w in warnings
+            if "Scan job" in w or "generate job" in w or "queued again" in w
+        ] == [
             f"Scan job job_cancelled ended as CANCELLED{carry_on}",
             f"Scan job job_failed ended as FAILED: disk full{carry_on}",
             f"Scan job job_gone is not in Stash's job queue{carry_on}",
-            f"Scan job job_stalled has not changed from READY in 0.001 s{carry_on}",
+            f"Scan job job_frozen {idle}; cancelled it",
+            f"Scan job job_frozen_a {idle}; cancelled it",
+            f"Scan job job_frozen_b {idle}; cancelled it",
+            f"Stash did not start the scan after it was queued again{carry_on}",
+            f"Scan job job_kept {idle}; Stash did not cancel it",
+            f"Scan job job_stalled has not changed from READY in 1e-06 s{carry_on}",
+            "Stash generate job gen_4 still running after 1e-06 s; scanning anyway",
             "Scan job job_queued was still queued at shutdown; cancelled it in Stash",
             "Scan job job_running is RUNNING at shutdown; no longer waiting on it",
+        ]
+        info = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+        waits = [m for m in info if "Waiting for Stash generate job" in m]
+        assert [m[m.index("Waiting") :] for m in waits] == [
+            "Waiting for Stash generate job gen_1, gen_1b before scanning",
+            "Waiting for Stash generate job gen_4 before scanning",
+            "Waiting for Stash generate job gen_5 before scanning",
         ]
         assert "stash_scan" not in get_progress_manager().active_tasks
         debug = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]

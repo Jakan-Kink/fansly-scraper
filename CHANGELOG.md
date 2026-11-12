@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`api_max_retries: 0` no longer stops API requests from being sent.**
 - **A scene split no longer fails a creator's Stash sync with `cannot reassign primary file`.**
 - **A Stash scan that is cancelled, fails or never starts no longer hangs the run.**
+- **Scans no longer get stuck on Stash development builds.** The downloader waits for Stash to finish generating before it queues the next scan, and cancels a scan Stash will never start.
 - **Re-running over content already synced to Stash no longer rewrites it.** Edits made to a post after its first sync are no longer pushed to Stash.
 - **Stash client messages now reach the stash log.**
 - **Stash performers are matched by Fansly URL, then username, then name.** If only the name matches and several performers share it, none is linked and you are asked to add the Fansly URL to the right one. A mention followed by punctuation now resolves to the right account.

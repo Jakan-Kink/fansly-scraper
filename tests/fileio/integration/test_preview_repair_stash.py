@@ -73,6 +73,8 @@ async def test_rescan_and_invalidate_active_scans_and_invalidates(
 
     route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
+            # jobQueue query -> nothing queued, so the scan goes straight in.
+            httpx.Response(200, json={"data": {"jobQueue": None}}),
             # ConfigurationDefaults query (metadata_scan fetches scan defaults
             # first); empty data -> client falls back to hardcoded defaults.
             httpx.Response(200, json={"data": {}}),
@@ -98,10 +100,11 @@ async def test_rescan_and_invalidate_active_scans_and_invalidates(
         dump_graphql_calls(route.calls, "rescan active path")
 
     # The scan fired and carried the renamed path into the metadataScan request.
-    # calls[0] is ConfigurationDefaults; calls[1] is the MetadataScan mutation.
-    assert route.call_count >= 2
+    # calls[0] is JobQueue, calls[1] ConfigurationDefaults, calls[2] the
+    # MetadataScan mutation.
+    assert route.call_count >= 3
     assert_op_with_vars(
-        route.calls[1],
+        route.calls[2],
         "metadataScan",
         input__paths=renamed,
     )

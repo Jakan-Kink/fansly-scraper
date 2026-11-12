@@ -63,13 +63,14 @@ class TestStashProcessingBaseErrorPaths:
         Patch the gql leaf (`client.execute`) so the real `metadata_scan`
         and `find_job` run end-to-end. The orchestrated responses are:
 
-        1. ``CONFIG_DEFAULTS_QUERY`` → raise; ``metadata_scan``'s inner
+        1. ``JobQueue`` → an empty queue, so the scan is queued without a wait.
+        2. ``CONFIG_DEFAULTS_QUERY`` → raise; ``metadata_scan``'s inner
            ``try/except`` swallows it and falls back to hardcoded defaults.
-        2. ``METADATA_SCAN_MUTATION`` → return job id, completing
+        3. ``METADATA_SCAN_MUTATION`` → return job id, completing
            ``metadata_scan``.
-        3. ``FIND_JOB_QUERY`` (call 1) → raise; ``find_job`` swallows and
+        4. ``FIND_JOB_QUERY`` (call 1) → raise; ``find_job`` swallows and
            returns ``None``, which the wait tolerates for a few polls.
-        4. ``FIND_JOB_QUERY`` (call 2) → return a FINISHED Job dict and the
+        5. ``FIND_JOB_QUERY`` (call 2) → return a FINISHED Job dict and the
            wait ends.
         """
         client = real_stash_processor.context.client
@@ -82,6 +83,7 @@ class TestStashProcessingBaseErrorPaths:
                     client,
                     "execute",
                     side_effect=[
+                        {"jobQueue": None},
                         Exception("config defaults transient"),
                         {"metadataScan": "test-job-1"},
                         Exception("find_job transient"),

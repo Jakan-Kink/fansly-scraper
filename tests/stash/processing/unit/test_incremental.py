@@ -218,10 +218,12 @@ class TestLocalPathSeamAndOverrideLookup:
         performer = PerformerFactory(id="123", name="ovr_user", scenes=[], images=[])
         studio = StudioFactory(id="200", name="ovr_user (Fansly)")
 
-        # connect -> metadataScan -> findJob(finished) -> findFiles(empty, so no
-        # adjudication follows). Trailing empties absorb any benign tail call.
+        # jobQueue(empty) -> scan defaults -> metadataScan -> findJob(finished) ->
+        # findFiles(empty, so no adjudication follows). Trailing empties absorb
+        # any benign tail call.
         route = respx.post(_GRAPHQL_URL).mock(
             side_effect=[
+                httpx.Response(200, json={"data": {"jobQueue": None}}),
                 httpx.Response(200, json={"data": {}}),
                 httpx.Response(200, json={"data": {"metadataScan": "job_1"}}),
                 httpx.Response(
