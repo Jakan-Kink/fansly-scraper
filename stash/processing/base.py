@@ -58,7 +58,6 @@ _SCAN_MISSING_POLLS = 3
 # A READY scan with nothing running in Stash for this long will never start
 # (stashapp/stash#7347).
 _SCAN_FROZEN_S = 15.0
-_GENERATE_JOB_PREFIX = "Generating for scanned file"
 _ACTIVE_JOB_STATUSES = (JobStatus.RUNNING, JobStatus.STOPPING)
 
 
@@ -70,12 +69,6 @@ class _ScanWatch:
     changed_at: float = field(default_factory=time.monotonic)
     idle_since: float | None = None
     requeue: bool = False
-
-
-def _is_generate_job(job: Job) -> bool:
-    return isinstance(job.description, str) and job.description.startswith(
-        _GENERATE_JOB_PREFIX
-    )
 
 
 class StashProcessingBase(StashProcessingProtocol):
@@ -277,7 +270,6 @@ class StashProcessingBase(StashProcessingProtocol):
         try:
             # A scan cancelled because Stash would never start it is queued once more.
             for _ in range(2):
-                await self._wait_for_generate_jobs()
                 job_id = await self.context.client.metadata_scan(
                     paths=scan_paths,
                     flags=flags,
@@ -328,34 +320,6 @@ class StashProcessingBase(StashProcessingProtocol):
                 return await self._poll_scan_job(job_id, task)
             finally:
                 progress.remove_task(task)
-
-    async def _wait_for_generate_jobs(self) -> None:
-        """Wait while Stash's job queue holds only generate jobs from earlier scans.
-
-        A scan queued in that state is never started (stashapp/stash#7347). The
-        wait ends after the stall timeout or on a shutdown request.
-        """
-        stall_timeout = self.config.stash_scan_stall_timeout_s
-        shutdown = self.config._shutdown_event
-        deadline = time.monotonic() + stall_timeout
-        announced = False
-        while True:
-            jobs = await self.context.client.job_queue()
-            if not jobs or not all(_is_generate_job(job) for job in jobs):
-                return
-            ids = ", ".join(str(job.id) for job in jobs)
-            if not announced:
-                print_info(f"Waiting for Stash generate job {ids} before scanning")
-                announced = True
-            if time.monotonic() >= deadline:
-                logger.warning(
-                    f"Stash generate job {ids} still running after "
-                    f"{stall_timeout:g} s; scanning anyway"
-                )
-                return
-            if shutdown is not None and shutdown.is_set():
-                return
-            await asyncio.sleep(_SCAN_POLL_S)
 
     async def _poll_scan_job(self, job_id: str, task: str) -> bool:
         misses = 0
