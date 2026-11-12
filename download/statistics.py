@@ -20,23 +20,27 @@ def memory_summary() -> str:
     """Describe process memory and in-memory metadata occupancy on one line.
 
     Live blocks count the interpreter's allocations, so unlike RSS they do not
-    drop when the OS swaps pages out.
+    drop when the OS swaps pages out. Swap is the process's swapped-out size,
+    which only Linux reports.
 
     Returns:
-        RSS, live block count, garbage collector totals, and metadata entries
-        by type, largest first
+        RSS, swap where reported, live block count, garbage collector totals,
+        and metadata entries by type, largest first
     """
     stats = get_store().cache_stats()
     by_type = ", ".join(
         f"{name}={count:,}"
         for name, count in sorted(stats["by_type"].items(), key=lambda kv: -kv[1])
     )
-    rss_gib = psutil.Process().memory_info().rss / 1024**3
+    memory = psutil.Process().memory_full_info()
+    swap = getattr(memory, "swap", None)
+    swapped = f", swap {swap / 1024**3:.2f} GiB" if swap is not None else ""
     generations = gc.get_stats()
     runs = sum(generation["collections"] for generation in generations)
     freed = sum(generation["collected"] for generation in generations)
     return (
-        f"RSS {rss_gib:.2f} GiB, {sys.getallocatedblocks():,} live blocks, "
+        f"RSS {memory.rss / 1024**3:.2f} GiB{swapped}, "
+        f"{sys.getallocatedblocks():,} live blocks, "
         f"collector {runs:,} runs, {freed:,} freed, "
         f"{gc.get_freeze_count():,} frozen, "
         f"metadata {stats['total']:,} entries ({by_type})"

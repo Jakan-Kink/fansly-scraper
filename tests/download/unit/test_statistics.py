@@ -3,7 +3,9 @@
 import logging
 import re
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
+import psutil
 import pytest
 
 from download.core import DownloadState, GlobalState
@@ -296,22 +298,42 @@ class TestPrintGlobalStatistics:
 
 class TestMemorySummary:
     @pytest.mark.asyncio
-    async def test_counts_metadata_by_type_largest_first(self, entity_store):
+    async def test_counts_metadata_by_type_largest_first(
+        self, entity_store, monkeypatch
+    ):
         """The line carries process memory, collector activity, and what the
-        metadata map holds."""
+        metadata map holds. Swap shows only where the OS reports it (Linux)."""
         account = AccountFactory.build(id=snowflake_id())
         await entity_store.save(account)
         for _ in range(2):
             await entity_store.save(
                 PostFactory.build(id=snowflake_id(), accountId=account.id)
             )
-
-        match = re.fullmatch(
-            r"RSS \d+\.\d{2} GiB, ([\d,]+) live blocks, "
+        rest = (
+            r"([\d,]+) live blocks, "
             r"collector [\d,]+ runs, [\d,]+ freed, [\d,]+ frozen, "
-            r"metadata 3 entries \(Post=2, Account=1\)",
-            memory_summary(),
+            r"metadata 3 entries \(Post=2, Account=1\)"
         )
 
+        # The real call, whatever this platform reports.
+        match = re.fullmatch(
+            rf"RSS \d+\.\d{{2}} GiB(, swap \d+\.\d{{2}} GiB)?, {rest}",
+            memory_summary(),
+        )
         assert match is not None
-        assert int(match[1].replace(",", "")) > 0
+        assert int(match[2].replace(",", "")) > 0
+
+        # psutil leaf: the Linux shape (with swap), then one without it.
+        gib = 1024**3
+        monkeypatch.setattr(
+            psutil.Process,
+            "memory_full_info",
+            lambda _self: SimpleNamespace(rss=2 * gib, swap=gib // 2),
+        )
+        assert re.fullmatch(rf"RSS 2\.00 GiB, swap 0\.50 GiB, {rest}", memory_summary())
+        monkeypatch.setattr(
+            psutil.Process,
+            "memory_full_info",
+            lambda _self: SimpleNamespace(rss=3 * gib),
+        )
+        assert re.fullmatch(rf"RSS 3\.00 GiB, {rest}", memory_summary())
