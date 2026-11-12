@@ -736,6 +736,7 @@ class StashContextSection(_BaseSection):
     # Stash's index commit can lag the job-FINISHED signal by a few hundred
     # ms; reading File/Scene/Image back without a settle window races.
     scan_settle_s: float = Field(default=3.5, ge=0.0, le=30.0)
+    scan_stall_timeout_s: float = Field(default=1800.0, gt=0.0)
     batches: StashBatchesSection = Field(default_factory=StashBatchesSection)
 
     @field_validator("enable_scene_split", mode="before")

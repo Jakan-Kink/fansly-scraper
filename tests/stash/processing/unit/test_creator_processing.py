@@ -23,6 +23,7 @@ import respx
 from stash_graphql_client.errors import StashVersionError
 from stash_graphql_client.types.job import JobStatus
 
+from helpers.rich_progress import get_progress_manager
 from metadata.entity_store import PostgresEntityStore
 from stash.processing import StashProcessing
 from tests.fixtures.metadata.metadata_factories import AccountFactory
@@ -782,11 +783,12 @@ class TestCreatorProcessing:
     async def test_scan_creator_folder_stops_waiting_on_unfinished_job(
         self, respx_stash_processor, tmp_path, caplog, monkeypatch
     ):
-        """A scan job that will never reach FINISHED ends the wait with a warning.
+        """A scan job that will not reach FINISHED ends the wait with a warning.
 
-        Four scans in a row: cancelled, failed, gone from the job queue, and
-        briefly missing before finishing. Only the first three warn, and each
-        returns so processing can continue with what Stash has indexed.
+        Seven scans in a row: cancelled, failed, gone from the job queue,
+        briefly missing before finishing, unchanged for longer than the stall
+        timeout, and two that are waiting when shutdown is requested (one still
+        queued, which is cancelled in Stash, and one running, which is left).
         """
         caplog.set_level(logging.DEBUG)
         monkeypatch.setattr("stash.processing.base._SCAN_POLL_S", 0.01)
@@ -830,6 +832,14 @@ class TestCreatorProcessing:
                 job_response("job_blip", JobStatus.RUNNING, progress=0.5),
                 job_response("job_blip", JobStatus.RUNNING, progress=0.5),
                 job_response("job_blip", JobStatus.FINISHED, progress=1.0),
+                *scan_started("job_stalled"),
+                job_response("job_stalled", JobStatus.READY, progress=0.0),
+                job_response("job_stalled", JobStatus.READY, progress=0.0),
+                *scan_started("job_queued"),
+                job_response("job_queued", JobStatus.READY, progress=0.0),
+                httpx.Response(200, json={"data": {"stopJob": True}}),
+                *scan_started("job_running"),
+                job_response("job_running", JobStatus.RUNNING, progress=0.4),
             ]
         )
 
@@ -838,27 +848,42 @@ class TestCreatorProcessing:
         try:
             for _ in range(4):
                 await processor.scan_creator_folder()
+            processor.config.stash_scan_stall_timeout_s = 0.001
+            await processor.scan_creator_folder()
+            processor.config.stash_scan_stall_timeout_s = 1800.0
+            processor.config._shutdown_event = asyncio.Event()
+            processor.config._shutdown_event.set()
+            for _ in range(2):
+                await processor.scan_creator_folder()
         finally:
             dump_graphql_calls(
                 graphql_route.calls,
                 "test_scan_creator_folder_stops_waiting_on_unfinished_job",
             )
 
-        expected_polls = [
-            ("job_cancelled", 1),
-            ("job_failed", 1),
-            ("job_gone", 3),
-            ("job_blip", 4),
+        # (job id, findJob polls, stopJob calls)
+        expected = [
+            ("job_cancelled", 1, 0),
+            ("job_failed", 1, 0),
+            ("job_gone", 3, 0),
+            ("job_blip", 4, 0),
+            ("job_stalled", 2, 0),
+            ("job_queued", 1, 1),
+            ("job_running", 1, 0),
         ]
-        assert graphql_route.call_count == sum(2 + n for _, n in expected_polls)
+        assert graphql_route.call_count == sum(2 + n + s for _, n, s in expected)
         index = 0
-        for job_id, polls in expected_polls:
+        for job_id, polls, stops in expected:
             assert_op(graphql_route.calls[index + 1], "metadataScan")
             for poll in range(polls):
                 assert_op_with_vars(
                     graphql_route.calls[index + 2 + poll], "findJob", input__id=job_id
                 )
-            index += 2 + polls
+            if stops:
+                assert_op_with_vars(
+                    graphql_route.calls[index + 2 + polls], "stopJob", job_id=job_id
+                )
+            index += 2 + polls + stops
 
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         carry_on = "; continuing with what Stash has indexed"
@@ -866,6 +891,10 @@ class TestCreatorProcessing:
             f"Scan job job_cancelled ended as CANCELLED{carry_on}",
             f"Scan job job_failed ended as FAILED: disk full{carry_on}",
             f"Scan job job_gone is not in Stash's job queue{carry_on}",
+            f"Scan job job_stalled has not changed from READY in 0.001 s{carry_on}",
+            "Scan job job_queued was still queued at shutdown; cancelled it in Stash",
+            "Scan job job_running is RUNNING at shutdown; no longer waiting on it",
         ]
+        assert "stash_scan" not in get_progress_manager().active_tasks
         debug = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
         assert debug.count("Scan job job_blip: RUNNING, progress 0.5") == 1

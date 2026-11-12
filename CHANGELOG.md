@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Python 3.15 support.** The downloader runs on Python 3.12 through 3.15.
 - **Stash page sizes (`stash_context.batches`).** `tags`, `files` and `galleries` set how many items each Stash request fetches.
+- **`stash_context.scan_stall_timeout_s`.** How long to wait on a stalled Stash scan (default 30 minutes).
 
 ### Changed
 
@@ -38,7 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **A livestream segment that fails to download is retried.** It used to be dropped and could cost a second segment.
 - **`api_max_retries: 0` no longer stops API requests from being sent.**
 - **A scene split no longer fails a creator's Stash sync with `cannot reassign primary file`.**
-- **A cancelled or failed Stash scan no longer hangs the run.**
+- **A Stash scan that is cancelled, fails or never starts no longer hangs the run.**
 - **Re-running over content already synced to Stash no longer rewrites it.** Edits made to a post after its first sync are no longer pushed to Stash.
 - **Stash client messages now reach the stash log.**
 - **Stash performers are matched by Fansly URL, then username, then name.** If only the name matches and several performers share it, none is linked and you are asked to add the Fansly URL to the right one. A mention followed by punctuation now resolves to the right account.

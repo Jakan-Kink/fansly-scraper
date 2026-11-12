@@ -1031,6 +1031,18 @@ class TestScanSettleSeconds:
             StashContextSection.model_validate({"scan_settle_s": 30.1})
 
 
+class TestScanStallTimeoutSeconds:
+    """scan_stall_timeout_s: wait on an unchanged scan job, default 30 minutes."""
+
+    def test_default_custom_and_bounds(self) -> None:
+        assert StashContextSection.model_validate({}).scan_stall_timeout_s == 1800
+        section = StashContextSection.model_validate({"scan_stall_timeout_s": 600})
+        assert section.scan_stall_timeout_s == 600
+        for invalid in (0, -1):
+            with pytest.raises(ValidationError):
+                StashContextSection.model_validate({"scan_stall_timeout_s": invalid})
+
+
 # ---------------------------------------------------------------------------
 # mode="before" validator defensive tails (the `return v` / early-return arms)
 # ---------------------------------------------------------------------------

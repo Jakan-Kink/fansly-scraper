@@ -1409,6 +1409,7 @@ async def run_daemon(
     # nothing and get a fresh Event.
     if stop_event is None:
         stop_event = asyncio.Event()
+    config._shutdown_event = stop_event
     refresh_event = asyncio.Event()
 
     # Reuse bootstrap collaborators when available so events queued

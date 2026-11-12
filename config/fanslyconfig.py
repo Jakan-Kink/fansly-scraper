@@ -51,6 +51,8 @@ class FanslyConfig:
     _api: FanslyApi | None = None
     _database: Database | None = None
     _stash: StashContext | None = None
+    # Set by the daemon; lets long waits end when shutdown is requested.
+    _shutdown_event: asyncio.Event | None = None
     _rate_limiter_display: RateLimiterDisplay | None = None
 
     # Command line flags
@@ -228,6 +230,7 @@ class FanslyConfig:
     stash_require_stash_only_mode: bool = False
     stash_enable_scene_split: bool | Literal["dry-run"] = False
     stash_scan_settle_s: float = 3.5
+    stash_scan_stall_timeout_s: float = 1800.0
     stash_tags_batch: int = 250
     stash_files_batch: int = 40
     stash_galleries_batch: int = 250

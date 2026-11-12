@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import traceback
 import warnings
 from copy import deepcopy
@@ -31,6 +32,7 @@ from stash_graphql_client.types import (
     Tag,
 )
 
+from helpers.rich_progress import get_progress_manager
 from metadata import Account, Database
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
@@ -268,16 +270,35 @@ class StashProcessingBase(StashProcessingProtocol):
             raise RuntimeError(f"Failed to process metadata: {e}") from e
 
     async def _wait_for_scan_job(self, job_id: str) -> None:
-        """Poll a scan job until Stash reports it over.
+        """Poll a scan job until Stash reports it over, showing its progress.
 
-        A job that is cancelled, fails, or drops out of Stash's job queue is
-        logged and treated as over; the caller continues with what is indexed.
+        A job that is cancelled, fails, drops out of Stash's job queue, or does
+        not change for the stall timeout is logged and treated as over; the
+        caller continues with what is indexed. A shutdown request ends the
+        wait, cancelling the job in Stash if it has not started.
 
         Args:
             job_id: Scan job ID returned by ``metadata_scan``.
         """
+        progress = get_progress_manager()
+        with progress.session():
+            task = progress.add_task(
+                name="stash_scan",
+                description=f"Stash scan job {job_id}",
+                total=100,
+                show_elapsed=True,
+            )
+            try:
+                await self._poll_scan_job(job_id, task)
+            finally:
+                progress.remove_task(task)
+
+    async def _poll_scan_job(self, job_id: str, task: str) -> None:
+        stall_timeout = self.config.stash_scan_stall_timeout_s
+        shutdown = self.config._shutdown_event
         misses = 0
         last_seen: tuple[object, object] | None = None
+        last_change = time.monotonic()
         while True:
             job = await self.context.client.find_job(job_id)
             if job is None:
@@ -305,7 +326,37 @@ class StashProcessingBase(StashProcessingProtocol):
                         f"Scan job {job_id}: {job.status}, progress {job.progress}"
                     )
                     last_seen = seen
+                    last_change = time.monotonic()
+                    done = job.progress if isinstance(job.progress, float) else 0.0
+                    get_progress_manager().update_task(
+                        task,
+                        advance=0,
+                        description=f"Stash scan job {job_id}: {job.status}",
+                        completed=int(done * 100),
+                    )
+                elif time.monotonic() - last_change >= stall_timeout:
+                    logger.warning(
+                        f"Scan job {job_id} has not changed from {job.status} in "
+                        f"{stall_timeout:g} s; continuing with what Stash has indexed"
+                    )
+                    return
+                if shutdown is not None and shutdown.is_set():
+                    await self._abandon_scan_job(job_id, job.status)
+                    return
             await asyncio.sleep(_SCAN_POLL_S)
+
+    async def _abandon_scan_job(self, job_id: str, status: object) -> None:
+        """Stop waiting on a scan at shutdown; a job still queued is cancelled."""
+        if status == JobStatus.READY:
+            cancelled = await self.context.client.stop_job(job_id)
+            outcome = (
+                "cancelled it in Stash" if cancelled else "Stash did not cancel it"
+            )
+            logger.warning(f"Scan job {job_id} was still queued at shutdown; {outcome}")
+        else:
+            logger.warning(
+                f"Scan job {job_id} is {status} at shutdown; no longer waiting on it"
+            )
 
     def _configure_scene_creation_guard(self) -> None:
         """Enable Scene creation (the split's create path) only when the user

@@ -749,12 +749,16 @@ class TestStashLoadedOnlySettingsRoundTrip:
     def test_forward_schema_to_runtime(self, unit_config):
         schema = ConfigSchema(
             stash_context=StashContextSection.model_validate(
-                {"batches": {"tags": 60, "files": 500, "galleries": 120}}
+                {
+                    "scan_stall_timeout_s": 600,
+                    "batches": {"tags": 60, "files": 500, "galleries": 120},
+                }
             ),
         )
 
         _populate_config_from_schema(unit_config, schema)
 
+        assert unit_config.stash_scan_stall_timeout_s == 600
         assert unit_config.stash_tags_batch == 60
         assert unit_config.stash_files_batch == 500
         assert unit_config.stash_galleries_batch == 120
@@ -762,7 +766,11 @@ class TestStashLoadedOnlySettingsRoundTrip:
     def test_reverse_keeps_what_the_user_set(self, unit_config):
         loaded = ConfigSchema(
             stash_context=StashContextSection.model_validate(
-                {"scan_settle_s": 1.0, "batches": {"files": 500}}
+                {
+                    "scan_settle_s": 1.0,
+                    "scan_stall_timeout_s": 600,
+                    "batches": {"files": 500},
+                }
             ),
         )
         _populate_config_from_schema(unit_config, loaded)
@@ -772,6 +780,7 @@ class TestStashLoadedOnlySettingsRoundTrip:
 
         assert rebuilt is not None
         assert rebuilt.scan_settle_s == 1.0
+        assert rebuilt.scan_stall_timeout_s == 600
         assert rebuilt.batches.files == 500
         assert rebuilt.batches.model_fields_set == {"files"}
         assert {"scan_settle_s", "batches"} <= rebuilt.model_fields_set
