@@ -1,6 +1,6 @@
 {
-  "name": "fansly-downloader-ng",
-  "version": "0.14.3",
+  "name": "fansly-scraper",
+  "version": "0.16.0",
   "description": "JavaScript dependencies for Fansly Downloader NG checkKey extraction",
   "private": true,
   "engines": {
@@ -16,6 +16,6 @@
     "acorn",
     "javascript-parser"
   ],
-  "author": "prof79",
+  "author": "Jakan-Kink",
   "license": "GPL-3.0-only"
 }

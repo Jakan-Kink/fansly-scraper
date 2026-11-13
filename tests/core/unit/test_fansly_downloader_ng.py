@@ -138,7 +138,7 @@ def test_print_logo(capsys):
     captured = capsys.readouterr()
     # The logo is ASCII art, so we check for key parts
     assert "███████╗" in captured.out  # Part of the F
-    assert "github.com/prof79/fansly-downloader-ng" in captured.out
+    assert "github.com/Jakan-Kink/fansly-scraper" in captured.out
 
 
 @pytest.mark.asyncio

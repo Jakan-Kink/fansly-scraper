@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-13
+
 ### Added
 
 - **Python 3.15 support.** The downloader runs on Python 3.12 through 3.15.
@@ -77,7 +79,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- **asyncpg constraint widened to `>=0.30.0,<0.32.0` (lock now 0.31.0), unblocking Python 3.14.** 0.30.0 has no cp314 wheels and never will, so 3.14 users were stuck building from source. The pin existed because 0.31.0 segfaulted under pytest (MagicStack/asyncpg#1292); the crash is now fully root-caused: it requires asyncpg to be *used, dropped from `sys.modules`, re-imported, and used again* — 0.31.0 (built with Cython >=3.2.1's per-module state) crashes in `BaseProtocol.__init__` on the NULL module state, while 0.30.0 survives the same sequence but silently splits its exception classes into two generations so `except asyncpg.X:` stops matching. The only in-repo trigger was coverage.py probe-importing dotted `--cov=pkg.module` sources and un-importing them; path-form `--cov` sources are now mandated (`docs/testing/TESTING_REQUIREMENTS.md`) and the full suite runs green on 0.31.0. Neither failure mode is reachable from normal app use — production never re-imports asyncpg.
+- **asyncpg constraint widened to `>=0.30.0,<0.32.0` (lock now 0.31.0), unblocking Python 3.14.** 0.30.0 has no cp314 wheels and never will, so 3.14 users were stuck building from source. The pin existed because 0.31.0 segfaulted under pytest (MagicStack/asyncpg#1292); the crash is now fully root-caused: it requires asyncpg to be _used, dropped from `sys.modules`, re-imported, and used again_ — 0.31.0 (built with Cython >=3.2.1's per-module state) crashes in `BaseProtocol.__init__` on the NULL module state, while 0.30.0 survives the same sequence but silently splits its exception classes into two generations so `except asyncpg.X:` stops matching. The only in-repo trigger was coverage.py probe-importing dotted `--cov=pkg.module` sources and un-importing them; path-form `--cov` sources are now mandated (`docs/testing/TESTING_REQUIREMENTS.md`) and the full suite runs green on 0.31.0. Neither failure mode is reachable from normal app use — production never re-imports asyncpg.
 - **Production code is now fully statically typed — mypy reports zero errors project-wide.** The API JSON ingestion boundary returns honest `JsonDict | list[JsonValue]` instead of `Any`, with new `expect_dict`/`expect_list`/`expect_int`/`str_or_none` narrowing helpers (`helpers/common.py`) forcing explicit fail-fast coercion of Fansly payload scalars; `get_store()` is typed `PostgresEntityStore`; stats shapes became TypedDicts; error and Stash-processing signatures carry concrete types. Requires `stash-graphql-client >=0.12.12` (its `TypeIs` guards narrow under a py3.12 mypy target).
 - **Test suite: internal mocks removed in favor of real pipelines, per-test UUID databases collapsed into 37 class-shared stores, shallow tests parametrized/merged (~375 test functions removed), and the whole `tests/` tree brought under mypy.** Stash integration tests now SKIP (not ERROR) when the local Stash server is down, mirroring the PostgreSQL skip. Coverage held at 96.89% with a double full-suite gate identical at 2763 passed / 0 failed.
 
@@ -413,11 +415,11 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - `config.sample.yaml` template
 - New `[monitoring]` config section for activity-simulator phase durations and per-phase polling intervals
 - **New documentation**:
-    - [Architecture](reference/architecture.md) — canonical public architecture reference
-    - [Monitoring Daemon Cadence](reference/monitoring-cadence.md) — polling intervals + anti-detection rationale
-    - [Monitoring Daemon Architecture](planning/monitoring-daemon-architecture.md) — full daemon design document (intervals, endpoints, behaviors verified against production `main.js`)
-    - [Fansly WebSocket Protocol](reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints
-    - [Manual Token Extraction](guide/manual-token-extraction.md) — fallback browser-token extraction guide (salvaged from prof79 wiki)
+  - [Architecture](reference/architecture.md) — canonical public architecture reference
+  - [Monitoring Daemon Cadence](reference/monitoring-cadence.md) — polling intervals + anti-detection rationale
+  - [Monitoring Daemon Architecture](planning/monitoring-daemon-architecture.md) — full daemon design document (intervals, endpoints, behaviors verified against production `main.js`)
+  - [Fansly WebSocket Protocol](reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints
+  - [Manual Token Extraction](guide/manual-token-extraction.md) — fallback browser-token extraction guide (salvaged from prof79 wiki)
 - `CHANGELOG.md` (this file) — new Keep-a-Changelog format going forward
 - MkDocs + readthedocs-themed docs site with GHA deploy workflow to `gh-pages`
 - Daemon dispatch: explicit no-op handler pattern (`_handle_noop_events` + `_NOOP_DESCRIPTIONS` in `daemon/handlers.py`) distinguishes "known event, deliberately ignored" from "unknown event, coverage gap" in logs.
@@ -451,14 +453,15 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 ### Removed
 
 - **Retired settings** (silently dropped from legacy configs — no runtime code branches on them):
-    - `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era `BackgroundSync` workaround, obsolete under PostgreSQL
-    - `metadata_handling` — no-op since the Pydantic EntityStore rewrite
-    - `separate_metadata` — SQLite-era flag
+  - `db_sync_commits`, `db_sync_seconds`, `db_sync_min_size` — SQLite-era `BackgroundSync` workaround, obsolete under PostgreSQL
+  - `metadata_handling` — no-op since the Pydantic EntityStore rewrite
+  - `separate_metadata` — SQLite-era flag
 - `updater/` module (pycache-only remnant from the prof79-era self-updater, no tracked source)
 - `config.sample.ini` — YAML migration makes the INI sample redundant
 - Stale documentation pruned: pre-Pydantic test migration tracker, SA-ORM code examples from the Stash mapping reference, pre-work Stash integration analyses, rejected side-by-side PostgreSQL plan, abandoned async-conversion plan, archaic H.264/MP4 PDF + author notes (superseded by PyAV for mp4 hashing)
 
-[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.5...v0.15.0
 [0.14.5]: https://github.com/Jakan-Kink/fansly-scraper/compare/v0.14.4...v0.14.5

@@ -389,7 +389,7 @@ Distinct exit codes let you wire `fansly_downloader_ng.py` into shell pipelines 
 - **A**: There is always that possibility when using any third-party tool that interacts with a web service. However, the monitoring daemon specifically calibrates its polling cadence against real browser behavior (based on the javascript timing from Fansly's own UI code) to reduce detection surface.
 
 - **Q**: "What happened to the original prof79 repo?"
-- **A**: prof79 has not touched the project since June 28, 2024 (v0.9.9). All development through v0.10.x, v0.11.x, v0.13.x, and v0.14.x happens on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper).
+- **A**: prof79 has not touched the project since June 28, 2024 (v0.9.9). All development since then, from v0.10 onward, happens on the [Jakan-Kink fork](https://github.com/Jakan-Kink/fansly-scraper).
 
 Please note that "Issue" tickets are reserved for reporting genuine or suspected bugs that require attention from a developer.
 

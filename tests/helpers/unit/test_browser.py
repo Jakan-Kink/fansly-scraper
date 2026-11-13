@@ -35,5 +35,5 @@ class TestOpenGetStartedUrl:
         with patch("helpers.browser.open_url") as mock_open_url:
             open_get_started_url()
             mock_open_url.assert_called_once_with(
-                "https://github.com/prof79/fansly-downloader-ng/wiki/Getting-Started"
+                "https://jakan-kink.github.io/fansly-scraper/guide/manual-token-extraction/"
             )

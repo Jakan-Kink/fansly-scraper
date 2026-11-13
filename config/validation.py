@@ -256,7 +256,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
             raise ConfigError(
                 f"Your Fansly account was not found in any of your browser's local storage."
                 f"\n{18 * ' '}Did you recently browse Fansly with an authenticated session?"
-                f"\n{18 * ' '}Please read & apply the 'Get-Started' tutorial."
+                f"\n{18 * ' '}Please read & apply the Manual Token Extraction guide."
             )
 
     # if users decisions have led to auth token still being invalid
@@ -266,7 +266,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
 
         raise ConfigError(
             f"Reached the end and the authorization token in config.ini file is still invalid!"
-            f"\n{18 * ' '}Please read & apply the 'Get-Started' tutorial."
+            f"\n{18 * ' '}Please read & apply the Manual Token Extraction guide."
         )
 
 

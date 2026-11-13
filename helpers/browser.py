@@ -19,4 +19,6 @@ def open_url(url_to_open: str) -> None:
 
 def open_get_started_url() -> None:
     """Opens the Getting Started URL in a browser window."""
-    open_url("https://github.com/prof79/fansly-downloader-ng/wiki/Getting-Started")
+    open_url(
+        "https://jakan-kink.github.io/fansly-scraper/guide/manual-token-extraction/"
+    )

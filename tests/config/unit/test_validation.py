@@ -265,7 +265,7 @@ async def test_validate_adjust_token_no_plyvel_invalid_token_raises(
 async def test_validate_adjust_token_interactive_invalid_token_opens_url_and_raises(
     mock_find_spec, validation_config, opened_urls
 ):
-    """Interactive + invalid token + no plyvel → the Getting-Started page opens."""
+    """Interactive + invalid token + no plyvel → the token guide opens."""
     mock_find_spec.return_value = None
     validation_config.token = "short"
     validation_config.interactive = True
@@ -274,7 +274,7 @@ async def test_validate_adjust_token_interactive_invalid_token_opens_url_and_rai
         await validate_adjust_token(validation_config)
 
     assert len(opened_urls) == 1
-    assert "Getting-Started" in opened_urls[0]
+    assert "manual-token-extraction" in opened_urls[0]
 
 
 @needs_plyvel
@@ -448,7 +448,7 @@ async def test_validate_adjust_token_interactive_user_rejects_link(
     fake_prompt_session,
     opened_urls,
 ):
-    """Interactive: token found but user says "n" → Getting-Started opens, ConfigError."""
+    """Interactive: token found but user says "n" → token guide opens, ConfigError."""
     validation_config.interactive = True
     validation_config.token = "short"
     fake_prompt_session.append("n")
@@ -560,7 +560,7 @@ async def test_validate_adjust_token_firefox_locked_non_interactive_no_token(
 async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_url(
     validation_config, monkeypatch, opened_urls
 ):
-    """Plyvel + interactive + no account found → the Getting-Started page opens.
+    """Plyvel + interactive + no account found → the token guide opens.
 
     Covers the inner ``if config.interactive: open_get_started_url()`` branch
     inside the "no account found" path, distinct from the outer invalid-token one.
@@ -573,7 +573,7 @@ async def test_validate_adjust_token_plyvel_installed_interactive_opens_started_
         await validate_adjust_token(validation_config)
 
     assert len(opened_urls) == 1
-    assert "Getting-Started" in opened_urls[0]
+    assert "manual-token-extraction" in opened_urls[0]
 
 
 @needs_plyvel
