@@ -351,6 +351,7 @@ in.</p>
 <span class="w">  </span><span class="nt">open_folder_when_finished</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">separate_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">separate_previews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">repair_previews</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">separate_timeline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">use_duplicate_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">use_pagination_duplication</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
@@ -361,6 +362,7 @@ in.</p>
 <span class="w">  </span><span class="nt">timeline_delay_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
 <span class="w">  </span><span class="nt">api_max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 <span class="w">  </span><span class="nt">account_ids_batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w">  </span><span class="nt">account_media_batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
 <span class="w">  </span><span class="nt">rate_limiting_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">rate_limiting_adaptive</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">rate_limiting_requests_per_minute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
@@ -368,8 +370,10 @@ in.</p>
 <span class="w">  </span><span class="nt">rate_limiting_retry_after_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
 <span class="w">  </span><span class="nt">rate_limiting_backoff_factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.5</span>
 <span class="w">  </span><span class="nt">rate_limiting_max_backoff_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<span class="w">  </span><span class="nt">rate_limiting_success_requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250</span>
 <span class="w">  </span><span class="nt">respect_timeline_stats</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">temp_folder</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">  </span><span class="nt">proxy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 </code></pre></div>
 <h3 id="options-output-ui"><code>options</code> — output &amp; UI<a class="headerlink" href="#options-output-ui" title="Permanent link">&para;</a></h3>
 <table>
@@ -431,6 +435,12 @@ in.</p>
 <td>Place free-preview media in <code>previews/</code> subdirectory rather than alongside the locked content</td>
 </tr>
 <tr>
+<td><code>repair_previews</code></td>
+<td><code>bool \| "dry-run"</code></td>
+<td><code>false</code></td>
+<td>Before each creator's download, bring files already on disk to the name and folder the database gives them: the <code>preview_id_</code> marker and <code>Previews/</code> folder for previews, and the UTC time the database holds for the media. A file that lands on an identical existing one is deleted as a duplicate, and a preview saved under both Timeline and Messages keeps only the Timeline copy. Files that differ in content are both kept, and a file whose media the database does not know is left alone. <code>"dry-run"</code> logs what it would do</td>
+</tr>
+<tr>
 <td><code>separate_timeline</code></td>
 <td><code>bool</code></td>
 <td><code>true</code></td>
@@ -460,6 +470,12 @@ in.</p>
 <td><code>null</code></td>
 <td>Override the temp directory used during in-flight downloads. <code>null</code> uses the OS default</td>
 </tr>
+<tr>
+<td><code>proxy</code></td>
+<td><code>str \| None</code></td>
+<td><code>null</code></td>
+<td>Send every Fansly connection (API, media, WebSocket, livestreams) through this proxy, for example <code>socks5h://user:pass@host:1080</code> or <code>http://host:8080</code>. Schemes: <code>http</code>, <code>https</code>, <code>socks5</code>, <code>socks5h</code>; <code>socks5h</code> also resolves host names through the proxy. <code>null</code> connects directly, and proxy environment variables (<code>HTTP_PROXY</code>, <code>ALL_PROXY</code> and the like) and system proxy settings are ignored either way. With a proxy set, HLS videos are downloaded segment by segment, which is slower. Stash and PostgreSQL connections are not proxied</td>
+</tr>
 </tbody>
 </table>
 <h3 id="options-debugging"><code>options</code> — debugging<a class="headerlink" href="#options-debugging" title="Permanent link">&para;</a></h3>
@@ -468,6 +484,7 @@ every handler) or <code>-vv</code> (TRACE floor on every handler) on the command
 line, or edit <code>logging.global.default_level</code> for persistent per-handler
 defaults. See <a href="#logging"><code>logging</code></a> below for the per-handler levels and
 the <a href="#cli--config-mapping">CLI mapping table</a> for the verbosity flags.</p>
+<p>The Stash client library's debug lines are written to the stash log only with <code>-vv</code>, whatever level the stash handlers are set to.</p>
 <h3 id="options-deduplication"><code>options</code> — deduplication<a class="headerlink" href="#options-deduplication" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -529,6 +546,12 @@ the <a href="#cli--config-mapping">CLI mapping table</a> for the verbosity flags
 <td>ids per batched <code>/account?ids=</code> lookup — the Fansly web client uses 5</td>
 </tr>
 <tr>
+<td><code>account_media_batch_size</code></td>
+<td><code>int</code></td>
+<td><code>100</code></td>
+<td>ids per <code>/account/media?ids=</code> lookup (1 or more). Fansly rate-limits lookups that ask for more than 100</td>
+</tr>
+<tr>
 <td><code>rate_limiting_enabled</code></td>
 <td><code>bool</code></td>
 <td><code>true</code></td>
@@ -562,13 +585,19 @@ the <a href="#cli--config-mapping">CLI mapping table</a> for the verbosity flags
 <td><code>rate_limiting_backoff_factor</code></td>
 <td><code>float</code></td>
 <td><code>1.5</code></td>
-<td>Multiplicative backoff applied on each rate-limit (429) response</td>
+<td>Multiplicative backoff applied on each rate-limit (429) response. The backoff and the learned gap between requests are divided by it again as requests succeed</td>
 </tr>
 <tr>
 <td><code>rate_limiting_max_backoff_seconds</code></td>
 <td><code>int</code></td>
 <td><code>300</code></td>
 <td>Cap on the backoff sleep duration</td>
+</tr>
+<tr>
+<td><code>rate_limiting_success_requests</code></td>
+<td><code>int</code></td>
+<td><code>250</code></td>
+<td>Successful requests in a row before the gap the limiter learned after a 429 is lowered one step (divided by <code>rate_limiting_backoff_factor</code>). A new rate-limit response restarts the count</td>
 </tr>
 <tr>
 <td><code>respect_timeline_stats</code></td>
@@ -1037,6 +1066,13 @@ without warning.</p>
 <span class="w">  </span><span class="nt">mapped_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 <span class="w">  </span><span class="nt">override_dldir_w_mapped</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">require_stash_only_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">enable_scene_split</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">scan_settle_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.5</span>
+<span class="w">  </span><span class="nt">scan_stall_timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800</span>
+<span class="w">  </span><span class="nt">batches</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tags</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250</span>
+<span class="w">    </span><span class="nt">files</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">40</span>
+<span class="w">    </span><span class="nt">galleries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1089,6 +1125,42 @@ without warning.</p>
 <td><code>bool</code></td>
 <td><code>false</code></td>
 <td><strong>Engage Stash integration only when <code>--stash-only</code> is the download mode.</strong> Set <code>true</code> when your Stash server runs on a separate host that the scraper can't reach during downloads — for example, you scrape locally on a workstation, manually copy files to the Stash host, then run <code>--stash-only</code> to attribute metadata. With this flag on, regular download runs (<code>NORMAL</code>, <code>TIMELINE</code>, <code>MESSAGES</code>, <code>WALL</code>, <code>SINGLE</code>, <code>STORIES</code>, <code>COLLECTION</code>) skip every Stash code path even when <code>stash_context</code> is fully populated; <code>--stash-only</code> runs engage Stash as usual. Leave <code>false</code> to engage Stash after every download mode</td>
+</tr>
+<tr>
+<td><code>enable_scene_split</code></td>
+<td><code>bool \| "dry-run"</code></td>
+<td><code>false</code></td>
+<td><strong>What to do when a downloaded video is a secondary file on a Stash scene another source owns.</strong> <code>false</code> logs a warning and skips it, <code>"dry-run"</code> logs the split it would make, <code>true</code> splits the file into a new scene of its own. Another source means a primary file outside <code>download_directory</code>; copies of the same media under other creator folders count as ours and move to the new scene together</td>
+</tr>
+<tr>
+<td><code>scan_settle_s</code></td>
+<td><code>float</code></td>
+<td><code>3.5</code></td>
+<td>Seconds to wait after a metadata scan finishes before reading files, scenes and images back (0 to 30). Stash can report the job finished slightly before its index is readable</td>
+</tr>
+<tr>
+<td><code>scan_stall_timeout_s</code></td>
+<td><code>float</code></td>
+<td><code>1800</code></td>
+<td>Seconds to keep waiting on a Stash scan job whose status and progress have not changed. After that the downloader logs a warning and carries on with what Stash has indexed</td>
+</tr>
+<tr>
+<td><code>batches.tags</code></td>
+<td><code>int</code></td>
+<td><code>250</code></td>
+<td><strong>Page size for the tag preload.</strong> All Stash tags are fetched once per connection, this many per request. Same meaning as the per-page dropdown in the Stash UI</td>
+</tr>
+<tr>
+<td><code>batches.files</code></td>
+<td><code>int</code></td>
+<td><code>40</code></td>
+<td><strong>Page size for the creator file sweep.</strong> Each file comes back with its scene or image attached, so a larger page means fewer but heavier requests. The daemon's lookup of a cycle's downloaded files uses it too. Scenes and images have no page size of their own</td>
+</tr>
+<tr>
+<td><code>batches.galleries</code></td>
+<td><code>int</code></td>
+<td><code>250</code></td>
+<td><strong>Page size for the gallery preload.</strong> Before galleries are created for new posts and messages, the creator studio's galleries and any whose code or URL names one of those items are fetched this many per request, and this many items are named per code or URL query</td>
 </tr>
 </tbody>
 </table>
@@ -1535,6 +1607,10 @@ of the YAML setting.</p>
 <tr>
 <td><code>options.temp_folder</code></td>
 <td><code>--temp-folder</code></td>
+</tr>
+<tr>
+<td><code>options.proxy</code></td>
+<td><code>--proxy</code> (this run only, not saved)</td>
 </tr>
 </tbody>
 </table>

@@ -333,9 +333,8 @@ each with a brief justification, applied in a single commit.</p>
 <li><code>tests/config/unit/test_version.py:18,30,39</code> — 3 <code>mock_open()</code> + <code>Path.open</code> patches (use real tmp_path TOML files)</li>
 <li><code>tests/config/unit/test_validation.py:246,288</code> — Path mocks (should use tmp_path)</li>
 <li><code>tests/pathio/test_pathio.py:52-114</code> — patches <code>pathio.pathio.Path</code> constructor</li>
-<li><code>tests/utils/unit/test_semaphore_monitor.py:197</code> — patches <code>Path.unlink</code></li>
 </ul>
-<p><strong>Legitimate exceptions (don't fix)</strong>: <code>test_logging.py:405,655,679,690,787,808</code> (OSError/PermissionError simulation), <code>test_version.py:30</code> (FileNotFoundError), <code>test_semaphore_monitor.py:213</code> (OSError on unlink).</p>
+<p><strong>Legitimate exceptions (don't fix)</strong>: <code>test_logging.py:405,655,679,690,787,808</code> (OSError/PermissionError simulation), <code>test_version.py:30</code> (FileNotFoundError).</p>
 <p>Total actionable: <strong>~30 violations</strong>; legitimate exceptions: ~11.</p>
 <h3 id="category-g-graphql-assertion-compliance-pass-2-main-focus-150-violations">Category G: GraphQL assertion compliance (Pass 2 main focus) — 150 violations<a class="headerlink" href="#category-g-graphql-assertion-compliance-pass-2-main-focus-150-violations" title="Permanent link">&para;</a></h3>
 <p>TODO claimed 53+; actual count is <strong>3× higher</strong>.</p>
