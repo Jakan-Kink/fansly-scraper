@@ -288,9 +288,10 @@ def pytest_collection_modifyitems(config, items):
                     )
                 )
 
-            # Pin all ``message_media_generator`` consumers to a single
-            # xdist worker. The fixture picks images out of the shared
-            # Docker Stash pool; under multi-worker concurrency, two
+            # Pin all ``message_media_generator`` and ``real_stash_processor``
+            # consumers to a single xdist worker. Both work on the shared
+            # Docker Stash pool (the scene-split test merges two pool scenes,
+            # destroying one); under multi-worker concurrency, two
             # workers can race on the same image row — one creates a
             # gallery + links it, the other reads the link, then the
             # first worker's cleanup deletes the gallery before the
@@ -299,7 +300,10 @@ def pytest_collection_modifyitems(config, items):
             # worker isolation possible, so serial execution for this
             # cluster is the only realistic mitigation. ``--dist=loadgroup``
             # in ``pyproject.toml`` honors this marker.
-            if "message_media_generator" in item.fixturenames:
+            if (
+                "message_media_generator" in item.fixturenames
+                or "real_stash_processor" in item.fixturenames
+            ):
                 item.add_marker(pytest.mark.xdist_group(name="docker_stash_shared"))
 
     _apply_xdist_group_ids(config, items)
