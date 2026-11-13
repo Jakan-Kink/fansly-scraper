@@ -17,10 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - **Old file names in local time are read in this computer's time zone.** They used to be read as US Eastern time.
+- **Ctrl+C in the monitoring daemon cancels the download in progress.** It used to finish that download and everything queued behind it first, as `kill` (SIGTERM) still does; the next run picks those creators up again.
 
 - **Stash-only mode no longer contacts Fansly.** It needs no token, takes its creators from the metadata database (the named ones, or the followed ones when none are named) and scans each creator's folder for the files on disk.
 - **Stash-only skips a creator that is not in the database, with a warning.** Download that creator once first.
-- **Stash-only links files that have no post in the database.** They get the creator's performer and studio, the media id and the date from the file name, and join no gallery.
+- **A Stash sync links files that have no post in the database, in every mode.** They get the creator's performer and studio, the media id and the date from the file name, and join no gallery.
 - **A Stash sync that links nothing now says why.** It warns when no downloaded media is recorded for the creator, or when Stash lists no files in the creator's folder.
 
 ### Fixed
@@ -437,7 +438,6 @@ First release under the Keep-a-Changelog format. Flagship feature: the post-batc
 - **New documentation**:
   - [Architecture](reference/architecture.md) — canonical public architecture reference
   - [Monitoring Daemon Cadence](reference/monitoring-cadence.md) — polling intervals + anti-detection rationale
-  - [Monitoring Daemon Architecture](planning/monitoring-daemon-architecture.md) — full daemon design document (intervals, endpoints, behaviors verified against production `main.js`)
   - [Fansly WebSocket Protocol](reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints
   - [Manual Token Extraction](guide/manual-token-extraction.md) — fallback browser-token extraction guide (salvaged from prof79 wiki)
 - `CHANGELOG.md` (this file) — new Keep-a-Changelog format going forward

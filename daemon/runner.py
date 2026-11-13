@@ -5,7 +5,7 @@ phase:
 
   - _timeline_poll_loop     -- calls poll_home_timeline every timeline_interval
   - _story_poll_loop        -- calls poll_story_states every story_interval
-  - _worker_loop            -- drains the work queue produced by polling and WS
+  - _worker_loop            -- runs the work items produced by polling and WS
   - _simulator_tick_loop    -- periodically advances the ActivitySimulator
   - _following_refresh_loop -- refreshes the following list every 5 minutes
                                (only when config.use_following is True)
@@ -97,6 +97,7 @@ from download.statistics import memory_summary
 from download.types import DownloadType
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
 from helpers.common import JsonDict, expect_int
+from helpers.shutdown import request_stop
 from metadata.models import Account, AccountMediaBundle, Message, get_store
 from metadata.subscriptions import (
     _access_changed_accounts,
@@ -915,12 +916,38 @@ async def _story_poll_loop(
                 await queue.put(DownloadStoriesOnly(creator_id=creator_id))
 
 
+async def _finish_or_stop(work: Awaitable[None], stop_event: asyncio.Event) -> bool:
+    """Run work until it finishes or stop_event is set, whichever is first.
+
+    Args:
+        work: The coroutine to run.
+        stop_event: Cancels the work when set.
+
+    Returns:
+        True when the work finished, False when it was cancelled for the stop.
+    """
+    task = asyncio.ensure_future(work)
+    stopper = asyncio.ensure_future(stop_event.wait())
+    try:
+        await asyncio.wait({task, stopper}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopper.cancel()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    if task.cancelled():
+        return False
+    task.result()
+    return True
+
+
 async def _worker_loop(
     config: FanslyConfig,
     queue: asyncio.Queue[WorkItem],
     stop_event: asyncio.Event,
     use_following: bool,
     budget: ErrorBudget | None = None,
+    interrupt_event: asyncio.Event | None = None,
 ) -> None:
     """Drain the work queue by executing each WorkItem in order.
 
@@ -929,18 +956,20 @@ async def _worker_loop(
     creators are included in future polls. Calls mark_creator_processed after
     each creator-scoped download.
 
-    The loop exits when stop_event is set AND the queue is empty, so all
-    in-flight items are processed before shutdown. The outer caller caps total
-    wait time with asyncio.wait_for.
+    A stop lets the loop finish the item in progress and everything queued,
+    then exit. An interrupt cancels the item in progress and leaves the queue;
+    neither is marked processed, so the next run picks the creators up again.
 
     Args:
         config: FanslyConfig instance.
         queue: Work queue of pending WorkItems.
-        stop_event: Set to stop the loop after draining in-flight items.
+        stop_event: Set to stop the loop once the queue is empty.
         use_following: Whether -uf mode is active (triggers following refresh).
         budget: Optional ErrorBudget to call on_success after each item.
+        interrupt_event: Set to cancel the item in progress and exit at once.
     """
-    while True:
+    interrupt = interrupt_event or asyncio.Event()
+    while not interrupt.is_set():
         if stop_event.is_set() and queue.empty():
             break
 
@@ -952,7 +981,14 @@ async def _worker_loop(
             break
 
         try:
-            await _handle_work_item(config, item)
+            if not await _finish_or_stop(_handle_work_item(config, item), interrupt):
+                logger.info(
+                    "daemon.runner: interrupted during {}; {} queued item(s) left "
+                    "for the next run",
+                    type(item).__name__,
+                    queue.qsize(),
+                )
+                break
         except DaemonUnrecoverableError:
             # ErrorBudget decided we're done — propagate to asyncio.gather
             # so the daemon exits cleanly. task_done() still fires via finally.
@@ -1380,8 +1416,8 @@ async def run_daemon(
       confirmed events (svc=15 type=5 status=3) and periodically.
     - Honor config.monitoring_session_baseline for the first
       should_process_creator call per creator this session.
-    - Clean shutdown on SIGINT or SIGTERM: cancel pollers, drain in-flight worker items
-      (up to 30 seconds), stop ws, return exit code.
+    - Clean shutdown: SIGTERM finishes the queued work items, SIGINT cancels the
+      one in progress; then cancel pollers, stop ws, return exit code.
 
     Args:
         config: FanslyConfig instance with API credentials and monitoring config.
@@ -1533,12 +1569,16 @@ async def _run_daemon_body(
     # forces immediate shutdown of any task still ignoring stop_event.
     loop = asyncio.get_running_loop()
     sigint_count = 0
+    # Ctrl+C cancels the work in progress; SIGTERM lets the queue finish.
+    interrupt_event = asyncio.Event()
 
     def _sigint_handler() -> None:
         nonlocal sigint_count
         sigint_count += 1
         if sigint_count == 1:
             logger.info("daemon.runner: SIGINT received - shutting down")
+            request_stop()
+            interrupt_event.set()
             stop_event.set()
         else:
             logger.warning(
@@ -1551,7 +1591,7 @@ async def _run_daemon_body(
             raise KeyboardInterrupt("daemon: force shutdown")
 
     def _sigterm_handler() -> None:
-        logger.info("daemon.runner: SIGTERM received - shutting down")
+        logger.info("daemon.runner: SIGTERM received - finishing queued work")
         config._terminate_requested = True
         stop_event.set()
 
@@ -1587,7 +1627,9 @@ async def _run_daemon_body(
         name="daemon-story-poll",
     )
     worker_task = asyncio.create_task(
-        _worker_loop(config, queue, stop_event, config.use_following, budget),
+        _worker_loop(
+            config, queue, stop_event, config.use_following, budget, interrupt_event
+        ),
         name="daemon-worker",
     )
     sim_tick_task = asyncio.create_task(
@@ -1634,11 +1676,12 @@ async def _run_daemon_body(
                 task.cancel()
             await asyncio.gather(*poller_tasks, return_exceptions=True)
 
-            # Drain worker — let it process remaining queue items, but cap the wait
+            # Reached with the worker still busy after an error or an interrupt;
+            # cap the wait for it to wind down
             try:
                 await asyncio.wait_for(worker_task, timeout=30.0)
             except TimeoutError:
-                logger.warning("daemon.runner: worker did not drain in 30s; cancelling")
+                logger.warning("daemon.runner: worker did not stop in 30s; cancelling")
                 worker_task.cancel()
                 await asyncio.gather(worker_task, return_exceptions=True)
 

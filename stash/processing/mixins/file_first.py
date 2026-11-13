@@ -32,7 +32,6 @@ from stash_graphql_client.types import (
     VideoFile,
 )
 
-from config.modes import DownloadMode
 from helpers.rich_progress import get_progress_manager
 from metadata import Account, Media, Message, Post
 from metadata.models import get_store
@@ -133,6 +132,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             return
         account, performer = await self.process_creator()
         performer_obj = performer if isinstance(performer, Performer) else None
+        progress_mgr = get_progress_manager()
         try:
             if not account or not performer_obj:
                 return
@@ -142,11 +142,20 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 await self._update_account_stash_id(
                     account=account, performer=performer_obj
                 )
-            print_info("Processing creator Studio...")
-            studio = await self.process_creator_studio(account=account)
-            self._studio = studio
-            print_info("Processing creator content (incremental)...")
-            await self._run_file_first_incremental(account, performer_obj, studio)
+            with progress_mgr.session():
+                self._stash_parent_task = progress_mgr.add_task(
+                    name="stash_creator",
+                    description=f"Stash: {performer_obj.name or 'creator'}",
+                    total=2,
+                    show_elapsed=True,
+                )
+                print_info("Processing creator Studio...")
+                studio = await self.process_creator_studio(account=account)
+                self._studio = studio
+                progress_mgr.update_task(self._stash_parent_task, advance=1)
+                print_info("Processing creator content (incremental)...")
+                await self._run_file_first_incremental(account, performer_obj, studio)
+                progress_mgr.update_task(self._stash_parent_task, advance=1)
         except Exception as e:
             print_error(f"Error in incremental Stash processing: {e}")
             logger.exception("Error in incremental Stash processing", exc_info=e)
@@ -209,10 +218,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             media_with_id,
             split_pairs,
         ) = await self._prepare_file_first(account)
-        if self.config.download_mode == DownloadMode.STASH_ONLY:
-            # Stash-only scans the folder itself, so it also knows the files
-            # whose posts were never fetched.
-            self._index_unposted_media(index, account)
+        self._index_unposted_media(index, account)
         if not index:
             print_warning(
                 f"No downloaded media is recorded for {account.username}, so there "

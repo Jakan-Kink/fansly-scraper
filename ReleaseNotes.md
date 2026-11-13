@@ -59,7 +59,6 @@ Monitoring daemon release.
 
 **Documentation**:
 
-- New [`docs/planning/monitoring-daemon-architecture.md`](docs/planning/monitoring-daemon-architecture.md) — full design document (all intervals, endpoints, and behaviors verified against production `main.js`).
 - New [`docs/reference/Fansly-WebSocket-Protocol.md`](docs/reference/Fansly-WebSocket-Protocol.md) — WS protocol breakdown: service IDs, message types, price encoding (mills ÷ 1000), dual endpoints.
 - README rewritten to cover the daemon, YAML config, and the fork's new canonical home at `Jakan-Kink/fansly-scraper`.
 

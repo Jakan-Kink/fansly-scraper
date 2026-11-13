@@ -21,7 +21,6 @@ import respx
 from stash_graphql_client import present
 from stash_graphql_client.types import Scene, VideoFile
 
-from config.modes import DownloadMode
 from metadata import ContentType
 from pathio import get_stash_path
 from tests.fixtures.metadata.metadata_factories import (
@@ -725,10 +724,10 @@ async def test_run_file_first_says_why_nothing_was_linked(
 
 
 @pytest.mark.asyncio
-async def test_stash_only_links_a_file_with_no_post(
+async def test_run_file_first_links_a_file_with_no_post(
     entity_store, respx_stash_processor
 ):
-    """Stash-only links a file on disk to its creator when no post owns it.
+    """A file on disk is linked to its creator when no post owns it.
 
     The media has a recorded file name and nothing else. The first run stamps
     the scene with the media id, the date from the file name, the performer
@@ -736,7 +735,6 @@ async def test_stash_only_links_a_file_with_no_post(
     second run finds that id and writes nothing.
     """
     processor = respx_stash_processor
-    processor.config.download_mode = DownloadMode.STASH_ONLY
     root = get_stash_path(processor.state.base_path, processor.config).rstrip("/")
     acct_id = snowflake_id()
     account = AccountFactory.build(id=acct_id, username="test_user")
@@ -785,7 +783,7 @@ async def test_stash_only_links_a_file_with_no_post(
         first_run_calls = route.call_count
         await processor._run_file_first(account, processor._performer, studio)
     finally:
-        dump_graphql_calls(route.calls, "stash_only_links_a_file_with_no_post")
+        dump_graphql_calls(route.calls, "links_a_file_with_no_post")
 
     assert first_run_calls == 4
     assert route.call_count == 5

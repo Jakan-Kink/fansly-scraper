@@ -120,10 +120,10 @@ class TestWorkerDrainsOnShutdown:
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(20)
-    async def test_worker_drains_3_items_on_sigint(
+    async def test_worker_drains_3_items_on_stop(
         self, config_wired, entity_store, saved_account, ws_server
     ):
-        """Put 3 items in the queue, send SIGINT — all 3 are processed.
+        """Put 3 items in the queue, stop as SIGTERM does — all 3 are processed.
 
         Drives real ``(15, 5) status=3`` subscription-confirmed events
         through the scripted-responder WS server (analogous to respx for

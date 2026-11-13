@@ -59,6 +59,8 @@ from daemon.runner import (
 from daemon.simulator import ActivitySimulator
 from errors import EXIT_SUCCESS, DaemonUnrecoverableError
 from helpers.common import JsonDict
+from helpers.shutdown import stop_requested
+from metadata.models import MonitorState
 from tests.fixtures.api import (
     FakeWS,
     dump_fansly_calls,
@@ -218,7 +220,9 @@ class TestRunDaemonBootstrapFallback:
         # assert identity against the bootstrap's queue.
         captured_queue: list[asyncio.Queue] = []
 
-        async def _instrumented_worker(config, queue, stop_ev, use_following, budget):
+        async def _instrumented_worker(
+            config, queue, stop_ev, use_following, budget, _interrupt_ev
+        ):
             captured_queue.append(queue)
             # Drain nothing — we only care about identity.
             await stop_ev.wait()
@@ -1300,10 +1304,16 @@ class TestFollowingRefresh:
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
         stop_event = asyncio.Event()
         await queue.put(FullCreatorDownload(creator_id=creator_id))
-        stop_event.set()
+
+        async def _stop_when_drained():
+            await queue.join()
+            stop_event.set()
 
         try:
-            await _worker_loop(config_wired, queue, stop_event, use_following=True)
+            await asyncio.gather(
+                _worker_loop(config_wired, queue, stop_event, use_following=True),
+                _stop_when_drained(),
+            )
         finally:
             dump_fansly_calls(respx.calls, label="full_creator_with_uf")
 
@@ -1357,10 +1367,16 @@ class TestFollowingRefresh:
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
         stop_event = asyncio.Event()
         await queue.put(FullCreatorDownload(creator_id=creator_id))
-        stop_event.set()
+
+        async def _stop_when_drained():
+            await queue.join()
+            stop_event.set()
 
         try:
-            await _worker_loop(config_wired, queue, stop_event, use_following=False)
+            await asyncio.gather(
+                _worker_loop(config_wired, queue, stop_event, use_following=False),
+                _stop_when_drained(),
+            )
         finally:
             dump_fansly_calls(respx.calls, label="full_creator_without_uf")
 
@@ -1423,10 +1439,16 @@ class TestFollowingRefresh:
         queue: asyncio.Queue[WorkItem] = asyncio.Queue()
         stop_event = asyncio.Event()
         await queue.put(DownloadTimelineOnly(creator_id=creator_id))
-        stop_event.set()
+
+        async def _stop_when_drained():
+            await queue.join()
+            stop_event.set()
 
         try:
-            await _worker_loop(config_wired, queue, stop_event, use_following=True)
+            await asyncio.gather(
+                _worker_loop(config_wired, queue, stop_event, use_following=True),
+                _stop_when_drained(),
+            )
         finally:
             dump_fansly_calls(respx.calls, label="timeline_only_with_uf")
 
@@ -2099,7 +2121,7 @@ class TestRunDaemonSigintHandler:
     async def test_sigterm_stops_daemon_and_requests_fast_exit(
         self, config_wired, entity_store, ws_server, monkeypatch, caplog
     ):
-        """SIGTERM ends the daemon like a first Ctrl+C and flags the fast exit."""
+        """SIGTERM stops the daemon once its queue is done and flags the fast exit."""
         caplog.set_level(logging.INFO)
         task, captured, stop_event = await self._run_with_captured_sigint_handler(
             config_wired, ws_server, monkeypatch
@@ -2115,8 +2137,64 @@ class TestRunDaemonSigintHandler:
         assert config_wired._terminate_requested is True
         assert exit_code == EXIT_SUCCESS
         assert any(
-            "SIGTERM received - shutting down" in m for m in _logged(caplog, "INFO")
+            "SIGTERM received - finishing queued work" in m
+            for m in _logged(caplog, "INFO")
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(20)
+    @pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM])
+    async def test_sigint_cancels_work_in_progress_and_sigterm_lets_it_finish(
+        self, sig, config_wired, entity_store, saved_account, ws_server, monkeypatch
+    ):
+        """Ctrl+C cuts the running item short; SIGTERM waits for it to finish.
+
+        Only SIGINT sets the stop flag that ends downloads in worker threads.
+        """
+        started = asyncio.Event()
+        release = asyncio.Event()
+        outcome: list[str] = []
+
+        async def _in_progress(_config, _item):
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                outcome.append("cancelled")
+                raise
+            outcome.append("finished")
+
+        monkeypatch.setattr("daemon.runner._handle_work_item", _in_progress)
+        task, captured, _stop_event = await self._run_with_captured_sigint_handler(
+            config_wired, ws_server, monkeypatch
+        )
+        await ws_server.wait_for_auth(timeout=10.0)
+        ws_server.push_subscription_event(
+            subscription_id=str(snowflake_id()),
+            history_id=str(snowflake_id()),
+            subscriber_id=str(saved_account.id),
+            creator_id=str(saved_account.id),
+            status=3,
+            price_mills=10000,
+        )
+        await asyncio.wait_for(started.wait(), timeout=5.0)
+
+        captured[sig]()
+        await asyncio.sleep(0.3)
+        still_running = not task.done()
+        release.set()
+        exit_code = await asyncio.wait_for(task, timeout=10.0)
+
+        assert exit_code == EXIT_SUCCESS
+        if sig == signal.SIGINT:
+            assert outcome == ["cancelled"]
+            assert stop_requested() is True
+            assert await entity_store.get(MonitorState, saved_account.id) is None
+        else:
+            assert still_running is True
+            assert outcome == ["finished"]
+            assert stop_requested() is False
+            assert await entity_store.get(MonitorState, saved_account.id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -2208,7 +2286,7 @@ class TestRunDaemonWorkerDrainTimeout:
             await asyncio.gather(task, return_exceptions=True)
 
         warnings = _logged(caplog, "WARNING")
-        assert any("worker did not drain in 30s" in m for m in warnings)
+        assert any("worker did not stop in 30s" in m for m in warnings)
 
 
 # ---------------------------------------------------------------------------

@@ -72,11 +72,11 @@ Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](h
 
 ---
 
-📖 In-repo documentation lives under [`docs/`](docs/) — organized into `planning/` (design docs and architecture notes), `reference/` (protocol breakdowns and mapping tables), and `testing/` (testing requirements and migration guides). A MkDocs-rendered site is planned; the upstream GitHub wiki was intentionally not adopted.
+📖 In-repo documentation lives under [`docs/`](docs/) — organized into `configuration/` (every config option), `reference/` (architecture, protocol breakdowns and mapping tables), and `testing/` (testing requirements and migration guides). The same pages are published at <https://jakan-kink.github.io/fansly-scraper/>; the upstream GitHub wiki was intentionally not adopted.
 
 📋 [Configuration Reference — `config.sample.yaml`](config.sample.yaml)
 
-🛰️ [Monitoring Daemon Architecture](docs/planning/monitoring-daemon-architecture.md)
+🛰️ [Monitoring Daemon Cadence](docs/reference/monitoring-cadence.md)
 
 ## ⚠️ Breaking Changes
 
@@ -353,9 +353,9 @@ Once the initial bulk download completes, appending `--daemon` (aliases: `-d`, `
 - `-u alice,bob` → monitor only those creators
 - `-uf` / `-ufp` → monitor the full following list (refreshed when a new subscription is confirmed)
 
-**Stop it** with Ctrl-C (SIGINT) or `kill` (SIGTERM); the daemon drains the queue cleanly.
+**Stop it** with Ctrl-C (SIGINT) or `kill` (SIGTERM). `kill` lets the download in progress and the queued work finish first. Ctrl-C cancels the download in progress and leaves queued work; the next run picks those creators up again.
 
-For the full design document, see [`docs/planning/monitoring-daemon-architecture.md`](docs/planning/monitoring-daemon-architecture.md).
+For the polling intervals and the reasoning behind them, see [`docs/reference/monitoring-cadence.md`](docs/reference/monitoring-cadence.md).
 
 ## Automation Support
 

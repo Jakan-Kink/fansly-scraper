@@ -23,10 +23,12 @@ composition satisfy the bar.
 import functools
 from datetime import UTC, datetime
 from pathlib import PurePath
+from unittest.mock import patch
 
 import pytest
 from stash_graphql_client.types import Gallery, Performer, Studio
 
+from helpers.rich_progress import get_progress_manager
 from metadata import (
     Account,
     AccountMedia,
@@ -555,12 +557,21 @@ async def test_process_creator_incremental_full_lifecycle(
             post.attachments = post_attachments
 
         calls: list = []
+        progress = get_progress_manager()
         try:
-            with capture_graphql_calls(client) as calls:
+            with (
+                capture_graphql_calls(client) as calls,
+                patch.object(progress, "add_task", wraps=progress.add_task) as add_task,
+            ):
                 # The real daemon entry — resolves performer/studio itself.
                 await real_stash_processor.process_creator_incremental()
         finally:
             dump_graphql_calls(calls, "test_process_creator_incremental_lifecycle")
+
+        # The pass shows the same "Stash: <creator>" progress task as a batch run.
+        assert "stash_creator" in [
+            c.kwargs.get("name") for c in add_task.call_args_list
+        ]
 
         # Capture the performer + galleries this run created, for cleanup.
         for c in calls:

@@ -1717,6 +1717,80 @@ class TestWorkerLoopPostProcessing:
         assert await entity_store.get(MonitorState, sender_id) is None
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_stop_finishes_the_queue(self, config, entity_store, monkeypatch):
+        """A stop set while items are queued still runs every one of them."""
+        creator_ids = [snowflake_id(), snowflake_id()]
+        for creator_id in creator_ids:
+            await _seed_account(entity_store, creator_id, f"worker_{creator_id}")
+        monkeypatch.setattr("daemon.runner._handle_work_item", async_noop_spy())
+        queue: asyncio.Queue = asyncio.Queue()
+        for creator_id in creator_ids:
+            await queue.put(DownloadTimelineOnly(creator_id=creator_id))
+        stop_event = asyncio.Event()
+        stop_event.set()
+
+        await _worker_loop(config, queue, stop_event, use_following=False)
+
+        assert queue.empty()
+        for creator_id in creator_ids:
+            assert await entity_store.get(MonitorState, creator_id) is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_interrupt_cancels_the_item_in_progress(
+        self, config, entity_store, monkeypatch, caplog
+    ):
+        """An interrupt cancels the running item, leaves the queue, marks nothing.
+
+        The creator is not marked processed, so the next run picks it up again.
+        """
+        caplog.set_level(logging.INFO)
+        running_id, queued_id = snowflake_id(), snowflake_id()
+        await _seed_account(entity_store, running_id, f"worker_{running_id}")
+        started = asyncio.Event()
+        cancelled: list[int] = []
+
+        async def _never_finishes(_config, item):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(item.creator_id)
+                raise
+
+        monkeypatch.setattr("daemon.runner._handle_work_item", _never_finishes)
+        queue: asyncio.Queue = asyncio.Queue()
+        await queue.put(DownloadTimelineOnly(creator_id=running_id))
+        await queue.put(DownloadTimelineOnly(creator_id=queued_id))
+        stop_event = asyncio.Event()
+        interrupt_event = asyncio.Event()
+
+        async def _interrupt_once_started():
+            await started.wait()
+            interrupt_event.set()
+            stop_event.set()
+
+        await asyncio.gather(
+            _worker_loop(
+                config,
+                queue,
+                stop_event,
+                use_following=False,
+                interrupt_event=interrupt_event,
+            ),
+            _interrupt_once_started(),
+        )
+
+        assert cancelled == [running_id]
+        assert queue.qsize() == 1
+        assert await entity_store.get(MonitorState, running_id) is None
+        assert any(
+            "interrupted during DownloadTimelineOnly; 1 queued item(s) left" in m
+            for m in _logged(caplog, "INFO")
+        )
+
+    @pytest.mark.asyncio
     async def test_full_creator_download_refreshes_following_when_use_following(
         self, config, entity_store, monkeypatch
     ):

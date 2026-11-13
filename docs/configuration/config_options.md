@@ -6,7 +6,7 @@ which preserves comments, key order, and anchors across rewrites — your
 hand-written YAML structure survives load → modify → dump cycles intact.
 
 CLI flags override config values when both are present (see
-[CLI ↔ config mapping](#cli--config-mapping) below).
+[CLI to config mapping](#cli-to-config-mapping) below).
 
 > **Auto-migration on first load**: a legacy `config.ini` is silently
 > migrated to `config.yaml` on first run; the original `.ini` is preserved
@@ -162,7 +162,7 @@ There is no YAML toggle for runtime verbosity. Pass `-v` (DEBUG floor on
 every handler) or `-vv` (TRACE floor on every handler) on the command
 line, or edit `logging.global.default_level` for persistent per-handler
 defaults. See [`logging`](#logging) below for the per-handler levels and
-the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
+the [CLI mapping table](#cli-to-config-mapping) for the verbosity flags.
 
 The Stash client library's debug lines are written to the stash log only with `-vv`, whatever level the stash handlers are set to.
 
@@ -658,7 +658,7 @@ to `DownloadMode.NORMAL`.
 
 ---
 
-## CLI ↔ config mapping
+## CLI to config mapping
 
 CLI flags override config values when both are supplied. Inverted flags
 (`--no-…`, `--hide-…`) flip the corresponding bool to `false` regardless
