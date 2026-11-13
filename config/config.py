@@ -10,6 +10,7 @@ from config.loader import load_or_migrate
 from config.logging import init_logging_config, set_debug_enabled, textio_logger
 from config.schema import ConfigSchema
 from errors import ConfigError
+from helpers.common import USERNAME_CHARS
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
@@ -79,9 +80,7 @@ def username_has_valid_chars(name: str | None) -> bool:
     if name is None:
         return False
 
-    invalid_chars = set(name) - set(
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-    )
+    invalid_chars = set(name) - USERNAME_CHARS
 
     return not invalid_chars
 
@@ -143,6 +142,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.separate_messages = opts.separate_messages
     config.separate_previews = opts.separate_previews
     config.repair_previews = opts.repair_previews
+    config.proxy = opts.proxy
     config.separate_timeline = opts.separate_timeline
     config.show_downloads = opts.show_downloads
     config.show_skipped_downloads = opts.show_skipped_downloads
@@ -169,6 +169,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.timeline_delay_seconds = opts.timeline_delay_seconds
     config.api_max_retries = opts.api_max_retries
     config.account_ids_batch_size = opts.account_ids_batch_size
+    config.account_media_batch_size = opts.account_media_batch_size
 
     # Rate limiting
     config.rate_limiting_enabled = opts.rate_limiting_enabled
@@ -178,6 +179,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.rate_limiting_retry_after_seconds = opts.rate_limiting_retry_after_seconds
     config.rate_limiting_backoff_factor = opts.rate_limiting_backoff_factor
     config.rate_limiting_max_backoff_seconds = opts.rate_limiting_max_backoff_seconds
+    config.rate_limiting_success_requests = opts.rate_limiting_success_requests
 
     # Temp folder
     if opts.temp_folder:
@@ -324,6 +326,10 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         )
         config.stash_enable_scene_split = schema.stash_context.enable_scene_split
         config.stash_scan_settle_s = schema.stash_context.scan_settle_s
+        config.stash_scan_stall_timeout_s = schema.stash_context.scan_stall_timeout_s
+        config.stash_tags_batch = schema.stash_context.batches.tags
+        config.stash_files_batch = schema.stash_context.batches.files
+        config.stash_galleries_batch = schema.stash_context.batches.galleries
 
 
 def _handle_config_error(e: Exception) -> None:

@@ -30,6 +30,7 @@ from stash_graphql_client.types.unset import is_set
 from stash.processing import StashProcessing
 from tests.fixtures.metadata.metadata_factories import MediaFactory
 from tests.fixtures.stash import (
+    create_find_images_result,
     create_graphql_response,
     create_image_dict,
     create_image_file_dict,
@@ -137,6 +138,34 @@ class TestImageFilesAllLocal:
             )
         assert respx_stash_processor._image_files_all_local(image) is expected
 
+    def test_other_creator_folder_is_local(
+        self, respx_stash_processor: StashProcessing
+    ) -> None:
+        """Any creator folder inside the download directory counts as ours.
+
+        The same media saved under two creators is one Stash image with two
+        files. A folder that only shares the download directory's name prefix
+        ('/dl2' beside '/dl') stays foreign.
+        """
+        respx_stash_processor.config.download_directory = Path("/dl")
+        shared = Image(
+            id="3010",
+            visual_files=[
+                ImageFile(id="1", path="/dl/test_user/x_id_1.jpg"),
+                ImageFile(id="2", path="/dl/original_poster/x_id_1.jpg"),
+            ],
+        )
+        beside = Image(
+            id="3011",
+            visual_files=[
+                ImageFile(id="3", path="/dl/test_user/x_id_1.jpg"),
+                ImageFile(id="4", path="/dl2/x_id_1.jpg"),
+            ],
+        )
+
+        assert respx_stash_processor._image_files_all_local(shared) is True
+        assert respx_stash_processor._image_files_all_local(beside) is False
+
 
 class TestProcessFileFirstImage:
     """Tests for the ImageFile branch of _process_file_first.
@@ -204,6 +233,65 @@ class TestProcessFileFirstImage:
         assert media.stash_id == 900
         # The re-fetch fired: a findImage query was issued for the image.
         assert any(b"findImage" in c.request.content for c in route.calls)
+
+    @pytest.mark.asyncio
+    async def test_image_resolved_by_path_when_file_carries_no_images(
+        self, respx_stash_processor, mock_item, mock_account
+    ):
+        """A swept file without its images has them looked up by path, then stamped.
+
+        This is the route on a Stash that does not return images with files:
+        the file's ``images`` is unset, so the store resolves it with a
+        ``findImages`` path query before ownership is checked.
+        """
+        root = stash_creator_root(respx_stash_processor)
+        path = f"{root}/test_user/x_id_42.jpg"
+        our = ImageFile(id="800", path=path)
+
+        image_data = create_image_dict(
+            id="900",
+            title="Test Image",
+            performers=[],
+            visual_files=[create_image_file_dict("800", path)],
+        )
+
+        def _by_path() -> httpx.Response:
+            return httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findImages", create_find_images_result(1, [image_data])
+                ),
+            )
+
+        route = respx.post(_GRAPHQL_URL).mock(
+            side_effect=[
+                _by_path(),
+                _by_path(),
+                httpx.Response(
+                    200, json=create_graphql_response("findImage", image_data)
+                ),
+            ]
+        )
+
+        media = MediaFactory.build(is_downloaded=True, local_filename="x_id_42.jpg")
+        studio = seed_processor_caches(respx_stash_processor, mock_account)
+        index = {"x_id_42.jpg": (media, [mock_item])}
+
+        try:
+            result = await respx_stash_processor._process_file_first(
+                our, index, mock_account, studio
+            )
+        finally:
+            dump_graphql_calls(route.calls, "image_resolved_by_path")
+
+        assert [image.id for image in result] == ["900"]
+        assert result[0].code == str(media.id)
+        assert media.stash_id == 900
+        # Two path lookups (direct + nested file resolution), then one read by
+        # id because the looked-up image lacks fields the stamp needs.
+        assert route.call_count == 3
+        assert b"findImages" in route.calls[0].request.content
+        assert b"findImage(" in route.calls[2].request.content
 
     @pytest.mark.asyncio
     async def test_image_foreign_coresident_logs_and_skips(

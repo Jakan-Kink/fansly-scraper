@@ -36,6 +36,7 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -589,6 +590,18 @@ class FakeAvOutputContainerNoWrite(FakeAvOutputContainer):
 
     def close(self) -> None:
         self.closed = True
+
+
+class TruncatedSegmentStream(httpx.AsyncByteStream):
+    """A segment body that breaks off mid-transfer, as a dropped CDN
+    connection does: one chunk, then httpx's incomplete-body error."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"\x47" * 188
+        raise httpx.RemoteProtocolError(
+            "peer closed connection without sending complete message body "
+            "(incomplete chunked read)"
+        )
 
 
 class FakeAvVerifyContainerRaises:

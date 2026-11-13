@@ -31,7 +31,13 @@ from helpers.timer import timing_jitter
 from media import parse_media_info
 from metadata import process_media_download
 from metadata.media import process_media_info
-from metadata.models import AccountMedia, AccountMediaBundle, Media, get_store
+from metadata.models import (
+    Account,
+    AccountMedia,
+    AccountMediaBundle,
+    Media,
+    get_store,
+)
 from pathio import get_media_save_path, set_create_directory_for_download
 from textio import (
     input_enter_continue,
@@ -117,7 +123,7 @@ async def fetch_and_process_media(
             show_elapsed=True,
         )
 
-        for ids in batch_list(media_ids, config.BATCH_SIZE):
+        for ids in batch_list(media_ids, config.account_media_batch_size):
             media_ids_str = ",".join(str(mid) for mid in ids)
 
             response = await api.get_account_media(media_ids_str)
@@ -226,7 +232,7 @@ async def refresh_locked_account_media(
     )
 
     api = config.get_api()
-    for ids in batch_list(sorted(refresh_ids), config.BATCH_SIZE):
+    for ids in batch_list(sorted(refresh_ids), config.account_media_batch_size):
         media_ids_str = ",".join(str(mid) for mid in ids)
         try:
             response = await api.get_account_media(media_ids_str)
@@ -241,6 +247,25 @@ async def refresh_locked_account_media(
             )
 
     return len(refresh_ids)
+
+
+async def _other_owner_name(state: DownloadState, media: Media) -> str | None:
+    """Username of the media's own creator when it is not the one being downloaded.
+
+    A creator's page carries another creator's media when a post quotes theirs.
+
+    Args:
+        state: Current download state
+        media: The media about to be saved
+
+    Returns:
+        The owner's username, or None for the creator's own media and for an
+        owner the metadata database does not know.
+    """
+    if media.accountId is None or media.accountId == state.creator_id:
+        return None
+    owner = await get_store().get(Account, media.accountId)
+    return owner.username if owner is not None else None
 
 
 def _validate_media(media: Media) -> None:
@@ -628,7 +653,7 @@ async def download_media(
 
                 try:
                     file_save_dir, file_save_path = get_media_save_path(
-                        config, state, media
+                        config, state, media, await _other_owner_name(state, media)
                     )
                     filename = media.get_file_name()
 

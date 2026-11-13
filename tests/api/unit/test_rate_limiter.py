@@ -124,26 +124,15 @@ class TestAdaptiveBackoff:
         stays at the floor (can't go lower) and successes reset.
         """
         rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0
+        rl._apply_adaptive_backoff(429)
+        rl.current_backoff_seconds = 2.0  # already down at the floor
 
-        # Build up violations to establish a floor
-        for _ in range(5):
-            rl._apply_adaptive_backoff(429)
+        rl._apply_adaptive_backoff(200)
+        rl._apply_adaptive_backoff(200)
 
-        # Reduce via successes until at or near floor
-        for _ in range(20):
-            rl._apply_adaptive_backoff(200)
-
-        # At this point, backoff should be at or near the floor
-        floor = rl._calculate_minimum_floor()
-        if floor > 0.0:
-            # Force backoff to exactly the floor
-            rl.current_backoff_seconds = floor
-            rl.consecutive_successes = 0
-
-            # Two successes → hits "at minimum floor" branch (225-226)
-            rl._apply_adaptive_backoff(200)
-            rl._apply_adaptive_backoff(200)
-            assert rl.current_backoff_seconds == floor  # Can't go below floor
+        assert rl.current_backoff_seconds == 2.0  # can't go below the floor
+        assert rl.consecutive_successes == 0
 
     def test_backoff_normal_reduction_above_floor(self):
         """Lines 243-244: normal backoff reduction above minimum floor.
@@ -152,20 +141,14 @@ class TestAdaptiveBackoff:
         backoff but not below the floor.
         """
         rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0
+        rl._apply_adaptive_backoff(429)  # 30s backoff, well above the floor
 
-        # Build violations to establish a non-zero floor
-        for _ in range(3):
-            rl._apply_adaptive_backoff(429)
-
-        floor = rl._calculate_minimum_floor()
-        # Set backoff above the floor
-        rl.current_backoff_seconds = floor + 20.0
-        rl.consecutive_successes = 0
-
-        # Two successes → normal reduction (243-244)
         rl._apply_adaptive_backoff(200)
         rl._apply_adaptive_backoff(200)
-        assert rl.current_backoff_seconds >= floor
+
+        assert rl.current_backoff_seconds == pytest.approx(20.0)  # 30 / 1.5
+        assert rl.consecutive_successes == 0
 
     def test_429_at_max_backoff(self):
         """Lines 184-191: consecutive 429s hit max_backoff_seconds cap."""
@@ -210,50 +193,81 @@ class TestAdaptiveBackoff:
 
 
 class TestMinimumFloor:
-    """Lines 106-162: _calculate_minimum_floor — learned floor ramp-up and decay."""
+    """The learned floor: raised by rate-limit responses, lowered by success runs."""
 
-    def test_floor_increases_on_violations(self):
-        """Lines 123-140: violations in window → floor ramps up."""
+    def test_floor_rises_per_rate_limit_response_and_steps_down(self):
+        """A rate-limit response raises the floor once; each full run of
+        successes divides it by the backoff factor until it is gone.
+
+        The raise is not repeated while that response is still in the window,
+        so a step down is never undone. A new rate-limit response raises the
+        floor again and restarts the count. With no 429 on record the floor
+        can fall to zero.
+        """
+        rl = RateLimiter(
+            _make_config(
+                rate_limiting_success_requests=5, rate_limiting_backoff_factor=2.0
+            )
+        )
+
+        def respond(status: int, times: int = 1) -> float:
+            for _ in range(times):
+                rl.record_response(status, 0.1)
+            return rl._calculate_minimum_floor()
+
+        assert respond(200, 19) == 0.0
+        # 1 failure in 20 requests: 1 + 0.05 * 20 * 2.0
+        assert respond(503) == pytest.approx(3.0)
+        # Four successes are not a full run; the fifth is. The 503 is still in
+        # the window and does not raise the floor back.
+        assert respond(200, 4) == pytest.approx(3.0)
+        assert respond(200) == pytest.approx(1.5)
+        # 2 failures in 30 requests: 1 + (2 / 30) * 40. The count restarts.
+        assert respond(200, 4) == pytest.approx(1.5)
+        assert respond(503) == pytest.approx(11 / 3)
+        assert respond(200, 4) == pytest.approx(11 / 3)
+        assert respond(200) == pytest.approx(11 / 6)
+        # Halved per run of five, then dropped to zero once under 0.1s.
+        assert [respond(200, 5) for _ in range(5)] == pytest.approx(
+            [11 / 12, 11 / 24, 11 / 48, 11 / 96, 0.0]
+        )
+        assert respond(200, 5) == 0.0
+
+    def test_floor_stops_at_half_a_second_after_a_429(self):
+        """Once there has been a 429 the floor is lowered to 0.5s and no further."""
+        rl = RateLimiter(
+            _make_config(
+                rate_limiting_success_requests=2, rate_limiting_backoff_factor=2.0
+            )
+        )
+        rl.learned_floor = 1.6
+        rl.rate_limit_violations = 1
+
+        floors = []
+        for _ in range(3):
+            rl.record_response(200, 0.1)
+            rl.record_response(200, 0.1)
+            floors.append(rl.learned_floor)
+
+        assert floors == [0.8, 0.5, 0.5]
+
+    def test_floor_raise_waits_for_ten_requests(self):
+        """A rate-limit response among the first requests raises the floor
+        only once ten requests are on record."""
         rl = RateLimiter(_make_config())
-        # Fill with 10 outcomes, some failures
+        rl.record_response(503, 0.1)
         for _ in range(8):
-            rl.request_outcomes.append(True)
-        for _ in range(2):
-            rl.request_outcomes.append(False)
+            rl.record_response(200, 0.1)
+        assert rl._calculate_minimum_floor() == 0.0
 
-        floor = rl._calculate_minimum_floor()
-        assert floor > 0
+        rl.record_response(200, 0.1)
+        # 1 failure in 10 requests: 1 + 0.1 * 20 * 1.5
+        assert rl._calculate_minimum_floor() == pytest.approx(4.0)
 
-    def test_floor_decays_after_1000_successes(self):
-        """Lines 142-159: full window of 1000 successes → floor decays."""
-        rl = RateLimiter(_make_config())
-        rl.learned_floor = 5.0
-        rl.rate_limit_violations = 1  # has had violations before
-        for _ in range(1000):
-            rl.request_outcomes.append(True)
-
-        floor = rl._calculate_minimum_floor()
-        assert floor < 5.0
-        assert floor >= 0.5  # never below 0.5 when lifetime violations > 0
-
-    def test_floor_decays_to_zero_when_no_lifetime_violations(self):
-        """Lines 150-154: no lifetime violations → floor can decay to 0."""
-        rl = RateLimiter(_make_config())
-        rl.learned_floor = 0.05  # very small
-        rl.rate_limit_violations = 0
-        for _ in range(1000):
-            rl.request_outcomes.append(True)
-
-        floor = rl._calculate_minimum_floor()
-        assert floor == 0.0
-
-    def test_insufficient_history_returns_current_floor(self):
-        """Lines 117-118: < 10 requests → return current learned_floor."""
-        rl = RateLimiter(_make_config())
-        rl.learned_floor = 2.0
-        for _ in range(5):
-            rl.request_outcomes.append(True)
-        assert rl._calculate_minimum_floor() == 2.0
+        # A rate-limit response never lowers a floor that is already higher.
+        rl.learned_floor = 10.0
+        rl.record_response(503, 0.1)
+        assert rl._calculate_minimum_floor() == 10.0
 
 
 class TestWaitForRequest:
@@ -453,10 +467,14 @@ class TestStatsAndConfig:
         rl = RateLimiter(_make_config())
 
         # Change rate
-        new_config = _make_config(rate_limiting_requests_per_minute=120)
+        assert rl.success_requests == 250
+        new_config = _make_config(
+            rate_limiting_requests_per_minute=120, rate_limiting_success_requests=40
+        )
         rl.update_config(new_config)
         assert rl.requests_per_minute == 120
         assert rl.rate_per_second == 2.0
+        assert rl.success_requests == 40
 
         # Disable
         disabled_config = _make_config(rate_limiting_enabled=False)
@@ -468,3 +486,8 @@ class TestStatsAndConfig:
         small_burst = _make_config(rate_limiting_burst_size=5)
         rl.update_config(small_burst)
         assert rl.tokens == 5.0
+
+        # The same config again changes nothing
+        rl.update_config(small_burst)
+        assert rl.tokens == 5.0
+        assert rl.enabled is True

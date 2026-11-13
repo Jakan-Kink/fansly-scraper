@@ -50,6 +50,7 @@ class RateLimiter:
         self.adaptive_rate_limiting = config.rate_limiting_adaptive
         self.backoff_factor = config.rate_limiting_backoff_factor
         self.max_backoff_seconds = config.rate_limiting_max_backoff_seconds
+        self.success_requests = config.rate_limiting_success_requests
 
         # Calculate rate parameters
         self.rate_per_second = self.requests_per_minute / 60.0
@@ -76,8 +77,11 @@ class RateLimiter:
         self.current_backoff_seconds = 0.0
         self.last_backoff_time = 0.0
 
-        # Learned persistent floor: ramps up quickly on 429s, decays slowly with sustained success
+        # Learned persistent floor: raised by a rate-limit response, lowered one
+        # step per run of successes
         self.learned_floor = 0.0
+        self._floor_review_due = False
+        self._successes_in_a_row = 0
 
         # Shared reservation cursor for serializing concurrent waiters.
         self._next_allowed_at = 0.0
@@ -116,62 +120,56 @@ class RateLimiter:
         return elapsed < self.current_backoff_seconds
 
     def _calculate_minimum_floor(self) -> float:
-        """Calculate the minimum delay between requests based on learned behavior.
+        """Return the minimum delay between requests, raising it when one is due.
 
-        The learned floor:
-        - Ramps up QUICKLY when we get 429s (even while respecting current floor)
-        - Decays SLOWLY only after proving 1000 consecutive successes
-        - Never resets to 0 once we've learned we need rate limiting
-
-        This ensures the floor adapts to API behavior without oscillation.
+        A rate-limit response raises the floor once, by the share of recent
+        requests that were rate limited, as soon as 10 requests are on record.
+        ``_lower_floor_after_success`` brings it back down in steps.
         """
-        # Need at least 10 requests in history to calculate a meaningful rate
-        if len(self.request_outcomes) < 10:
+        if not self._floor_review_due or len(self.request_outcomes) < 10:
             return self.learned_floor
+        self._floor_review_due = False
 
-        # Count recent violations (False = 429)
         recent_violations = sum(1 for outcome in self.request_outcomes if not outcome)
+        violation_rate = recent_violations / len(self.request_outcomes)
+        rate_multiplier = 20.0 * self.backoff_factor
+        calculated_floor = min(20.0, 1.0 + (violation_rate * rate_multiplier))
 
-        if recent_violations > 0:
-            # We're getting 429s - floor is too low, increase it quickly
-            violation_rate = recent_violations / len(self.request_outcomes)
+        if calculated_floor > self.learned_floor:
+            old_floor = self.learned_floor
+            self.learned_floor = calculated_floor
+            logger.info(
+                f"Floor increased: {old_floor:.1f}s → {self.learned_floor:.1f}s "
+                f"(violation rate: {violation_rate * 100:.1f}%)"
+            )
 
-            # Calculate what floor should be based on violation rate
-            # Use aggressive multiplier for quick ramp-up
-            rate_multiplier = 20.0 * self.backoff_factor
-            calculated_floor = 1.0 + (violation_rate * rate_multiplier)
-            calculated_floor = min(20.0, calculated_floor)  # Cap at 20s
-
-            # Increase learned floor immediately (ramp up quickly)
-            if calculated_floor > self.learned_floor:
-                old_floor = self.learned_floor
-                self.learned_floor = calculated_floor
-                logger.info(
-                    f"Floor increased: {old_floor:.1f}s → {self.learned_floor:.1f}s "
-                    f"(violation rate: {violation_rate * 100:.1f}%)"
-                )
-
-        elif len(self.request_outcomes) == 1000:
-            # Full window of success! Floor is working, can slowly decrease
-            if self.learned_floor > 0:
-                old_floor = self.learned_floor
-
-                # Decay by 5% but never below 0.5s if we've ever had violations
-                if self.rate_limit_violations > 0:
-                    self.learned_floor = max(0.5, self.learned_floor * 0.95)
-                else:
-                    # No lifetime violations - can go to 0
-                    self.learned_floor = self.learned_floor * 0.95
-                    if self.learned_floor < 0.1:
-                        self.learned_floor = 0.0
-
-                if old_floor != self.learned_floor:
-                    logger.info(
-                        f"Floor decayed after 1000 successes: {old_floor:.1f}s → {self.learned_floor:.1f}s"
-                    )
-
-        # Return current learned floor (stable between adjustments)
         return self.learned_floor
+
+    def _lower_floor_after_success(self) -> None:
+        """Count a success; a full run of them divides the floor by the backoff factor.
+
+        The floor stops at 0.5s once there has been a 429, and otherwise drops
+        to zero when it falls under 0.1s.
+        """
+        if self.learned_floor <= 0:
+            return
+        self._successes_in_a_row += 1
+        if self._successes_in_a_row < self.success_requests:
+            return
+        self._successes_in_a_row = 0
+
+        lowered = self.learned_floor / self.backoff_factor
+        if self.rate_limit_violations > 0:
+            lowered = max(0.5, lowered)
+        elif lowered < 0.1:
+            lowered = 0.0
+
+        if lowered != self.learned_floor:
+            logger.info(
+                f"Floor lowered after {self.success_requests} successes in a row: "
+                f"{self.learned_floor:.1f}s → {lowered:.1f}s"
+            )
+            self.learned_floor = lowered
 
     def _apply_adaptive_backoff(self, status_code: int) -> None:
         """Apply adaptive backoff based on server response."""
@@ -206,84 +204,79 @@ class RateLimiter:
                 f"{' (MAX)' if at_max else ''}. "
                 f"Total violations: {self.rate_limit_violations}"
             )
-        elif 200 <= status_code < 300:
+        elif 200 <= status_code < 300 and self.current_backoff_seconds > 0:
             # Successful response - handle backoff reduction while any backoff is active
-            if self.current_backoff_seconds > 0:
-                self.consecutive_successes += 1
+            self.consecutive_successes += 1
 
-                # Roll forward the backoff window to maintain interval between requests
-                # This ensures we continue enforcing backoff for subsequent requests
-                self.last_backoff_time = time.time()
+            # Roll forward the backoff window to maintain interval between requests
+            # This ensures we continue enforcing backoff for subsequent requests
+            self.last_backoff_time = time.time()
 
-                # Only reduce backoff after 2 consecutive successful requests
-                if self.consecutive_successes >= 2:
-                    old_backoff = self.current_backoff_seconds
+            # Only reduce backoff after 2 consecutive successful requests
+            if self.consecutive_successes >= 2:
+                old_backoff = self.current_backoff_seconds
 
-                    # Calculate adaptive minimum backoff based on violation rate
-                    minimum_backoff = self._calculate_minimum_floor()
+                # Calculate adaptive minimum backoff based on violation rate
+                minimum_backoff = self._calculate_minimum_floor()
 
-                    # Reduce backoff but never below the minimum
-                    reduced_backoff = self.current_backoff_seconds / self.backoff_factor
-                    self.current_backoff_seconds = max(minimum_backoff, reduced_backoff)
+                # Reduce backoff but never below the minimum
+                reduced_backoff = self.current_backoff_seconds / self.backoff_factor
+                self.current_backoff_seconds = max(minimum_backoff, reduced_backoff)
 
-                    # last_backoff_time was already rolled to time.time() in the
-                    # outer success branch; the reduction path must not set it
-                    # again or the clamp below uses a stale window.
+                # last_backoff_time was already rolled to time.time() in the
+                # outer success branch; the reduction path must not set it
+                # again or the clamp below uses a stale window.
 
-                    self.consecutive_violations = max(
-                        0, self.consecutive_violations - 1
+                self.consecutive_violations = max(0, self.consecutive_violations - 1)
+
+                # Clamp reservation cursor to the new (smaller) backoff window
+                # so future reservations don't inherit stale targets from the
+                # larger pre-reduction window.
+                new_backoff_end = self.last_backoff_time + self.current_backoff_seconds
+                self._next_allowed_at = min(self._next_allowed_at, new_backoff_end)
+
+                # Check if we've reached the minimum threshold
+                if (
+                    self.current_backoff_seconds <= minimum_backoff
+                    and minimum_backoff > 0.0
+                ):
+                    # At minimum floor
+                    self.consecutive_successes = 0
+                    logger.info(
+                        f"2 consecutive successes - backoff at minimum floor: "
+                        f"{self.current_backoff_seconds:.1f}s "
+                        f"(would be {reduced_backoff:.1f}s without floor). "
+                        f"Total violations: {self.rate_limit_violations}"
                     )
-
-                    # Clamp reservation cursor to the new (smaller) backoff window
-                    # so future reservations don't inherit stale targets from the
-                    # larger pre-reduction window.
-                    new_backoff_end = (
-                        self.last_backoff_time + self.current_backoff_seconds
-                    )
-                    self._next_allowed_at = min(self._next_allowed_at, new_backoff_end)
-
-                    # Check if we've reached the minimum threshold
-                    if (
-                        self.current_backoff_seconds <= minimum_backoff
-                        and minimum_backoff > 0.0
-                    ):
-                        # At minimum floor
-                        self.consecutive_successes = 0
-                        logger.info(
-                            f"2 consecutive successes - backoff at minimum floor: "
-                            f"{self.current_backoff_seconds:.1f}s "
-                            f"(would be {reduced_backoff:.1f}s without floor). "
-                            f"Total violations: {self.rate_limit_violations}"
-                        )
-                    elif minimum_backoff <= 0.0:
-                        # Can fully reset
-                        self.current_backoff_seconds = 0.0
-                        self.consecutive_violations = 0
-                        self.consecutive_successes = 0
-                        logger.info(
-                            f"Backoff reduced from {old_backoff:.1f}s to 0s after "
-                            "2 consecutive successful requests. Rate limiting normalized."
-                        )
-                    else:
-                        # Normal reduction above minimum
-                        self.consecutive_successes = 0
-                        logger.info(
-                            f"2 consecutive successes - backoff reduced from "
-                            f"{old_backoff:.1f}s to {self.current_backoff_seconds:.1f}s "
-                            f"(minimum floor: {minimum_backoff:.1f}s). "
-                            f"Total violations: {self.rate_limit_violations}"
-                        )
-                    self.last_refill = min(
-                        self.last_refill,
-                        self.last_backoff_time + self.current_backoff_seconds,
+                elif minimum_backoff <= 0.0:
+                    # Can fully reset
+                    self.current_backoff_seconds = 0.0
+                    self.consecutive_violations = 0
+                    self.consecutive_successes = 0
+                    logger.info(
+                        f"Backoff reduced from {old_backoff:.1f}s to 0s after "
+                        "2 consecutive successful requests. Rate limiting normalized."
                     )
                 else:
-                    # First successful request after rate limiting
+                    # Normal reduction above minimum
+                    self.consecutive_successes = 0
                     logger.info(
-                        f"Successful request after rate limiting "
-                        f"({self.consecutive_successes}/2 needed to reduce backoff). "
-                        f"Current backoff: {self.current_backoff_seconds:.1f}s"
+                        f"2 consecutive successes - backoff reduced from "
+                        f"{old_backoff:.1f}s to {self.current_backoff_seconds:.1f}s "
+                        f"(minimum floor: {minimum_backoff:.1f}s). "
+                        f"Total violations: {self.rate_limit_violations}"
                     )
+                self.last_refill = min(
+                    self.last_refill,
+                    self.last_backoff_time + self.current_backoff_seconds,
+                )
+            else:
+                # First successful request after rate limiting
+                logger.info(
+                    f"Successful request after rate limiting "
+                    f"({self.consecutive_successes}/2 needed to reduce backoff). "
+                    f"Current backoff: {self.current_backoff_seconds:.1f}s"
+                )
 
     def _reserve_slot(self) -> tuple[float, float, bool]:
         """Reserve the next allowed request slot. Caller must hold self._lock.
@@ -420,6 +413,11 @@ class RateLimiter:
                 status_code not in rate_limit_errors
             )
             self.request_outcomes.append(is_success)
+            if is_success:
+                self._lower_floor_after_success()
+            else:
+                self._floor_review_due = True
+                self._successes_in_a_row = 0
 
             self._apply_adaptive_backoff(status_code)
 
@@ -493,6 +491,7 @@ class RateLimiter:
             self.adaptive_rate_limiting = config.rate_limiting_adaptive
             self.backoff_factor = config.rate_limiting_backoff_factor
             self.max_backoff_seconds = config.rate_limiting_max_backoff_seconds
+            self.success_requests = config.rate_limiting_success_requests
 
             # Recalculate rate parameters
             self.rate_per_second = self.requests_per_minute / 60.0

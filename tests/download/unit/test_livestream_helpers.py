@@ -17,6 +17,8 @@ Fansly REST endpoint are mocked at the HTTP layer (``respx_ivs_cdn`` /
 from __future__ import annotations
 
 import asyncio
+import gc
+import os
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -48,6 +50,7 @@ from tests.fixtures.api import (
     FakeAvVerifyContainerEmpty,
     FakeAvVerifyContainerRaises,
     FakeVideoStream,
+    TruncatedSegmentStream,
     bad_packet_av_segment,
     build_streaming_channel_response,
     build_variant_playlist,
@@ -145,6 +148,68 @@ class TestDownloadSegment:
 
         assert ok is False
         assert not dest.exists()
+
+    @pytest.mark.asyncio
+    async def test_segment_is_written_without_being_held_in_memory(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """The segment reaches disk in pieces; no response object keeps its body.
+
+        A finished httpx response is only freed by the garbage collector, which
+        can leave it in memory for the rest of the run. One that buffered a
+        whole segment kept the recording's size in memory.
+        """
+        seg_url = "https://use14.playlist.live-video.net/seg-ok.ts"
+        dest = tmp_path / "segment_000000.ts"
+        payload = bytes(range(256)) * 12_000
+        mocked = httpx.Response(200, content=payload)
+        route = respx.get(seg_url).mock(side_effect=[mocked])
+
+        def holds_segment(obj: object) -> bool:
+            # The mock's own response and respx's record of it are test
+            # scaffolding; only the client's response is the recorder's doing.
+            scaffolding = [mocked, *(call.response for call in route.calls)]
+            if not isinstance(obj, httpx.Response) or any(
+                obj is known for known in scaffolding
+            ):
+                return False
+            try:
+                return len(obj.content) == len(payload)
+            except httpx.ResponseNotRead:
+                return False
+
+        # Collector off so the finished response is still there to inspect.
+        gc.collect()
+        gc.disable()
+        try:
+            ok = await _download_segment(respx_ivs_cdn, seg_url, dest, "test")
+            holders = [obj for obj in gc.get_objects() if holds_segment(obj)]
+        finally:
+            gc.enable()
+            dump_fansly_calls(route.calls, "download_segment_streamed")
+
+        assert ok is True
+        assert dest.read_bytes() == payload
+        assert await asyncio.to_thread(os.listdir, tmp_path) == ["segment_000000.ts"]
+        assert holders == []
+
+    @pytest.mark.asyncio
+    async def test_body_cut_short_leaves_no_segment_file(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """A connection dropped mid-body returns False and leaves nothing behind."""
+        seg_url = "https://use14.playlist.live-video.net/seg-cut.ts"
+        dest = tmp_path / "segment_000000.ts"
+        route = respx.get(seg_url).mock(
+            side_effect=[httpx.Response(200, stream=TruncatedSegmentStream())]
+        )
+        try:
+            ok = await _download_segment(respx_ivs_cdn, seg_url, dest, "test")
+        finally:
+            dump_fansly_calls(route.calls, "download_segment_cut_short")
+
+        assert ok is False
+        assert await asyncio.to_thread(os.listdir, tmp_path) == []
 
 
 class TestGetAuthenticatedPlaybackUrl:
@@ -599,6 +664,51 @@ class TestPollSegmentsLoop:
         # whitespace prefetch is empty (skipped) and pf_low(msn1) is already seen.
         assert len(segments) == 2
         assert variant_route.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_failed_segment_is_retried_and_files_stay_distinct(
+        self, respx_ivs_cdn: httpx.AsyncClient, tmp_path: Path
+    ) -> None:
+        """A segment that fails while a later one succeeds is fetched again on
+        the next poll, and every segment keeps its own file in playlist order."""
+        base = "https://use14.playlist.live-video.net"
+        seg_a, seg_b, seg_c = f"{base}/a.ts", f"{base}/b.ts", f"{base}/c.ts"
+        window1 = build_variant_playlist(media_sequence=10, segment_uris=[seg_a, seg_b])
+        window2 = build_variant_playlist(
+            media_sequence=10, segment_uris=[seg_a, seg_b, seg_c]
+        )
+        endlist = build_variant_playlist(
+            media_sequence=13, segment_uris=[], endlist=True
+        )
+        variant_route = respx.get(_VARIANT_URL).mock(
+            side_effect=[
+                httpx.Response(200, text=window1),
+                httpx.Response(200, text=window2),
+                httpx.Response(200, text=endlist),
+            ]
+        )
+        route_a = respx.get(seg_a).mock(
+            side_effect=[httpx.Response(503), httpx.Response(200, content=b"A")]
+        )
+        route_b = respx.get(seg_b).mock(side_effect=[httpx.Response(200, content=b"B")])
+        route_c = respx.get(seg_c).mock(side_effect=[httpx.Response(200, content=b"C")])
+
+        stop = asyncio.Event()
+        try:
+            segments, durations = await _poll_segments_loop(
+                _VARIANT_URL, tmp_path, stop, "test", manifest_poll_interval=0.0
+            )
+        finally:
+            dump_fansly_calls(variant_route.calls, "poll_retry_failed_segment")
+            dump_fansly_calls(route_a.calls, "poll_retry_failed_segment_a")
+
+        names = [path.name for path in segments]
+        assert [path.read_bytes() for path in segments] == [b"A", b"B", b"C"]
+        assert names == sorted(set(names))
+        assert sorted(await asyncio.to_thread(os.listdir, tmp_path)) == names
+        assert len(durations) == 3
+        assert variant_route.call_count == 3
+        assert (route_a.call_count, route_b.call_count, route_c.call_count) == (2, 1, 1)
 
 
 class TestSalvageOrphanSegments:

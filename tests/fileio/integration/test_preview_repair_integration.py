@@ -1,5 +1,8 @@
 """Integration tests for the preview-repair backfill on real files + DB."""
 
+import logging
+from datetime import UTC, datetime
+
 import pytest
 
 from fileio.preview_repair import repair_preview_folder_items
@@ -7,6 +10,10 @@ from metadata import Media
 from tests.fixtures.download.download_factories import DownloadStateFactory
 from tests.fixtures.metadata import AccountFactory, AccountMediaFactory, MediaFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
+
+
+# The timestamp the test file names carry; the database has to agree with it.
+_NAMED_AT = datetime(2026, 1, 2, 3, 4, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -17,7 +24,7 @@ async def test_repair_renames_and_folders_preview(entity_store, config, tmp_path
     am_id = snowflake_id()
     media_id = snowflake_id()
     await store.save(AccountFactory.build(id=acct_id, username="creator"))
-    await store.save(MediaFactory.build(id=mid, accountId=acct_id))
+    await store.save(MediaFactory.build(id=mid, accountId=acct_id, createdAt=_NAMED_AT))
     await store.save(MediaFactory.build(id=media_id, accountId=acct_id))
     await store.save(
         AccountMediaFactory.build(
@@ -94,7 +101,7 @@ async def test_repair_idempotent_second_run_is_noop(entity_store, config, tmp_pa
     am_id = snowflake_id()
     media_id = snowflake_id()
     await store.save(AccountFactory.build(id=acct_id))
-    await store.save(MediaFactory.build(id=mid, accountId=acct_id))
+    await store.save(MediaFactory.build(id=mid, accountId=acct_id, createdAt=_NAMED_AT))
     await store.save(MediaFactory.build(id=media_id, accountId=acct_id))
     await store.save(
         AccountMediaFactory.build(
@@ -149,6 +156,124 @@ async def test_repair_noop_when_no_creator_id(fresh_config, tmp_path):
     await repair_preview_folder_items(fresh_config, state)
 
     assert bug.exists()  # untouched
+
+
+@pytest.mark.parametrize("mode", [True, "dry-run"], ids=["repair", "dry-run"])
+@pytest.mark.asyncio
+async def test_repair_settles_duplicate_copies_of_one_media(
+    entity_store, config, tmp_path, mode, caplog
+):
+    """One file per media survives, under the name the database gives it.
+
+    Four media of one creator, each on disk twice:
+      - a video named with two different minutes -> the database's minute wins;
+      - a preview named once without ``preview`` and once without UTC ->
+        one file with both;
+      - a preview under Timeline and under Messages -> the Timeline copy;
+      - a preview under both whose copies differ -> both stay, with a warning.
+    A legacy name carrying a content hash is not touched, nor is a file with
+    no media id, nor a local-time name whose media the database has never
+    seen (its UTC time could only be guessed). Dry-run changes
+    nothing on disk.
+    """
+    caplog.set_level(logging.WARNING)
+    store = entity_store
+    acct_id = snowflake_id()
+    video, renamed, shared, differing = (snowflake_id() for _ in range(4))
+    await store.save(AccountFactory.build(id=acct_id, username="creator"))
+    await store.save(
+        MediaFactory.build(
+            id=video,
+            accountId=acct_id,
+            mimetype="video/mp4",
+            createdAt=datetime(2025, 10, 23, 23, 10, 30, tzinfo=UTC),
+        )
+    )
+    await store.save(
+        MediaFactory.build(
+            id=renamed,
+            accountId=acct_id,
+            mimetype="video/mp4",
+            createdAt=datetime(2022, 12, 27, 19, 24, 5, tzinfo=UTC),
+        )
+    )
+    for preview in (shared, differing):
+        await store.save(
+            MediaFactory.build(
+                id=preview,
+                accountId=acct_id,
+                mimetype="video/mp4",
+                createdAt=datetime(2025, 3, 12, 16, 2, 0, tzinfo=UTC),
+            )
+        )
+    for preview in (renamed, shared, differing):
+        parent = snowflake_id()
+        await store.save(MediaFactory.build(id=parent, accountId=acct_id))
+        await store.save(
+            AccountMediaFactory.build(
+                id=parent, accountId=acct_id, mediaId=parent, previewId=preview
+            )
+        )
+
+    root = tmp_path / "creator"
+    videos = root / "Timeline" / "Videos"
+    timeline_previews = videos / "Previews"
+    message_previews = root / "Messages" / "Videos" / "Previews"
+    timeline_previews.mkdir(parents=True)
+    message_previews.mkdir(parents=True)
+    wrong_minute = videos / f"2025-10-23_at_23-09_UTC_id_{video}.mp4"
+    right_minute = videos / f"2025-10-23_at_23-10_UTC_id_{video}.mp4"
+    hashed = videos / f"2025-10-23_at_23-09_UTC_id_{video}_hash2_abc123.mp4"
+    unknown = videos / f"2024-01-01_at_10-00_id_{snowflake_id()}.mp4"
+    no_id = videos / "notes.txt"
+    no_utc = timeline_previews / f"2022-12-27_at_14-24_preview_id_{renamed}.mp4"
+    no_marker = timeline_previews / f"2022-12-27_at_19-24_UTC_id_{renamed}.mp4"
+    both = timeline_previews / f"2022-12-27_at_19-24_UTC_preview_id_{renamed}.mp4"
+    shared_name = f"2025-03-12_at_16-02_UTC_preview_id_{shared}.mp4"
+    differing_name = f"2025-03-12_at_16-02_UTC_preview_id_{differing}.mp4"
+    for path, content in (
+        (wrong_minute, "video"),
+        (right_minute, "video"),
+        (hashed, "legacy"),
+        (unknown, "never seen"),
+        (no_id, "notes"),
+        (no_utc, "preview"),
+        (no_marker, "preview"),
+        (timeline_previews / shared_name, "shared"),
+        (message_previews / shared_name, "shared"),
+        (timeline_previews / differing_name, "timeline cut"),
+        (message_previews / differing_name, "message cut"),
+    ):
+        path.write_text(content)
+    before = sorted(p.relative_to(root) for p in root.rglob("*") if p.is_file())
+
+    config.separate_previews = True
+    config.repair_previews = mode
+    state = DownloadStateFactory.build(creator_id=acct_id, download_path=root)
+
+    await repair_preview_folder_items(config, state)
+
+    after = sorted(p.relative_to(root) for p in root.rglob("*") if p.is_file())
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert sum("differ in content" in message for message in warnings) == 1
+    if mode == "dry-run":
+        assert after == before
+        return
+    assert after == sorted(
+        path.relative_to(root)
+        for path in (
+            right_minute,
+            hashed,
+            unknown,
+            no_id,
+            both,
+            timeline_previews / shared_name,
+            timeline_previews / differing_name,
+            message_previews / differing_name,
+        )
+    )
+    assert (await store.get(Media, video)).local_filename == right_minute.name
+    assert (await store.get(Media, renamed)).local_filename == both.name
 
 
 @pytest.mark.asyncio

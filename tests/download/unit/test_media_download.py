@@ -191,7 +191,7 @@ class TestFetchAndProcessMedia:
         """
         mock_config.download_media_previews = False
         mock_config.interactive = False
-        mock_config.BATCH_SIZE = 50
+        mock_config.account_media_batch_size = 50
 
         account_id = snowflake_id()
         await entity_store.save(Account(id=account_id, username=f"u_{account_id}"))
@@ -244,7 +244,7 @@ class TestFetchAndProcessMedia:
         """
         mock_config.download_media_previews = False
         mock_config.interactive = False
-        mock_config.BATCH_SIZE = 50
+        mock_config.account_media_batch_size = 50
         mock_config.media_filters = MediaFilters(max_resolution=1080)
 
         account_id = snowflake_id()

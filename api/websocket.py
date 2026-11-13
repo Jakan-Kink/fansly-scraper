@@ -110,6 +110,7 @@ class _ChildWebSocket:
         base_url: str | None = None,
         http_client: httpx.AsyncClient | httpx.Client | None = None,
         ping_timeout_enabled: bool = True,
+        proxy: str | None = None,
     ) -> None:
         """Initialize Fansly WebSocket client.
 
@@ -137,9 +138,12 @@ class _ChildWebSocket:
                 disconnects if no ``t=2`` response arrives within
                 1.2x ping_interval.  Set ``False`` for connections that
                 do not echo pings back (e.g. the dedicated chat WS).
+            proxy: Proxy URL for the connection. ``None`` connects directly
+                and ignores proxy environment variables.
         """
         self.token = token
         self.user_agent = user_agent
+        self.proxy = proxy
         self.http_client = http_client
         # Frozen dict path — only consulted when http_client is None.
         # When http_client is set, _current_cookies() reads fresh from
@@ -535,6 +539,7 @@ class _ChildWebSocket:
                 user_agent_header=self.user_agent,
                 additional_headers=additional_headers,
                 ssl=ssl_context,
+                proxy=self.proxy,
             )
 
             self.connected = True
@@ -1081,9 +1086,11 @@ class FanslyWebSocket:
         on_rate_limited: Callable[[], Any] | None = None,
         base_url: str | None = None,
         http_client: httpx.AsyncClient | httpx.Client | None = None,
+        proxy: str | None = None,
     ) -> None:
         self.token = token
         self.user_agent = user_agent
+        self.proxy = proxy
         self.cookies = dict(cookies) if cookies else {}
         self.enable_logging = enable_logging
         self.on_unauthorized = on_unauthorized
@@ -1154,6 +1161,7 @@ class FanslyWebSocket:
             "user_agent": self.user_agent,
             "enable_logging": self.enable_logging,
             "base_url": self.base_url,
+            "proxy": self.proxy,
         }
 
         forward_types = tuple(self._event_handlers.keys())

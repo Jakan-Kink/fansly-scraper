@@ -7,7 +7,6 @@ import math
 import time
 from collections.abc import Callable, Sequence
 from ctypes import c_int32
-from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote, urlencode, urlparse
@@ -103,7 +102,18 @@ class FanslyApi:
         # Shared cookie jar across async runtime client, sync segment client, and WS.
         self._cookies = httpx.Cookies()
 
-        async_base_transport = httpx.AsyncHTTPTransport(http2=True)
+        # An explicit transport also stops httpx following proxy environment
+        # variables and system proxy settings.
+        self._proxy = config.proxy if config is not None else None
+        if self._proxy:
+            proxy_parts = urlparse(self._proxy)
+            logger.info(
+                "Sending Fansly traffic through proxy {}://{}:{}",
+                proxy_parts.scheme,
+                proxy_parts.hostname,
+                proxy_parts.port,
+            )
+        async_base_transport = httpx.AsyncHTTPTransport(http2=True, proxy=self._proxy)
         async_retry_transport = RetryTransport(
             transport=async_base_transport, retry=retry
         )
@@ -222,7 +232,7 @@ class FanslyApi:
     def _get_segment_session(self) -> httpx.Client:
         """Lazy sync httpx client for m3u8 segment ThreadPoolExecutor."""
         if self._segment_session is None:
-            sync_base_transport = httpx.HTTPTransport(http2=True)
+            sync_base_transport = httpx.HTTPTransport(http2=True, proxy=self._proxy)
             sync_retry_transport = RetryTransport(
                 transport=sync_base_transport, retry=self._segment_retry
             )
@@ -344,9 +354,8 @@ class FanslyApi:
 
         if len(cookies) > 0:
             arguments["cookies"] = cookies
-        response: httpx.Response = field(default=httpx.Response(500))
 
-        max_retries = self.config.api_max_retries if self.config else 1
+        max_retries = max(1, self.config.api_max_retries if self.config else 1)
         rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):
@@ -443,9 +452,8 @@ class FanslyApi:
         }
         if len(cookies) > 0:
             arguments["cookies"] = cookies
-        response: httpx.Response = field(default=httpx.Response(500))
 
-        max_retries = self.config.api_max_retries if self.config else 1
+        max_retries = max(1, self.config.api_max_retries if self.config else 1)
         rate_limiter = None if bypass_rate_limit else self.rate_limiter
 
         for attempt in range(max_retries):
@@ -899,6 +907,7 @@ class FanslyApi:
             token=self.token,
             user_agent=self.user_agent,
             http_client=self.http_session,
+            proxy=self._proxy,
             enable_logging=False,
             on_unauthorized=self._handle_websocket_unauthorized,
             on_rate_limited=self._handle_websocket_rate_limited,

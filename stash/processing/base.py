@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import traceback
 import warnings
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Self
 
@@ -23,6 +26,8 @@ from stash_graphql_client.types import (
     BaseFile,
     Gallery,
     Image,
+    Job,
+    JobStatus,
     Performer,
     Scene,
     SceneCreateInput,
@@ -30,7 +35,8 @@ from stash_graphql_client.types import (
     Tag,
 )
 
-from metadata import Account, Database
+from helpers.rich_progress import get_progress_manager
+from metadata import Account, Database, Message
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
@@ -44,7 +50,26 @@ if TYPE_CHECKING:
 
     from config import FanslyConfig
     from download.core import DownloadState
-    from metadata import Media, Message, Post
+    from metadata import Media, Post
+
+
+_SCAN_POLL_S = 1.5
+# Consecutive polls a scan job may be absent before it is treated as gone.
+_SCAN_MISSING_POLLS = 3
+# A READY scan with nothing running in Stash for this long will never start
+# (stashapp/stash#7347).
+_SCAN_FROZEN_S = 15.0
+_ACTIVE_JOB_STATUSES = (JobStatus.RUNNING, JobStatus.STOPPING)
+
+
+@dataclass
+class _ScanWatch:
+    """What the scan wait last saw of one job, and when."""
+
+    seen: tuple[object, object] | None = None
+    changed_at: float = field(default_factory=time.monotonic)
+    idle_since: float | None = None
+    requeue: bool = False
 
 
 class StashProcessingBase(StashProcessingProtocol):
@@ -110,6 +135,13 @@ class StashProcessingBase(StashProcessingProtocol):
         self._studio: Studio | None = None
         self._stash_parent_task: str | None = None
 
+        # (lowercased username, name) -> matched performers; None = ambiguous
+        self._performer_matches: dict[tuple[str, str], list[Performer] | None] = {}
+        # lowercased tag name or alias -> tag
+        self._tags_by_name: dict[str, Tag] = {}
+        # True once the galleries the current items could have are in the store
+        self._galleries_preloaded = False
+
     @property
     def store(self) -> StashEntityStore:
         """Convenient access to Stash entity store.
@@ -124,20 +156,51 @@ class StashProcessingBase(StashProcessingProtocol):
         """Convenient access to server capabilities."""
         return self.context.capabilities
 
+    @staticmethod
+    async def _link_tag(obj: Scene | Image | Gallery, tag: Tag) -> None:
+        """Add a tag to a scene, image or gallery without loading the tag's reverse side.
+
+        ``obj.add_tag`` also syncs the tag's own list of scenes/images/galleries,
+        which makes the store fetch every one in the library that carries the
+        tag. Appending to the loaded ``tags`` list is all the save needs;
+        ``add_tag`` is only used when that list has not been loaded.
+        """
+        if isinstance(obj.tags, list):
+            if all(existing.id != tag.id for existing in obj.tags):
+                obj.tags.append(tag)
+        else:
+            await obj.add_tag(tag)
+
+    @staticmethod
+    async def _link_performer(
+        obj: Scene | Image | Gallery, performer: Performer
+    ) -> None:
+        """Add a performer without loading the performer's reverse side.
+
+        Same reasoning as ``_link_tag``: ``obj.add_performer`` would fetch every
+        scene, image or gallery in the library that the performer is on.
+        """
+        if isinstance(obj.performers, list):
+            if all(existing.id != performer.id for existing in obj.performers):
+                obj.performers.append(performer)
+        else:
+            await obj.add_performer(performer)
+
     async def _preload_stash_entities(self) -> None:
-        """Configure cache TTLs for Stash entity types.
+        """Configure cache TTLs for Stash entity types and preload the tags.
 
         Pins TTL to None (no expiration) since the script is the sole writer
         to Stash during processing — cached entities stay valid for the run.
-        Mixin call sites use the ``store.filter(...) → store.find_one(...)``
-        pattern, so the cache populates lazily as entities are actually
-        looked up; no upfront fetch is needed.
+        Tags are fetched up front (hashtags resolve against all of them);
+        performers and studios populate lazily through the mixins'
+        ``store.filter(...) → store.find_one(...)`` lookups.
 
         Per-creator entities (Gallery, Image, Scene) also get TTL=None but
         are invalidated per-creator (see processing/__init__.py).
         """
         for entity_type in (Performer, Tag, Studio, Gallery, Image, Scene):
             self.store.set_ttl(entity_type, None)
+        await self._preload_tags()
 
     @classmethod
     def from_config(
@@ -206,18 +269,20 @@ class StashProcessingBase(StashProcessingProtocol):
         }
         scan_paths = paths or [get_stash_path(self.state.base_path, self.config)]
         try:
-            job_id = await self.context.client.metadata_scan(
-                paths=scan_paths,
-                flags=flags,
-            )
-            print_info(f"Metadata scan job ID: {job_id}")
-
-            finished_job = False
-            while not finished_job:
-                try:
-                    finished_job = bool(await self.context.client.wait_for_job(job_id))
-                except Exception:
-                    finished_job = False
+            # A scan cancelled because Stash would never start it is queued once more.
+            for _ in range(2):
+                job_id = await self.context.client.metadata_scan(
+                    paths=scan_paths,
+                    flags=flags,
+                )
+                print_info(f"Metadata scan job ID: {job_id}")
+                if not await self._wait_for_scan_job(job_id):
+                    break
+            else:
+                logger.warning(
+                    "Stash did not start the scan after it was queued again; "
+                    "continuing with what Stash has indexed"
+                )
 
             # The job-FINISHED signal can precede Stash's index commit; settle
             # before any File/Scene/Image read-back.
@@ -228,6 +293,124 @@ class StashProcessingBase(StashProcessingProtocol):
             # stash_graphql_client's ``metadata_scan`` raises
             # ``ValueError("Failed to start metadata scan: ...")``
             raise RuntimeError(f"Failed to process metadata: {e}") from e
+
+    async def _wait_for_scan_job(self, job_id: str) -> bool:
+        """Poll a scan job until Stash reports it over, showing its progress.
+
+        A job that is cancelled, fails, drops out of Stash's job queue, or does
+        not change for the stall timeout is logged and treated as over; the
+        caller continues with what is indexed. A job left READY while Stash
+        runs nothing is cancelled. A shutdown request ends the wait, cancelling
+        the job in Stash if it has not started.
+
+        Args:
+            job_id: Scan job ID returned by ``metadata_scan``.
+
+        Returns:
+            True when the job was cancelled as frozen and should be queued again.
+        """
+        progress = get_progress_manager()
+        with progress.session():
+            task = progress.add_task(
+                name="stash_scan",
+                description=f"Stash scan job {job_id}",
+                total=100,
+                show_elapsed=True,
+            )
+            try:
+                return await self._poll_scan_job(job_id, task)
+            finally:
+                progress.remove_task(task)
+
+    async def _poll_scan_job(self, job_id: str, task: str) -> bool:
+        misses = 0
+        watch = _ScanWatch()
+        while True:
+            job = await self.context.client.find_job(job_id)
+            if job is None:
+                misses += 1
+                if misses >= _SCAN_MISSING_POLLS:
+                    logger.warning(
+                        f"Scan job {job_id} is not in Stash's job queue; "
+                        "continuing with what Stash has indexed"
+                    )
+                    return False
+            elif job.status == JobStatus.FINISHED:
+                return False
+            elif job.status in (JobStatus.CANCELLED, JobStatus.FAILED):
+                detail = f": {job.error}" if isinstance(job.error, str) else ""
+                logger.warning(
+                    f"Scan job {job_id} ended as {job.status}{detail}; "
+                    "continuing with what Stash has indexed"
+                )
+                return False
+            else:
+                misses = 0
+                if await self._scan_wait_over(job_id, job, task, watch):
+                    return watch.requeue
+            await asyncio.sleep(_SCAN_POLL_S)
+
+    async def _scan_wait_over(
+        self, job_id: str, job: Job, task: str, watch: _ScanWatch
+    ) -> bool:
+        """Show a queued or running scan's state; True when the wait should end."""
+        stall_timeout = self.config.stash_scan_stall_timeout_s
+        shutdown = self.config._shutdown_event
+        now = time.monotonic()
+        seen = (job.status, job.progress)
+        if seen != watch.seen:
+            logger.debug(f"Scan job {job_id}: {job.status}, progress {job.progress}")
+            watch.seen = seen
+            watch.changed_at = now
+            done = job.progress if isinstance(job.progress, float) else 0.0
+            get_progress_manager().update_task(
+                task,
+                advance=0,
+                description=f"Stash scan job {job_id}: {job.status}",
+                completed=int(done * 100),
+            )
+        elif now - watch.changed_at >= stall_timeout:
+            logger.warning(
+                f"Scan job {job_id} has not changed from {job.status} in "
+                f"{stall_timeout:g} s; continuing with what Stash has indexed"
+            )
+            return True
+        if shutdown is not None and shutdown.is_set():
+            await self._abandon_scan_job(job_id, job.status)
+            return True
+        if job.status != JobStatus.READY or await self._other_job_active(job_id):
+            watch.idle_since = None
+        elif watch.idle_since is None:
+            watch.idle_since = now
+        elif now - watch.idle_since >= _SCAN_FROZEN_S:
+            watch.requeue = await self.context.client.stop_job(job_id)
+            outcome = "cancelled it" if watch.requeue else "Stash did not cancel it"
+            logger.warning(
+                f"Scan job {job_id} stayed READY for {_SCAN_FROZEN_S:g} s with "
+                f"nothing running in Stash; {outcome}"
+            )
+            return True
+        return False
+
+    async def _other_job_active(self, job_id: str) -> bool:
+        """Whether Stash is running any job other than this one."""
+        jobs = await self.context.client.job_queue()
+        return any(
+            job.id != job_id and job.status in _ACTIVE_JOB_STATUSES for job in jobs
+        )
+
+    async def _abandon_scan_job(self, job_id: str, status: object) -> None:
+        """Stop waiting on a scan at shutdown; a job still queued is cancelled."""
+        if status == JobStatus.READY:
+            cancelled = await self.context.client.stop_job(job_id)
+            outcome = (
+                "cancelled it in Stash" if cancelled else "Stash did not cancel it"
+            )
+            logger.warning(f"Scan job {job_id} was still queued at shutdown; {outcome}")
+        else:
+            logger.warning(
+                f"Scan job {job_id} is {status} at shutdown; no longer waiting on it"
+            )
 
     def _configure_scene_creation_guard(self) -> None:
         """Enable Scene creation (the split's create path) only when the user
@@ -479,23 +662,32 @@ class StashProcessingBase(StashProcessingProtocol):
         matches by basename. Includes variants (each has its own local_filename).
         A file shared across items carries every owner (earliest first, by id):
         its adjudicated entity joins all their galleries, and the earliest owner
-        is canonical for the entity's own metadata. "Shared" covers both the same
+        is canonical for the entity's own metadata (for a preview, a post comes
+        before any message). "Shared" covers both the same
         Media object and distinct media resolving to the same download target
         (same leaf). A leaf claimed by a media with a DIFFERENT target is a
-        genuine collision — keep the first, warn.
+        genuine collision — keep the first, warn. Quoted media is owned by the
+        original post and by the quoting post; the original always has the
+        lower id, so it is the canonical one.
         """
         index: dict[str, tuple[Media, list[Post | Message]]] = {}
         for item in items:
-            media_list = await self._collect_media_from_attachments(
-                item.attachments or []
-            )
-            for media in media_list:
+            for media, owner in await self._collect_owned_media(item):
                 for m in (media, *(media.variants or [])):
                     if m.local_filename:
-                        self._register_in_media_index(index, m, item)
-        for _media, owners in index.values():
-            owners.sort(key=lambda owner: owner.id or 0)
+                        self._register_in_media_index(index, m, owner)
+                        if owner is not item:
+                            self._register_in_media_index(index, m, item)
+        for media, owners in index.values():
+            # A preview that is in a post and in a message takes the post's
+            # metadata; otherwise the earliest owner comes first.
+            owners.sort(key=partial(self._owner_order, messages_last=media.is_preview))
         return index
+
+    @staticmethod
+    def _owner_order(owner: Post | Message, *, messages_last: bool) -> tuple[bool, int]:
+        """Sort key for a media's owners: by id, messages last when asked."""
+        return (messages_last and isinstance(owner, Message), owner.id or 0)
 
     @staticmethod
     def _register_in_media_index(
@@ -550,5 +742,9 @@ class StashProcessingBase(StashProcessingProtocol):
         root = get_stash_path(self.state.base_path, self.config).rstrip("/")
         # Trailing sep anchors the scope: a bare 'root' substring would also pull
         # a sibling creator '/dl/annabelle/...' into '/dl/anna's sweep.
-        async for file in self.store.find_iter(BaseFile, path__contains=root + "/"):
+        async for file in self.store.find_iter(
+            BaseFile,
+            query_batch=self.config.stash_files_batch,
+            path__contains=root + "/",
+        ):
             yield file

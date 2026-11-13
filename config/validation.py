@@ -370,11 +370,9 @@ async def validate_adjust_check_key(config: FanslyConfig) -> None:
     )
 
     if config.user_agent:
-        from helpers.checkkey import guess_check_key  # noqa: PLC0415, I001  # lazy: avoids JSPyBridge Node.js daemon threads at module load
+        from helpers.checkkey import guess_check_key  # noqa: PLC0415  # lazy: avoids JSPyBridge Node.js daemon threads at module load
 
-        guessed_key = guess_check_key(
-            config.user_agent,
-        )
+        guessed_key = guess_check_key(config.user_agent, config.proxy)
 
         if guessed_key is not None:
             config.check_key = guessed_key

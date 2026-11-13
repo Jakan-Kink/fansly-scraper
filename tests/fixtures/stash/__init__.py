@@ -46,6 +46,7 @@ from .stash_mixin_fixtures import (
     gallery_mock_studio,
     gallery_orchestration_setup,
     mock_item,
+    quoted_post_setup,
 )
 from .stash_processing_helpers import (
     find_files_response,
@@ -127,6 +128,7 @@ __all__ = [
     "mock_studio",
     "mock_tag",
     "mock_video_file",
+    "quoted_post_setup",
     "real_stash_processor",
     "respx_stash_client",
     "respx_stash_processor",

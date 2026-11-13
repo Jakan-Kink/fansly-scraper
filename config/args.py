@@ -29,6 +29,7 @@ from .schema import (
     PostgresSection,
     StashContextSection,
     TargetedCreatorSection,
+    proxy_url,
 )
 from .wall_filters import WallFilterSpec, normalize_wall_filters
 
@@ -604,6 +605,15 @@ def parse_args() -> argparse.Namespace:
         "If not specified, uses system default temp folder.",
     )
     parser.add_argument(
+        "--proxy",
+        required=False,
+        default=None,
+        type=proxy_url,
+        dest="proxy",
+        help="Send every Fansly connection through this proxy, "
+        "e.g. socks5h://user:pass@host:1080 or http://host:8080.",
+    )
+    parser.add_argument(
         "--stash-only",
         required=False,
         default=False,
@@ -985,6 +995,7 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         "user_agent",
         "check_key",
         "temp_folder",
+        "proxy",
         # PostgreSQL settings
         "pg_host",
         "pg_port",
@@ -997,6 +1008,10 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         check_attr(attr_name, attr_name)
         if _handle_path_settings(args, config, attr_name):
             config_overridden = True
+
+    if args.proxy is not None:
+        # The URL can carry a password, so a CLI value is not written to YAML.
+        config._ephemeral_overrides.add("proxy")
 
     return config_overridden
 

@@ -62,6 +62,11 @@ async def ask_correct_dir() -> Path:
         )
 
 
+# Download types whose media comes from posts, where a quote can bring in
+# another creator's media.
+_POST_DOWNLOAD_TYPES = (DownloadType.TIMELINE, DownloadType.WALL, DownloadType.SINGLE)
+
+
 def set_create_directory_for_download(config: PathConfig, state: DownloadState) -> Path:
     """Sets and creates the appropriate download directory according to
     download type for storing media from a distinct creator.
@@ -190,7 +195,10 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
 
 
 def get_media_save_path(
-    config: PathConfig, state: DownloadState, media_item: Media
+    config: PathConfig,
+    state: DownloadState,
+    media_item: Media,
+    owner_name: str | None = None,
 ) -> tuple[Path, Path]:
     """Get the save directory and full path for a media item.
 
@@ -198,11 +206,15 @@ def get_media_save_path(
     1. Download type (collections, messages, timeline)
     2. Media type (image, video, audio)
     3. Config settings (separate_messages, separate_timeline, separate_previews)
+    4. Who posted it: media a creator quotes from another creator goes under
+       that creator's folder when one exists on disk
 
     Args:
         config: The program configuration
         state: Current download state
         media_item: Media item to determine path for
+        owner_name: Username of the media's own creator when it is not the
+            creator being downloaded
 
     Returns:
         tuple[Path, Path]: (save_directory, full_save_path)
@@ -212,6 +224,12 @@ def get_media_save_path(
     """
     # Get base directory based on download type
     base_directory = set_create_directory_for_download(config, state)
+    if owner_name is not None and state.download_type in _POST_DOWNLOAD_TYPES:
+        owner_base = get_creator_base_path(config, owner_name)
+        if owner_base.is_dir():
+            base_directory = (
+                owner_base / "Timeline" if config.separate_timeline else owner_base
+            )
 
     if state.download_type == DownloadType.COLLECTIONS:
         save_dir = base_directory

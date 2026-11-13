@@ -434,3 +434,83 @@ class TestGalleryLookup:
             gallery_filter__url__value=test_url,
             gallery_filter__url__modifier="INCLUDES",
         )
+
+    @pytest.mark.asyncio
+    async def test_preload_galleries_replaces_per_item_searches(
+        self, respx_stash_processor: StashProcessing
+    ) -> None:
+        """After the bulk preload, gallery lookups are answered from the store.
+
+        Three posts and a page size of 2: one read for the studio's galleries,
+        then a code read and a URL read per page of items. The post whose
+        gallery came back is found by code with no further request, and
+        another post's code, title and URL lookups all miss with no request.
+        """
+        processor = respx_stash_processor
+        processor.config.stash_galleries_batch = 2
+        studio = StudioFactory.build(id="200", name="test_user (Fansly)")
+        known = PostFactory.build(id=snowflake_id(), accountId=snowflake_id())
+        fresh = PostFactory.build(id=snowflake_id(), accountId=known.accountId)
+        third = PostFactory.build(id=snowflake_id(), accountId=known.accountId)
+
+        def galleries(*found: dict) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findGalleries",
+                    create_find_galleries_result(len(found), list(found)),
+                ),
+            )
+
+        existing = create_gallery_dict(id="5000", title="Known", code=str(known.id))
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                galleries(),  # the studio's galleries
+                galleries(existing),  # code names one of the first two posts
+                galleries(),  # URL names one of the first two posts
+                galleries(),  # code names the third post
+                galleries(),  # URL names the third post
+            ]
+        )
+
+        try:
+            await processor._preload_galleries([known, fresh, third], studio)
+            found = await processor._get_gallery_by_code(known)
+            misses = [
+                await processor._get_gallery_by_code(fresh),
+                await processor._get_gallery_by_title(fresh, "Fresh", studio),
+                await processor._get_gallery_by_url(
+                    fresh, f"https://fansly.com/post/{fresh.id}"
+                ),
+            ]
+        finally:
+            dump_graphql_calls(graphql_route.calls, "preload_galleries")
+
+        assert graphql_route.call_count == 5
+        assert found is not None
+        assert found.id == "5000"
+        assert known.stash_id == 5000
+        assert misses == [None, None, None]
+        assert_op_with_vars(
+            graphql_route.calls[0],
+            "findGalleries",
+            gallery_filter__studios__value=["200"],
+            filter__per_page=2,
+        )
+        assert_op_with_vars(
+            graphql_route.calls[1],
+            "findGalleries",
+            gallery_filter__code__value=f"^({known.id}|{fresh.id})$",
+            gallery_filter__code__modifier="MATCHES_REGEX",
+        )
+        assert_op_with_vars(
+            graphql_route.calls[2],
+            "findGalleries",
+            gallery_filter__url__value=f"/({known.id}|{fresh.id})$",
+            gallery_filter__url__modifier="MATCHES_REGEX",
+        )
+        assert_op_with_vars(
+            graphql_route.calls[3],
+            "findGalleries",
+            gallery_filter__code__value=f"^({third.id})$",
+        )

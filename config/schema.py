@@ -17,6 +17,7 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -61,6 +62,23 @@ if TYPE_CHECKING:
 # policy is "conditional" — fields render only when in ``model_fields_set``.
 # See docs/configuration/render-policy.md (TODO) for full semantics.
 _ALWAYS: dict[str, JsonValue] = {"render": "always"}
+
+# Proxy schemes httpx and websockets both accept.
+PROXY_SCHEMES: tuple[str, ...] = ("http", "https", "socks5", "socks5h")
+
+
+def proxy_url(value: str | None) -> str | None:
+    """Return a usable proxy URL, None for blank input, or raise ValueError."""
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    parts = urlsplit(value)
+    if parts.scheme not in PROXY_SCHEMES or not parts.hostname:
+        raise ValueError(
+            "proxy must look like scheme://[user:pass@]host:port with one of "
+            f"these schemes: {', '.join(PROXY_SCHEMES)}"
+        )
+    return value
 
 
 def _is_always(field_info: FieldInfo | None) -> bool:
@@ -322,6 +340,8 @@ class OptionsSection(_BaseSection):
     api_max_retries: int = 10
     # ids per batched /account?ids= lookup; the Fansly web client uses 5
     account_ids_batch_size: int = 5
+    # ids per /account/media?ids= lookup; Fansly rate-limits lookups over 100
+    account_media_batch_size: int = Field(default=100, ge=1)
     # Set to ``false`` to ignore the creator_content_unchanged short-circuit
     # in download/timeline.py and download/wall.py — forces a full scan even
     # when TimelineStats counts and wall structure match the DB. Conditional
@@ -334,7 +354,17 @@ class OptionsSection(_BaseSection):
     rate_limiting_retry_after_seconds: int = 30
     rate_limiting_backoff_factor: float = 1.5
     rate_limiting_max_backoff_seconds: int = 300
+    # Successes in a row before the learned gap between requests drops a step
+    rate_limiting_success_requests: int = Field(default=250, ge=1)
     temp_folder: str | None = Field(default=None, json_schema_extra=_ALWAYS)
+    # Proxy for every Fansly connection, e.g. socks5h://user:pass@host:1080
+    proxy: str | None = None
+
+    @field_validator("proxy")
+    @classmethod
+    def _validate_proxy(cls, v: str | None) -> str | None:
+        """Require a scheme both httpx and websockets can use, plus a host."""
+        return proxy_url(v)
 
     @field_validator("download_mode", mode="before")
     @classmethod
@@ -697,6 +727,20 @@ class LoggingSection(_BaseSection):
         return self
 
 
+class StashBatchesSection(_BaseSection):
+    """Page sizes for the paged queries sent to Stash.
+
+    Same meaning as the per-page dropdown in the Stash UI. Scenes and images
+    have no entry of their own: they are fetched attached to their files.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tags: int = Field(default=250, ge=1)
+    files: int = Field(default=40, ge=1)
+    galleries: int = Field(default=250, ge=1)
+
+
 class StashContextSection(_BaseSection):
     """Stash media server connection settings.
 
@@ -722,6 +766,8 @@ class StashContextSection(_BaseSection):
     # Stash's index commit can lag the job-FINISHED signal by a few hundred
     # ms; reading File/Scene/Image back without a settle window races.
     scan_settle_s: float = Field(default=3.5, ge=0.0, le=30.0)
+    scan_stall_timeout_s: float = Field(default=1800.0, gt=0.0)
+    batches: StashBatchesSection = Field(default_factory=StashBatchesSection)
 
     @field_validator("enable_scene_split", mode="before")
     @classmethod

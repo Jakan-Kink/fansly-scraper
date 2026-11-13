@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from stash_graphql_client.types import Image, Performer, UnsetType, is_set
 
+from helpers.common import clean_mention_handle, fansly_username_from_url
 from metadata import Account, PostMention
 from metadata.models import get_store
 from textio import print_error, print_warning
@@ -55,116 +56,139 @@ class AccountProcessingMixin(StashProcessingProtocol):
             print_warning(f"No account found for username: {self.state.creator_name}")
         return account
 
-    def _performer_from_account(self, account: Account) -> Performer:
-        """Create a Performer object from a Fansly Account (or PostMention).
+    @staticmethod
+    def _performer_identity(account: Account | PostMention) -> tuple[str, str]:
+        """The (username, name) an account or mention is matched on.
 
-        This is a local helper that maps Account model fields to the Performer
-        type from stash-graphql-client. Supports both Account (displayName,
-        username, about) and PostMention (handle) via duck-typing.
+        A mention's handle is cleaned to the username it names. The name is the
+        display name when there is one, else the username.
+        """
+        if isinstance(account, Account):
+            username = account.username
+        else:
+            username = clean_mention_handle(account.handle)
+        return username, getattr(account, "displayName", None) or username
+
+    def _performer_from_account(self, account: Account | PostMention) -> Performer:
+        """Build a new Performer for a Fansly Account or post mention.
 
         Args:
             account: The Account or PostMention to convert
 
         Returns:
-            Performer object suitable for creating/updating in Stash.
-            For new performers, the id field is omitted and auto-generates
-            a UUID4 placeholder.
+            Unsaved Performer named after the account, carrying the username as
+            alias and Fansly profile URL.
         """
-        # Use displayName as the primary name, fallback to username or handle
-        name = (
-            getattr(account, "displayName", None)
-            or getattr(account, "username", None)
-            or getattr(account, "handle", None)
-        )
-        username = getattr(account, "username", None) or getattr(
-            account, "handle", None
-        )
-
-        # Build Fansly profile URL
-        url = f"https://fansly.com/{username}"
-
-        # Create Performer without id (auto-generates UUID4 for new objects)
+        username, name = self._performer_identity(account)
         return Performer(
             name=name,
-            alias_list=[username],  # Username as alias for searchability
-            urls=[url],
-            details=getattr(account, "about", "") or "",  # Biography/about text
+            alias_list=[username],
+            urls=[f"https://fansly.com/{username}"],
+            details=getattr(account, "about", "") or "",
         )
 
-    async def _get_or_create_performer(self, account: Account) -> Performer:
-        """Get existing performer from Stash or create from account if not found.
+    async def _match_performers(
+        self, account: Account | PostMention
+    ) -> list[Performer] | None:
+        """Find the Stash performers that belong to an account or mention.
 
-        IMPORTANT: Performs deduplication checks (name→alias→URL) BEFORE creating.
-        Pattern 1 migration: Use store.find_one() for identity map caching,
-        preserving critical sequential deduplication logic.
+        Matches on the account's own identifiers before its name: every
+        performer carrying its Fansly profile URL, else every performer with
+        the username as an alias, else the single performer with its name.
+        Results are remembered per (username, name) for the processor's life.
 
         Args:
-            account: Account database model to search for or create from
+            account: The Account or PostMention to match
 
         Returns:
-            Performer object from Stash (either found or newly created)
+            Matching performers, lowest id first; an empty list when none
+            match; None when only the name matches and several performers
+            share it.
         """
-        # Determine search criteria from account (or PostMention via duck-typing)
-        search_name = (
-            getattr(account, "displayName", None)
-            or getattr(account, "username", None)
-            or getattr(account, "handle", None)
+        username, name = self._performer_identity(account)
+        if not username:
+            return []
+        key = (username.lower(), name)
+        if key not in self._performer_matches:
+            self._performer_matches[key] = await self._lookup_performers(username, name)
+        return self._performer_matches[key]
+
+    def _all_matched_performers(
+        self, account: Account | PostMention
+    ) -> list[Performer]:
+        """Every performer already matched to an account or mention this run.
+
+        An account can map to more than one Stash performer (each carries its
+        Fansly URL); content gets all of them. Reads the remembered match only,
+        so it is empty until the account has been looked up.
+        """
+        username, name = self._performer_identity(account)
+        return self._performer_matches.get((username.lower(), name)) or []
+
+    async def _lookup_performers(
+        self, username: str, name: str
+    ) -> list[Performer] | None:
+        """Query Stash for performers by Fansly URL, then alias, then name.
+
+        Stash's INCLUDES filters are substring matches, so URL and alias hits
+        are re-checked against the exact username.
+        """
+        wanted = username.lower()
+        by_url = await self.store.find(
+            Performer, url__contains=f"fansly.com/{username}"
         )
-        username = getattr(account, "username", None) or getattr(
-            account, "handle", None
-        )
-        fansly_url = f"https://fansly.com/{username}"
+        matches = [
+            p
+            for p in by_url
+            if is_set(p.urls)
+            and p.urls
+            and any(fansly_username_from_url(url) == wanted for url in p.urls)
+        ]
+        if not matches:
+            by_alias = await self.store.find(Performer, aliases__contains=username)
+            matches = [
+                p
+                for p in by_alias
+                if is_set(p.alias_list)
+                and p.alias_list
+                and any(alias.lower() == wanted for alias in p.alias_list)
+            ]
+        if not matches:
+            matches = await self.store.find(Performer, name__exact=name)
+            if len(matches) > 1:
+                logger.warning(
+                    f"{len(matches)} Stash performers are named {name!r} and none "
+                    f"carries https://fansly.com/{username} as a URL or "
+                    f"{username!r} as an alias; not linking any of them."
+                )
+                return None
+        return sorted(matches, key=lambda p: int(p.id))
 
-        # Cache-first: try sync filter() on preloaded performers before GraphQL.
-        # Performers are preloaded in _preload_stash_entities() at startup.
-        # Sequential name → alias → URL checks prevent duplicates.
-        performer = None
+    async def _get_or_create_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None:
+        """Get the account's Stash performer, creating one when none matches.
 
-        # 1. Exact name match
-        results = self.store.filter(Performer, lambda p: p.name == search_name)
-        if results:
-            logger.debug(f"Cache hit: performer by name: {search_name}")
-            performer = results[0]
-        if not performer:
-            performer = await self.store.find_one(Performer, name__exact=search_name)
+        Args:
+            account: Account or PostMention to search for or create from
 
-        # 2. Alias match (critical for deduplication)
-        if not performer:
-            results = self.store.filter(
-                Performer,
-                lambda p: (
-                    hasattr(p, "alias_list")
-                    and is_set(p.alias_list)
-                    and username in p.alias_list
-                ),
-            )
-            if results:
-                logger.debug(f"Cache hit: performer by alias: {username}")
-                performer = results[0]
-        if not performer:
-            performer = await self.store.find_one(Performer, aliases__contains=username)
-
-        # 3. URL match (catches edge cases)
-        if not performer:
-            results = self.store.filter(
-                Performer,
-                lambda p: (
-                    hasattr(p, "urls") and is_set(p.urls) and fansly_url in p.urls
-                ),
-            )
-            if results:
-                logger.debug(f"Cache hit: performer by URL: {fansly_url}")
-                performer = results[0]
-        if not performer:
-            performer = await self.store.find_one(Performer, url__contains=fansly_url)
-
-        if performer:
-            return performer
-
-        # Not found after all deduplication checks - create new performer
+        Returns:
+            The matching performer with the lowest id, or a newly created one.
+            None when the match is ambiguous between namesakes, or a mention's
+            handle holds no username.
+        """
+        matches = await self._match_performers(account)
+        if matches is None:
+            return None
+        if matches:
+            return matches[0]
+        username, name = self._performer_identity(account)
+        if not username:
+            return None
         logger.debug(f"Creating new performer for account: {username}")
         performer = self._performer_from_account(account)
         await self.store.save(performer)
+        self._performer_matches[username.lower(), name] = [performer]
         return performer
 
     async def process_creator(self) -> tuple[Account, Performer]:
@@ -192,8 +216,13 @@ class AccountProcessingMixin(StashProcessingProtocol):
                 )
 
             logger.debug(f"Processing creator: {account.username}")
-            # Get or create performer using intelligent fuzzy search
             performer = await self._get_or_create_performer(account)
+            if performer is None:
+                raise ValueError(
+                    f"Cannot pick a Stash performer for {account.username}: "
+                    f"several share its name. Add "
+                    f"https://fansly.com/{account.username} to the right one."
+                )
             logger.debug(f"Obtained performer in Stash: {performer}")
             logger.debug(f"Context client (in process_creator): {self.context}")
 
@@ -302,18 +331,16 @@ class AccountProcessingMixin(StashProcessingProtocol):
     async def _find_existing_performer(
         self, account: Account | PostMention
     ) -> Performer | None:
-        """Find existing performer in Stash using identity map.
+        """Find the account's existing Stash performer without creating one.
 
         Args:
-            account: Account to find performer for
+            account: Account or PostMention to find a performer for
 
         Returns:
-            Performer data if found, None otherwise
+            The performer recorded as the account's ``stash_id``, else the
+            matching performer with the lowest id; None when nothing matches or
+            the match is ambiguous between namesakes.
         """
-        # Cache-first: try sync get_cached() (zero-cost after preload),
-        # fall back to async get() only if cache misses.
-        # Uses getattr for duck-typing: works with both Account (stash_id/username)
-        # and PostMention (handle) objects after the Pydantic migration.
         stash_id = getattr(account, "stash_id", None)
         if stash_id:
             try:
@@ -333,24 +360,8 @@ class AccountProcessingMixin(StashProcessingProtocol):
             except Exception as e:
                 logger.debug(f"Failed to get performer by stash_id: {e}")
 
-        # Fallback to name search (cache-first, then GraphQL)
-        # Supports both Account (username) and PostMention (handle) via duck-typing
-        name = account.username if isinstance(account, Account) else account.handle
-        if not name:  # pragma: no cover — username and handle are required str fields
-            return None
-        results = self.store.filter(Performer, lambda p: p.name == name)
-        performer = results[0] if results else None
-        if not performer:
-            performer = await self.store.find_one(Performer, name=name)
-        if performer:
-            debug_print(
-                {
-                    "method": "StashProcessing - _find_existing_performer",
-                    "username": name,
-                    "performer": performer,
-                }
-            )
-        return performer
+        matches = await self._match_performers(account)
+        return matches[0] if matches else None
 
     async def _update_account_stash_id(
         self,

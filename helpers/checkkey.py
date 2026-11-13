@@ -718,7 +718,9 @@ def _shutdown_js_bridge() -> None:
                 thread.join(timeout=2.0)
 
 
-def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
+def guess_check_key(  # noqa: PLR0911
+    user_agent: str, proxy: str | None = None
+) -> str | None:
     """Tries to extract the check key from Fansly's main.js using AST parsing.
 
     This function:
@@ -733,6 +735,8 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
 
     :param user_agent: Browser user agent to use for requests
     :type user_agent: str
+    :param proxy: Proxy URL for both downloads; ``None`` connects directly
+    :type proxy: str | None
     :return: The check key string, or None if extraction fails completely
     :rtype: str | None
     """
@@ -743,19 +747,18 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
     # This is: ["fySzis","oybZy8"].reverse().join("-")+"-bubayf"
     default_check_key = "oybZy8-fySzis-bubayf"
 
-    headers = {
-        "User-Agent": user_agent,
-    }
+    # The explicit transport keeps httpx off proxy environment variables.
+    client = httpx.Client(
+        transport=httpx.HTTPTransport(proxy=proxy),
+        headers={"User-Agent": user_agent},
+        timeout=30.0,
+        follow_redirects=True,
+    )
 
     try:
         # Step 1: Download Fansly homepage to find main.js URL
         textio_logger.debug(f"Downloading Fansly homepage from {fansly_url}...")
-        html_response = httpx.get(
-            fansly_url,
-            headers=headers,
-            timeout=30.0,
-            follow_redirects=True,
-        )
+        html_response = client.get(fansly_url)
 
         if html_response.status_code != 200:
             textio_logger.warning(
@@ -783,12 +786,7 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
 
         # Step 2: Download main.js
         textio_logger.debug(f"Downloading main.js from {main_js_url}...")
-        js_response = httpx.get(
-            main_js_url,
-            headers=headers,
-            timeout=30.0,
-            follow_redirects=True,
-        )
+        js_response = client.get(main_js_url)
 
         if js_response.status_code != 200:
             textio_logger.warning(
@@ -824,6 +822,7 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
         return default_check_key
 
     finally:
+        client.close()
         # Tear down the node bridge subprocess now that checkKey extraction
         # is complete. No other caller uses the bridge, so leaving it alive
         # just wastes RAM and leaves a process to orphan on abrupt shutdown.

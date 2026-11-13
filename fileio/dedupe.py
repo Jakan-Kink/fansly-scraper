@@ -1,6 +1,7 @@
 """Item Deduplication"""
 
 import asyncio
+import filecmp
 import itertools
 import mimetypes
 import multiprocessing
@@ -243,10 +244,12 @@ async def get_or_create_media(
         },
     )
 
-    # Fast path for trusted filenames
+    # Fast path for trusted filenames — only trust an id match that already
+    # carries a content_hash; a hashless record must fall through and be hashed
+    # so the download-path skip check (which requires content_hash) can match it.
     if trust_filename and media_id:
         media_by_id = next((m for m in existing_media if m.id == media_id), None)
-        if media_by_id:
+        if media_by_id and media_by_id.content_hash:
             preserve_existing = False
             if (
                 media_by_id.local_filename
@@ -306,8 +309,10 @@ async def get_or_create_media(
             )
             return media_by_id, hash_verified
 
-        # Calculate hash if needed and not provided
-        if not file_hash and not trust_filename:
+        # Calculate hash if needed. Compute even when trust_filename is set:
+        # an existing record with no content_hash cannot be deduplicated by the
+        # download path until it has one.
+        if not file_hash:
             json_output(
                 1,
                 "get_or_create_media",
@@ -319,12 +324,9 @@ async def get_or_create_media(
                 },
             )
 
-            if "image" in mimetype:
-                file_hash = await asyncio.to_thread(get_hash_for_image, file_path)
-            elif "video" in mimetype or "audio" in mimetype:
-                file_hash = await asyncio.to_thread(
-                    get_hash_for_other_content, file_path
-                )
+            # Resilient: a corrupt/unreadable file yields None (skip) rather
+            # than crashing the whole scan.
+            file_hash = await _calculate_hash_for_file(file_path, mimetype)
 
         # If we have a hash now, verify it matches
         if (
@@ -407,8 +409,10 @@ async def get_or_create_media(
         return media_by_hash, hash_verified
 
     # If we get here, we need to create new media
-    # Calculate hash if needed and not provided
-    if not file_hash and not trust_filename:
+    # Calculate hash if needed. Compute even under trust_filename: a newly
+    # created downloaded record with no content_hash would re-download forever
+    # (the download-path skip check requires content_hash).
+    if not file_hash:
         json_output(
             1,
             "get_or_create_media",
@@ -418,10 +422,9 @@ async def get_or_create_media(
                 "mimetype": mimetype,
             },
         )
-        if "image" in mimetype:
-            file_hash = await asyncio.to_thread(get_hash_for_image, file_path)
-        elif "video" in mimetype or "audio" in mimetype:
-            file_hash = await asyncio.to_thread(get_hash_for_other_content, file_path)
+        # Resilient: a corrupt/unreadable file yields None (skip) rather than
+        # crashing the whole scan.
+        file_hash = await _calculate_hash_for_file(file_path, mimetype)
 
     # Create new media
     account_id = await get_account_id(state)
@@ -501,6 +504,40 @@ async def categorize_file(
     if media_id:
         return "media_id", (file_path, media_id, mimetype)
     return "needs_hash", (file_path, mimetype)
+
+
+async def _take_recorded_name(file_path: Path, media: Media, names: set[str]) -> None:
+    """Give a scanned file the name its Media record carries.
+
+    The scan records a legacy file under its clean name (hash suffix dropped,
+    time in UTC). The file has to carry that name too, or the record is dropped
+    as missing and the media is downloaded again. A file whose clean name is
+    already taken beside it by an identical file is removed as a duplicate; one
+    that differs stays, as does a file whose recorded name belongs to a copy
+    somewhere else under the creator. A file matched to another media's record
+    by content hash is not touched.
+
+    Args:
+        file_path: The file as the scan found it
+        media: The record the scan matched or created for it
+        names: File names on disk, updated in place
+    """
+    recorded = media.local_filename
+    if (
+        not recorded
+        or recorded == file_path.name
+        or get_id_from_filename(file_path.name)[0] != media.id
+    ):
+        return
+    target = file_path.with_name(recorded)
+    if await asyncio.to_thread(target.exists):
+        if await asyncio.to_thread(filecmp.cmp, file_path, target, shallow=False):
+            await asyncio.to_thread(file_path.unlink)
+            names.discard(file_path.name)
+    elif recorded not in names:
+        await asyncio.to_thread(file_path.rename, target)
+        names.discard(file_path.name)
+        names.add(recorded)
 
 
 async def dedupe_init(
@@ -588,6 +625,8 @@ async def dedupe_init(
         for f in await safe_rglob(state.download_path, "*")
         if await asyncio.to_thread(f.is_file)
     ]
+    # File names on disk, kept current as the scan renames and removes files.
+    names = {f.name for f in all_files}
     file_batches: dict[str, list[Any]] = {
         "hash2": [],  # (file_path, media_id, mimetype, hash2_value)
         "media_id": [],  # (file_path, media_id, mimetype)
@@ -623,7 +662,7 @@ async def dedupe_init(
             )
             for file_path, media_id, mimetype, hash2_value in file_batches["hash2"]:
                 new_name = hash2_pattern.sub("", file_path.name)
-                _, hash_verified = await get_or_create_media(
+                media, hash_verified = await get_or_create_media(
                     file_path=file_path.with_name(new_name),
                     media_id=media_id,
                     mimetype=mimetype,
@@ -632,6 +671,7 @@ async def dedupe_init(
                     trust_filename=True,
                     config=config,
                 )
+                await _take_recorded_name(file_path, media, names)
                 if hash_verified:
                     preserved_count += 1
                 progress_mgr.update_task(hash2_task, advance=1)
@@ -674,6 +714,10 @@ async def dedupe_init(
                 chunk = file_batches["media_id"][i : i + chunk_size]
                 id_tasks = [process_file(file_info) for file_info in chunk]
                 id_results = await asyncio.gather(*id_tasks)
+                for (file_path, _id, _mimetype), (media, _verified) in zip(
+                    chunk, id_results, strict=True
+                ):
+                    await _take_recorded_name(file_path, media, names)
                 processed_count += sum(
                     1 for _, hash_verified in id_results if hash_verified
                 )
@@ -796,7 +840,7 @@ async def dedupe_init(
 
             needs_update = False
             if media.local_filename:
-                if any(f.name == media.local_filename for f in all_files):
+                if media.local_filename in names:
                     progress_mgr.update_task(db_check_task, advance=1)
                     continue
                 # File marked as downloaded but not found - clean up record

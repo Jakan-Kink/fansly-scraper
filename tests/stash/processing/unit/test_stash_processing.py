@@ -151,24 +151,26 @@ class TestStashProcessingPerformer:
         if hasattr(respx_stash_processor._find_existing_performer, "cache_clear"):
             respx_stash_processor._find_existing_performer.cache_clear()
 
+        found = create_graphql_response("findPerformers", performers_result)
+        none_found = create_graphql_response(
+            "findPerformers", create_find_performers_result(count=0, performers=[])
+        )
+
         # Create chained responses for 3 test cases
         responses = [
             # Case 1: Find by ID (account has stash_id) - uses findPerformer
             httpx.Response(
                 200, json=create_graphql_response("findPerformer", performer_data)
             ),
-            # Case 2: Find by username (no stash_id) - uses findPerformers
-            httpx.Response(
-                200, json=create_graphql_response("findPerformers", performers_result)
-            ),
-            # Case 3: Not found (returns empty result)
-            httpx.Response(
-                200,
-                json=create_graphql_response(
-                    "findPerformers",
-                    create_find_performers_result(count=0, performers=[]),
-                ),
-            ),
+            # Case 2: no stash_id - URL and alias searches miss, the name hits
+            httpx.Response(200, json=none_found),  # URL search
+            httpx.Response(200, json=none_found),  # alias search
+            httpx.Response(200, json=found),  # name search: count
+            httpx.Response(200, json=found),  # name search: fetch
+            # Case 3: nothing matches any of the three searches
+            httpx.Response(200, json=none_found),
+            httpx.Response(200, json=none_found),
+            httpx.Response(200, json=none_found),
         ]
 
         # Set up route with chained responses
@@ -206,8 +208,8 @@ class TestStashProcessingPerformer:
         assert performer_1.id == "123"
         assert performer_1.name == "test_user"
 
-        # Inspect the first HTTP request
-        assert len(graphql_route.calls) == 3
+        # 1 lookup by id, 4 for the name hit, 3 for the miss
+        assert len(graphql_route.calls) == 8
         assert_op_with_vars(graphql_route.calls[0], "findPerformer", id="123")
 
         # Verify Case 2: performer was found by username
@@ -223,11 +225,9 @@ class TestStashProcessingPerformer:
         # Verify Case 3: no performer found
         assert performer_3 is None
 
-        # Inspect the third HTTP request
-        request_body = json.loads(graphql_route.calls[2].request.content)
-        assert (
-            "findPerformers" in request_body["query"]
-        )  # Note: plural when searching by name
+        # Every search after the id lookup is a findPerformers query
+        for call in graphql_route.calls[1:]:
+            assert "findPerformers" in json.loads(call.request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(self, respx_stash_processor):

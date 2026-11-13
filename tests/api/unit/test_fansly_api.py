@@ -462,6 +462,26 @@ class TestFanslyApi:
         assert get_request.headers["Origin"] == FanslyApi.FANSLY_HOST
 
     @pytest.mark.asyncio
+    async def test_zero_max_retries_still_sends_one_request(self, respx_fansly_api):
+        """api_max_retries of 0 still makes one attempt, async and sync."""
+        respx_fansly_api.config.api_max_retries = 0
+        test_url = f"{respx_fansly_api.BASE_URL}test_endpoint"
+        get_route = respx.get(test_url).mock(
+            side_effect=[httpx.Response(200), httpx.Response(204)]
+        )
+
+        try:
+            async_response = await respx_fansly_api.get_with_ngsw(url=test_url)
+            sync_response = respx_fansly_api.get_with_ngsw_sync(url=test_url)
+        finally:
+            dump_fansly_calls(get_route.calls, "test_zero_max_retries")
+
+        assert get_route.call_count == 2
+        assert isinstance(async_response, httpx.Response)
+        assert isinstance(sync_response, httpx.Response)
+        assert (async_response.status_code, sync_response.status_code) == (200, 204)
+
+    @pytest.mark.asyncio
     async def test_update_device_id_within_timeframe(self, fansly_api_factory):
         """Test update_device_id is a no-op if within time window.
 

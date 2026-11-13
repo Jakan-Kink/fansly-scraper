@@ -4,6 +4,9 @@ import asyncio
 import atexit
 import contextlib
 import logging
+import multiprocessing
+import os
+import signal
 import time
 import tomllib
 from pathlib import Path
@@ -37,7 +40,9 @@ from errors import (
 from fansly_downloader_ng import (
     _async_main,
     _check_stash_library_version,
+    _exit_without_teardown,
     _handle_interrupt,
+    _handle_terminate,
     _safe_cleanup_database,
     cleanup_database,
     cleanup_database_sync,
@@ -46,6 +51,7 @@ from fansly_downloader_ng import (
     load_client_account_into_db,
     print_logo,
 )
+from helpers.rich_progress import get_progress_manager
 from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils import scaled_async_sleep
@@ -671,6 +677,45 @@ def test_handle_interrupt_second_call_forces_sys_exit(caplog, monkeypatch):
     )
 
 
+def test_handle_terminate_raises_once_and_flags_config(caplog):
+    """The first SIGTERM flags the config and raises; a repeat does nothing."""
+    caplog.set_level(logging.ERROR)
+    config = FanslyConfig(program_version="0.13.0")
+
+    with pytest.raises(KeyboardInterrupt, match="Termination requested"):
+        _handle_terminate(config, signal.SIGTERM, None)
+    flagged_after_first = config._terminate_requested
+    _handle_terminate(config, signal.SIGTERM, None)
+
+    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert flagged_after_first is True
+    assert sum("Termination requested" in m for m in error_messages) == 1
+
+
+def test_exit_without_teardown_stops_display_and_children(monkeypatch):
+    """Before os._exit, the progress display is stopped and child processes ended."""
+    exit_codes: list[int] = []
+    monkeypatch.setattr(os, "_exit", exit_codes.append)
+    child = multiprocessing.get_context("spawn").Process(target=time.sleep, args=(30,))
+    child.start()
+    progress = get_progress_manager()
+    try:
+        with progress.session():
+            live_before = progress.live is not None
+            _exit_without_teardown(7)
+            live_after = progress.live
+        child.join(timeout=5)
+        child_exit_code = child.exitcode
+    finally:
+        if child.is_alive():
+            child.kill()
+
+    assert live_before is True
+    assert live_after is None
+    assert child_exit_code == -signal.SIGTERM
+    assert exit_codes == [7]
+
+
 # cleanup_with_global_timeout tests — covers lines 695-803.
 
 
@@ -1094,39 +1139,25 @@ async def test_cleanup_with_global_timeout_db_no_time_remaining(
     ), f"Expected no-time-for-db warning, got WARNING: {warning_messages}"
 
 
-async def test_cleanup_with_global_timeout_semaphore_exception(
-    config_with_database, caplog, monkeypatch
+@pytest.mark.parametrize(("terminating", "unloads"), [(False, True), (True, False)])
+async def test_cleanup_with_global_timeout_unloads_unless_terminating(
+    config_with_database, caplog, terminating, unloads
 ):
-    """cleanup_with_global_timeout catches exceptions from semaphore cleanup.
-
-    Covers lines 795-796: ``except Exception`` around the semaphore block.
-    """
-    caplog.set_level(logging.WARNING)
+    """The memory phase empties the entity cache, except on the SIGTERM exit."""
+    caplog.set_level(logging.INFO)
     config = config_with_database
-
-    call_count = {"n": 0}
-
-    def _raise_on_second_call(*_args, **_kwargs):
-        # monitor_semaphores is called once in an earlier ``suppress`` block,
-        # then again in the semaphore cleanup block at the tail. Raise only
-        # on the tail-side call.
-        call_count["n"] += 1
-        if call_count["n"] >= 2:
-            raise RuntimeError("semaphore monitor boom")
-
-    monkeypatch.setattr(
-        "fansly_downloader_ng.monitor_semaphores", _raise_on_second_call
-    )
+    store = await config._database.create_entity_store()
+    await store.save(Account(id=snowflake_id(), username="unload_phase"))
+    cached_before = store.cache_stats()["total"]
+    config._terminate_requested = terminating
 
     await cleanup_with_global_timeout(config)
 
-    warning_messages = [
-        r.getMessage() for r in caplog.records if r.levelname == "WARNING"
-    ]
-    assert any(
-        "Error during semaphore cleanup" in m and "semaphore monitor boom" in m
-        for m in warning_messages
-    ), f"Expected semaphore-error warning, got WARNING: {warning_messages}"
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert cached_before == 1
+    assert any("cleanup phase db" in m for m in info_messages)
+    assert any("cleanup phase memory" in m for m in info_messages) is unloads
+    assert store.cache_stats()["total"] == (0 if unloads else 1)
 
 
 # _async_main partial-branch and finally-exception tests — 812->819, 825, 844-850.
@@ -1526,60 +1557,7 @@ async def test_cleanup_with_global_timeout_websocket_outer_exception_from_print_
     ), f"Expected outer-WS-exception warning, got WARNING: {warning_messages}"
 
 
-# cleanup_with_global_timeout time-based branches — covers line 794 + partials.
-
-
-async def test_cleanup_with_global_timeout_no_time_for_semaphore_cleanup(
-    config_with_database, caplog, monkeypatch
-):
-    """cleanup_with_global_timeout logs "No time remaining" for semaphores.
-
-    Covers line 794: the ``else`` branch of ``if remaining_time > 0`` in
-    the semaphore cleanup block.
-
-    Requires a time.time() sequence where elapsed is < 40s at the DB
-    stage (line 770) but >= 40s at the semaphore stage (line 787). We
-    return start, start+10, start+20, start+30, start+50, start+60 for
-    the six time.time() call sites — counted in-order at
-    ``fansly_downloader_ng.py:688, 727, 752, 770, 787, 798``.
-    """
-    caplog.set_level(logging.WARNING)
-    config = config_with_database
-
-    real_time = time.time
-    start = real_time()
-    call_count = {"n": 0}
-
-    # time.time() call sites in cleanup_with_global_timeout, in order:
-    # 1) line 688: cleanup_start anchor
-    # 2) line 727: stash_timeout calc (only if stash_tasks non-empty)
-    # 3) line 752: background_timeout calc (only if background_tasks non-empty)
-    # 4) line 770: db_timeout calc
-    # 5) line 787: semaphore remaining_time calc (we want this >= 40)
-    # 6) line 798: total_cleanup_time (doesn't matter for coverage)
-    #
-    # With no stash/background tasks, calls 2+3 are skipped. So our
-    # sequence must be:
-    #   call 1 (line 688): 0 (anchor)
-    #   call 2 (line 770): <40 so db_timeout > 0 (enter DB cleanup)
-    #   call 3 (line 787): >=40 so remaining_time <= 0 (hit else branch on 793-794)
-    elapsed_sequence = [0, 10, 50, 60]
-
-    def _fake_time():
-        idx = min(call_count["n"], len(elapsed_sequence) - 1)
-        call_count["n"] += 1
-        return start + elapsed_sequence[idx]
-
-    monkeypatch.setattr("fansly_downloader_ng.time.time", _fake_time)
-
-    await cleanup_with_global_timeout(config)
-
-    warning_messages = [
-        r.getMessage() for r in caplog.records if r.levelname == "WARNING"
-    ]
-    assert any(
-        "No time remaining for semaphore cleanup" in m for m in warning_messages
-    ), f"Expected semaphore no-time warning, got WARNING: {warning_messages}"
+# cleanup_with_global_timeout time-based branches.
 
 
 async def test_cleanup_with_global_timeout_stash_wait_skipped_when_no_time(

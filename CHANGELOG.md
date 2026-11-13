@@ -12,17 +12,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- **Python 3.15 support.** The downloader now installs and runs on Python 3.12 through 3.15. The locked dependencies were updated to versions that publish Python 3.15 wheels (including Pillow 13, numpy 2.5.4, pydantic 2.14 and psycopg 3.3.6), so a 3.15 install no longer has to compile them from source, and greenlet now requires 3.5.6 or newer, since earlier versions break SQLAlchemy's async engine on 3.15. The optional `browser-auth` group's `plyvel-ci` has no prebuilt wheel for 3.15, the same as 3.14, so it still builds from source against an installed LevelDB.
+- **Python 3.15 support.** The downloader runs on Python 3.12 through 3.15.
+- **Stash page sizes (`stash_context.batches`).** `tags`, `files` and `galleries` set how many items each Stash request fetches.
+- **`stash_context.scan_stall_timeout_s`.** How long to wait on a stalled Stash scan (default 30 minutes).
+- **Proxy support (`options.proxy`, `--proxy`).** Every Fansly connection can go through an HTTP or SOCKS5 proxy.
 
 ### Changed
 
-- **asyncpg constraint widened to `>=0.30.0,<0.33.0` (lock now 0.32.0).** asyncpg 0.32 changes the pool's `min_size` from an initial size into a maintained floor, so the downloader now keeps its minimum connections (2 on the main pool, 1 per worker-thread pool) open for the whole run (including daemon mode) instead of letting them close after 5 idle minutes, and reopens them in the background if Postgres restarts. The re-import crash tracked in MagicStack/asyncpg#1292 is unchanged in 0.32; its root cause is in Cython (cython/cython#8048) and it remains unreachable from normal app use.
+- **Media lookups ask for fewer items per request.** Fansly was rate-limiting the larger lookups; `options.account_media_batch_size` sets the size (default 100).
+- **The rate limiter speeds back up gradually after a 429.** The slower pace is lifted one step per run of successful requests, set by `options.rate_limiting_success_requests` (default 250), instead of all at once.
+- **`kill` (SIGTERM) now shuts down cleanly and exits with status 0.** It used to end the program on the spot.
+- **`options.repair_previews` now fixes every file's name, not only previews.** Names whose time disagrees with the database are corrected, and identical duplicate copies are removed.
+- **With `stash_context.enable_scene_split`, a Stash scene that mixes Fansly files with another source's is separated in both directions.** The other source's files move to a scene of their own.
+- **Proxy environment variables and system proxy settings are no longer followed.** Some connections used them and others did not; set `options.proxy` instead.
+- **Dependency updates.** asyncpg, `filelock` and others moved to newer versions, and `sniffio` is now required. Run `poetry install` after updating.
+
+### Performance
+
+- **Stash sync sends far fewer requests.** Tag, gallery and file lookups are batched, and already-synced media are no longer re-read one at a time.
+
+### Removed
+
+- **POSIX semaphore monitoring.** The semaphore checks at startup, after each creator and at shutdown are gone.
 
 ### Fixed
 
-- **`pg_sslmode`, `pg_sslcert`, `pg_sslkey` and `pg_sslrootcert` now take effect.** They were read from `config.yaml` but never passed to any connection, so every run used the driver default (`prefer`) whatever you configured. They now apply to the database pools and the migration engine. If you set `pg_sslmode: require` or stricter against a server without SSL, the downloader now refuses to connect instead of silently connecting unencrypted.
-- **Database passwords with special characters no longer break startup migrations.** If you set `FANSLY_PG_PASSWORD` to a password containing characters such as `@`, `:`, `/`, `%` or `#`, the migration step crashed with `invalid interpolation syntax`; a space was sent as `+`; and `pg_user: null` produced the literal user `None`. Credentials now reach the migration engine exactly as configured.
-- **Firefox token detection handles a running Firefox again.** A locked Firefox storage database was silently skipped, so the "close Firefox and retry" prompt never appeared; it now prompts in interactive mode and skips (without closing the browser) in non-interactive mode, as the LevelDB browsers already did. The Firefox reader also no longer leaks an open SQLite connection per database it scans.
+- **PostgreSQL SSL settings now take effect.** `pg_sslmode` and the `pg_ssl*` certificate paths were ignored. With `pg_sslmode: require` or stricter, a server without SSL is now refused.
+- **Database passwords with special characters no longer break startup.**
+- **Firefox token detection handles a running Firefox again.** It asks you to close Firefox instead of silently skipping it.
+- **`stash_context.scan_settle_s` is no longer reset when the config file is saved.**
+- **Memory no longer grows with every livestream recorded.** Segments are written straight to disk instead of being held in memory.
+- **Python's garbage collector keeps running in long runs.** It nearly stopped once the metadata database was loaded, worst on Python 3.14.0 to 3.14.4.
+- **A livestream segment that fails to download is retried.** It used to be dropped and could cost a second segment.
+- **`api_max_retries: 0` no longer stops API requests from being sent.**
+- **A scene split no longer fails a creator's Stash sync with `cannot reassign primary file`.**
+- **A Stash scan that is cancelled, fails or never starts no longer hangs the run.**
+- **Scans no longer get stuck on Stash development builds.** The downloader cancels a scan Stash will never start and queues it again.
+- **Re-running over content already synced to Stash no longer rewrites it.** Edits made to a post after its first sync are no longer pushed to Stash.
+- **Files from Fansly Downloader NG 0.9.9 are no longer downloaded a second time after migrating (#120).** The startup scan now gives them their clean names and records a hash for every file.
+- **A video with a damaged or zero-length last block no longer hangs the downloader while its hash is computed.**
+- **Media a creator quotes from someone else is credited in Stash to the original post and its author.** It used to get the quoting creator's text, performer and studio; content synced that way is corrected on the next run, except items marked organized.
+- **Quoted media is saved under the original creator's folder when you already have one for them.**
+- **The same media saved under two creator folders is now synced to Stash.** It used to be skipped with a `foreign co-resident` error on every run.
+- **A preview used in both a post and a message takes the post's details in Stash.**
+- **Stash client messages now reach the stash log.** Its debug lines are only included with `-vv`.
+- **Stash performers are matched by Fansly URL, then username, then name.** If only the name matches and several performers share it, none is linked and you are asked to add the Fansly URL to the right one. A mention followed by punctuation now resolves to the right account.
 
 ## [0.15.1] - 2026-07-14
 

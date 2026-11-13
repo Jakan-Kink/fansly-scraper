@@ -7,6 +7,7 @@ import atexit
 import base64
 import contextlib
 import faulthandler
+import multiprocessing
 import os
 import signal
 import sys
@@ -14,6 +15,7 @@ import threading
 import time
 import tomllib
 import traceback
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -57,6 +59,7 @@ from download.core import (
     print_download_info,
 )
 from download.statistics import (
+    memory_summary,
     print_global_statistics,
     print_statistics,
     print_timing_statistics,
@@ -79,7 +82,11 @@ from errors import (
 from fileio.dedupe import dedupe_init
 from fileio.preview_repair import repair_preview_folder_items
 from helpers.common import expect_dict, open_location, parse_timestamp
-from helpers.rich_progress import get_progress_manager, get_rich_console
+from helpers.rich_progress import (
+    _shutdown_progress_live,
+    get_progress_manager,
+    get_rich_console,
+)
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
@@ -87,12 +94,12 @@ from metadata.subscriptions import process_subscriptions_response
 from textio import (
     input_enter_continue,
     json_output,
+    print_debug,
     print_error,
     print_info,
     print_warning,
     set_window_title,
 )
-from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
 def _resolve_version() -> str:
@@ -189,9 +196,6 @@ async def _safe_cleanup_database(config: FanslyConfig) -> None:
         with contextlib.suppress(Exception):
             config._database.close_sync()
 
-    with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)
-
 
 async def cleanup_database(config: FanslyConfig) -> None:
     """Clean up database connections when the program exits.
@@ -207,10 +211,6 @@ async def cleanup_database(config: FanslyConfig) -> None:
             print_error(f"Error during database cleanup: {e}")
     else:
         print_info("No database to clean up or database already closed.")
-
-    # Always check for leaked semaphores
-    with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)
 
 
 def cleanup_database_sync(config: FanslyConfig) -> None:
@@ -236,8 +236,6 @@ def cleanup_database_sync(config: FanslyConfig) -> None:
             print_info("Database connections closed successfully.")
         except Exception as e:
             print_error(f"Error closing database connections: {e}")
-    monitor_semaphores(threshold=20)  # Report any leaked semaphores
-    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
 
 def print_logo() -> None:
@@ -262,6 +260,32 @@ def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: AR
     _handle_interrupt.interrupted = True  # type: ignore[attr-defined]
     # Raise KeyboardInterrupt to break out of blocking operations
     raise KeyboardInterrupt("User interrupted operation")
+
+
+def _handle_terminate(
+    config: FanslyConfig,
+    signum: int,  # noqa: ARG001
+    frame: FrameType | None,  # noqa: ARG001
+) -> None:
+    """Handle SIGTERM: shut down like Ctrl+C, then exit without teardown."""
+    if config._terminate_requested:
+        return
+    config._terminate_requested = True
+    print_error("\nTermination requested")
+    raise KeyboardInterrupt("Termination requested")
+
+
+def _exit_without_teardown(exit_code: int) -> None:
+    """End the process now, skipping exit handlers and interpreter teardown.
+
+    Does by hand the three things those would still have done after cleanup.
+    """
+    _shutdown_progress_live()
+    for child in multiprocessing.active_children():
+        child.terminate()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)
 
 
 def increase_file_descriptor_limit() -> None:
@@ -328,9 +352,6 @@ async def main(config: FanslyConfig) -> int:
     :return: The exit code of the program.
     :rtype: int
     """
-    # Check semaphores at start of main
-    monitor_semaphores(threshold=20)  # Check what semaphores exist at main start
-
     exit_code = EXIT_SUCCESS
 
     timer = Timer("Total")
@@ -371,9 +392,6 @@ async def main(config: FanslyConfig) -> int:
             "Internal error - user name and download mode should not be empty after validation."
         )
 
-    # Check semaphores before database initialization
-    monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
-
     # Initialize database first since we need it for deduplication
     print_info(
         f"Using global PostgreSQL database: {config.pg_database} "
@@ -383,6 +401,8 @@ async def main(config: FanslyConfig) -> int:
     await config._database.create_entity_store()
     # Register cleanup function to ensure database is closed on exit
     _register_db_cleanup_once(config)
+    # Before any Stash entity exists: those must stay collectable.
+    config._database.freeze_heap()
 
     # Set up and print API information
     await config.setup_api()
@@ -588,6 +608,7 @@ async def main(config: FanslyConfig) -> int:
                             global_download_state, download_state=state
                         )
                         print_statistics(config, state)
+                        print_debug(f"Memory: {memory_summary()}")
 
                         # open download folder
                         if state.base_path is not None:
@@ -616,8 +637,6 @@ async def main(config: FanslyConfig) -> int:
                                     exit_code = SOME_USERS_FAILED
 
                             await stash_processor.cleanup()
-                        monitor_semaphores(threshold=20)
-                        cleanup_semaphores(r"/mp-.*")
 
                     finally:
                         # Log creator processing time
@@ -776,9 +795,6 @@ async def main(config: FanslyConfig) -> int:
             print_error(f"Error in background tasks: {e}")
             config.cancel_background_tasks()
         print_info("All background tasks completed or cancelled.")
-
-    monitor_semaphores(threshold=20)  # Warn if too many semaphores
-    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
     # CBT-delta apply: process WS events captured during the initial
     # sync. Downstream handlers dedup against the database, so items
@@ -948,20 +964,12 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             print_error(f"Error during database cleanup: {db_error}")
         phase_done("db")
 
-        # Finally clean up any remaining semaphores if time allows
-        phase_starts["semaphores"] = time.perf_counter()
-        try:
-            remaining_time = max_cleanup_time - (time.time() - cleanup_start)
-            if remaining_time > 0:
-                print_info("Cleaning up semaphores...")
-                monitor_semaphores(threshold=20)
-                cleanup_semaphores(r"/mp-.*")
-                print_info("Semaphore cleanup completed")
-            else:
-                print_warning("No time remaining for semaphore cleanup")
-        except Exception as e:
-            print_warning(f"Error during semaphore cleanup: {e}")
-        phase_done("semaphores")
+        # A SIGTERM exit skips interpreter teardown, so it has nothing to unload.
+        if config._database is not None and not config._terminate_requested:
+            phase_starts["memory"] = time.perf_counter()
+            print_info("Releasing preloaded data...")
+            config._database.unload()
+            phase_done("memory")
 
         total_cleanup_time = time.time() - cleanup_start
         print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
@@ -990,7 +998,7 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
         remove_start = time.time()
         print_info("Closing log sinks...")
         try:
-            from config.logging import remove_tracked_handlers  # noqa: PLC0415, I001  # circular: config.logging imports FanslyConfig
+            from config.logging import remove_tracked_handlers  # noqa: PLC0415  # circular: config.logging imports FanslyConfig
 
             remove_tracked_handlers()
         except Exception as exc:
@@ -1097,9 +1105,6 @@ async def _async_main(config: FanslyConfig) -> int:
 
 
 if __name__ == "__main__":
-    # Start monitoring semaphores before anything else
-    monitor_semaphores(threshold=20)  # Initial baseline check
-
     # Increase file descriptor limit
     increase_file_descriptor_limit()
 
@@ -1108,6 +1113,7 @@ if __name__ == "__main__":
 
     # Set up signal handling (for both Unix and Windows)
     signal.signal(signal.SIGINT, _handle_interrupt)
+    signal.signal(signal.SIGTERM, partial(_handle_terminate, config))
     # Additional Windows-specific signal handling
     if sys.platform == "win32":
         with contextlib.suppress(AttributeError, ValueError):
@@ -1154,6 +1160,10 @@ if __name__ == "__main__":
             if not loop.is_closed():
                 loop.stop()
                 loop.close()
+        if config._terminate_requested:
+            # A requested stop is a success, whatever it interrupted.
+            _shutdown_phase("SIGTERM; exiting without interpreter teardown")
+            _exit_without_teardown(EXIT_SUCCESS)
         _shutdown_phase("loop closed; falling through to Py_Finalize")
 
         # # Force exit after 5 seconds

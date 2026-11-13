@@ -14,6 +14,7 @@ also ``tags=[]``) so ``_stamp_metadata``'s add_performer/add_tag stay in-memory.
 """
 
 import io
+from pathlib import Path
 
 import httpx
 import pytest
@@ -86,6 +87,54 @@ class TestProcessMediaFastPath:
         assert scene.code == str(media.id)
         assert scene.title
         assert scene.details == mock_item.content
+        assert media.stash_id == 700
+
+    @pytest.mark.asyncio
+    async def test_fast_path_scene_other_creators_copy_primary_stamps(
+        self, respx_stash_processor, mock_item, mock_account
+    ):
+        """Another creator's copy of the media is files[0] -> still ours, stamp.
+
+        The same media saved under two creators is merged by Stash into one
+        scene; whichever copy is primary, the scene is stamped in place and no
+        split is attempted.
+        """
+        respx_stash_processor.config.download_directory = Path("/dl")
+        respx_stash_processor.config.stash_enable_scene_split = True
+        media = MediaFactory.build(
+            is_downloaded=True, mimetype="video/mp4", local_filename="x_id_42.mp4"
+        )
+        media.stash_id = 700
+        studio = seed_processor_caches(respx_stash_processor, mock_account)
+        scene_data = create_scene_dict(
+            id="700",
+            title="Test Scene",
+            performers=[],
+            tags=[],
+            files=[
+                create_video_file_dict("499", "/dl/original_poster/x_id_42.mp4"),
+                create_video_file_dict("500", "/dl/test_user/x_id_42.mp4"),
+            ],
+        )
+        # One call: the fast-path store.get → findScene.
+        route = respx.post(_GRAPHQL_URL).mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findScene", scene_data)
+                )
+            ]
+        )
+
+        try:
+            result = await respx_stash_processor._process_media_fast_path(
+                media, mock_item, mock_account, studio
+            )
+        finally:
+            dump_graphql_calls(route.calls, "fast_path_other_creators_copy_primary")
+
+        assert route.call_count == 1
+        assert [scene.id for scene in result] == ["700"]
+        assert result[0].code == str(media.id)
         assert media.stash_id == 700
 
     @pytest.mark.asyncio

@@ -801,6 +801,13 @@ class TestGuessCheckKey:
         assert homepage_route.called
         assert mainjs_route.called
 
+    def test_downloads_go_through_the_proxy(self, mock_shutdown, socks5_proxy):
+        """The homepage request reaches the proxy, which refuses real hosts."""
+        result = guess_check_key("Mozilla/5.0", socks5_proxy.url())
+
+        assert result == "oybZy8-fySzis-bubayf"
+        assert socks5_proxy.targets == [("fansly.com", 443)]
+
     def test_homepage_non_200(self, mock_shutdown, respx_fansly_api):
         """Homepage returns non-200 → default key."""
         homepage_route = respx.get(FANSLY_HOMEPAGE).mock(

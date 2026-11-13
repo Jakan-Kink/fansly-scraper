@@ -1697,8 +1697,8 @@ class PostgresEntityStore:
     async def close(self) -> None:
         """Close thread pools.
 
-        Skips ``_cache.clear()`` — OS reclaims the heap at process exit
-        faster than the decref cascade over the cross-referenced graph.
+        Leaves the cache in place; ``Database.unload`` releases it as its own
+        timed shutdown step.
         """
         await self.close_thread_resources()
         with self._cache_lock:

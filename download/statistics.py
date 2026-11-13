@@ -4,10 +4,47 @@ This module handles both content statistics (pictures, videos, etc.) and file do
 statistics (total files, sizes, etc.), as well as timing statistics.
 """
 
+import gc
+import sys
+
+import psutil
+
 from config import FanslyConfig
 from download.core import DownloadState, GlobalState
 from helpers.timer import Timer
+from metadata.models import get_store
 from textio import print_info
+
+
+def memory_summary() -> str:
+    """Describe process memory and in-memory metadata occupancy on one line.
+
+    Live blocks count the interpreter's allocations, so unlike RSS they do not
+    drop when the OS swaps pages out. Swap is the process's swapped-out size,
+    which only Linux reports.
+
+    Returns:
+        RSS, swap where reported, live block count, garbage collector totals,
+        and metadata entries by type, largest first
+    """
+    stats = get_store().cache_stats()
+    by_type = ", ".join(
+        f"{name}={count:,}"
+        for name, count in sorted(stats["by_type"].items(), key=lambda kv: -kv[1])
+    )
+    memory = psutil.Process().memory_full_info()
+    swap = getattr(memory, "swap", None)
+    swapped = f", swap {swap / 1024**3:.2f} GiB" if swap is not None else ""
+    generations = gc.get_stats()
+    runs = sum(generation["collections"] for generation in generations)
+    freed = sum(generation["collected"] for generation in generations)
+    return (
+        f"RSS {memory.rss / 1024**3:.2f} GiB{swapped}, "
+        f"{sys.getallocatedblocks():,} live blocks, "
+        f"collector {runs:,} runs, {freed:,} freed, "
+        f"{gc.get_freeze_count():,} frozen, "
+        f"metadata {stats['total']:,} entries ({by_type})"
+    )
 
 
 def print_timing_statistics(timer: Timer) -> None:

@@ -72,7 +72,7 @@ class FanslyConfigFactory(Factory):
     use_following = False
     reverse_order = False
     DUPLICATE_THRESHOLD = 50
-    BATCH_SIZE = 150
+    account_media_batch_size = 100
     config_path = None
     token_from_browser_name = None
     debug = False

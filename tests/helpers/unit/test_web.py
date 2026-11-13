@@ -18,7 +18,7 @@ from tests.fixtures.api import dump_fansly_calls
 
 
 GITHUB_RELEASES_URL = (
-    "https://api.github.com/repos/prof79/fansly-downloader-ng/releases/latest"
+    "https://api.github.com/repos/Jakan-Kink/fansly-scraper/releases/latest"
 )
 
 
@@ -248,19 +248,12 @@ class TestGetReleaseInfoFromGithub:
             )
 
             try:
-                # Arm 1: success
-                assert get_release_info_from_github("1.0.0") == release_json
-                # Arm 2: non-200 (204) status -- passes raise_for_status()
-                assert get_release_info_from_github("1.0.0") is None
-                # Arm 3: network error
-                assert get_release_info_from_github("1.0.0") is None
-                # Arm 4: timeout
-                assert get_release_info_from_github("1.0.0") is None
-                # Arm 5: HTTP 500 -> raise_for_status raises
-                assert get_release_info_from_github("1.0.0") is None
+                # One call per arm, in the order of the side_effect list.
+                results = [get_release_info_from_github("1.0.0") for _ in range(5)]
             finally:
                 dump_fansly_calls(route.calls, "GitHub release info calls")
 
+            assert results == [release_json, None, None, None, None]
             assert route.called
             assert route.call_count == 5
             # Every request carries the version-stamped user-agent header.

@@ -18,7 +18,9 @@ from _pytest.mark.structures import ParameterSet
 
 from helpers.common import (
     batch_list,
+    clean_mention_handle,
     expect_int,
+    fansly_username_from_url,
     get_post_id_from_request,
     is_valid_post_id,
     open_location,
@@ -178,6 +180,70 @@ def test_get_post_id_from_request(input_value, expected):
 
 
 # ---------------------------------------------------------------------------
+# clean_mention_handle — strip whatever followed the handle in the post text
+# ---------------------------------------------------------------------------
+
+
+_CLEAN_MENTION_HANDLE_CASES = [
+    pytest.param("somecreator", "somecreator", id="already_clean"),
+    pytest.param("somecreator!", "somecreator", id="trailing_bang"),
+    pytest.param("somecreator's", "somecreator", id="possessive"),
+    pytest.param(f"somecreator{chr(0x2019)}s", "somecreator", id="curly_possessive"),
+    pytest.param("somecreator,", "somecreator", id="trailing_comma"),
+    pytest.param("@somecreator.", "somecreator", id="leading_at_trailing_period"),
+    pytest.param("Some_Creator-2?", "Some_Creator-2", id="keeps_case_dash_underscore"),
+    pytest.param("  somecreator  ", "somecreator", id="surrounding_whitespace"),
+    pytest.param("!!!", "", id="nothing_valid"),
+    pytest.param("", "", id="empty_string"),
+]
+
+
+@pytest.mark.parametrize(("handle", "expected"), _CLEAN_MENTION_HANDLE_CASES)
+def test_clean_mention_handle(handle, expected):
+    """Keeps the leading run of valid username characters, dropping the rest."""
+    assert clean_mention_handle(handle) == expected
+
+
+def test_clean_mention_handle_collapses_punctuation_variants():
+    """Variants that differ only by trailing punctuation are one username."""
+    variants = ["somecreator!", "somecreator's", "somecreator,", "somecreator"]
+    assert {clean_mention_handle(v) for v in variants} == {"somecreator"}
+
+
+# ---------------------------------------------------------------------------
+# fansly_username_from_url — profile URL → lowercased username
+# ---------------------------------------------------------------------------
+
+
+_FANSLY_USERNAME_FROM_URL_CASES = [
+    pytest.param("https://fansly.com/SomeCreator", "somecreator", id="bare_profile"),
+    pytest.param(
+        "https://fansly.com/SomeCreator/posts", "somecreator", id="posts_suffix"
+    ),
+    pytest.param("https://fansly.com/somecreator/", "somecreator", id="trailing_slash"),
+    pytest.param(
+        "https://www.fansly.com/somecreator?x=1", "somecreator", id="www_and_query"
+    ),
+    pytest.param(
+        "http://fansly.com/some_creator-2#top", "some_creator-2", id="http_fragment"
+    ),
+    pytest.param("https://FANSLY.com/somecreator", "somecreator", id="host_case"),
+    pytest.param("https://fansly.com/somecreator!", None, id="punctuated_segment"),
+    pytest.param("https://fansly.com/", None, id="no_username"),
+    pytest.param("https://onlyfans.com/somecreator", None, id="other_site"),
+    pytest.param("https://notfansly.com/somecreator", None, id="lookalike_host"),
+    pytest.param("fansly.com/somecreator", None, id="no_scheme"),
+    pytest.param("", None, id="empty_string"),
+]
+
+
+@pytest.mark.parametrize(("url", "expected"), _FANSLY_USERNAME_FROM_URL_CASES)
+def test_fansly_username_from_url(url, expected):
+    """Only a Fansly profile URL with a valid username segment yields a username."""
+    assert fansly_username_from_url(url) == expected
+
+
+# ---------------------------------------------------------------------------
 # open_location — webbrowser.open dispatch with feature flag + path validation
 # ---------------------------------------------------------------------------
 
@@ -206,6 +272,7 @@ _OPEN_LOCATION_CASES: list[ParameterSet] = [
 )
 def test_open_location(
     tmp_path,
+    *,
     path_kind,
     open_folder_when_finished,
     interactive,

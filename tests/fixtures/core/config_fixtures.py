@@ -66,6 +66,7 @@ def complete_args():
         pg_user=None,
         pg_password=None,
         temp_folder=None,
+        proxy=None,
         stash_only=False,
         # Developer/troubleshooting
         debug=False,

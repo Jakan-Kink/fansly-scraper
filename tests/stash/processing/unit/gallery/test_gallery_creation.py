@@ -118,25 +118,24 @@ class TestGalleryCreation:
             200,
             json={"data": {"findGalleries": {"count": 0, "galleries": []}}},
         )
+        mention_by_url = {
+            "data": {
+                "findPerformers": {
+                    "performers": [
+                        {
+                            "id": "5101",
+                            "name": "mention1",
+                            "urls": ["https://fansly.com/mention1"],
+                        }
+                    ],
+                    "count": 1,
+                }
+            }
+        }
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                httpx.Response(
-                    200,
-                    json={
-                        "data": {
-                            "findPerformers": {
-                                "performers": [
-                                    {
-                                        "id": "5101",
-                                        "name": "mention1",
-                                        "urls": ["https://fansly.com/mention1"],
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                ),
+                httpx.Response(200, json=mention_by_url),  # URL search: count
+                httpx.Response(200, json=mention_by_url),  # URL search: fetch
                 *([empty_find_galleries] * 5),
             ],
         )
@@ -253,9 +252,11 @@ class TestGalleryCreation:
         assert len(gallery.performers) == 1
         assert gallery.performers[0] == main_performer
 
-        # Verify findPerformers was called twice (name + alias search)
-        assert len(graphql_route.calls) == 2
-        assert_op(graphql_route.calls[0], "findPerformers")
+        # One findPerformers per search (URL, alias, name). Adding the main
+        # performer does not fetch that performer's other galleries.
+        assert len(graphql_route.calls) == 3
+        for call in graphql_route.calls:
+            assert_op(call, "findPerformers")
 
 
 class TestGalleryOrchestration:
@@ -668,9 +669,7 @@ class TestGalleryOrchestration:
                 empty_find_galleries,
                 # Call 2: url → not found
                 empty_find_galleries,
-                # Call 3: populate filter-query for gallery inverse
-                empty_find_galleries,
-                # Call 4: galleryCreate
+                # Call 3: galleryCreate
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -705,9 +704,10 @@ class TestGalleryOrchestration:
         assert gallery is not None
         assert gallery.title == "Test post content"
 
-        # 5 calls: code/title/url finds + populate filter-query + galleryCreate
-        assert len(graphql_route.calls) == 5, (
-            f"Expected exactly 5 GraphQL calls, got {len(graphql_route.calls)}"
+        # 4 calls: code/title/url finds + galleryCreate. Adding the performer
+        # does not fetch that performer's other galleries.
+        assert len(graphql_route.calls) == 4, (
+            f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
         # Call 0: code lookup

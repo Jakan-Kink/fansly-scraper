@@ -15,11 +15,36 @@ from ..protocols import StashProcessingProtocol
 class TagProcessingMixin(StashProcessingProtocol):
     """Tag processing functionality."""
 
+    async def _preload_tags(self) -> None:
+        """Fetch every Stash tag into the store, then index by name and alias.
+
+        A store that already holds tags (the daemon keeps one for its lifetime)
+        is indexed without another fetch.
+        """
+        if not self.store.all_cached(Tag):
+            async for _tag in self.store.find_iter(
+                Tag, query_batch=self.config.stash_tags_batch
+            ):
+                pass
+        self._tags_by_name = {}
+        for tag in self.store.all_cached(Tag):
+            self._index_tag(tag)
+
+    def _index_tag(self, tag: Tag) -> None:
+        """Record a tag under its lowercased name and aliases; a name wins."""
+        if is_set(tag.aliases) and tag.aliases:
+            for alias in tag.aliases:
+                self._tags_by_name.setdefault(alias.lower(), tag)
+        if is_set(tag.name) and tag.name:
+            self._tags_by_name[tag.name.lower()] = tag
+
     def _find_tag_in_cache(self, name: str) -> Tag | None:
-        """Find a tag by name or alias in the preloaded cache.
+        """Find a tag by name or alias among the tags the store holds.
 
         Checks both tag names and aliases (case-insensitive) to prevent
-        creating duplicate tags that collide with existing aliases.
+        creating duplicate tags that collide with existing aliases. The
+        name/alias index answers first; a tag cached since it was built is
+        found by scanning the store.
 
         Args:
             name: Tag name to search for
@@ -28,6 +53,9 @@ class TagProcessingMixin(StashProcessingProtocol):
             Tag if found by name or alias, None otherwise
         """
         name_lower = name.lower()
+        indexed = self._tags_by_name.get(name_lower)
+        if indexed is not None:
+            return indexed
         results = self.store.filter(
             Tag,
             lambda t: bool(
@@ -39,7 +67,10 @@ class TagProcessingMixin(StashProcessingProtocol):
                 )
             ),
         )
-        return results[0] if results else None
+        if not results:
+            return None
+        self._index_tag(results[0])
+        return results[0]
 
     async def _get_or_create_tag(self, name: str) -> Tag:
         """Get existing tag or create new one, checking aliases.
@@ -61,17 +92,14 @@ class TagProcessingMixin(StashProcessingProtocol):
 
         # 2. GraphQL fallback: search by name
         tag = await self.store.find_one(Tag, name=name)
-        if tag:
-            return tag
-
         # 3. GraphQL fallback: search by alias
-        tag = await self.store.find_one(Tag, aliases__contains=name)
-        if tag:
-            return tag
-
+        if not tag:
+            tag = await self.store.find_one(Tag, aliases__contains=name)
         # 4. Not found anywhere — create and save
-        tag = Tag.new(name=name)
-        await self.store.save(tag)
+        if not tag:
+            tag = Tag.new(name=name)
+            await self.store.save(tag)
+        self._index_tag(tag)
         return tag
 
     async def _process_hashtags_to_tags(
@@ -159,4 +187,4 @@ class TagProcessingMixin(StashProcessingProtocol):
         if not preview_tag:
             preview_tag = await self.store.find_one(Tag, name="Trailer")
         if preview_tag:
-            await file.add_tag(preview_tag)
+            await self._link_tag(file, preview_tag)

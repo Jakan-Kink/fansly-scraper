@@ -1,10 +1,18 @@
 """Unit tests for StashProcessingBase class - pure logic methods."""
 
+import json
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 import respx
+from stash_graphql_client.types import Tag
 
+from tests.fixtures.stash import (
+    create_find_tags_result,
+    create_graphql_response,
+    create_tag_dict,
+)
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 
 
@@ -62,19 +70,49 @@ class TestPreloadEntities:
     """Test _preload_stash_entities."""
 
     @pytest.mark.asyncio
-    async def test_preload_entities_makes_no_network_calls(self, respx_stash_processor):
-        """_preload_stash_entities only configures TTLs — no GraphQL fetch.
+    async def test_preload_entities_fetches_tags_once_and_indexes_them(
+        self, respx_stash_processor
+    ):
+        """_preload_stash_entities loads every tag and indexes names and aliases.
 
-        Mixin call sites use the ``store.filter() → store.find_one()``
-        pattern, which lazy-populates the cache as entities are looked up.
+        Lookups by name or alias, in any letter case, then need no request, and
+        a second preload over the same store does not fetch again.
         """
-        route = respx.post("http://localhost:9999/graphql").mock(side_effect=[])
+        processor = respx_stash_processor
+        processor.config.stash_tags_batch = 60
+        tags = [
+            create_tag_dict(id="1", name="Beach", aliases=["seaside"]),
+            create_tag_dict(id="2", name="Harbour"),
+        ]
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findTags", create_find_tags_result(count=2, tags=tags)
+                    ),
+                )
+            ]
+        )
 
         try:
-            await respx_stash_processor._preload_stash_entities()
+            await processor._preload_stash_entities()
+            by_name = processor._find_tag_in_cache("BEACH")
+            by_alias = processor._find_tag_in_cache("Seaside")
+            unknown = processor._find_tag_in_cache("mountain")
+            # A tag the store only knows by id (nested in another payload) is
+            # skipped by the index rather than breaking it.
+            processor.store.add(Tag(id="3"))
+            await processor._preload_stash_entities()
         finally:
-            dump_graphql_calls(
-                route.calls, "test_preload_entities_makes_no_network_calls"
-            )
+            dump_graphql_calls(route.calls, "test_preload_entities_fetches_tags")
 
-        assert route.call_count == 0
+        assert route.call_count == 1
+        request = json.loads(route.calls[0].request.content)
+        assert "findTags" in request["query"]
+        # Page size comes from stash_context.batches.tags.
+        assert request["variables"]["filter"]["per_page"] == 60
+        assert by_name is not None
+        assert by_name.id == "1"
+        assert by_alias is by_name
+        assert unknown is None

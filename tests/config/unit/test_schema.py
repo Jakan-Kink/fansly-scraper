@@ -939,6 +939,32 @@ def test_repair_previews_rejects_garbage():
         OptionsSection(repair_previews="sometimes")  # type: ignore[arg-type]  # intentionally passes an out-of-contract literal to prove it raises ValidationError
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "socks5h://user:pass@proxy.example:1080",
+            "socks5h://user:pass@proxy.example:1080",
+        ),
+        ("socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"),
+        ("  http://proxy.example:8080 ", "http://proxy.example:8080"),
+        ("https://proxy.example", "https://proxy.example"),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_proxy_accepts_supported_urls(raw, expected):
+    assert OptionsSection(proxy=raw).proxy == expected
+
+
+@pytest.mark.parametrize(
+    "raw", ["socks4://proxy.example:1080", "proxy.example:1080", "socks5://"]
+)
+def test_proxy_rejects_unusable_urls(raw):
+    with pytest.raises(ValidationError, match=r"socks5h"):
+        OptionsSection(proxy=raw)
+
+
 class TestEnableSceneSplitValidator:
     """enable_scene_split accepts True/False/"dry-run"; rejects other strings."""
 
@@ -981,6 +1007,32 @@ class TestEnableSceneSplitValidator:
             StashContextSection.model_validate({"enable_scene_split": 123})
 
 
+class TestStashBatches:
+    """stash_context.batches: page sizes for the tag preload and file sweep."""
+
+    def test_defaults_and_overrides(self) -> None:
+        assert StashContextSection.model_validate({}).batches.model_dump() == {
+            "tags": 250,
+            "files": 40,
+            "galleries": 250,
+        }
+        section = StashContextSection.model_validate({"batches": {"files": 500}})
+        assert section.batches.files == 500
+        assert section.batches.tags == 250
+
+    @pytest.mark.parametrize(
+        "batches",
+        [
+            pytest.param({"tags": 0}, id="zero-page-size"),
+            pytest.param({"files": -1}, id="negative-page-size"),
+            pytest.param({"scenes": 40}, id="unknown-key"),
+        ],
+    )
+    def test_invalid_rejected(self, batches: dict[str, int]) -> None:
+        with pytest.raises(ValidationError):
+            StashContextSection.model_validate({"batches": batches})
+
+
 class TestScanSettleSeconds:
     """scan_settle_s: post-scan settle window, default 3.5, bounded 0..30."""
 
@@ -1003,6 +1055,18 @@ class TestScanSettleSeconds:
     def test_above_max_rejected(self) -> None:
         with pytest.raises(ValidationError):
             StashContextSection.model_validate({"scan_settle_s": 30.1})
+
+
+class TestScanStallTimeoutSeconds:
+    """scan_stall_timeout_s: wait on an unchanged scan job, default 30 minutes."""
+
+    def test_default_custom_and_bounds(self) -> None:
+        assert StashContextSection.model_validate({}).scan_stall_timeout_s == 1800
+        section = StashContextSection.model_validate({"scan_stall_timeout_s": 600})
+        assert section.scan_stall_timeout_s == 600
+        for invalid in (0, -1):
+            with pytest.raises(ValidationError):
+                StashContextSection.model_validate({"scan_stall_timeout_s": invalid})
 
 
 # ---------------------------------------------------------------------------

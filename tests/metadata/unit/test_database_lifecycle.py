@@ -3,14 +3,18 @@
 These tests use real PostgreSQL via uuid_test_db_factory for isolation.
 """
 
+import gc
+import weakref
+from collections.abc import Callable
 from unittest.mock import patch
 
 import pytest
 
 from metadata.database import Database
 from metadata.entity_store import PostgresEntityStore
-from metadata.models import Account, FanslyObject
+from metadata.models import Account, FanslyObject, Wall
 from metadata.tables import metadata as table_metadata
+from tests.fixtures.stash import PerformerFactory, SceneFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -258,3 +262,138 @@ class TestCleanupErrorPaths:
 
         # Safe to call again
         db.__del__()
+
+
+class TestFreezeHeap:
+    """Database.freeze_heap() and the unfreeze its cleanup performs."""
+
+    @pytest.mark.asyncio
+    async def test_freeze_exempts_preload_without_pinning_it(self, config):
+        """Entities alive at the freeze skip collection but still die by refcount.
+
+        FDNG entities frozen with the store are released as soon as their last
+        reference goes, unless they sit in a reference cycle, which waits for
+        the unfreeze. Entities built after the freeze, FDNG or SGC, stay with
+        the collector.
+        """
+        db = Database(config, skip_migrations=True)
+        table_metadata.create_all(db._sync_engine)
+        try:
+            store = await db.create_entity_store()
+            loner_id, owner_id, wall_id = snowflake_id(), snowflake_id(), snowflake_id()
+            late_owner_id, late_wall_id = snowflake_id(), snowflake_id()
+            loner = Account(id=loner_id, username="freeze_loner")
+            owner = Account(id=owner_id, username="freeze_owner")
+            await store.save(loner)
+            await store.save(owner)
+            wall = Wall(id=wall_id, accountId=owner_id)
+            wall.account = owner
+            owner.walls = [wall]
+            await store.save(wall)
+            loner_ref, owner_ref, wall_ref = (
+                weakref.ref(loner),
+                weakref.ref(owner),
+                weakref.ref(wall),
+            )
+
+            db.freeze_heap()
+            frozen_count = gc.get_freeze_count()
+
+            # Frozen, in no cycle: gone with its last reference, collector off.
+            store.invalidate(Account, loner_id)
+            gc.disable()
+            try:
+                del loner
+                loner_alive_without_collection = loner_ref() is not None
+            finally:
+                gc.enable()
+
+            # Frozen and in a cycle: unreachable, but out of the collector's reach.
+            store.invalidate(Account, owner_id)
+            store.invalidate(Wall, wall_id)
+            del owner, wall
+            gc.collect()
+            frozen_cycle_alive = owner_ref() is not None and wall_ref() is not None
+
+            # Built after the freeze, FDNG store: an ordinary collectable cycle.
+            late_owner = Account(id=late_owner_id, username="late_owner")
+            late_wall = Wall(id=late_wall_id, accountId=late_owner_id)
+            late_wall.account = late_owner
+            late_owner.walls = [late_wall]
+            late_refs: list[Callable[[], object]] = [
+                weakref.ref(late_owner),
+                weakref.ref(late_wall),
+            ]
+            store.invalidate(Account, late_owner_id)
+            store.invalidate(Wall, late_wall_id)
+            del late_owner, late_wall
+
+            # Built after the freeze, SGC types: the same.
+            performer = PerformerFactory.build()
+            scene = SceneFactory.build()
+            await scene.add_performer(performer)
+            late_refs += [weakref.ref(performer), weakref.ref(scene)]
+            del performer, scene
+
+            late_alive_before_collect = [ref() is not None for ref in late_refs]
+            gc.collect()
+            late_alive_after_collect = [ref() is not None for ref in late_refs]
+        finally:
+            await db.cleanup()
+
+        assert frozen_count > 0
+        assert loner_alive_without_collection is False
+        assert frozen_cycle_alive is True
+        assert late_alive_before_collect == [True, True, True, True]
+        assert late_alive_after_collect == [False, False, False, False]
+
+        assert gc.get_freeze_count() == 0
+        gc.collect()
+        assert owner_ref() is None
+        assert wall_ref() is None
+
+    @pytest.mark.asyncio
+    async def test_unload_frees_frozen_cycles_itself(self, config):
+        """unload() unfreezes, empties the store and collects the cycles in it."""
+        db = Database(config, skip_migrations=True)
+        table_metadata.create_all(db._sync_engine)
+        try:
+            store = await db.create_entity_store()
+            owner_id, wall_id = snowflake_id(), snowflake_id()
+            owner = Account(id=owner_id, username="unload_owner")
+            await store.save(owner)
+            wall = Wall(id=wall_id, accountId=owner_id)
+            wall.account = owner
+            owner.walls = [wall]
+            await store.save(wall)
+            owner_ref, wall_ref = weakref.ref(owner), weakref.ref(wall)
+            del owner, wall
+
+            db.freeze_heap()
+            cached_before = store.cache_stats()["total"]
+
+            # Collector off: only unload's own collection can free the cycle.
+            gc.disable()
+            try:
+                db.unload()
+                alive_after_unload = [owner_ref() is not None, wall_ref() is not None]
+            finally:
+                gc.enable()
+            frozen_after = gc.get_freeze_count()
+            cached_after = store.cache_stats()["total"]
+        finally:
+            await db.cleanup()
+
+        assert cached_before == 2
+        assert cached_after == 0
+        assert frozen_after == 0
+        assert alive_after_unload == [False, False]
+
+    def test_unload_without_entity_store(self, mock_config):
+        """unload() works on a database whose store was never created."""
+        db = Database(mock_config, skip_migrations=True)
+        try:
+            db.unload()
+        finally:
+            db.close_sync()
+        assert db._entity_store is None

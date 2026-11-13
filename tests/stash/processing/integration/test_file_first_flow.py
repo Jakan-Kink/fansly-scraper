@@ -285,6 +285,57 @@ async def test_run_file_first_stamps_and_composes_galleries(
             f"{sample.stash_id!r} for media {sample.id}"
         )
 
+        # --- Gallery id proof: each post's gallery id reached the metadata DB, ---
+        # so a later process finds the gallery by id instead of searching.
+        # Read the column directly: find() would hand back the in-memory object.
+        posts_with_gallery = [p for p in posts if p.stash_id]
+        assert posts_with_gallery, "no seeded post recorded its gallery id"
+        for post in posts_with_gallery:
+            stored_gallery_id = await entity_store.pool.fetchval(
+                "SELECT stash_id FROM posts WHERE id = $1", post.id
+            )
+            assert stored_gallery_id == post.stash_id, (
+                f"gallery id for post {post.id} did not persist: "
+                f"stored {stored_gallery_id!r}, in memory {post.stash_id!r}"
+            )
+
+        # --- Second run: everything is stamped and linked, so nothing is written. ---
+        store.invalidate_all()
+        rerun_calls: list = []
+        try:
+            with capture_graphql_calls(client) as rerun_calls:
+                await real_stash_processor._run_file_first(account, performer, studio)
+        finally:
+            dump_graphql_calls(rerun_calls, "test_run_file_first_second_run")
+        rerun_writes = [
+            c.get("query", "").split("(", 1)[0].strip()
+            for c in rerun_calls
+            if c.get("query", "").lstrip().startswith("mutation")
+        ]
+        assert rerun_writes == [], (
+            f"second run over already-synced content wrote to Stash: {rerun_writes}"
+        )
+        # Fully flushed posts are skipped before any gallery lookup.
+        gallery_lookups = [
+            key
+            for c in rerun_calls
+            for key in (c.get("result") or {})
+            if key in {"findGallery", "findGalleries"}
+        ]
+        assert gallery_lookups == [], (
+            "second run looked up galleries for posts that were already flushed"
+        )
+        # Where Stash returns scenes/images with their files, the sweep is the
+        # only thing the second run asks for: the re-verify reads the store.
+        if client.capabilities.has_file_reverse_relationships:
+            rerun_operations = sorted(
+                {key for c in rerun_calls for key in (c.get("result") or {})}
+            )
+            assert rerun_operations == ["findFiles"], (
+                f"second run asked Stash for more than the file sweep: "
+                f"{rerun_operations} across {len(rerun_calls)} requests"
+            )
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio

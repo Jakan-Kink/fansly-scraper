@@ -50,7 +50,11 @@ from download.livestream_chat import (
     route_ws_chat_message,
     unregister_chat_recorder,
 )
-from tests.fixtures.api import FakeFanslyWSServer, dump_ws_server_state
+from tests.fixtures.api import (
+    FakeFanslyWSServer,
+    Socks5ProxyServer,
+    dump_ws_server_state,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -157,6 +161,41 @@ class TestChatWsLoopE2E:
         assert contents == ["hello 0", "hello 1", "hello 2"]
         # Every record carries the ChatRecorder._recorded_at timestamp.
         assert all("_recorded_at" in line for line in lines)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_default_websocket_uses_the_configured_proxy(
+        self,
+        ws_server: FakeFanslyWSServer,
+        socks5_proxy: Socks5ProxyServer,
+        config_wired: FanslyConfig,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With no factory the loop builds its own WebSocket through ``config.proxy``."""
+        monkeypatch.setattr("download.livestream_chat.CHAT_URL", ws_server.base_url)
+        config_wired.proxy = socks5_proxy.url()
+        chat_room_id = snowflake_id()
+        stop_event = asyncio.Event()
+
+        task = asyncio.create_task(
+            _chat_ws_loop(
+                config_wired,
+                chat_room_id,
+                ChatRecorder(tmp_path / "chat.jsonl"),
+                stop_event,
+                log_prefix="[test-proxy]",
+            )
+        )
+        try:
+            await ws_server.wait_for_chat_room_joined(chat_room_id, timeout=5.0)
+        finally:
+            stop_event.set()
+            # The loop notices the stop after its 5 s receive timeout.
+            await asyncio.wait_for(task, timeout=10.0)
+            dump_ws_server_state(ws_server)
+
+        assert socks5_proxy.targets == [("127.0.0.1", ws_server.port)]
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(30)

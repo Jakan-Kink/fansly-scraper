@@ -201,6 +201,31 @@ def pytest_unconfigure(config):
         sys.stderr.flush()
 
 
+def _apply_xdist_group_ids(config, items):
+    """Carry ``xdist_group`` names in node ids so ``--dist=loadgroup`` groups them.
+
+    pytest-xdist 3.8 appends ``@<group>`` by assigning ``item._nodeid``, which
+    pytest 9.2 no longer reads (``nodeid`` is ``str(item._id)``). Without this
+    every group marker is ignored and grouped tests land on arbitrary workers.
+    Inert off xdist workers and on a pytest whose items have no ``_id``.
+    """
+    # xdist sets ``loadgroup`` on each worker's config and resets ``dist`` there.
+    if not config.getoption("loadgroup", False):
+        return
+    for item in items:
+        if not hasattr(item, "_id"):
+            continue
+        groups = sorted(
+            {
+                str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
+                for mark in item.iter_markers("xdist_group")
+            }
+        )
+        suffix = f"@{'_'.join(groups)}"
+        if groups and not item.nodeid.endswith(suffix):
+            item._id = type(item._id).parse(f"{item.nodeid}{suffix}")
+
+
 def pytest_collection_modifyitems(config, items):
     """Hook to validate fixture usage and add markers.
 
@@ -275,6 +300,8 @@ def pytest_collection_modifyitems(config, items):
             # in ``pyproject.toml`` honors this marker.
             if "message_media_generator" in item.fixturenames:
                 item.add_marker(pytest.mark.xdist_group(name="docker_stash_shared"))
+
+    _apply_xdist_group_ids(config, items)
 
 
 # ============================================================================

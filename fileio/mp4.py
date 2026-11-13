@@ -23,6 +23,10 @@ from typing import Any
 from errors.mp4 import InvalidMP4Error
 
 
+# Size field plus type field: the least a box can occupy.
+_BOX_HEADER_SIZE = 8
+
+
 class MP4Box:
     """Represents an MPEG-4 binary box/atom object."""
 
@@ -52,10 +56,20 @@ class MP4Box:
 
 
 def get_boxes(reader: BufferedReader) -> Iterable[MP4Box]:
+    """Yield the top-level boxes of an MPEG-4 file.
+
+    Fewer than 8 trailing bytes cannot hold a box header and are ignored.
+
+    Raises:
+        InvalidMP4Error: If the file does not start with ``ftyp`` or a box
+            declares a size smaller than its own header.
+    """
     position = 0
     first = True
+    end = reader.seek(0, os.SEEK_END)
+    reader.seek(0, os.SEEK_SET)
 
-    while reader.peek():
+    while end - position >= _BOX_HEADER_SIZE:
         size_bytes = reader.read(4)
         fourcc_bytes = reader.read(4)
         size = int.from_bytes(size_bytes, byteorder="big")
@@ -69,11 +83,20 @@ def get_boxes(reader: BufferedReader) -> Iterable[MP4Box]:
             fourcc_bytes=fourcc_bytes,
             position=position,
         )
+        if size == 0:
+            # A zero size means the box runs to the end of the file.
+            box.size = end - position
 
         if first and box.fourcc != "ftyp":
             raise InvalidMP4Error("File header missing, not an MPEG-4 file.")
 
         first = False
+
+        if box.size < _BOX_HEADER_SIZE:
+            # Without this the position never advances and the walk never ends.
+            raise InvalidMP4Error(
+                f"Box '{box.fourcc}' at {position} declares size {box.size}."
+            )
 
         position += box.size
 

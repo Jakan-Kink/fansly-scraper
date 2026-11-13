@@ -12,9 +12,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import pytest_asyncio
 
 from metadata import Account, ContentType
-from tests.fixtures.metadata.metadata_factories import AttachmentFactory, PostFactory
+from metadata.entity_store import PostgresEntityStore
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    MediaFactory,
+    PostFactory,
+)
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -27,6 +35,8 @@ __all__ = [
     "gallery_orchestration_setup",
     # Mock item for Stash unit tests
     "mock_item",
+    # Quote post graph (wrapper + original)
+    "quoted_post_setup",
 ]
 
 
@@ -36,16 +46,14 @@ __all__ = [
 
 
 @pytest.fixture
-def mock_item():
+def mock_item(mock_account):
     """Fixture for Post/Message item used in Stash mixin unit tests.
     Returns:
-        Post: Real Post object (detached from database)
+        Post: Real Post by ``mock_account`` (detached from database)
     """
-    # Create real Post object (detached from database)
-    acct_id = snowflake_id()
     item = PostFactory.build(
         id=snowflake_id(),
-        accountId=acct_id,
+        accountId=mock_account.id,
         content="Test content #test #hashtag",
         createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
     )
@@ -127,4 +135,86 @@ def gallery_orchestration_setup() -> dict[str, Any]:
         "performer": performer,
         "studio": studio,
         "url_pattern": "https://test.com/{username}/post/{id}",
+    }
+
+
+@pytest_asyncio.fixture
+async def quoted_post_setup(entity_store: PostgresEntityStore) -> dict[str, Any]:
+    """A quote: one creator's wrapper post around another creator's post.
+
+    Returns ``quoter`` and ``author`` (Accounts), ``original`` (the author's
+    post with one video), ``wrapper`` (the quoter's post quoting it, plus one
+    image of its own) and the two Media as ``quoted_media`` / ``own_media``.
+    Everything is saved, so attachments resolve through the store.
+    """
+    quoter = AccountFactory.build(id=snowflake_id(), username="quoter")
+    author = AccountFactory.build(id=snowflake_id(), username="original_poster")
+    quoted_id, own_id, original_id = snowflake_id(), snowflake_id(), snowflake_id()
+    quoted_media = MediaFactory.build(
+        id=quoted_id,
+        accountId=author.id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename=f"2024-03-05_at_03-45_UTC_id_{quoted_id}.mp4",
+    )
+    own_media = MediaFactory.build(
+        id=own_id,
+        accountId=quoter.id,
+        mimetype="image/jpeg",
+        is_downloaded=True,
+        local_filename=f"2024-03-06_at_19-19_UTC_id_{own_id}.jpeg",
+    )
+    wrapper_id = original_id + 1000
+    # Attachments go in as the API's dicts, the way a timeline page builds them.
+    original = PostFactory.build(
+        id=original_id,
+        accountId=author.id,
+        content="The original post",
+        createdAt=datetime(2024, 3, 5, 3, 45, 0, tzinfo=UTC),
+        attachments=[
+            {
+                "postId": original_id,
+                "pos": 0,
+                "contentType": ContentType.ACCOUNT_MEDIA.value,
+                "contentId": quoted_id,
+            }
+        ],
+    )
+    wrapper = PostFactory.build(
+        id=wrapper_id,
+        accountId=quoter.id,
+        content="Look at this",
+        createdAt=datetime(2024, 3, 6, 19, 19, 0, tzinfo=UTC),
+        attachments=[
+            {
+                "postId": wrapper_id,
+                "pos": 0,
+                "contentType": ContentType.AGGREGATED_POSTS.value,
+                "contentId": original_id,
+            },
+            {
+                "postId": wrapper_id,
+                "pos": 1,
+                "contentType": ContentType.ACCOUNT_MEDIA.value,
+                "contentId": own_id,
+            },
+        ],
+    )
+    for entity in (quoter, author, quoted_media, own_media):
+        await entity_store.save(entity)
+    for media in (quoted_media, own_media):
+        await entity_store.save(
+            AccountMediaFactory.build(
+                id=media.id, accountId=media.accountId, mediaId=media.id
+            )
+        )
+    for post in (original, wrapper):
+        await entity_store.save(post)
+    return {
+        "quoter": quoter,
+        "author": author,
+        "original": original,
+        "wrapper": wrapper,
+        "quoted_media": quoted_media,
+        "own_media": own_media,
     }

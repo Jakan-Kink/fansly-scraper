@@ -67,7 +67,11 @@ from metadata import (
 from metadata.models import get_store
 from metadata.subscriptions import _access_changed_accounts
 from tests.fixtures.daemon import RecordingSimulator, async_noop_spy
-from tests.fixtures.metadata.metadata_factories import AccountFactory, MessageFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    GroupFactory,
+    MessageFactory,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -600,8 +604,6 @@ class TestHandleMarkMessagesDeleted:
         sender = AccountFactory.build(id=sender_id, username="msg_sender")
         await entity_store.save(sender)
 
-        from tests.fixtures.metadata.metadata_factories import GroupFactory
-
         group_id = snowflake_id()
         group = GroupFactory.build(id=group_id, createdBy=sender_id)
         await entity_store.save(group)
@@ -644,8 +646,6 @@ class TestHandleMarkMessagesDeleted:
         sender = AccountFactory.build(id=sender_id, username="partial_sender")
         await entity_store.save(sender)
 
-        from tests.fixtures.metadata.metadata_factories import GroupFactory
-
         group_id = snowflake_id()
         await entity_store.save(GroupFactory.build(id=group_id, createdBy=sender_id))
 
@@ -672,14 +672,11 @@ class TestHandleMarkMessagesDeleted:
     async def test_no_epoch_falls_back_to_now(self, config, entity_store, caplog):
         """Lines 451-454: deleted_at_epoch=None → fallback to datetime.now(UTC)."""
         caplog.set_level(logging.INFO)
-        from datetime import UTC, datetime
 
         sender_id = snowflake_id()
         await entity_store.save(
             AccountFactory.build(id=sender_id, username="now_sender")
         )
-
-        from tests.fixtures.metadata.metadata_factories import GroupFactory
 
         group_id = snowflake_id()
         await entity_store.save(GroupFactory.build(id=group_id, createdBy=sender_id))
@@ -709,9 +706,7 @@ class TestHandleMarkMessagesDeleted:
         caplog.set_level(logging.DEBUG)
 
         # Patch get_store() to return a fake store whose get() raises.
-        from metadata.models import get_store as real_get_store
-
-        real_store = real_get_store()
+        real_store = get_store()
 
         class _RaisingStore:
             """Wraps the real store but makes get() raise for Message lookups."""
@@ -761,6 +756,11 @@ class TestMakeWs:
         assert isinstance(ws, FanslyWebSocket)
         assert ws.token == "tok-abc"
         assert ws.user_agent == "test-ua"
+        assert ws.proxy is None
+
+    def test_passes_the_configured_proxy(self, config):
+        config.proxy = "socks5h://127.0.0.1:1080"
+        assert _make_ws(config).proxy == "socks5h://127.0.0.1:1080"
 
     def test_falsy_token_or_user_agent_coerces_to_empty_string(self, config):
         config.token = None

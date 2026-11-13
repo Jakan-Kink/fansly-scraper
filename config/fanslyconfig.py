@@ -51,6 +51,10 @@ class FanslyConfig:
     _api: FanslyApi | None = None
     _database: Database | None = None
     _stash: StashContext | None = None
+    # Set by the daemon; lets long waits end when shutdown is requested.
+    _shutdown_event: asyncio.Event | None = None
+    # Set on SIGTERM; the process then ends without interpreter teardown.
+    _terminate_requested: bool = False
     _rate_limiter_display: RateLimiterDisplay | None = None
 
     # Command line flags
@@ -59,9 +63,6 @@ class FanslyConfig:
 
     # Define base threshold (used for when modules don't provide vars)
     DUPLICATE_THRESHOLD: int = 50
-
-    # Batch size for batched API access (Fansly API size limit)
-    BATCH_SIZE: int = 150
 
     # Configuration file
     config_path: Path | None = None
@@ -113,6 +114,7 @@ class FanslyConfig:
     separate_messages: bool = True
     separate_previews: bool = False
     repair_previews: bool | str = False
+    proxy: str | None = None
     separate_timeline: bool = True
     show_downloads: bool = True
     show_skipped_downloads: bool = True
@@ -139,6 +141,8 @@ class FanslyConfig:
     api_max_retries: int = 10
     # ids per batched /account?ids= lookup; the Fansly web client uses 5
     account_ids_batch_size: int = 5
+    # ids per /account/media?ids= lookup; Fansly rate-limits lookups over 100
+    account_media_batch_size: int = 100
 
     # Rate limiting configuration
     rate_limiting_enabled: bool = True
@@ -148,6 +152,8 @@ class FanslyConfig:
     rate_limiting_retry_after_seconds: int = 30  # Base backoff duration
     rate_limiting_backoff_factor: float = 1.5  # Exponential backoff multiplier
     rate_limiting_max_backoff_seconds: int = 300  # Cap backoff at 5 minutes
+    # Successes in a row before the learned gap between requests drops a step
+    rate_limiting_success_requests: int = 250
 
     # PostgreSQL configuration
     pg_host: str = "localhost"
@@ -228,6 +234,10 @@ class FanslyConfig:
     stash_require_stash_only_mode: bool = False
     stash_enable_scene_split: bool | Literal["dry-run"] = False
     stash_scan_settle_s: float = 3.5
+    stash_scan_stall_timeout_s: float = 1800.0
+    stash_tags_batch: int = 250
+    stash_files_batch: int = 40
+    stash_galleries_batch: int = 250
 
     # Logging
     # ``log_levels`` is the legacy flat ``{logger_name: level_string}``
@@ -275,7 +285,7 @@ class FanslyConfig:
                 # otherwise.
                 api_token = (token or "") if self.token_is_valid() else ""
 
-                from api import FanslyApi  # noqa: PLC0415, I001  # circular-break: spawn-context subprocess unpickle fails if top-level
+                from api import FanslyApi  # noqa: PLC0415  # circular-break: spawn-context subprocess unpickle fails if top-level
 
                 self._api = FanslyApi(
                     token=api_token,
@@ -545,17 +555,22 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     stash_section: StashContextSection | None = None
     if config.stash_context_conn is not None:
         conn = config.stash_context_conn
-        stash_section = StashContextSection(
-            scheme=str(conn.get("scheme", "http")),
-            host=str(conn.get("host", "localhost")),
-            port=int(conn.get("port", 9999)),
-            apikey=str(conn.get("apikey", "")),
-            mapped_path=str(config.stash_mapped_path)
-            if config.stash_mapped_path is not None
-            else None,
-            override_dldir_w_mapped=config.stash_override_dldir_w_mapped,
-            require_stash_only_mode=config.stash_require_stash_only_mode,
-            enable_scene_split=config.stash_enable_scene_split,
+        loaded = config._schema.stash_context if config._schema is not None else None
+        # Settings with no runtime writer (scan_settle_s, batches) ride along
+        # from the loaded section, set-or-unset as the user left them.
+        stash_section = (loaded or StashContextSection()).model_copy(
+            update={
+                "scheme": str(conn.get("scheme", "http")),
+                "host": str(conn.get("host", "localhost")),
+                "port": int(conn.get("port", 9999)),
+                "apikey": str(conn.get("apikey", "")),
+                "mapped_path": str(config.stash_mapped_path)
+                if config.stash_mapped_path is not None
+                else None,
+                "override_dldir_w_mapped": config.stash_override_dldir_w_mapped,
+                "require_stash_only_mode": config.stash_require_stash_only_mode,
+                "enable_scene_split": config.stash_enable_scene_split,
+            }
         )
 
     # Re-use the existing schema if available so we don't lose monitoring/logic
@@ -612,6 +627,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "separate_messages", config.separate_messages)
     _maybe_set(base.options, "separate_previews", config.separate_previews)
     _maybe_set(base.options, "repair_previews", config.repair_previews)
+    _maybe_set(base.options, "proxy", config.proxy)
     _maybe_set(base.options, "separate_timeline", config.separate_timeline)
     _maybe_set(base.options, "use_duplicate_threshold", config.use_duplicate_threshold)
     _maybe_set(
@@ -625,6 +641,9 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "timeline_delay_seconds", config.timeline_delay_seconds)
     _maybe_set(base.options, "api_max_retries", config.api_max_retries)
     _maybe_set(base.options, "account_ids_batch_size", config.account_ids_batch_size)
+    _maybe_set(
+        base.options, "account_media_batch_size", config.account_media_batch_size
+    )
     _maybe_set(base.options, "rate_limiting_enabled", config.rate_limiting_enabled)
     _maybe_set(base.options, "rate_limiting_adaptive", config.rate_limiting_adaptive)
     _maybe_set(
@@ -649,6 +668,11 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         base.options,
         "rate_limiting_max_backoff_seconds",
         config.rate_limiting_max_backoff_seconds,
+    )
+    _maybe_set(
+        base.options,
+        "rate_limiting_success_requests",
+        config.rate_limiting_success_requests,
     )
     _maybe_set(
         base.options,

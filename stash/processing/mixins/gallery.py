@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import TYPE_CHECKING
 
 from stash_graphql_client.types import (
     Gallery,
@@ -19,8 +20,47 @@ from ...logging import debug_print
 from ..protocols import HasMetadata, StashProcessingProtocol
 
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from metadata import Message
+
+
 class GalleryProcessingMixin(StashProcessingProtocol):
     """Gallery processing functionality."""
+
+    async def _preload_galleries(
+        self, items: Sequence[Post | Message], studio: Studio | None
+    ) -> None:
+        """Load every gallery the items could already have into the store.
+
+        Bulk reads replace the per-item searches: the creator studio's
+        galleries (for title + date matches), then galleries whose code or URL
+        names one of the items. Afterwards a lookup that misses the store means
+        the item has no gallery. Without a studio the title search cannot be
+        scoped, so it keeps its own query.
+
+        Args:
+            items: Posts and messages about to get a gallery
+            studio: The creator's studio, if one was resolved
+        """
+        batch = self.config.stash_galleries_batch
+
+        async def load(**filters: object) -> None:
+            async for _gallery in self.store.find_iter(
+                Gallery, query_batch=batch, **filters
+            ):
+                pass
+
+        if studio is not None:
+            await load(studios={"value": [studio.id], "modifier": "INCLUDES"})
+        item_ids = [str(item.id) for item in items]
+        for start in range(0, len(item_ids), batch):
+            ids = "|".join(item_ids[start : start + batch])
+            await load(code__regex=f"^({ids})$")
+            # Post and message URLs both end in the item id.
+            await load(url__regex=f"/({ids})$")
+        self._galleries_preloaded = True
 
     async def _get_gallery_by_stash_id(
         self,
@@ -36,9 +76,8 @@ class GalleryProcessingMixin(StashProcessingProtocol):
 
         # Cache-first: try sync get_cached() (zero-cost after preload),
         # fall back to async get() only if cache misses
-        gallery = self.store.get_cached(Gallery, str(item.stash_id))
-        if not gallery:
-            gallery = await self.store.get(Gallery, str(item.stash_id))
+        cached = self.store.get_cached(Gallery, str(item.stash_id))
+        gallery = cached or await self.store.get(Gallery, str(item.stash_id))
         if gallery:
             debug_print(
                 {
@@ -46,7 +85,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                     "status": "found",
                     "item_id": item.id,
                     "gallery_id": gallery.id,
-                    "cached": "identity_map",
+                    "source": "identity_map" if cached else "stash",
                 }
             )
         return gallery
@@ -82,7 +121,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         )
         gallery = galleries[0] if galleries else None
 
-        if not gallery:
+        if not gallery and not (self._galleries_preloaded and studio):
             # Fallback: query GraphQL and filter in-memory
             galleries = await self.store.find(Gallery, title__exact=title)
             gallery = next(
@@ -132,7 +171,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         # fall back to async find_one() only if cache misses
         results = self.store.filter(Gallery, lambda g: g.code == expected_code)
         gallery = results[0] if results else None
-        if not gallery:
+        if not gallery and not self._galleries_preloaded:
             gallery = await self.store.find_one(Gallery, code=expected_code)
 
         # Validate the returned gallery has the expected code
@@ -178,7 +217,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             Gallery,
             lambda g: is_set(g.urls) and url in g.urls,
         )
-        if not galleries:
+        if not galleries and not self._galleries_preloaded:
             galleries = await self.store.find(Gallery, url__contains=url)
         if not galleries:
             return None
@@ -261,19 +300,25 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         gallery: Gallery,
         item: HasMetadata,
         performer: Performer | None,
+        account: Account | None = None,
     ) -> None:
         """Set up performers for a gallery.
+
+        An account or mention matched to several performers gets all of them.
 
         Args:
             gallery: Gallery to set up
             item: Source item with mentions
             performer: Main performer
+            account: The creator's account, to add its other matched performers
         """
         performers = []
 
         # Add main performer (id is always loaded in library objects)
         if performer:
             performers.append(performer)
+        if account is not None:
+            performers.extend(self._all_matched_performers(account))
 
         # Add mentioned accounts as performers
         mentions = getattr(item, "mentions", None)
@@ -282,11 +327,14 @@ class GalleryProcessingMixin(StashProcessingProtocol):
                 self._find_existing_performer(mention) for mention in mentions
             ]
             mention_results = await asyncio.gather(*mention_tasks)
-            performers.extend([p for p in mention_results if p is not None])
+            for mention, found in zip(mentions, mention_results, strict=True):
+                if found is not None:
+                    performers.append(found)
+                    performers.extend(self._all_matched_performers(mention))
 
         # Add performers using relationship helper for bidirectional sync
         for perf in performers:
-            await gallery.add_performer(perf)
+            await self._link_performer(gallery, perf)
 
     async def _check_aggregated_posts(self, posts: list[Post]) -> bool:
         """Check if any aggregated posts have media content.
@@ -408,7 +456,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         gallery = await self._create_new_gallery(item, title)
 
         # Set up performers
-        await self._setup_gallery_performers(gallery, item, performer)
+        await self._setup_gallery_performers(gallery, item, performer, account)
 
         # Set studio if provided (id is always loaded in library objects)
         if studio:

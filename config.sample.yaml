@@ -113,3 +113,9 @@ logic:
 #   # /data/fansly and leave download_directory as /home/user/downloads.
 #   # Leave as null (or omit) when both environments share the same paths.
 #   mapped_path: null
+#   # Page sizes for the paged queries sent to Stash (optional); same
+#   # meaning as the per-page dropdown in the Stash UI.
+#   batches:
+#     tags: 250
+#     files: 40
+#     galleries: 250

@@ -427,7 +427,7 @@ def setup_handlers() -> None:
     # the per-handler / global_ fields are present.
     logging_section = getattr(_config, "logging", None)
     if logging_section is None:
-        from config.schema import LoggingSection  # noqa: PLC0415, I001  # circular: config.schema → config.logging
+        from config.schema import LoggingSection  # noqa: PLC0415  # circular: config.schema → config.logging
 
         logging_section = LoggingSection()
 
@@ -453,7 +453,7 @@ def setup_handlers() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Import inside the function to avoid circular imports.
-    from textio.logging import SizeTimeRotatingHandler  # noqa: PLC0415, I001  # circular: textio.logging → config.logging
+    from textio.logging import SizeTimeRotatingHandler  # noqa: PLC0415  # circular: textio.logging → config.logging
 
     # Loguru's multi-process queue is off in tests (enqueue=True pickles
     # the sink, which breaks with RichHandler + module-scoped fixtures).
@@ -494,7 +494,7 @@ def setup_handlers() -> None:
     console_sink: Any
     use_colorize: bool
     try:
-        from helpers.rich_progress import create_rich_handler  # noqa: PLC0415, I001  # circular: helpers.rich_progress → config.logging
+        from helpers.rich_progress import create_rich_handler  # noqa: PLC0415  # circular: helpers.rich_progress → config.logging
 
         # Pick rich_style (not color) — Rich's parser wants underscores.
         level_styles = {
@@ -714,6 +714,7 @@ def init_logging_config(config: FanslyConfig | None) -> None:
     # files. Without captureWarnings(True), warnings.warn() goes to stderr
     # and bypasses every loguru sink.
     _configure_warnings_capture()
+    _configure_stash_client_logging()
 
 
 def set_debug_enabled(enabled: bool) -> None:
@@ -786,7 +787,7 @@ def update_logging_config(config: FanslyConfig, enabled: bool) -> None:
             ``_debug_enabled``; asyncio is also flipped to DEBUG when set,
             WARNING when cleared.
     """
-    from config.fanslyconfig import FanslyConfig  # noqa: PLC0415, I001  # circular: config.fanslyconfig → config.logging
+    from config.fanslyconfig import FanslyConfig  # noqa: PLC0415  # circular: config.fanslyconfig → config.logging
 
     if not isinstance(config, FanslyConfig):
         raise TypeError("config must be an instance of FanslyConfig")
@@ -812,6 +813,7 @@ def update_logging_config(config: FanslyConfig, enabled: bool) -> None:
     setup_handlers()
     _configure_sqlalchemy_logging()
     _configure_warnings_capture()
+    _configure_stash_client_logging()
 
 
 def _configure_warnings_capture() -> None:
@@ -831,6 +833,24 @@ def _configure_warnings_capture() -> None:
     py_warnings_logger.addHandler(InterceptHandler())
     py_warnings_logger.propagate = False
     py_warnings_logger.setLevel(logging.WARNING)
+
+
+def _configure_stash_client_logging() -> None:
+    """Route ``stash_graphql_client`` stdlib log records to the stash sinks.
+
+    The client logs through stdlib ``logging``; with no handler attached its
+    records (job polls, request errors, batch-save warnings) reach no sink.
+    Its DEBUG records are only let through with ``-vv``.
+    """
+    client_logger = logging.getLogger("stash_graphql_client")
+    client_logger.handlers.clear()
+    client_logger.addHandler(InterceptHandler())
+    level = min(
+        get_log_level("stash_console", "INFO"), get_log_level("stash_file", "INFO")
+    )
+    if not _trace_enabled:
+        level = max(level, _LEVEL_VALUES["INFO"])
+    client_logger.setLevel(level)
 
 
 def _configure_sqlalchemy_logging() -> None:

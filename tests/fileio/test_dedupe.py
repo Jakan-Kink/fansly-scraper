@@ -17,6 +17,7 @@ from download.types import DownloadType
 from errors import MediaHashMismatchError
 from fileio.dedupe import (
     _calculate_hash_for_file,
+    _take_recorded_name,
     calculate_file_hash,
     categorize_file,
     dedupe_init,
@@ -30,6 +31,7 @@ from fileio.dedupe import (
 )
 from fileio.normalize import normalize_filename
 from metadata import Account, Media
+from metadata.media import _should_skip_media
 from tests.fixtures.download import DownloadStateFactory
 from tests.fixtures.utils import snowflake_id
 
@@ -389,6 +391,65 @@ async def test_get_or_create_media(entity_store, config, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_trust_filename_computes_missing_hash(entity_store, config, tmp_path):
+    """A migrated id-named file with no hash still gets one computed under
+    trust_filename, so the download-path skip check (which requires content_hash)
+    recognizes it as already downloaded.
+
+    Failure mode guarded: a legacy _hash_/_hash1_ migrant marked downloaded with
+    content_hash=None makes _should_skip_media return False, re-downloading it.
+    """
+    store = entity_store
+    account_id = snowflake_id()
+    await store.save(Account(id=account_id, username="test_user"))
+    state = DownloadStateFactory.build(creator_id=account_id, creator_name="test_user")
+
+    # Fresh DB (no record) — the issue #120 prof79-0.9.9 migrant path
+    media_id_new = snowflake_id()
+    file_new = create_test_image(
+        tmp_path, f"2023-05-01_id_{media_id_new}_hash1_deadbeef.jpg"
+    )
+    with patch("imagehash.phash", return_value="migrated_hash"):
+        media, hash_verified = await get_or_create_media(
+            file_path=file_new,
+            media_id=media_id_new,
+            mimetype="image/jpeg",
+            state=state,
+            trust_filename=True,
+            config=config,
+        )
+    assert media.content_hash == "migrated_hash"
+    assert hash_verified is True
+    assert _should_skip_media(media) is True
+
+    # Pre-existing hashless record (re-scan / partial metadata) — fast path
+    media_id_existing = snowflake_id()
+    fname = f"2023-05-02_id_{media_id_existing}_hash1_cafef00d.jpg"
+    await store.save(
+        Media(
+            id=media_id_existing,
+            accountId=account_id,
+            content_hash=None,
+            local_filename=fname,
+            mimetype="image/jpeg",
+            is_downloaded=True,
+        )
+    )
+    file_existing = create_test_image(tmp_path, fname)
+    with patch("imagehash.phash", return_value="migrated_hash_2"):
+        media, _ = await get_or_create_media(
+            file_path=file_existing,
+            media_id=media_id_existing,
+            mimetype="image/jpeg",
+            state=state,
+            trust_filename=True,
+            config=config,
+        )
+    assert media.content_hash == "migrated_hash_2"
+    assert _should_skip_media(media) is True
+
+
+@pytest.mark.asyncio
 async def test_dedupe_init_full_pipeline(entity_store, config, tmp_path):
     """Test dedupe_init with all 3 file categories + DB verification.
 
@@ -483,6 +544,106 @@ async def test_dedupe_init_full_pipeline(entity_store, config, tmp_path):
 
     updated_no_name = await store.get(Media, no_name_media.id)
     assert updated_no_name.is_downloaded is False
+
+
+@pytest.mark.asyncio
+async def test_dedupe_init_keeps_legacy_named_files_downloaded(
+    entity_store, config, tmp_path, valid_mp4_file
+):
+    """Files named by 0.9.9 are adopted by the scan, not downloaded again (#120).
+
+    0.9.9 named a file with its local time and appended the content hash
+    (``2024-03-05_at_22-45_id_<media>_hash2_<hash>.mp4``). The scan records
+    each file under its clean name, so the file has to carry that name on disk
+    as well: otherwise the scan's own check drops the record as missing and
+    the download step fetches the media a second time. A file with no hash in
+    its name is hashed, because a record without a hash is downloaded again.
+    A legacy file whose clean name is already taken by an identical file is a
+    leftover of such a second download and is removed; one that differs stays.
+    """
+    store = entity_store
+    config.download_directory = tmp_path
+    config.use_folder_suffix = False
+    config.separate_timeline = True
+    account_id = snowflake_id()
+    await store.save(Account(id=account_id, username="legacy_creator"))
+    hashed_id, plain_id, twice_id, differs_id = (snowflake_id() for _ in range(4))
+    state = DownloadStateFactory.build(
+        download_type=DownloadType.TIMELINE,
+        creator_name="legacy_creator",
+        creator_id=account_id,
+    )
+    videos = tmp_path / "legacy_creator" / "Timeline" / "Videos"
+    video = valid_mp4_file.read_bytes()
+    legacy_hash = "0123456789abcdef0123456789abcdef"
+    create_test_file(
+        videos, f"2024-03-05_at_22-45_id_{hashed_id}_hash2_{legacy_hash}.mp4", video
+    )
+    create_test_file(videos, f"2024-03-05_at_22-45_id_{plain_id}.mp4", video)
+    # A second download already sits beside these two legacy files.
+    create_test_file(
+        videos, f"2024-03-05_at_22-45_id_{twice_id}_hash2_{'1' * 32}.mp4", video
+    )
+    create_test_file(videos, f"2024-03-06_at_03-45_UTC_id_{twice_id}.mp4", video)
+    create_test_file(
+        videos, f"2024-03-05_at_22-45_id_{differs_id}_hash2_{'2' * 32}.mp4", video
+    )
+    create_test_file(
+        videos, f"2024-03-06_at_03-45_UTC_id_{differs_id}.mp4", video + b"\x00"
+    )
+
+    await dedupe_init(config, state)
+
+    records = {
+        media_id: await store.get(Media, media_id)
+        for media_id in (hashed_id, plain_id, twice_id, differs_id)
+    }
+    on_disk = sorted(path.name for path in videos.iterdir())
+    assert {mid: r.is_downloaded for mid, r in records.items()} == {
+        hashed_id: True,
+        plain_id: True,
+        twice_id: True,
+        differs_id: True,
+    }
+    assert records[hashed_id].content_hash == legacy_hash
+    assert records[plain_id].content_hash
+    assert on_disk == sorted(
+        [
+            f"2024-03-06_at_03-45_UTC_id_{hashed_id}.mp4",
+            f"2024-03-06_at_03-45_UTC_id_{plain_id}.mp4",
+            f"2024-03-06_at_03-45_UTC_id_{twice_id}.mp4",
+            f"2024-03-05_at_22-45_id_{differs_id}_hash2_{'2' * 32}.mp4",
+            f"2024-03-06_at_03-45_UTC_id_{differs_id}.mp4",
+        ]
+    )
+    assert [r.local_filename for r in records.values()] == [
+        f"2024-03-06_at_03-45_UTC_id_{media_id}.mp4" for media_id in records
+    ]
+
+
+@pytest.mark.asyncio
+async def test_take_recorded_name_leaves_other_files_alone(tmp_path):
+    """A file is only renamed to a free name that belongs to its own media."""
+    media_id = snowflake_id()
+    recorded = f"2024-03-06_at_03-45_UTC_id_{media_id}.mp4"
+    elsewhere = create_test_file(tmp_path / "Messages", recorded, b"copy")
+    legacy = create_test_file(
+        tmp_path / "Timeline", f"2024-03-05_at_22-45_id_{media_id}.mp4", b"copy"
+    )
+    other_media = create_test_file(
+        tmp_path / "Timeline", f"2024-03-05_at_22-45_id_{snowflake_id()}.mp4", b"copy"
+    )
+    media = Media(id=media_id, accountId=snowflake_id(), local_filename=recorded)
+    names = {elsewhere.name, legacy.name, other_media.name}
+
+    # The recorded name is carried by a copy in another folder.
+    await _take_recorded_name(legacy, media, names)
+    # The record was matched by content hash and belongs to another media.
+    await _take_recorded_name(other_media, media, names)
+
+    assert legacy.exists()
+    assert other_media.exists()
+    assert names == {elsewhere.name, legacy.name, other_media.name}
 
 
 @pytest.mark.asyncio
@@ -1092,7 +1253,11 @@ class TestGetOrCreateMediaDeepBranches:
 
     @pytest.mark.asyncio
     async def test_new_media_no_hash(self, entity_store, config, tmp_path):
-        """Lines 440-477: no existing media, trust_filename=True → create without hash calc."""
+        """No existing media, trust_filename=True → create WITH a computed hash.
+
+        A newly created downloaded record must carry a content_hash even under
+        trust_filename, or the download-path skip check re-downloads it forever.
+        """
         acct_id = snowflake_id()
         await entity_store.save(Account(id=acct_id, username=f"u_{acct_id}"))
         state = DownloadStateFactory.build(creator_id=acct_id, download_path=tmp_path)
@@ -1111,7 +1276,8 @@ class TestGetOrCreateMediaDeepBranches:
 
         assert media.id == new_mid
         assert media.is_downloaded is True
-        assert hash_verified is False  # no hash calculated
+        assert hash_verified is True
+        assert media.content_hash is not None
 
     @pytest.mark.asyncio
     async def test_trusted_filename_preserve_existing_on_disk(

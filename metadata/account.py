@@ -118,7 +118,7 @@ async def _backfill_missing_account_media(
     them through the normal Pydantic pipeline, and appends them to the
     bundle so the junction table gets all positions.
     """
-    from .media import process_media_info  # noqa: PLC0415,I001  # circular: metadata.media → metadata.account
+    from .media import process_media_info  # noqa: PLC0415  # circular: metadata.media → metadata.account
 
     json_output(
         1,
@@ -191,7 +191,7 @@ async def process_account_data(
 
     Walls still need async processing (stale-wall deletion, wall_posts junction).
     """
-    from .stub_tracker import remove_stub  # noqa: PLC0415, I001  # circular: metadata.stub_tracker → metadata.account via models
+    from .stub_tracker import remove_stub  # noqa: PLC0415  # circular: metadata.stub_tracker → metadata.account via models
     from .subscriptions import (  # noqa: PLC0415  # circular: metadata.subscriptions → metadata.account via models
         _access_changed_accounts,
         apply_subscription_snapshot,

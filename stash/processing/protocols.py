@@ -41,6 +41,7 @@ if TYPE_CHECKING:
         Media,
         Message,
         Post,
+        PostMention,
     )
 
 
@@ -91,6 +92,9 @@ class StashProcessingProtocol(Protocol):
     _performer: Performer | None
     _studio: Studio | None
     _stash_parent_task: str | None
+    _performer_matches: dict[tuple[str, str], list[Performer] | None]
+    _tags_by_name: dict[str, Tag]
+    _galleries_preloaded: bool
 
     # --- Base class properties ---
 
@@ -125,9 +129,17 @@ class StashProcessingProtocol(Protocol):
 
     async def process_creator(self) -> tuple[Account, Performer]: ...
 
-    async def _find_existing_performer(self, account: Account) -> Performer | None: ...
+    async def _find_existing_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None: ...
 
-    async def _get_or_create_performer(self, account: Account) -> Performer: ...
+    def _all_matched_performers(
+        self, account: Account | PostMention
+    ) -> list[Performer]: ...
+
+    async def _get_or_create_performer(
+        self, account: Account | PostMention
+    ) -> Performer | None: ...
 
     async def _update_account_stash_id(
         self,
@@ -146,6 +158,20 @@ class StashProcessingProtocol(Protocol):
 
     # --- TagProcessingMixin methods ---
 
+    async def _preload_tags(self) -> None: ...
+
+    @staticmethod
+    async def _link_tag(obj: Scene | Image | Gallery, tag: Tag) -> None: ...
+
+    @staticmethod
+    async def _link_performer(
+        obj: Scene | Image | Gallery, performer: Performer
+    ) -> None: ...
+
+    async def _preload_galleries(
+        self, items: Sequence[Post | Message], studio: Studio | None
+    ) -> None: ...
+
     async def _process_hashtags_to_tags(self, hashtags: list[Any]) -> list[Tag]: ...
 
     async def _add_preview_tag(self, file: Scene | Image) -> None: ...
@@ -163,7 +189,12 @@ class StashProcessingProtocol(Protocol):
         item: Post | Message,
         account: Account,
         studio: Studio | None = None,
+        siblings: Sequence[BaseFile] = (),
     ) -> Scene: ...
+
+    async def _item_creator(
+        self, item: Post | Message, account: Account, studio: Studio | None
+    ) -> tuple[Account, Studio | None] | None: ...
 
     async def _process_file_first(
         self,
@@ -223,7 +254,7 @@ class StashProcessingProtocol(Protocol):
         self,
         item: HasMetadata,
         account: Account,
-        performer: Performer,
+        performer: Performer | None,
         studio: Studio | None,
         item_type: str,
         url_pattern: str,
@@ -244,6 +275,10 @@ class StashProcessingProtocol(Protocol):
     async def _collect_media_from_attachments(
         self, attachments: list[Attachment]
     ) -> list[Media]: ...
+
+    async def _collect_owned_media(
+        self, item: Post | Message
+    ) -> list[tuple[Media, Post | Message]]: ...
 
     # --- StashProcessing composed class methods ---
 

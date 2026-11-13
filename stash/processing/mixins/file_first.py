@@ -13,6 +13,7 @@ and ``_compose_and_flush`` (one gallery per item + a single batched ``save_all``
 
 from __future__ import annotations
 
+import re
 import traceback
 from pathlib import Path, PurePath
 
@@ -158,6 +159,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         self._account = None
         self._performer = None
         self._studio = None
+        self._galleries_preloaded = False
         # invalidate_type is exact-match on __type_name__ (no subtype cascade),
         # so each concrete BaseFile subtype the sweep may have cached is listed.
         for entity_type in (
@@ -191,9 +193,9 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         """Run the file-first Stash processing flow for a creator.
 
         Sweeps the creator's Stash files, adjudicates each against the
-        downloaded media (posts + messages), composes one gallery per owning
-        item, and flushes in a single batched ``save_all`` (split-scene
-        ``stash_id`` is assigned post-flush, then persisted to the metadata DB).
+        downloaded media (posts + messages), creates any split scenes, composes
+        one gallery per owning item, flushes the rest in a single batched
+        ``save_all``, and persists the stash ids to the metadata DB.
 
         Args:
             account: The Account being processed
@@ -206,13 +208,16 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             media_with_id,
             split_pairs,
         ) = await self._prepare_file_first(account)
-        # Incremental entry point: media already carrying a stash_id are
-        # re-verified by-id and dropped from the sweep's index (subsequent runs
-        # go straight to the entity instead of rediscovering its file).
+        # Sweep first: on a server that returns each file's scenes/images with
+        # it, the store then already holds the entities the re-verify reads.
+        swept = [file async for file in self._sweep_creator_files()]
+        # Media already carrying a stash_id are re-verified by id and dropped
+        # from the index, so their files are not adjudicated a second time.
         await self._fast_path_known_media(
             index, account, studio, item_entities, media_with_id, split_pairs
         )
-        async for file in self._sweep_creator_files():
+        swept += await self._quoted_files_elsewhere(index, swept, account)
+        for file in swept:
             await self._safe_adjudicate(
                 file, index, account, studio, item_entities, media_with_id, split_pairs
             )
@@ -258,31 +263,93 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         if scan_paths:
             await self.scan_creator_folder(paths=scan_paths)
         await self._fast_path_known_media(
-            index, account, studio, item_entities, media_with_id, split_pairs
+            index,
+            account,
+            studio,
+            item_entities,
+            media_with_id,
+            split_pairs,
+            current_only=True,
         )
-        for _leaf, (media, _owners) in list(index.items()):
-            if not media.local_path or not media.local_filename:
-                continue  # only this cycle's downloads (local_path is the marker)
-            # Match by basename, NOT by path: under override_dldir_w_mapped the
-            # Stash library is reorganized, so local paths do not correspond to
-            # Stash paths (get_stash_path collapses to the mapped root). The
-            # basename carries the snowflake media id, survives the reorg, and is
-            # the same key the sweep's leaf-index uses. (Scanning above is by path
-            # to make Stash ingest; identity matching is by basename.)
-            file = await self.store.find_one(BaseFile, basename=media.local_filename)
-            if file is not None:
-                await self._safe_adjudicate(
-                    file,
-                    index,
-                    account,
-                    studio,
-                    item_entities,
-                    media_with_id,
-                    split_pairs,
-                )
+        # Only this cycle's downloads (local_path is the marker), matched by
+        # basename, NOT by path: under override_dldir_w_mapped the Stash library
+        # is reorganized, so local paths do not correspond to Stash paths
+        # (get_stash_path collapses to the mapped root). The basename carries
+        # the snowflake media id, survives the reorg, and is the same key the
+        # sweep's leaf-index uses. (Scanning above is by path to make Stash
+        # ingest; identity matching is by basename.)
+        current = [
+            media.local_filename
+            for media, _owners in index.values()
+            if media.local_path and media.local_filename
+        ]
+        for file in await self._find_files_by_basename(current):
+            await self._safe_adjudicate(
+                file,
+                index,
+                account,
+                studio,
+                item_entities,
+                media_with_id,
+                split_pairs,
+            )
         await self._compose_and_flush(
             account, performer, studio, item_entities, media_with_id, split_pairs
         )
+
+    async def _quoted_files_elsewhere(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        swept: list[BaseFile],
+        account: Account,
+    ) -> list[BaseFile]:
+        """Find quoted media whose file is outside this creator's folder.
+
+        Quoted media is saved under its original poster when that folder
+        exists, so the creator sweep does not see it.
+
+        Args:
+            index: Media index keyed by filename -> (Media, owning items)
+            swept: Files the creator sweep returned
+            account: The Account being processed
+
+        Returns:
+            The Stash files for indexed media of other accounts' posts that
+            the sweep did not return.
+        """
+        seen = {
+            PurePath(file.path).name
+            for file in swept
+            if not isinstance(file.path, UnsetType)
+        }
+        names = [
+            leaf
+            for leaf, (_media, owners) in index.items()
+            if leaf not in seen
+            and isinstance(owners[0], Post)
+            and owners[0].accountId != account.id
+        ]
+        return await self._find_files_by_basename(names) if names else []
+
+    async def _find_files_by_basename(self, names: list[str]) -> list[BaseFile]:
+        """Fetch the Stash files with the given basenames, a page of names per query.
+
+        Args:
+            names: File basenames to look up
+
+        Returns:
+            One file per basename Stash has (the first when several share it).
+        """
+        batch = self.config.stash_files_batch
+        found: dict[str, BaseFile] = {}
+        for start in range(0, len(names), batch):
+            pattern = "|".join(re.escape(name) for name in names[start : start + batch])
+            async for file in self.store.find_iter(
+                BaseFile, query_batch=batch, basename__regex=f"^({pattern})$"
+            ):
+                if not isinstance(file.path, UnsetType):
+                    found.setdefault(PurePath(file.path).name, file)
+        return list(found.values())
 
     async def _prepare_file_first(
         self, account: Account
@@ -307,7 +374,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]] = {}
         # Media that got a stash_id this run (owned scene / stamped image).
         media_with_id: list[Media] = []
-        # (media, new_scene) — stash_id assigned only AFTER save_all.
+        # (media, new_scene) — stash_id assigned once the scene is created.
         split_pairs: list[tuple[Media, Scene]] = []
         return index, item_entities, media_with_id, split_pairs
 
@@ -376,27 +443,46 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         )
 
     @staticmethod
+    def _flushed_stash_id(obj: Media | Post | Message) -> bool:
+        """Whether ``obj`` carries a stash_id an earlier run's flush persisted.
+
+        A stash_id set in memory but not yet saved (this run, or a run whose
+        flush failed) does not count.
+        """
+        return (
+            getattr(obj, "stash_id", None) is not None
+            and "stash_id" not in obj.get_changed_fields()
+        )
+
+    @classmethod
     def _accumulate_entities(
+        cls,
         media: Media,
         owners: list[Post | Message],
         entities: list[Scene | Image],
         item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
         media_with_id: list[Media],
         split_pairs: list[tuple[Media, Scene]],
+        *,
+        synced: bool = False,
     ) -> None:
         """Fan a media's adjudicated entities into every owner's gallery, once.
 
         The entity joins EVERY owning item's gallery (a shared Media must not
         lose the other items' galleries), but stash_id accumulation is
-        once-per-entity, not per-owner.
+        once-per-entity, not per-owner. With ``synced`` (the entities were
+        already flushed for this media by an earlier run), an owner that also
+        has a flushed gallery id is skipped: its gallery already holds them.
         """
         for item in owners:
             if item.id is None:  # owners are persisted rows; id is always set
                 continue
+            if synced and cls._flushed_stash_id(item):
+                continue
             item_entities.setdefault(item.id, (item, []))[1].extend(entities)
         for entity in entities:
             if isinstance(entity, Scene) and entity.is_new():
-                # A split — owned scenes are not new; stash_id set post-flush.
+                # A split — owned scenes are not new; stash_id set on create.
                 split_pairs.append((media, entity))
             else:
                 # Owned scene / stamped image already set media.stash_id.
@@ -410,23 +496,35 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
         media_with_id: list[Media],
         split_pairs: list[tuple[Media, Scene]],
+        *,
+        current_only: bool = False,
     ) -> None:
-        """Re-verify already-stamped media by-id, before the sweep.
+        """Re-verify already-stamped media by id.
 
-        The incremental entry point of the file-first design: a media that
-        already carries a stash_id goes straight to its Scene/Image via
-        ``_process_media_fast_path`` (get-by-id + primary re-verify) instead of
-        waiting for the sweep to rediscover its file. A leaf is dropped from the
-        index only when the fast-path definitively handled it (returned
-        entities); a stale/foreign/skip result leaves the leaf for the sweep to
-        re-adjudicate, so nothing is silently lost.
+        A media that already carries a stash_id goes straight to its Scene/Image
+        via ``_process_media_fast_path`` (store get + primary re-verify) instead
+        of being adjudicated from its file. A leaf is dropped from the index
+        only when the fast-path definitively handled it (returned entities); a
+        stale/foreign/skip result leaves the leaf to be adjudicated from its
+        file, so nothing is silently lost.
+
+        Args:
+            index: Media index keyed by filename -> (Media, owning items)
+            account: The Account being processed
+            studio: Optional Studio to associate with entities
+            item_entities: Accumulator: item.id -> (item, [Scene|Image, ...])
+            media_with_id: Accumulator for Media that got a stash_id this run
+            split_pairs: Accumulator for (media, new_scene) split pairs
+            current_only: Re-verify only media downloaded this cycle (those
+                carrying ``local_path``), leaving the rest of the index alone
         """
         known = [
             (leaf, media, owners)
             for leaf, (media, owners) in list(index.items())
-            if media.stash_id is not None
+            if media.stash_id is not None and (media.local_path or not current_only)
         ]
         for leaf, media, owners in known:
+            flushed_id = str(media.stash_id) if self._flushed_stash_id(media) else None
             entities = await self._process_media_fast_path(
                 media, owners[0], account, studio
             )
@@ -434,7 +532,14 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 continue  # stale/foreign/skip — leave in index for the sweep
             del index[leaf]  # definitively handled; do not re-adjudicate via sweep
             self._accumulate_entities(
-                media, owners, entities, item_entities, media_with_id, split_pairs
+                media,
+                owners,
+                entities,
+                item_entities,
+                media_with_id,
+                split_pairs,
+                # A demotion can hand back a new split scene instead.
+                synced=all(entity.id == flushed_id for entity in entities),
             )
 
     async def _compose_and_flush(
@@ -452,7 +557,15 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         reported failed (not a clean success with stash_ids silently lost). The
         flow is idempotent — a failed creator self-heals on the next run.
         """
+        await self._create_split_scenes(item_entities, split_pairs)
+        if item_entities:
+            # One set of bulk reads instead of three searches per item.
+            await self._preload_galleries(
+                [item for item, _entities in item_entities.values()], studio
+            )
         for item, entities in item_entities.values():
+            if not entities:
+                continue  # its only entity was a split scene Stash refused
             # Per-item isolation: one bad compose must not abort the rest.
             try:
                 await self._compose_gallery_for_item(
@@ -473,13 +586,9 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                     }
                 )
         try:
-            # Creates split scenes, updates owned scenes/images, creates/links
-            # galleries (links ride save_all via gallery side-mutations).
+            # Updates owned scenes/images and links galleries (links ride
+            # save_all via gallery side-mutations).
             await self.store.save_all()
-
-            # Post-flush: split scenes now have real IDs — record on the Media.
-            for media, scene in split_pairs:
-                media.stash_id = int(scene.id)
 
             # Persist affected Media rows to the FDNG metadata DB (NOT the Stash
             # store). Dedupe by object identity so each Media is saved once.
@@ -487,6 +596,11 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             affected = media_with_id + [m for m, _ in split_pairs]
             for media in {id(m): m for m in affected}.values():
                 await fdng_store.save(media)
+            # Gallery ids recorded while composing: later runs find the gallery
+            # by id and skip items that are fully flushed.
+            for item, _entities in item_entities.values():
+                if "stash_id" in item.get_changed_fields():
+                    await fdng_store.save(item)
         except Exception as exc:
             print_error(f"Failed to flush file-first batch: {exc}")
             logger.exception("Failed to flush file-first batch", exc_info=exc)
@@ -499,6 +613,39 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 }
             )
             raise
+
+    async def _create_split_scenes(
+        self,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
+        split_pairs: list[tuple[Media, Scene]],
+    ) -> None:
+        """Create each split scene in Stash before anything links to it.
+
+        Left to ``save_all``, a new scene that a gallery links is created twice
+        (queued in the batch, then cascade-saved for the gallery), and Stash
+        rejects the second create. A scene Stash refuses is dropped from this
+        run so the rest of the creator still flushes.
+
+        Args:
+            item_entities: Accumulator: item.id -> (item, [Scene|Image, ...])
+            split_pairs: (media, new_scene) pairs; refused scenes are removed
+        """
+        created: list[tuple[Media, Scene]] = []
+        for media, scene in split_pairs:
+            try:
+                await self.store.save(scene)
+            except Exception as exc:
+                logger.exception(
+                    f"Failed to create split scene for media {media.id}",
+                    exc_info=exc,
+                )
+                self.store.invalidate(scene)
+                for _item, entities in item_entities.values():
+                    entities[:] = [e for e in entities if e is not scene]
+                continue
+            media.stash_id = int(scene.id)
+            created.append((media, scene))
+        split_pairs[:] = created
 
     async def _compose_gallery_for_item(
         self,
@@ -513,7 +660,8 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         Linking: hashtags become tags, Images ride ``gallery.images``
         (addGalleryImages side-mutation), Scenes are added via ``add_scene``.
         No explicit save here — the gallery is already dirty and its links flush
-        on the run-level ``save_all``.
+        on the run-level ``save_all``. A quoted post's gallery carries that
+        post's author, not the creator being processed.
 
         Args:
             item: The owning Post or Message
@@ -522,6 +670,13 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             performer: The Performer for the account
             studio: Optional Studio to associate with the gallery
         """
+        creator = await self._item_creator(item, account, studio)
+        if creator is None:
+            return
+        gallery_performer: Performer | None = performer
+        if creator[0].id != account.id:
+            account, studio = creator
+            gallery_performer = await self._get_or_create_performer(account)
         if isinstance(item, Post):
             item_type = "post"
             url_pattern = f"https://fansly.com/post/{item.id}"
@@ -532,7 +687,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         gallery = await self._get_or_create_gallery(
             item=item,
             account=account,
-            performer=performer,
+            performer=gallery_performer,
             studio=studio,
             item_type=item_type,
             url_pattern=url_pattern,
@@ -543,7 +698,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         hashtags = getattr(item, "hashtags", None)
         if hashtags:
             for tag in await self._process_hashtags_to_tags(hashtags):
-                await gallery.add_tag(tag)
+                await self._link_tag(gallery, tag)
 
         existing_images = gallery.images if isinstance(gallery.images, list) else []
         gallery.images = existing_images + [e for e in entities if isinstance(e, Image)]
