@@ -124,26 +124,15 @@ class TestAdaptiveBackoff:
         stays at the floor (can't go lower) and successes reset.
         """
         rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0
+        rl._apply_adaptive_backoff(429)
+        rl.current_backoff_seconds = 2.0  # already down at the floor
 
-        # Build up violations to establish a floor
-        for _ in range(5):
-            rl._apply_adaptive_backoff(429)
+        rl._apply_adaptive_backoff(200)
+        rl._apply_adaptive_backoff(200)
 
-        # Reduce via successes until at or near floor
-        for _ in range(20):
-            rl._apply_adaptive_backoff(200)
-
-        # At this point, backoff should be at or near the floor
-        floor = rl._calculate_minimum_floor()
-        if floor > 0.0:
-            # Force backoff to exactly the floor
-            rl.current_backoff_seconds = floor
-            rl.consecutive_successes = 0
-
-            # Two successes → hits "at minimum floor" branch (225-226)
-            rl._apply_adaptive_backoff(200)
-            rl._apply_adaptive_backoff(200)
-            assert rl.current_backoff_seconds == floor  # Can't go below floor
+        assert rl.current_backoff_seconds == 2.0  # can't go below the floor
+        assert rl.consecutive_successes == 0
 
     def test_backoff_normal_reduction_above_floor(self):
         """Lines 243-244: normal backoff reduction above minimum floor.
@@ -152,20 +141,14 @@ class TestAdaptiveBackoff:
         backoff but not below the floor.
         """
         rl = RateLimiter(_make_config())
+        rl.learned_floor = 2.0
+        rl._apply_adaptive_backoff(429)  # 30s backoff, well above the floor
 
-        # Build violations to establish a non-zero floor
-        for _ in range(3):
-            rl._apply_adaptive_backoff(429)
-
-        floor = rl._calculate_minimum_floor()
-        # Set backoff above the floor
-        rl.current_backoff_seconds = floor + 20.0
-        rl.consecutive_successes = 0
-
-        # Two successes → normal reduction (243-244)
         rl._apply_adaptive_backoff(200)
         rl._apply_adaptive_backoff(200)
-        assert rl.current_backoff_seconds >= floor
+
+        assert rl.current_backoff_seconds == pytest.approx(20.0)  # 30 / 1.5
+        assert rl.consecutive_successes == 0
 
     def test_429_at_max_backoff(self):
         """Lines 184-191: consecutive 429s hit max_backoff_seconds cap."""
@@ -503,3 +486,8 @@ class TestStatsAndConfig:
         small_burst = _make_config(rate_limiting_burst_size=5)
         rl.update_config(small_burst)
         assert rl.tokens == 5.0
+
+        # The same config again changes nothing
+        rl.update_config(small_burst)
+        assert rl.tokens == 5.0
+        assert rl.enabled is True

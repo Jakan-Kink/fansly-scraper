@@ -400,15 +400,15 @@ Resource safety patterns used throughout:
 
 The downloader uses distinct exit codes for automation integration:
 
-| Code | Meaning              |
-| ---- | -------------------- |
-| `0`  | Success              |
-| `1`  | Config error         |
-| `2`  | API error            |
-| `3`  | Download error       |
-| `4`  | Some users failed    |
-| `10` | Unexpected error     |
-| `255`| User abort (SIGINT)  |
+| Code | Meaning |
+| --- | --- |
+| `0` | Success, or stopped with SIGTERM |
+| `1` | Config error |
+| `2` | API error |
+| `3` | Download error |
+| `4` | Some users failed |
+| `10` | Unexpected error |
+| `255` | User abort (SIGINT) |
 
 ## Performance Considerations
 

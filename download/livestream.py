@@ -144,7 +144,7 @@ async def _record_stream(
                 continue
 
             # Resolve the highest-bandwidth variant URL from the master manifest.
-            variant_url = await _resolve_variant_url(auth_url)
+            variant_url = await _resolve_variant_url(auth_url, config.proxy)
             if variant_url is None:
                 logger.warning(
                     "download.livestream: {} could not resolve variant URL "
@@ -209,6 +209,7 @@ async def _record_stream(
                     combined_stop,
                     log_prefix,
                     float(config.monitoring_livestream_manifest_poll_interval_seconds),
+                    config.proxy,
                 )
             finally:
                 combined_stop.set()
@@ -314,7 +315,7 @@ async def _get_authenticated_playback_url(
     return channel.playbackUrl
 
 
-async def _resolve_variant_url(master_url: str) -> str | None:
+async def _resolve_variant_url(master_url: str, proxy: str | None = None) -> str | None:
     """Fetch the IVS master playlist and return the highest-bandwidth variant URL.
 
     IVS master URL format (from ``stream.playbackUrl``):
@@ -332,8 +333,11 @@ async def _resolve_variant_url(master_url: str) -> str | None:
     base_uri = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
+        # The explicit transport keeps httpx off proxy environment variables.
         async with httpx.AsyncClient(
-            http2=True, follow_redirects=True, timeout=15.0
+            transport=httpx.AsyncHTTPTransport(http2=True, proxy=proxy),
+            follow_redirects=True,
+            timeout=15.0,
         ) as client:
             response = await client.get(master_url, headers=_IVS_MASTER_HEADERS)
             response.raise_for_status()
@@ -374,6 +378,7 @@ async def _poll_segments_loop(
     stop_event: asyncio.Event,
     log_prefix: str,
     manifest_poll_interval: float = 3.0,
+    proxy: str | None = None,
 ) -> tuple[list[Path], list[float]]:
     """Poll the IVS variant manifest, download new segments to *temp_dir*.
 
@@ -399,6 +404,7 @@ async def _poll_segments_loop(
         log_prefix: Log line prefix, e.g. ``"[username]"``.
         manifest_poll_interval: Seconds between manifest re-fetches.
             IVS TARGETDURATION is 6 s; default 3 s (half), max 15 s.
+        proxy: Proxy URL for manifest and segment requests; ``None`` is direct.
 
     Returns:
         ``(segments, durations)`` — parallel lists of downloaded segment paths
@@ -412,7 +418,7 @@ async def _poll_segments_loop(
     # Manifest requests go directly to AWS IVS/CloudFront — no Fansly auth.
     # Variant segment URLs are self-authenticating via their opaque path token.
     async with httpx.AsyncClient(
-        http2=True,
+        transport=httpx.AsyncHTTPTransport(http2=True, proxy=proxy),
         timeout=30.0,
         headers={
             "User-Agent": (

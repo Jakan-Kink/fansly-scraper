@@ -1,0 +1,161 @@
+{
+  "success": true,
+  "response": {
+    "posts": [
+      {
+        "id": "300000000000000002",
+        "accountId": "100000000000000001",
+        "content": "A wrapper post: the quoter's own words about someone else's post.",
+        "fypFlags": 0,
+        "inReplyTo": null,
+        "inReplyToRoot": null,
+        "replyPermissionFlags": null,
+        "createdAt": 1709752762,
+        "expiresAt": null,
+        "attachments": [
+          {
+            "postId": "300000000000000002",
+            "pos": 0,
+            "contentType": 8,
+            "contentId": "300000000000000001"
+          }
+        ],
+        "replyCount": 1,
+        "wallIds": [],
+        "likeCount": 23,
+        "timelineReadPermissionFlags": [],
+        "accountTimelineReadPermissionFlags": { "flags": 2, "metadata": "{}" },
+        "mediaLikeCount": 0,
+        "totalTipAmount": 0,
+        "attachmentTipAmount": 0,
+        "accountMentions": []
+      }
+    ],
+    "aggregatedPosts": [
+      {
+        "id": "300000000000000001",
+        "accountId": "100000000000000002",
+        "content": "The original post, which mentions @quoter.\n\n#first #second",
+        "fypFlags": 0,
+        "inReplyTo": null,
+        "inReplyToRoot": null,
+        "replyPermissionFlags": null,
+        "createdAt": 1709696752,
+        "expiresAt": null,
+        "attachments": [
+          {
+            "postId": "300000000000000001",
+            "pos": 0,
+            "contentType": 1,
+            "contentId": "200000000000000001"
+          }
+        ],
+        "replyCount": 2,
+        "likeCount": 29,
+        "wallIds": [],
+        "timelineReadPermissionFlags": [],
+        "accountTimelineReadPermissionFlags": { "flags": 0, "metadata": "{}" },
+        "mediaLikeCount": 43,
+        "totalTipAmount": 0,
+        "attachmentTipAmount": 0,
+        "accountMentions": [
+          {
+            "start": 35,
+            "end": 42,
+            "handle": "quoter",
+            "accountId": "100000000000000001"
+          }
+        ]
+      }
+    ],
+    "accountMediaBundles": [],
+    "accountMedia": [
+      {
+        "id": "200000000000000001",
+        "accountId": "100000000000000002",
+        "mediaId": "400000000000000001",
+        "previewId": null,
+        "permissionFlags": 0,
+        "price": 0,
+        "createdAt": 1709696752,
+        "deletedAt": null,
+        "deleted": false,
+        "likeCount": 43,
+        "media": {
+          "id": "400000000000000001",
+          "type": 2,
+          "status": 1,
+          "accountId": "100000000000000002",
+          "mimetype": "video/mp4",
+          "flags": 426,
+          "location": "/100000000000000002/400000000000000001.mp4",
+          "width": 720,
+          "height": 1280,
+          "metadata": "{\"originalHeight\":1920,\"originalWidth\":1080,\"duration\":302.068733,\"resolutionMode\":2,\"frameRate\":29.96}",
+          "updatedAt": 1709696817,
+          "createdAt": 1709696727,
+          "variants": [],
+          "variantHash": {},
+          "locations": [
+            {
+              "locationId": "1",
+              "location": "https://cdn.example.com/100000000000000002/400000000000000001.mp4?ngsw-bypass=true&Policy=abc&Key-Pair-Id=xyz&Signature=def"
+            }
+          ]
+        },
+        "purchased": false,
+        "whitelisted": false,
+        "accountPermissionFlags": 4,
+        "access": true
+      }
+    ],
+    "accounts": [
+      {
+        "id": "100000000000000001",
+        "username": "quoter",
+        "displayName": "Quoter",
+        "flags": 18,
+        "version": 6,
+        "createdAt": 1707504630000,
+        "followCount": 100,
+        "subscriberCount": 0,
+        "accountMediaLikes": 10,
+        "statusId": 1,
+        "lastSeenAt": 1794516566000,
+        "following": true,
+        "postLikes": 10,
+        "profileAccessFlags": 0,
+        "profileFlags": 0,
+        "about": "The quoting creator.",
+        "location": "",
+        "subscribed": true,
+        "profileAccess": true
+      },
+      {
+        "id": "100000000000000002",
+        "username": "original_poster",
+        "displayName": null,
+        "flags": 18,
+        "version": 3,
+        "createdAt": 1640011712000,
+        "followCount": 100,
+        "subscriberCount": 0,
+        "accountMediaLikes": 10,
+        "statusId": 1,
+        "lastSeenAt": 1794540829000,
+        "following": true,
+        "postLikes": 10,
+        "profileAccessFlags": 0,
+        "profileFlags": 0,
+        "about": "The creator whose post is quoted.",
+        "location": "",
+        "subscribed": true,
+        "profileAccess": true
+      }
+    ],
+    "tips": [],
+    "tipGoals": [],
+    "stories": [],
+    "polls": []
+  }
+}

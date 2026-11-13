@@ -4,6 +4,9 @@ import asyncio
 import atexit
 import contextlib
 import logging
+import multiprocessing
+import os
+import signal
 import time
 import tomllib
 from pathlib import Path
@@ -37,7 +40,9 @@ from errors import (
 from fansly_downloader_ng import (
     _async_main,
     _check_stash_library_version,
+    _exit_without_teardown,
     _handle_interrupt,
+    _handle_terminate,
     _safe_cleanup_database,
     cleanup_database,
     cleanup_database_sync,
@@ -46,6 +51,7 @@ from fansly_downloader_ng import (
     load_client_account_into_db,
     print_logo,
 )
+from helpers.rich_progress import get_progress_manager
 from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils import scaled_async_sleep
@@ -671,6 +677,45 @@ def test_handle_interrupt_second_call_forces_sys_exit(caplog, monkeypatch):
     )
 
 
+def test_handle_terminate_raises_once_and_flags_config(caplog):
+    """The first SIGTERM flags the config and raises; a repeat does nothing."""
+    caplog.set_level(logging.ERROR)
+    config = FanslyConfig(program_version="0.13.0")
+
+    with pytest.raises(KeyboardInterrupt, match="Termination requested"):
+        _handle_terminate(config, signal.SIGTERM, None)
+    flagged_after_first = config._terminate_requested
+    _handle_terminate(config, signal.SIGTERM, None)
+
+    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert flagged_after_first is True
+    assert sum("Termination requested" in m for m in error_messages) == 1
+
+
+def test_exit_without_teardown_stops_display_and_children(monkeypatch):
+    """Before os._exit, the progress display is stopped and child processes ended."""
+    exit_codes: list[int] = []
+    monkeypatch.setattr(os, "_exit", exit_codes.append)
+    child = multiprocessing.get_context("spawn").Process(target=time.sleep, args=(30,))
+    child.start()
+    progress = get_progress_manager()
+    try:
+        with progress.session():
+            live_before = progress.live is not None
+            _exit_without_teardown(7)
+            live_after = progress.live
+        child.join(timeout=5)
+        child_exit_code = child.exitcode
+    finally:
+        if child.is_alive():
+            child.kill()
+
+    assert live_before is True
+    assert live_after is None
+    assert child_exit_code == -signal.SIGTERM
+    assert exit_codes == [7]
+
+
 # cleanup_with_global_timeout tests — covers lines 695-803.
 
 
@@ -1092,6 +1137,27 @@ async def test_cleanup_with_global_timeout_db_no_time_remaining(
     assert any(
         "No time remaining for database cleanup" in m for m in warning_messages
     ), f"Expected no-time-for-db warning, got WARNING: {warning_messages}"
+
+
+@pytest.mark.parametrize(("terminating", "unloads"), [(False, True), (True, False)])
+async def test_cleanup_with_global_timeout_unloads_unless_terminating(
+    config_with_database, caplog, terminating, unloads
+):
+    """The memory phase empties the entity cache, except on the SIGTERM exit."""
+    caplog.set_level(logging.INFO)
+    config = config_with_database
+    store = await config._database.create_entity_store()
+    await store.save(Account(id=snowflake_id(), username="unload_phase"))
+    cached_before = store.cache_stats()["total"]
+    config._terminate_requested = terminating
+
+    await cleanup_with_global_timeout(config)
+
+    info_messages = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert cached_before == 1
+    assert any("cleanup phase db" in m for m in info_messages)
+    assert any("cleanup phase memory" in m for m in info_messages) is unloads
+    assert store.cache_stats()["total"] == (0 if unloads else 1)
 
 
 # _async_main partial-branch and finally-exception tests — 812->819, 825, 844-850.

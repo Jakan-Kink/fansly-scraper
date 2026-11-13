@@ -1,7 +1,8 @@
 """Unit tests for MediaProcessingMixin._owned_scene and _stamp_metadata."""
 
 import json
-from pathlib import PurePath
+import logging
+from pathlib import Path, PurePath
 from typing import Any
 
 import httpx
@@ -42,6 +43,151 @@ class TestOwnedScene:
         scene = Scene(id="500", files=[foreign, our])  # foreign is primary
         our.scenes = [scene]
         assert await respx_stash_processor._owned_scene(our) is None
+
+    @pytest.mark.asyncio
+    async def test_owned_when_another_creators_copy_is_primary(
+        self, respx_stash_processor
+    ):
+        """A copy in another creator folder of the download directory is ours.
+
+        '/dl2' only looks like it is inside '/dl', so a primary there is foreign.
+        """
+        respx_stash_processor.config.download_directory = Path("/dl")
+        other = VideoFile(id="99", path="/dl/original_poster/x_id_42.mp4")
+        shared = Scene.model_construct(id="500", files=[other])
+        # Built without relationship sync, so the first scene's files stay
+        # unread; such a scene is passed over.
+        our = VideoFile.model_construct(
+            id="100",
+            path="/dl/test_user/x_id_42.mp4",
+            scenes=[Scene.model_construct(id="499"), shared],
+        )
+        beside = VideoFile(id="199", path="/dl2/x_id_43.mp4")
+        ours_too = VideoFile(id="200", path="/dl/test_user/x_id_43.mp4")
+        ours_too.scenes = [Scene(id="600", files=[beside, ours_too])]
+
+        assert await respx_stash_processor._owned_scene(our) is shared
+        assert await respx_stash_processor._owned_scene(ours_too) is None
+
+    @pytest.mark.parametrize(
+        ("primary_path", "owned"),
+        [("/dl/original_poster/x_id_42.mp4", True), ("/other/foreign.mp4", False)],
+        ids=["another-creators-copy", "foreign"],
+    )
+    @pytest.mark.asyncio
+    async def test_unread_primary_path_is_read_before_deciding(
+        self, respx_stash_processor, primary_path, owned
+    ):
+        """A primary whose path did not come with the file is read from Stash."""
+        respx_stash_processor.config.download_directory = Path("/dl")
+        unread = VideoFile.model_construct(id="99")
+        our = VideoFile(id="100", path="/dl/test_user/x_id_42.mp4")
+        our.scenes = [Scene(id="500", files=[unread, our])]
+        scene_data = create_scene_dict(
+            id="500",
+            title="Shared",
+            files=[
+                create_video_file_dict("99", primary_path),
+                create_video_file_dict("100", present(our.path)),
+            ],
+        )
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findScene", scene_data)
+                )
+            ]
+        )
+
+        try:
+            result = await respx_stash_processor._owned_scene(our)
+        finally:
+            dump_graphql_calls(route.calls, "unread_primary_path")
+
+        assert route.call_count == 1
+        assert b"findScene" in route.calls[0].request.content
+        assert (result is not None and result.id == "500") is owned
+
+
+class TestSplitForeignFiles:
+    """A scene of ours gives up the files that came from another source."""
+
+    @pytest.mark.parametrize(
+        ("mode", "organized", "refused", "calls", "logged"),
+        [
+            (True, False, False, 1, "Moved ['/of/creator/clip.mp4'] off scene 500"),
+            (
+                True,
+                False,
+                True,
+                1,
+                "Failed to move ['/of/creator/clip.mp4'] off scene 500",
+            ),
+            (True, True, False, 0, ""),
+            (
+                "dry-run",
+                False,
+                False,
+                0,
+                "would move ['/of/creator/clip.mp4'] off scene 500",
+            ),
+            (False, False, False, 0, ""),
+        ],
+        ids=["split", "stash-refuses", "organized", "dry-run", "off"],
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("isolate_scene_create_input", "enable_scene_creation")
+    async def test_foreign_secondaries_get_their_own_scene(
+        self, respx_stash_processor, caplog, mode, organized, refused, calls, logged
+    ):
+        """Only files known to be outside the download directory are moved.
+
+        The scene holds our primary, another creator's copy, an OnlyFans file
+        and a file whose path was never read; the new scene gets the OnlyFans
+        file alone. An organized scene keeps all its files.
+        """
+        caplog.set_level(logging.INFO)
+        processor = respx_stash_processor
+        processor.config.download_directory = Path("/dl")
+        processor.config.stash_enable_scene_split = mode
+        scene = Scene(
+            id="500",
+            organized=organized,
+            files=[
+                VideoFile(id="100", path="/dl/test_user/x_id_42.mp4"),
+                VideoFile(id="101", path="/dl/original_poster/x_id_42.mp4"),
+                VideoFile(id="102", path="/of/creator/clip.mp4"),
+                VideoFile.model_construct(id="103"),
+            ],
+        )
+        response = (
+            {"errors": [{"message": "cannot reassign primary file"}]}
+            if refused
+            else create_graphql_response(
+                "sceneCreate",
+                create_scene_dict(
+                    id="900",
+                    title="",
+                    files=[create_video_file_dict("102", "/of/creator/clip.mp4")],
+                ),
+            )
+        )
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[httpx.Response(200, json=response)]
+        )
+
+        try:
+            await processor._split_foreign_files(scene)
+        finally:
+            dump_graphql_calls(route.calls, "foreign_secondaries_own_scene")
+
+        assert route.call_count == calls
+        if calls:
+            created = json.loads(route.calls[0].request.content)["variables"]["input"]
+            assert created["file_ids"] == ["102"]
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(logged in message for message in messages) is bool(logged)
+        assert not any("x_id_42" in message for message in messages)
 
 
 class TestStampMetadata:
@@ -320,13 +466,15 @@ class TestStampMetadata:
     async def test_stamp_metadata_skips_object_this_media_already_stamped(
         self, respx_stash_processor, mock_item, mock_account, mock_scene
     ):
-        """An object whose code is already this media's id is left untouched.
+        """An object this media already stamped from this post is left untouched.
 
-        No route is registered and no performer is cached, so a stamp that went
-        ahead would fail on its performer lookup.
+        Its code is the media id and it carries the post's link. No route is
+        registered and no performer is cached, so a stamp that went ahead would
+        fail on its performer lookup.
         """
         media = MediaFactory.build(is_downloaded=True)
         mock_scene.code = str(media.id)
+        mock_scene.urls = [f"https://fansly.com/post/{mock_item.id}"]
         original_title = mock_scene.title
         original_details = getattr(mock_scene, "details", None)
 
@@ -750,8 +898,10 @@ class TestProcessFileFirstNotOwned:
         confirms not-owned and a new owned scene is split off. (On the uncapable
         path populate mutates and returns the SAME file instance, so the
         capable-server identity discriminator does not apply; the split outcome
-        is asserted by value.)
+        is asserted by value.) Another creator's copy of the same media on the
+        shared scene leaves with ours, so the foreign scene keeps no file of ours.
         """
+        respx_stash_processor.config.download_directory = Path("/dl")
         foreign = VideoFile(id="99", path="/other.mp4")
         our = VideoFile(id="100", path="/dl/u/x_id_42.mp4")
         shared = Scene(id="500", files=[foreign, our])  # foreign is primary
@@ -778,6 +928,7 @@ class TestProcessFileFirstNotOwned:
             files=[
                 create_video_file_dict("99", "/other.mp4"),
                 create_video_file_dict("100", present(our.path)),
+                create_video_file_dict("101", "/dl/original_poster/x_id_42.mp4"),
             ],
         )
 
@@ -806,12 +957,12 @@ class TestProcessFileFirstNotOwned:
         # The fail-safe forced an authoritative re-check via findScenes.
         assert any(b"findScenes" in c.request.content for c in graphql_route.calls)
         # The split produced a NEW owned scene carrying the stamped code, with our
-        # file as its primary.
+        # file as its primary and the other creator's copy beside it.
         assert len(result) == 1
         new_scene = result[0]
         assert new_scene.is_new() is True
         assert new_scene.code == str(media.id)
-        assert [f.id for f in new_scene.files] == ["100"]
+        assert [f.id for f in new_scene.files] == ["100", "101"]
         # No create flushed here (Phase 5 owns save_all); stash_id set post-flush.
         assert not graphql_op_fired(graphql_route.calls, "sceneCreate")
         assert media.stash_id is None
@@ -871,13 +1022,12 @@ class TestProcessFileFirstNotOwned:
     async def test_not_owned_true_indeterminate_unresolved_files_skips(
         self, respx_stash_processor, mock_item, mock_account
     ):
-        """True; scenes RESOLVE but a scene's ``.files`` is UNSET -> indeterminate.
+        """True; scenes RESOLVE but a primary's path cannot be read -> indeterminate.
 
-        The realistic indeterminate case: the force-refetch resolves a scene we
-        CANNOT confirm primary on because its ``.files`` is UNSET. A fail-safe
-        must treat "couldn't determine" as SKIP, never as "not owned -> split"
-        (the dangerous direction). Driven via findScenes returning a scene whose
-        ``files`` key is omitted so SGC parses ``files`` as UNSET.
+        The force-refetch resolves the shared scene with a primary file whose
+        path did not come back, and the scene is gone when it is read by id. A
+        fail-safe must treat "couldn't determine" as SKIP, never as "not owned
+        -> split" (the dangerous direction).
         """
         our = VideoFile(id="100", path="/dl/u/x_id_42.mp4")
         shared = Scene(id="500", files=[VideoFile(id="99", path="/other.mp4"), our])
@@ -888,13 +1038,18 @@ class TestProcessFileFirstNotOwned:
         index = {PurePath(present(our.path)).name: (media, [mock_item])}
         respx_stash_processor.config.stash_enable_scene_split = True
 
-        # findScenes returns a DIFFERENT scene (id 777) with NO files key → SGC
-        # parses scene.files UNSET → the unresolved-files guard fires.
-        scene_data = create_scene_dict(id="777", title="Unresolved")
-        del scene_data["files"]
+        # findScenes returns a scene (id 777) whose primary carries no path.
+        pathless_primary = create_video_file_dict("98", "/unused")
+        del pathless_primary["path"]
+        scene_data = create_scene_dict(
+            id="777",
+            title="Unresolved",
+            files=[pathless_primary, create_video_file_dict("100", present(our.path))],
+        )
 
-        # Two calls: the force-refetch populate's path fallback issues the
-        # findScenes-by-path query twice (direct fetch + nested resolution).
+        # Three calls: the force-refetch populate's path fallback issues the
+        # findScenes-by-path query twice (direct fetch + nested resolution),
+        # then the scene is read by id for the missing path and is gone.
         def _scenes_by_path():
             return httpx.Response(
                 200,
@@ -905,7 +1060,11 @@ class TestProcessFileFirstNotOwned:
             )
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[_scenes_by_path(), _scenes_by_path()]
+            side_effect=[
+                _scenes_by_path(),
+                _scenes_by_path(),
+                httpx.Response(200, json=create_graphql_response("findScene", None)),
+            ]
         )
 
         try:
@@ -920,6 +1079,8 @@ class TestProcessFileFirstNotOwned:
 
         # Re-check fired, scenes resolved but files unresolved -> skip, no split.
         assert result == []
+        assert graphql_route.call_count == 3
+        assert b"findScene(" in graphql_route.calls[2].request.content
         assert any(b"findScenes" in c.request.content for c in graphql_route.calls)
         assert not graphql_op_fired(graphql_route.calls, "sceneCreate")
         assert media.stash_id is None

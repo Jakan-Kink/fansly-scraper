@@ -499,6 +499,7 @@ async def test_run_file_first_reads_synced_media_from_the_sweep(
         code=str(media.id),
         date="2024-01-01",
         details="synced",
+        urls=[f"https://fansly.com/post/{post.id}"],
         files=[file_dict],
     )
     route = respx.post(_GRAPHQL_URL).mock(

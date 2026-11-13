@@ -15,6 +15,7 @@ import contextlib
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -805,16 +806,14 @@ class TestCreatorProcessing:
             job_id: str,
             status: JobStatus,
             description: str = "Scanning...",
-            **fields: str | float,
+            **fields: Any,
         ) -> dict:
             built = JobFactory.build(
                 id=job_id, status=status, description=description, **fields
             )
             return json.loads(built.model_dump_json())
 
-        def find_job(
-            job_id: str, status: JobStatus, **fields: str | float
-        ) -> httpx.Response:
+        def find_job(job_id: str, status: JobStatus, **fields: Any) -> httpx.Response:
             return httpx.Response(
                 200,
                 json=create_graphql_response("findJob", job(job_id, status, **fields)),

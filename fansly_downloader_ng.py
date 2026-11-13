@@ -7,6 +7,7 @@ import atexit
 import base64
 import contextlib
 import faulthandler
+import multiprocessing
 import os
 import signal
 import sys
@@ -14,6 +15,7 @@ import threading
 import time
 import tomllib
 import traceback
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -80,7 +82,11 @@ from errors import (
 from fileio.dedupe import dedupe_init
 from fileio.preview_repair import repair_preview_folder_items
 from helpers.common import expect_dict, open_location, parse_timestamp
-from helpers.rich_progress import get_progress_manager, get_rich_console
+from helpers.rich_progress import (
+    _shutdown_progress_live,
+    get_progress_manager,
+    get_rich_console,
+)
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from metadata.database import Database
@@ -88,6 +94,7 @@ from metadata.subscriptions import process_subscriptions_response
 from textio import (
     input_enter_continue,
     json_output,
+    print_debug,
     print_error,
     print_info,
     print_warning,
@@ -253,6 +260,32 @@ def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: AR
     _handle_interrupt.interrupted = True  # type: ignore[attr-defined]
     # Raise KeyboardInterrupt to break out of blocking operations
     raise KeyboardInterrupt("User interrupted operation")
+
+
+def _handle_terminate(
+    config: FanslyConfig,
+    signum: int,  # noqa: ARG001
+    frame: FrameType | None,  # noqa: ARG001
+) -> None:
+    """Handle SIGTERM: shut down like Ctrl+C, then exit without teardown."""
+    if config._terminate_requested:
+        return
+    config._terminate_requested = True
+    print_error("\nTermination requested")
+    raise KeyboardInterrupt("Termination requested")
+
+
+def _exit_without_teardown(exit_code: int) -> None:
+    """End the process now, skipping exit handlers and interpreter teardown.
+
+    Does by hand the three things those would still have done after cleanup.
+    """
+    _shutdown_progress_live()
+    for child in multiprocessing.active_children():
+        child.terminate()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)
 
 
 def increase_file_descriptor_limit() -> None:
@@ -575,7 +608,7 @@ async def main(config: FanslyConfig) -> int:
                             global_download_state, download_state=state
                         )
                         print_statistics(config, state)
-                        print_info(f"Memory: {memory_summary()}")
+                        print_debug(f"Memory: {memory_summary()}")
 
                         # open download folder
                         if state.base_path is not None:
@@ -931,6 +964,13 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
             print_error(f"Error during database cleanup: {db_error}")
         phase_done("db")
 
+        # A SIGTERM exit skips interpreter teardown, so it has nothing to unload.
+        if config._database is not None and not config._terminate_requested:
+            phase_starts["memory"] = time.perf_counter()
+            print_info("Releasing preloaded data...")
+            config._database.unload()
+            phase_done("memory")
+
         total_cleanup_time = time.time() - cleanup_start
         print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
 
@@ -1073,6 +1113,7 @@ if __name__ == "__main__":
 
     # Set up signal handling (for both Unix and Windows)
     signal.signal(signal.SIGINT, _handle_interrupt)
+    signal.signal(signal.SIGTERM, partial(_handle_terminate, config))
     # Additional Windows-specific signal handling
     if sys.platform == "win32":
         with contextlib.suppress(AttributeError, ValueError):
@@ -1119,6 +1160,10 @@ if __name__ == "__main__":
             if not loop.is_closed():
                 loop.stop()
                 loop.close()
+        if config._terminate_requested:
+            # A requested stop is a success, whatever it interrupted.
+            _shutdown_phase("SIGTERM; exiting without interpreter teardown")
+            _exit_without_teardown(EXIT_SUCCESS)
         _shutdown_phase("loop closed; falling through to Py_Finalize")
 
         # # Force exit after 5 seconds

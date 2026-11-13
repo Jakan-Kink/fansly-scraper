@@ -267,6 +267,16 @@ class Database:
             gc.unfreeze()
             self._heap_frozen = False
 
+    def unload(self) -> None:
+        """Drop every cached entity and collect the cycles between them now.
+
+        Left alone, the same work runs untimed while the interpreter exits.
+        """
+        self._unfreeze_heap()
+        if self._entity_store is not None:
+            self._entity_store.invalidate_all()
+        gc.collect()
+
     async def cleanup(self) -> None:
         """Clean up all database connections.
 

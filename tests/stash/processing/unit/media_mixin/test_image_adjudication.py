@@ -138,6 +138,34 @@ class TestImageFilesAllLocal:
             )
         assert respx_stash_processor._image_files_all_local(image) is expected
 
+    def test_other_creator_folder_is_local(
+        self, respx_stash_processor: StashProcessing
+    ) -> None:
+        """Any creator folder inside the download directory counts as ours.
+
+        The same media saved under two creators is one Stash image with two
+        files. A folder that only shares the download directory's name prefix
+        ('/dl2' beside '/dl') stays foreign.
+        """
+        respx_stash_processor.config.download_directory = Path("/dl")
+        shared = Image(
+            id="3010",
+            visual_files=[
+                ImageFile(id="1", path="/dl/test_user/x_id_1.jpg"),
+                ImageFile(id="2", path="/dl/original_poster/x_id_1.jpg"),
+            ],
+        )
+        beside = Image(
+            id="3011",
+            visual_files=[
+                ImageFile(id="3", path="/dl/test_user/x_id_1.jpg"),
+                ImageFile(id="4", path="/dl2/x_id_1.jpg"),
+            ],
+        )
+
+        assert respx_stash_processor._image_files_all_local(shared) is True
+        assert respx_stash_processor._image_files_all_local(beside) is False
+
 
 class TestProcessFileFirstImage:
     """Tests for the ImageFile branch of _process_file_first.

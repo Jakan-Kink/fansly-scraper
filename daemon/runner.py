@@ -14,7 +14,7 @@ A FanslyWebSocket is registered with a MSG_SERVICE_EVENT handler that decodes
 incoming envelopes and enqueues WorkItems via dispatch_ws_event.
 
 Entry point: ``run_daemon(config)``.  Returns an exit code:
-  - ``EXIT_SUCCESS`` (0) on clean SIGINT shutdown
+  - ``EXIT_SUCCESS`` (0) on clean SIGINT or SIGTERM shutdown
   - ``DAEMON_UNRECOVERABLE`` (-8) when ErrorBudget detects hard-fatal HTTP
     status codes (401, 418) or a prolonged gap with no successful operation
 
@@ -175,6 +175,7 @@ def _make_ws(config: FanslyConfig) -> FanslyWebSocket:
     return FanslyWebSocket(
         token=config.token or "",
         user_agent=config.user_agent or "",
+        proxy=config.proxy,
     )
 
 
@@ -683,7 +684,7 @@ async def _handle_work_item(config: FanslyConfig, item: WorkItem) -> None:
         return
 
     await handler(config, item)
-    logger.info("daemon.runner: {} done - {}", type(item).__name__, memory_summary())
+    logger.debug("daemon.runner: {} done - {}", type(item).__name__, memory_summary())
 
 
 # ---------------------------------------------------------------------------
@@ -1362,7 +1363,7 @@ async def run_daemon(
     """Enter the monitoring loop.
 
     Returns an integer exit code:
-      - ``EXIT_SUCCESS`` (0) on clean SIGINT shutdown.
+      - ``EXIT_SUCCESS`` (0) on clean SIGINT or SIGTERM shutdown.
       - ``DAEMON_UNRECOVERABLE`` (-8) when ErrorBudget trips on a hard-fatal
         HTTP status (401, 418) or when no successful operation has been
         recorded for longer than ``config.unrecoverable_error_timeout_seconds``.
@@ -1379,7 +1380,7 @@ async def run_daemon(
       confirmed events (svc=15 type=5 status=3) and periodically.
     - Honor config.monitoring_session_baseline for the first
       should_process_creator call per creator this session.
-    - Clean shutdown on SIGINT: cancel pollers, drain in-flight worker items
+    - Clean shutdown on SIGINT or SIGTERM: cancel pollers, drain in-flight worker items
       (up to 30 seconds), stop ws, return exit code.
 
     Args:
@@ -1549,8 +1550,14 @@ async def _run_daemon_body(
             # any task still blocked in a wait unblocks via cancellation.
             raise KeyboardInterrupt("daemon: force shutdown")
 
+    def _sigterm_handler() -> None:
+        logger.info("daemon.runner: SIGTERM received - shutting down")
+        config._terminate_requested = True
+        stop_event.set()
+
     with contextlib.suppress(NotImplementedError, OSError):
         loop.add_signal_handler(signal.SIGINT, _sigint_handler)
+        loop.add_signal_handler(signal.SIGTERM, _sigterm_handler)
 
     # ---- Spawn the five loops ----
     timeline_task = asyncio.create_task(

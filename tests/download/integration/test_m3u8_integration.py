@@ -22,11 +22,12 @@ They replace no observable shape — each has its own real-leaf unit suite in
 ``TestDirectDownloadFFmpeg``). They are NOT fake muxers.
 
 Fixtures used:
-- ``m3u8_mock_config`` (tests.fixtures.download.m3u8_fixtures) — MagicMock
-  wrapping a real FanslyApi for respx HTTP interception at the edge.
+- ``respx_fansly_api`` / ``mock_config`` — real FanslyConfig holding the
+  bootstrapped FanslyApi, with respx intercepting HTTP at the edge.
 - ``tmp_path`` (pytest built-in) — per-test temporary directory.
 """
 
+import os
 from unittest.mock import patch
 
 import av
@@ -34,12 +35,18 @@ import httpx
 import pytest
 import respx
 
-from download.m3u8 import download_m3u8, fetch_m3u8_segment_playlist
+from download.m3u8 import (
+    _try_direct_download_ffmpeg,
+    _try_direct_download_pyav,
+    download_m3u8,
+    fetch_m3u8_segment_playlist,
+)
 from errors import M3U8Error
 from tests.fixtures.api import (
     build_variant_playlist,
     dump_fansly_calls,
     make_synthetic_ivs_segment,
+    mount_m3u8_segment_routes,
 )
 
 
@@ -60,14 +67,14 @@ _M3U8_URL = "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature
 class TestM3U8Integration:
     """Integration tests for the m3u8 module (tier-3 real-pipeline)."""
 
-    @respx.mock
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
     def test_full_segment_download_real_pyav_mux_workflow(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        m3u8_mock_config,
+        respx_fansly_api,
+        mock_config,
         tmp_path,
     ):
         """End-to-end tier-3: real .ts segments → real PyAV mux → real MP4.
@@ -84,7 +91,7 @@ class TestM3U8Integration:
         Cascade-steering spies force tiers 1+2 to fail so the cascade reaches
         tier 3; they replace no shape (see module docstring).
         """
-        config = m3u8_mock_config
+        config = mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
 
@@ -166,14 +173,14 @@ class TestM3U8Integration:
         mock_pyav_direct.assert_called_once()
         mock_ffmpeg_direct.assert_called_once()
 
-    @respx.mock
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
     def test_missing_segment_raises_via_real_filesystem(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        m3u8_mock_config,
+        respx_fansly_api,
+        mock_config,
         tmp_path,
     ):
         """A respx 404 leaves that ``.ts`` absent → real ``Path.exists`` fires.
@@ -182,7 +189,7 @@ class TestM3U8Integration:
         genuinely never written to disk, and production's real missing-segment
         check (``[f for f in segment_files if not f.exists()]``) raises.
         """
-        config = m3u8_mock_config
+        config = mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
 
@@ -222,14 +229,14 @@ class TestM3U8Integration:
         mock_pyav_direct.assert_called_once()
         mock_ffmpeg_direct.assert_called_once()
 
-    @respx.mock
     @patch("download.m3u8._try_direct_download_ffmpeg")
     @patch("download.m3u8._try_direct_download_pyav")
     def test_both_mux_tiers_fail_on_unmuxable_segments(
         self,
         mock_pyav_direct,
         mock_ffmpeg_direct,
-        m3u8_mock_config,
+        respx_fansly_api,
+        mock_config,
         tmp_path,
     ):
         """Deliberately-unmuxable bytes → real PyAV AND real ffmpeg mux fail.
@@ -239,7 +246,7 @@ class TestM3U8Integration:
         threshold → False) and real ``_mux_segments_with_ffmpeg`` concat also
         fails. Production then raises the both-mux-failed M3U8Error.
         """
-        config = m3u8_mock_config
+        config = mock_config
         mock_pyav_direct.return_value = False
         mock_ffmpeg_direct.return_value = False
 
@@ -277,10 +284,49 @@ class TestM3U8Integration:
         mock_pyav_direct.assert_called_once()
         mock_ffmpeg_direct.assert_called_once()
 
-    @respx.mock
-    def test_m3u8_error_propagation(self, m3u8_mock_config):
+    def test_configured_proxy_goes_straight_to_segments(
+        self, respx_fansly_api, mock_config, tmp_path, monkeypatch
+    ):
+        """With a proxy set libav never fetches the stream; its env var is dropped."""
+        mock_config.proxy = "socks5h://127.0.0.1:1080"
+        monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+        playlist_route, segment_route = mount_m3u8_segment_routes(
+            segment_bytes=make_synthetic_ivs_segment(seed=1)
+        )
+
+        with (
+            patch(
+                "download.m3u8._try_direct_download_pyav",
+                wraps=_try_direct_download_pyav,
+            ) as pyav_direct,
+            patch(
+                "download.m3u8._try_direct_download_ffmpeg",
+                wraps=_try_direct_download_ffmpeg,
+            ) as ffmpeg_direct,
+        ):
+            try:
+                result = download_m3u8(
+                    config=mock_config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    save_path=tmp_path / "video.ts",
+                )
+            finally:
+                dump_fansly_calls(
+                    playlist_route.calls + segment_route.calls,
+                    "test_configured_proxy_goes_straight_to_segments",
+                )
+
+        assert result == tmp_path / "video.mp4"
+        assert result.stat().st_size > 0
+        assert playlist_route.call_count == 1
+        assert segment_route.call_count == 2
+        pyav_direct.assert_not_called()
+        ffmpeg_direct.assert_not_called()
+        assert "http_proxy" not in os.environ
+
+    def test_m3u8_error_propagation(self, respx_fansly_api, mock_config):
         """Proper error propagation when the playlist fetch returns non-200."""
-        config = m3u8_mock_config
+        config = mock_config
 
         respx.options(url__startswith="https://example.com/").mock(
             side_effect=[httpx.Response(200)] * 4

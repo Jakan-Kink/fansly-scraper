@@ -351,3 +351,49 @@ class TestFreezeHeap:
         gc.collect()
         assert owner_ref() is None
         assert wall_ref() is None
+
+    @pytest.mark.asyncio
+    async def test_unload_frees_frozen_cycles_itself(self, config):
+        """unload() unfreezes, empties the store and collects the cycles in it."""
+        db = Database(config, skip_migrations=True)
+        table_metadata.create_all(db._sync_engine)
+        try:
+            store = await db.create_entity_store()
+            owner_id, wall_id = snowflake_id(), snowflake_id()
+            owner = Account(id=owner_id, username="unload_owner")
+            await store.save(owner)
+            wall = Wall(id=wall_id, accountId=owner_id)
+            wall.account = owner
+            owner.walls = [wall]
+            await store.save(wall)
+            owner_ref, wall_ref = weakref.ref(owner), weakref.ref(wall)
+            del owner, wall
+
+            db.freeze_heap()
+            cached_before = store.cache_stats()["total"]
+
+            # Collector off: only unload's own collection can free the cycle.
+            gc.disable()
+            try:
+                db.unload()
+                alive_after_unload = [owner_ref() is not None, wall_ref() is not None]
+            finally:
+                gc.enable()
+            frozen_after = gc.get_freeze_count()
+            cached_after = store.cache_stats()["total"]
+        finally:
+            await db.cleanup()
+
+        assert cached_before == 2
+        assert cached_after == 0
+        assert frozen_after == 0
+        assert alive_after_unload == [False, False]
+
+    def test_unload_without_entity_store(self, mock_config):
+        """unload() works on a database whose store was never created."""
+        db = Database(mock_config, skip_migrations=True)
+        try:
+            db.unload()
+        finally:
+            db.close_sync()
+        assert db._entity_store is None

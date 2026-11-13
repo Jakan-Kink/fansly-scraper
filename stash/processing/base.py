@@ -11,6 +11,7 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Self
 
@@ -35,7 +36,7 @@ from stash_graphql_client.types import (
 )
 
 from helpers.rich_progress import get_progress_manager
-from metadata import Account, Database
+from metadata import Account, Database, Message
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
 
     from config import FanslyConfig
     from download.core import DownloadState
-    from metadata import Media, Message, Post
+    from metadata import Media, Post
 
 
 _SCAN_POLL_S = 1.5
@@ -661,23 +662,32 @@ class StashProcessingBase(StashProcessingProtocol):
         matches by basename. Includes variants (each has its own local_filename).
         A file shared across items carries every owner (earliest first, by id):
         its adjudicated entity joins all their galleries, and the earliest owner
-        is canonical for the entity's own metadata. "Shared" covers both the same
+        is canonical for the entity's own metadata (for a preview, a post comes
+        before any message). "Shared" covers both the same
         Media object and distinct media resolving to the same download target
         (same leaf). A leaf claimed by a media with a DIFFERENT target is a
-        genuine collision — keep the first, warn.
+        genuine collision — keep the first, warn. Quoted media is owned by the
+        original post and by the quoting post; the original always has the
+        lower id, so it is the canonical one.
         """
         index: dict[str, tuple[Media, list[Post | Message]]] = {}
         for item in items:
-            media_list = await self._collect_media_from_attachments(
-                item.attachments or []
-            )
-            for media in media_list:
+            for media, owner in await self._collect_owned_media(item):
                 for m in (media, *(media.variants or [])):
                     if m.local_filename:
-                        self._register_in_media_index(index, m, item)
-        for _media, owners in index.values():
-            owners.sort(key=lambda owner: owner.id or 0)
+                        self._register_in_media_index(index, m, owner)
+                        if owner is not item:
+                            self._register_in_media_index(index, m, item)
+        for media, owners in index.values():
+            # A preview that is in a post and in a message takes the post's
+            # metadata; otherwise the earliest owner comes first.
+            owners.sort(key=partial(self._owner_order, messages_last=media.is_preview))
         return index
+
+    @staticmethod
+    def _owner_order(owner: Post | Message, *, messages_last: bool) -> tuple[bool, int]:
+        """Sort key for a media's owners: by id, messages last when asked."""
+        return (messages_last and isinstance(owner, Message), owner.id or 0)
 
     @staticmethod
     def _register_in_media_index(

@@ -46,6 +46,7 @@ def test_round_trip_load_from_yaml(
     schema.options.timeline_retries = 5
     schema.options.account_media_batch_size = 60
     schema.options.separate_previews = True
+    schema.options.proxy = "socks5h://user:pass@proxy.example:1080"
     schema.postgres.pg_host = "pg.test.example.com"
     schema.postgres.pg_port = 5433
     assert schema.cache is not None
@@ -63,6 +64,7 @@ def test_round_trip_load_from_yaml(
     assert fresh_config.timeline_retries == 5
     assert fresh_config.account_media_batch_size == 60
     assert fresh_config.separate_previews is True
+    assert fresh_config.proxy == "socks5h://user:pass@proxy.example:1080"
     assert fresh_config.pg_host == "pg.test.example.com"
     assert fresh_config.pg_port == 5433
     assert fresh_config.cached_device_id == "abc-device-id"
@@ -93,6 +95,7 @@ def test_round_trip_save_and_reload(
     fresh_config.timeline_retries = 7
     fresh_config.account_media_batch_size = 80
     fresh_config.separate_previews = True
+    fresh_config.proxy = "http://proxy.example:8080"
     fresh_config.log_levels["json"] = "WARNING"
     fresh_config._save_config()
 
@@ -111,6 +114,7 @@ def test_round_trip_save_and_reload(
     assert second_config.timeline_retries == 7
     assert second_config.account_media_batch_size == 80
     assert second_config.separate_previews is True
+    assert second_config.proxy == "http://proxy.example:8080"
     assert second_config.log_levels["json"] == "WARNING"
 
     # Legacy flat-shape compatibility (`logging.json_level: WARNING`) is
@@ -688,6 +692,7 @@ def _full_args_namespace(**overrides: object) -> argparse.Namespace:
         "user_agent": None,
         "check_key": None,
         "temp_folder": None,
+        "proxy": None,
         "separate_previews": False,
         "use_duplicate_threshold": False,
         "non_interactive": False,

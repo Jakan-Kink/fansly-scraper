@@ -17,6 +17,7 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -61,6 +62,23 @@ if TYPE_CHECKING:
 # policy is "conditional" — fields render only when in ``model_fields_set``.
 # See docs/configuration/render-policy.md (TODO) for full semantics.
 _ALWAYS: dict[str, JsonValue] = {"render": "always"}
+
+# Proxy schemes httpx and websockets both accept.
+PROXY_SCHEMES: tuple[str, ...] = ("http", "https", "socks5", "socks5h")
+
+
+def proxy_url(value: str | None) -> str | None:
+    """Return a usable proxy URL, None for blank input, or raise ValueError."""
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    parts = urlsplit(value)
+    if parts.scheme not in PROXY_SCHEMES or not parts.hostname:
+        raise ValueError(
+            "proxy must look like scheme://[user:pass@]host:port with one of "
+            f"these schemes: {', '.join(PROXY_SCHEMES)}"
+        )
+    return value
 
 
 def _is_always(field_info: FieldInfo | None) -> bool:
@@ -339,6 +357,14 @@ class OptionsSection(_BaseSection):
     # Successes in a row before the learned gap between requests drops a step
     rate_limiting_success_requests: int = Field(default=250, ge=1)
     temp_folder: str | None = Field(default=None, json_schema_extra=_ALWAYS)
+    # Proxy for every Fansly connection, e.g. socks5h://user:pass@host:1080
+    proxy: str | None = None
+
+    @field_validator("proxy")
+    @classmethod
+    def _validate_proxy(cls, v: str | None) -> str | None:
+        """Require a scheme both httpx and websockets can use, plus a host."""
+        return proxy_url(v)
 
     @field_validator("download_mode", mode="before")
     @classmethod

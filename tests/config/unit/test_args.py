@@ -149,6 +149,22 @@ def test_temp_folder_windows_path(config_with_path, default_cli_args, tmp_path):
     assert test_folder.exists()  # Verify real folder exists
 
 
+def test_proxy_flag(config_with_path, default_cli_args):
+    """--proxy parses a supported URL, rejects others, and overrides the config."""
+    with patch.object(sys, "argv", ["prog", "--proxy", "socks5h://127.0.0.1:1080"]):
+        assert parse_args().proxy == "socks5h://127.0.0.1:1080"
+    with (
+        patch.object(sys, "argv", ["prog", "--proxy", "socks4://127.0.0.1:1080"]),
+        pytest.raises(SystemExit),
+    ):
+        parse_args()
+
+    default_cli_args.proxy = "socks5h://127.0.0.1:1080"
+    map_args_to_config(default_cli_args, config_with_path)
+    assert config_with_path.proxy == "socks5h://127.0.0.1:1080"
+    assert "proxy" in config_with_path._ephemeral_overrides
+
+
 def test_parse_args_returns_namespace():
     """Lines 17-487: parse_args returns a Namespace with expected attributes."""
     with patch.object(sys, "argv", ["prog"]):

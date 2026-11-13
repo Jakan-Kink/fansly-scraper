@@ -53,6 +53,8 @@ class FanslyConfig:
     _stash: StashContext | None = None
     # Set by the daemon; lets long waits end when shutdown is requested.
     _shutdown_event: asyncio.Event | None = None
+    # Set on SIGTERM; the process then ends without interpreter teardown.
+    _terminate_requested: bool = False
     _rate_limiter_display: RateLimiterDisplay | None = None
 
     # Command line flags
@@ -112,6 +114,7 @@ class FanslyConfig:
     separate_messages: bool = True
     separate_previews: bool = False
     repair_previews: bool | str = False
+    proxy: str | None = None
     separate_timeline: bool = True
     show_downloads: bool = True
     show_skipped_downloads: bool = True
@@ -624,6 +627,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "separate_messages", config.separate_messages)
     _maybe_set(base.options, "separate_previews", config.separate_previews)
     _maybe_set(base.options, "repair_previews", config.repair_previews)
+    _maybe_set(base.options, "proxy", config.proxy)
     _maybe_set(base.options, "separate_timeline", config.separate_timeline)
     _maybe_set(base.options, "use_duplicate_threshold", config.use_duplicate_threshold)
     _maybe_set(

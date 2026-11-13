@@ -109,6 +109,7 @@ options:
   open_folder_when_finished: true
   separate_messages: true
   separate_previews: false
+  repair_previews: false
   separate_timeline: true
   use_duplicate_threshold: false
   use_pagination_duplication: false
@@ -130,6 +131,7 @@ options:
   rate_limiting_success_requests: 250
   respect_timeline_stats: true
   temp_folder: null
+  proxy: null
 ```
 
 ### `options` — output & UI
@@ -144,11 +146,13 @@ options:
 | `open_folder_when_finished` | `bool`        | `true`              | Open the download directory in the OS file manager when the run finishes (no-op in non-interactive / daemon mode)                                                                  |
 | `separate_messages`         | `bool`        | `true`              | Place message attachments in `messages/` subdirectory rather than mixed with timeline content                                                                                      |
 | `separate_previews`         | `bool`        | `false`             | Place free-preview media in `previews/` subdirectory rather than alongside the locked content                                                                                      |
+| `repair_previews` | `bool \| "dry-run"` | `false` | Before each creator's download, bring files already on disk to the name and folder the database gives them: the `preview_id_` marker and `Previews/` folder for previews, and the UTC time the database holds for the media. A file that lands on an identical existing one is deleted as a duplicate, and a preview saved under both Timeline and Messages keeps only the Timeline copy. Files that differ in content are both kept, and a file whose media the database does not know is left alone. `"dry-run"` logs what it would do |
 | `separate_timeline`         | `bool`        | `true`              | Place timeline content in `timeline/` subdirectory                                                                                                                                 |
 | `use_folder_suffix`         | `bool`        | `true`              | Append a `_(creator_id)` suffix to the per-creator folder name to disambiguate creators who change usernames                                                                       |
 | `interactive`               | `bool`        | `true`              | Show interactive menus and prompts. Set `false` for cron / automation                                                                                                              |
 | `prompt_on_exit`            | `bool`        | `true`              | Wait for an Enter keypress before exiting. Set `false` for non-interactive runs                                                                                                    |
 | `temp_folder`               | `str \| None` | `null`              | Override the temp directory used during in-flight downloads. `null` uses the OS default                                                                                            |
+| `proxy` | `str \| None` | `null` | Send every Fansly connection (API, media, WebSocket, livestreams) through this proxy, for example `socks5h://user:pass@host:1080` or `http://host:8080`. Schemes: `http`, `https`, `socks5`, `socks5h`; `socks5h` also resolves host names through the proxy. `null` connects directly, and proxy environment variables (`HTTP_PROXY`, `ALL_PROXY` and the like) and system proxy settings are ignored either way. With a proxy set, HLS videos are downloaded segment by segment, which is slower. Stash and PostgreSQL connections are not proxied |
 
 ### `options` — debugging
 
@@ -157,6 +161,8 @@ every handler) or `-vv` (TRACE floor on every handler) on the command
 line, or edit `logging.global.default_level` for persistent per-handler
 defaults. See [`logging`](#logging) below for the per-handler levels and
 the [CLI mapping table](#cli--config-mapping) for the verbosity flags.
+
+The Stash client library's debug lines are written to the stash log only with `-vv`, whatever level the stash handlers are set to.
 
 ### `options` — deduplication
 
@@ -499,7 +505,7 @@ stash_context:
 | `mapped_path`             | `str \| None` | `null`        | **Docker / NFS path mapping.** Set this when Stash runs in a container that mounts your download directory under a different path prefix than the scraper sees. For example: if the scraper writes to `/home/user/downloads/` but the Stash container mounts the same share as `/data/fansly/`, set `mapped_path: /data/fansly`. The scraper will substitute the `options.download_directory` prefix with this value in every path it sends to Stash (scan jobs, path filters, regex queries). Leave `null` when both environments share identical paths                                                                                                                    |
 | `override_dldir_w_mapped` | `bool`        | `false`       | **Override the download-directory tree with `mapped_path`.** Set `true` when the scraper's per-creator subfolder structure isn't preserved in Stash — for example, files copied to the Stash host and reorganised into `Videos/<studio>/` and `Photos/<studio>/` rather than living under `<creator>_fansly/`. With this flag on, the path the scraper sends to Stash is `mapped_path` itself (no creator-subfolder appended); scan jobs and path filters scope to the whole fansly area, and matching falls back to media-ID code lookups in filenames. Requires `mapped_path` to be set — config load fails otherwise. Leave `false` for the prefix-substitution semantic |
 | `require_stash_only_mode` | `bool`        | `false`       | **Engage Stash integration only when `--stash-only` is the download mode.** Set `true` when your Stash server runs on a separate host that the scraper can't reach during downloads — for example, you scrape locally on a workstation, manually copy files to the Stash host, then run `--stash-only` to attribute metadata. With this flag on, regular download runs (`NORMAL`, `TIMELINE`, `MESSAGES`, `WALL`, `SINGLE`, `STORIES`, `COLLECTION`) skip every Stash code path even when `stash_context` is fully populated; `--stash-only` runs engage Stash as usual. Leave `false` to engage Stash after every download mode                                            |
-| `enable_scene_split` | `bool \| "dry-run"` | `false` | **What to do when a downloaded video is a secondary file on a Stash scene another source owns.** `false` logs a warning and skips it, `"dry-run"` logs the split it would make, `true` splits the file into a new scene of its own |
+| `enable_scene_split` | `bool \| "dry-run"` | `false` | **What to do when a downloaded video is a secondary file on a Stash scene another source owns.** `false` logs a warning and skips it, `"dry-run"` logs the split it would make, `true` splits the file into a new scene of its own. Another source means a primary file outside `download_directory`; copies of the same media under other creator folders count as ours and move to the new scene together |
 | `scan_settle_s` | `float` | `3.5` | Seconds to wait after a metadata scan finishes before reading files, scenes and images back (0 to 30). Stash can report the job finished slightly before its index is readable |
 | `scan_stall_timeout_s` | `float` | `1800` | Seconds to keep waiting on a Stash scan job whose status and progress have not changed. After that the downloader logs a warning and carries on with what Stash has indexed |
 | `batches.tags` | `int` | `250` | **Page size for the tag preload.** All Stash tags are fetched once per connection, this many per request. Same meaning as the per-page dropdown in the Stash UI |
@@ -704,6 +710,7 @@ of the YAML setting.
 | ---------------------------- | ---------------------- |
 | `options.download_directory` | `-dir` / `--directory` |
 | `options.temp_folder`        | `--temp-folder`        |
+| `options.proxy`              | `--proxy` (this run only, not saved) |
 
 **Boolean toggles** (the negated flags set the corresponding YAML to `false`)
 

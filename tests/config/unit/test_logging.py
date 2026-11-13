@@ -626,27 +626,41 @@ class TestSetupHandlers:
         """Records the Stash client logs through stdlib logging land in stash.log.
 
         The client's loggers have no handler of their own, so without the
-        bridge its job-poll and error lines reach no sink. Records below the
-        stash sinks' level are dropped at the stdlib logger.
+        bridge its job-poll and error lines reach no sink. Its DEBUG records
+        are dropped at the stdlib logger unless ``-vv`` is on, whatever level
+        the stash sinks are at.
         """
         original_cwd = Path.cwd()
         os.chdir(tmp_path)
         client_logger = logging.getLogger("stash_graphql_client.client")
+        debug_enabled = {}
         try:
             config = FanslyConfig(program_version="test")
             config.log_levels = {"stash_file": "INFO", "stash_console": "INFO"}
             init_logging_config(config)
             client_logger.info("Job 7 - Status: RUNNING, Progress: 0.5%")
-            client_logger.debug("request detail below the configured level")
-            debug_enabled = client_logger.isEnabledFor(logging.DEBUG)
+            client_logger.debug("request detail with sinks at INFO")
+            debug_enabled["info"] = client_logger.isEnabledFor(logging.DEBUG)
+
+            config.log_levels = {"stash_file": "DEBUG", "stash_console": "DEBUG"}
+            init_logging_config(config)
+            client_logger.debug("request detail with sinks at DEBUG")
+            debug_enabled["debug"] = client_logger.isEnabledFor(logging.DEBUG)
+
+            config.trace = True
+            init_logging_config(config)
+            client_logger.debug("request detail with -vv")
+            debug_enabled["trace"] = client_logger.isEnabledFor(logging.DEBUG)
         finally:
             logger.remove()
             os.chdir(original_cwd)
 
         logs = {p.name: p.read_text() for p in (tmp_path / "logs").iterdir()}
         assert "Job 7 - Status: RUNNING, Progress: 0.5%" in logs["stash.log"]
-        assert debug_enabled is False
-        assert "request detail below the configured level" not in logs["stash.log"]
+        assert debug_enabled == {"info": False, "debug": False, "trace": True}
+        assert "request detail with sinks at INFO" not in logs["stash.log"]
+        assert "request detail with sinks at DEBUG" not in logs["stash.log"]
+        assert "request detail with -vv" in logs["stash.log"]
         assert [name for name, text in logs.items() if "Job 7 - Status" in text] == [
             "stash.log"
         ]

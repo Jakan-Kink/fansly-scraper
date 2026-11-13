@@ -57,7 +57,7 @@ from daemon.runner import (
     run_daemon,
 )
 from daemon.simulator import ActivitySimulator
-from errors import DaemonUnrecoverableError
+from errors import EXIT_SUCCESS, DaemonUnrecoverableError
 from helpers.common import JsonDict
 from tests.fixtures.api import (
     FakeWS,
@@ -2017,18 +2017,14 @@ class TestRunDaemonSigintHandler:
     ):
         """Install a capture for loop.add_signal_handler and start the daemon.
 
-        Returns (task, captured_handler_list, stop_event).
+        Returns (task, captured handlers keyed by signal, stop_event).
         Caller is responsible for shutting down the task.
         """
-        captured: list = []
+        captured: dict = {}
         loop = asyncio.get_running_loop()
-        original = loop.add_signal_handler
 
-        def _capture(sig, handler, *args):
-            if sig == signal.SIGINT:
-                captured.append(handler)
-            else:
-                original(sig, handler, *args)
+        def _capture(sig, handler, *_args):
+            captured[sig] = handler
 
         monkeypatch.setattr(loop, "add_signal_handler", _capture)
 
@@ -2040,9 +2036,9 @@ class TestRunDaemonSigintHandler:
                 stop_event=stop_event,
             )
         )
-        # Give setup time to install the signal handler.
+        # Give setup time to install the signal handlers.
         for _ in range(20):
-            if captured:
+            if len(captured) == 2:
                 break
             await asyncio.sleep(0.01)
         return task, captured, stop_event
@@ -2057,10 +2053,11 @@ class TestRunDaemonSigintHandler:
             config_wired, ws_server, monkeypatch
         )
 
-        assert captured, "SIGINT handler was not installed by _run_daemon_body"
-        captured[0]()  # first press
+        assert signal.SIGINT in captured, "SIGINT handler was not installed"
+        captured[signal.SIGINT]()  # first press
 
         assert stop_event.is_set(), "First SIGINT did not set stop_event"
+        assert config_wired._terminate_requested is False
 
         try:
             await asyncio.wait_for(task, timeout=5.0)
@@ -2081,8 +2078,8 @@ class TestRunDaemonSigintHandler:
             config_wired, ws_server, monkeypatch
         )
 
-        assert captured, "SIGINT handler was not installed by _run_daemon_body"
-        handler = captured[0]
+        assert signal.SIGINT in captured, "SIGINT handler was not installed"
+        handler = captured[signal.SIGINT]
         handler()  # first press: sets stop_event
         with pytest.raises(KeyboardInterrupt, match="force shutdown"):
             handler()  # second press: raises KeyboardInterrupt
@@ -2096,6 +2093,30 @@ class TestRunDaemonSigintHandler:
         except (TimeoutError, asyncio.CancelledError):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_sigterm_stops_daemon_and_requests_fast_exit(
+        self, config_wired, entity_store, ws_server, monkeypatch, caplog
+    ):
+        """SIGTERM ends the daemon like a first Ctrl+C and flags the fast exit."""
+        caplog.set_level(logging.INFO)
+        task, captured, stop_event = await self._run_with_captured_sigint_handler(
+            config_wired, ws_server, monkeypatch
+        )
+
+        assert signal.SIGTERM in captured, "SIGTERM handler was not installed"
+        captured[signal.SIGTERM]()
+        stopped = stop_event.is_set()
+
+        exit_code = await asyncio.wait_for(task, timeout=5.0)
+
+        assert stopped is True
+        assert config_wired._terminate_requested is True
+        assert exit_code == EXIT_SUCCESS
+        assert any(
+            "SIGTERM received - shutting down" in m for m in _logged(caplog, "INFO")
+        )
 
 
 # ---------------------------------------------------------------------------

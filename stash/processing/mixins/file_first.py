@@ -216,6 +216,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         await self._fast_path_known_media(
             index, account, studio, item_entities, media_with_id, split_pairs
         )
+        swept += await self._quoted_files_elsewhere(index, swept, account)
         for file in swept:
             await self._safe_adjudicate(
                 file, index, account, studio, item_entities, media_with_id, split_pairs
@@ -295,6 +296,40 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         await self._compose_and_flush(
             account, performer, studio, item_entities, media_with_id, split_pairs
         )
+
+    async def _quoted_files_elsewhere(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        swept: list[BaseFile],
+        account: Account,
+    ) -> list[BaseFile]:
+        """Find quoted media whose file is outside this creator's folder.
+
+        Quoted media is saved under its original poster when that folder
+        exists, so the creator sweep does not see it.
+
+        Args:
+            index: Media index keyed by filename -> (Media, owning items)
+            swept: Files the creator sweep returned
+            account: The Account being processed
+
+        Returns:
+            The Stash files for indexed media of other accounts' posts that
+            the sweep did not return.
+        """
+        seen = {
+            PurePath(file.path).name
+            for file in swept
+            if not isinstance(file.path, UnsetType)
+        }
+        names = [
+            leaf
+            for leaf, (_media, owners) in index.items()
+            if leaf not in seen
+            and isinstance(owners[0], Post)
+            and owners[0].accountId != account.id
+        ]
+        return await self._find_files_by_basename(names) if names else []
 
     async def _find_files_by_basename(self, names: list[str]) -> list[BaseFile]:
         """Fetch the Stash files with the given basenames, a page of names per query.
@@ -625,7 +660,8 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         Linking: hashtags become tags, Images ride ``gallery.images``
         (addGalleryImages side-mutation), Scenes are added via ``add_scene``.
         No explicit save here — the gallery is already dirty and its links flush
-        on the run-level ``save_all``.
+        on the run-level ``save_all``. A quoted post's gallery carries that
+        post's author, not the creator being processed.
 
         Args:
             item: The owning Post or Message
@@ -634,6 +670,13 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             performer: The Performer for the account
             studio: Optional Studio to associate with the gallery
         """
+        creator = await self._item_creator(item, account, studio)
+        if creator is None:
+            return
+        gallery_performer: Performer | None = performer
+        if creator[0].id != account.id:
+            account, studio = creator
+            gallery_performer = await self._get_or_create_performer(account)
         if isinstance(item, Post):
             item_type = "post"
             url_pattern = f"https://fansly.com/post/{item.id}"
@@ -644,7 +687,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         gallery = await self._get_or_create_gallery(
             item=item,
             account=account,
-            performer=performer,
+            performer=gallery_performer,
             studio=studio,
             item_type=item_type,
             url_pattern=url_pattern,

@@ -15,11 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Python 3.15 support.** The downloader runs on Python 3.12 through 3.15.
 - **Stash page sizes (`stash_context.batches`).** `tags`, `files` and `galleries` set how many items each Stash request fetches.
 - **`stash_context.scan_stall_timeout_s`.** How long to wait on a stalled Stash scan (default 30 minutes).
+- **Proxy support (`options.proxy`, `--proxy`).** Every Fansly connection can go through an HTTP or SOCKS5 proxy.
 
 ### Changed
 
 - **Media lookups ask for fewer items per request.** Fansly was rate-limiting the larger lookups; `options.account_media_batch_size` sets the size (default 100).
 - **The rate limiter speeds back up gradually after a 429.** The slower pace is lifted one step per run of successful requests, set by `options.rate_limiting_success_requests` (default 250), instead of all at once.
+- **`kill` (SIGTERM) now shuts down cleanly and exits with status 0.** It used to end the program on the spot.
+- **`options.repair_previews` now fixes every file's name, not only previews.** Names whose time disagrees with the database are corrected, and identical duplicate copies are removed.
+- **With `stash_context.enable_scene_split`, a Stash scene that mixes Fansly files with another source's is separated in both directions.** The other source's files move to a scene of their own.
+- **Proxy environment variables and system proxy settings are no longer followed.** Some connections used them and others did not; set `options.proxy` instead.
 - **Dependency updates.** asyncpg, `filelock` and others moved to newer versions, and `sniffio` is now required. Run `poetry install` after updating.
 
 ### Performance
@@ -44,7 +49,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **A Stash scan that is cancelled, fails or never starts no longer hangs the run.**
 - **Scans no longer get stuck on Stash development builds.** The downloader cancels a scan Stash will never start and queues it again.
 - **Re-running over content already synced to Stash no longer rewrites it.** Edits made to a post after its first sync are no longer pushed to Stash.
-- **Stash client messages now reach the stash log.**
+- **Files from Fansly Downloader NG 0.9.9 are no longer downloaded a second time after migrating (#120).** The startup scan now gives them their clean names and records a hash for every file.
+- **A video with a damaged or zero-length last block no longer hangs the downloader while its hash is computed.**
+- **Media a creator quotes from someone else is credited in Stash to the original post and its author.** It used to get the quoting creator's text, performer and studio; content synced that way is corrected on the next run, except items marked organized.
+- **Quoted media is saved under the original creator's folder when you already have one for them.**
+- **The same media saved under two creator folders is now synced to Stash.** It used to be skipped with a `foreign co-resident` error on every run.
+- **A preview used in both a post and a message takes the post's details in Stash.**
+- **Stash client messages now reach the stash log.** Its debug lines are only included with `-vv`.
 - **Stash performers are matched by Fansly URL, then username, then name.** If only the name matches and several performers share it, none is linked and you are asked to add the Fansly URL to the right one. A mention followed by punctuation now resolves to the right account.
 
 ## [0.15.1] - 2026-07-14

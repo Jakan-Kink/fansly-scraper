@@ -182,6 +182,7 @@ def default_cli_args():
         user_agent=None,
         check_key=None,
         temp_folder=None,
+        proxy=None,
         separate_previews=False,
         use_duplicate_threshold=False,
         non_interactive=False,

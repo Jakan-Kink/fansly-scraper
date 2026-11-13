@@ -189,7 +189,12 @@ class StashProcessingProtocol(Protocol):
         item: Post | Message,
         account: Account,
         studio: Studio | None = None,
+        siblings: Sequence[BaseFile] = (),
     ) -> Scene: ...
+
+    async def _item_creator(
+        self, item: Post | Message, account: Account, studio: Studio | None
+    ) -> tuple[Account, Studio | None] | None: ...
 
     async def _process_file_first(
         self,
@@ -249,7 +254,7 @@ class StashProcessingProtocol(Protocol):
         self,
         item: HasMetadata,
         account: Account,
-        performer: Performer,
+        performer: Performer | None,
         studio: Studio | None,
         item_type: str,
         url_pattern: str,
@@ -270,6 +275,10 @@ class StashProcessingProtocol(Protocol):
     async def _collect_media_from_attachments(
         self, attachments: list[Attachment]
     ) -> list[Media]: ...
+
+    async def _collect_owned_media(
+        self, item: Post | Message
+    ) -> list[tuple[Media, Post | Message]]: ...
 
     # --- StashProcessing composed class methods ---
 

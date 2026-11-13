@@ -266,3 +266,34 @@ class ContentProcessingMixin(StashProcessingProtocol):
                     media_list.extend(agg_media)
 
         return media_list
+
+    async def _collect_owned_media(
+        self, item: Post | Message
+    ) -> list[tuple[Media, Post | Message]]:
+        """Pair each media reachable from an item with the item it was posted in.
+
+        A quote is a wrapper around someone else's post: media reached through
+        it belongs to the quoted post, however deep the quoting goes.
+
+        Args:
+            item: The post or message to walk
+
+        Returns:
+            (media, owning item) pairs, the owner being the original post for
+            quoted media and ``item`` for everything else.
+        """
+        pairs: list[tuple[Media, Post | Message]] = []
+        for attachment in item.attachments or []:
+            quoted = (
+                attachment.aggregated_post if attachment.is_aggregated_post else None
+            )
+            if quoted is not None:
+                pairs.extend(await self._collect_owned_media(quoted))
+            else:
+                pairs.extend(
+                    (media, item)
+                    for media in await self._collect_media_from_attachments(
+                        [attachment]
+                    )
+                )
+        return pairs

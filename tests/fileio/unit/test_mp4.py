@@ -146,6 +146,45 @@ class TestGetBoxes:
         assert boxes[1].size == 32  # This is the actual total size including header
         assert boxes[1].position == 24  # Position starts after first box
 
+    @pytest.mark.timeout(5)
+    @pytest.mark.parametrize(
+        ("tail", "expected"),
+        [
+            # A size of zero means "to the end of the file".
+            (
+                (0).to_bytes(4, "big") + b"mdat" + b"\x01" * 12,
+                [("ftyp", 16, 0), ("mdat", 20, 16)],
+            ),
+            # Too few trailing bytes to be a box header: ignored.
+            (b"\x00\x00\x00", [("ftyp", 16, 0)]),
+        ],
+        ids=["zero-size-last-box", "trailing-bytes"],
+    )
+    def test_box_walk_ends_on_an_odd_tail(self, tail, expected):
+        """A zero-size or truncated last box ends the walk instead of looping."""
+        data = (16).to_bytes(4, "big") + b"ftyp" + b"mp42\x00\x00\x00\x00" + tail
+        reader: BufferedReader[Any] = BufferedReader(BytesIO(data))
+
+        boxes = list(get_boxes(reader))
+
+        assert [(box.fourcc, box.size, box.position) for box in boxes] == expected
+
+    @pytest.mark.timeout(5)
+    def test_box_smaller_than_its_header_is_rejected(self):
+        """A box that declares fewer than 8 bytes cannot be walked past."""
+        data = (
+            (16).to_bytes(4, "big")
+            + b"ftyp"
+            + b"mp42\x00\x00\x00\x00"
+            + (4).to_bytes(4, "big")
+            + b"free"
+            + b"\x00" * 8
+        )
+        reader: BufferedReader[Any] = BufferedReader(BytesIO(data))
+
+        with pytest.raises(InvalidMP4Error, match="declares size 4"):
+            list(get_boxes(reader))
+
 
 class TestHashMP4Box:
     """Test the hash_mp4box function."""

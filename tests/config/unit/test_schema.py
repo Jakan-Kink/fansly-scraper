@@ -939,6 +939,32 @@ def test_repair_previews_rejects_garbage():
         OptionsSection(repair_previews="sometimes")  # type: ignore[arg-type]  # intentionally passes an out-of-contract literal to prove it raises ValidationError
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "socks5h://user:pass@proxy.example:1080",
+            "socks5h://user:pass@proxy.example:1080",
+        ),
+        ("socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"),
+        ("  http://proxy.example:8080 ", "http://proxy.example:8080"),
+        ("https://proxy.example", "https://proxy.example"),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_proxy_accepts_supported_urls(raw, expected):
+    assert OptionsSection(proxy=raw).proxy == expected
+
+
+@pytest.mark.parametrize(
+    "raw", ["socks4://proxy.example:1080", "proxy.example:1080", "socks5://"]
+)
+def test_proxy_rejects_unusable_urls(raw):
+    with pytest.raises(ValidationError, match=r"socks5h"):
+        OptionsSection(proxy=raw)
+
+
 class TestEnableSceneSplitValidator:
     """enable_scene_split accepts True/False/"dry-run"; rejects other strings."""
 

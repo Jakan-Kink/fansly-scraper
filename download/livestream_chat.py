@@ -153,6 +153,7 @@ async def _chat_ws_loop(
                     user_agent=user_agent,
                     base_url=CHAT_URL,
                     ping_timeout_enabled=False,
+                    proxy=config.proxy,
                 )
             )
 

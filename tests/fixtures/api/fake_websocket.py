@@ -204,7 +204,8 @@ def _make_in_process_ws_stub(
     class _InProcessFanslyWebSocketStub:
         MSG_SERVICE_EVENT = _PROTO_MSG_SERVICE_EVENT
 
-        def __init__(self, **_kwargs: Any) -> None:
+        def __init__(self, **kwargs: Any) -> None:
+            self.proxy: str | None = kwargs.get("proxy")
             self.connected = False
             self.session_id: str | None = None
             self.websocket_session_id: str | None = None

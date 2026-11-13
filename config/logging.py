@@ -840,13 +840,17 @@ def _configure_stash_client_logging() -> None:
 
     The client logs through stdlib ``logging``; with no handler attached its
     records (job polls, request errors, batch-save warnings) reach no sink.
+    Its DEBUG records are only let through with ``-vv``.
     """
     client_logger = logging.getLogger("stash_graphql_client")
     client_logger.handlers.clear()
     client_logger.addHandler(InterceptHandler())
-    client_logger.setLevel(
-        min(get_log_level("stash_console", "INFO"), get_log_level("stash_file", "INFO"))
+    level = min(
+        get_log_level("stash_console", "INFO"), get_log_level("stash_file", "INFO")
     )
+    if not _trace_enabled:
+        level = max(level, _LEVEL_VALUES["INFO"])
+    client_logger.setLevel(level)
 
 
 def _configure_sqlalchemy_logging() -> None:

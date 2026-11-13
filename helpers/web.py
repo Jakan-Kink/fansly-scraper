@@ -140,17 +140,19 @@ def get_release_info_from_github(current_program_version: str) -> dict | None:
     :rtype: dict | None
     """
     try:
-        url = "https://api.github.com/repos/prof79/fansly-downloader-ng/releases/latest"
+        url = "https://api.github.com/repos/Jakan-Kink/fansly-scraper/releases/latest"
 
-        response = httpx.get(
-            url,
+        # The explicit transport keeps httpx off proxy environment variables.
+        with httpx.Client(
+            transport=httpx.HTTPTransport(),
             follow_redirects=True,
             headers={
                 "user-agent": f"Fansly Downloader NG {current_program_version}",
                 "accept-language": "en-US,en;q=0.9",
             },
             timeout=30.0,
-        )
+        ) as client:
+            response = client.get(url)
 
         response.raise_for_status()
 

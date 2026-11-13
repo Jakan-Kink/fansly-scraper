@@ -353,7 +353,7 @@ Once the initial bulk download completes, appending `--daemon` (aliases: `-d`, `
 - `-u alice,bob` → monitor only those creators
 - `-uf` / `-ufp` → monitor the full following list (refreshed when a new subscription is confirmed)
 
-**Stop it** with Ctrl-C (SIGINT); the daemon drains the queue cleanly.
+**Stop it** with Ctrl-C (SIGINT) or `kill` (SIGTERM); the daemon drains the queue cleanly.
 
 For the full design document, see [`docs/planning/monitoring-daemon-architecture.md`](docs/planning/monitoring-daemon-architecture.md).
 
@@ -361,14 +361,14 @@ For the full design document, see [`docs/planning/monitoring-daemon-architecture
 
 Distinct exit codes let you wire `fansly_downloader_ng.py` into shell pipelines and orchestrators:
 
-| Code  | Meaning             |
-| ----- | ------------------- |
-| `0`   | Success             |
-| `1`   | Config error        |
-| `2`   | API error           |
-| `3`   | Download error      |
-| `4`   | Some users failed   |
-| `10`  | Unexpected error    |
+| Code | Meaning |
+| --- | --- |
+| `0` | Success, or stopped with SIGTERM |
+| `1` | Config error |
+| `2` | API error |
+| `3` | Download error |
+| `4` | Some users failed |
+| `10` | Unexpected error |
 | `255` | User abort (SIGINT) |
 
 ## 🤔 FAQ

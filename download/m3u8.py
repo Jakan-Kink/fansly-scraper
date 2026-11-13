@@ -793,6 +793,8 @@ def download_m3u8(
     3. **Segment download** (robust fallback): Download .ts files individually,
        then mux with PyAV (or ffmpeg concat as last resort)
 
+    With ``config.proxy`` set only tier 3 runs.
+
     Args:
         config: The downloader configuration.
         m3u8_url: The URL string of the M3U8 to download.
@@ -815,9 +817,15 @@ def download_m3u8(
     video_path = save_path.parent
     full_path = video_path / f"{save_path.stem}.mp4"
 
+    # libav reads this variable itself for the playlist and every segment.
+    os.environ.pop("http_proxy", None)
+    # libav cannot use a SOCKS proxy, so a configured proxy goes straight to
+    # the segment download, which uses the proxied API client.
+    direct = not config.proxy
+
     try:
         # Tier 1: PyAV direct download (fastest — in-process)
-        if _try_direct_download_pyav(
+        if direct and _try_direct_download_pyav(
             config,
             m3u8_url,
             full_path,
@@ -831,7 +839,7 @@ def download_m3u8(
 
         # Tier 2: FFmpeg subprocess (proven, handles edge cases). Cannot
         # enforce max_bytes mid-stream — the completion check is its backstop.
-        if _try_direct_download_ffmpeg(
+        if direct and _try_direct_download_ffmpeg(
             config, m3u8_url, full_path, cookies, max_resolution=max_resolution
         ):
             if created_at:

@@ -180,7 +180,7 @@ async def test_main_iterates_multiple_creators(main_integration_env, caplog):
     init_logging_config(env.config)
     env.register_empty_content(response_count=40)  # 3 creators x ~10 responses each
 
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
 
     result = await run_main_and_cleanup(env.config)
 
@@ -195,12 +195,14 @@ async def test_main_iterates_multiple_creators(main_integration_env, caplog):
         )
 
     # The preload is frozen while creators are worked and released by cleanup.
+    debug_messages = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
     frozen_counts = [
         int(found[1].replace(",", ""))
-        for found in (re.search(r"([\d,]+) frozen", m) for m in info_messages)
+        for found in (re.search(r"([\d,]+) frozen", m) for m in debug_messages)
         if found
     ]
-    assert frozen_counts, "Expected a per-creator 'Memory:' line"
+    assert not any("Memory:" in m for m in info_messages)
+    assert frozen_counts, "Expected a per-creator 'Memory:' line at DEBUG"
     assert min(frozen_counts) > 0
     assert gc.get_freeze_count() == 0
 

@@ -251,6 +251,54 @@ class TestPathIO:
         assert expected_dir.exists()
         assert expected_dir.is_dir()
 
+    @pytest.mark.parametrize(
+        ("download_type", "separate_timeline", "owner_folder", "expected"),
+        [
+            (DownloadType.TIMELINE, True, True, ("owner_fansly", "Timeline", "Videos")),
+            (DownloadType.WALL, False, True, ("owner_fansly", "Videos")),
+            (
+                DownloadType.TIMELINE,
+                True,
+                False,
+                ("creator_fansly", "Timeline", "Videos"),
+            ),
+            (
+                DownloadType.MESSAGES,
+                True,
+                True,
+                ("creator_fansly", "Messages", "Videos"),
+            ),
+        ],
+        ids=["owner-folder", "owner-folder-flat", "no-owner-folder", "messages"],
+    )
+    def test_get_media_save_path_for_another_creators_media(
+        self, tmp_path, download_type, separate_timeline, owner_folder, expected
+    ):
+        """Media of another creator goes under that creator's existing folder.
+
+        Only for post downloads, and only when the folder is already there;
+        nothing is created for a creator who has none.
+        """
+        config = FakePathConfig(
+            download_directory=tmp_path, separate_timeline=separate_timeline
+        )
+        state = DownloadState(creator_name="creator", download_type=download_type)
+        if owner_folder:
+            (tmp_path / "owner_fansly").mkdir()
+        media_item: Media = MediaFactory.build(
+            mimetype="video/mp4",
+            file_extension="mp4",
+            createdAt=datetime(2024, 3, 5, 3, 45, tzinfo=UTC),
+        )
+
+        save_dir, save_path = get_media_save_path(
+            config, state, media_item, owner_name="owner"
+        )
+
+        assert save_dir == tmp_path.joinpath(*expected)
+        assert save_path == save_dir / media_item.get_file_name()
+        assert (tmp_path / "owner_fansly").exists() is owner_folder
+
     def test_get_media_save_path_collections(self, tmp_path):
         """Collections mode saves directly under the Collections dir (no type split)."""
         config = FakePathConfig(download_directory=tmp_path)

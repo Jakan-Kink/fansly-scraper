@@ -153,6 +153,7 @@ def cleanup_global_config_state():
     # Reset global configuration variables
     config_logging._config = None
     config_logging._debug_enabled = False
+    config_logging._trace_enabled = False
 
     # init_logging_config attaches a handler and level to the Stash client logger
     stash_client_logger = logging.getLogger("stash_graphql_client")
