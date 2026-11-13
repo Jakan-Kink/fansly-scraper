@@ -240,9 +240,10 @@ class RateLimiter:
                     self.current_backoff_seconds <= minimum_backoff
                     and minimum_backoff > 0.0
                 ):
-                    # At minimum floor
+                    # At minimum floor; repeats every second success while it holds
                     self.consecutive_successes = 0
-                    logger.info(
+                    reached_now = old_backoff > self.current_backoff_seconds
+                    (logger.info if reached_now else logger.debug)(
                         f"2 consecutive successes - backoff at minimum floor: "
                         f"{self.current_backoff_seconds:.1f}s "
                         f"(would be {reduced_backoff:.1f}s without floor). "
@@ -272,7 +273,7 @@ class RateLimiter:
                 )
             else:
                 # First successful request after rate limiting
-                logger.info(
+                logger.debug(
                     f"Successful request after rate limiting "
                     f"({self.consecutive_successes}/2 needed to reduce backoff). "
                     f"Current backoff: {self.current_backoff_seconds:.1f}s"

@@ -5,6 +5,7 @@ Patches time.sleep to avoid real delays; time.time for deterministic timing.
 """
 
 import asyncio
+import logging
 import time
 from unittest.mock import patch
 
@@ -117,22 +118,33 @@ class TestAdaptiveBackoff:
             "when backoff was reduced (Bug B: token-loop livelock)."
         )
 
-    def test_backoff_at_minimum_floor(self):
+    def test_backoff_at_minimum_floor(self, caplog):
         """Lines 225-226: backoff at minimum floor after consecutive successes.
 
         When backoff equals the floor and 2 successes arrive, the backoff
-        stays at the floor (can't go lower) and successes reset.
+        stays at the floor (can't go lower) and successes reset. Reaching the
+        floor is reported once at INFO; holding there is only logged at DEBUG.
         """
+        caplog.set_level(logging.DEBUG)
         rl = RateLimiter(_make_config())
         rl.learned_floor = 2.0
         rl._apply_adaptive_backoff(429)
-        rl.current_backoff_seconds = 2.0  # already down at the floor
+        rl.current_backoff_seconds = 2.5  # one reduction above the floor
 
-        rl._apply_adaptive_backoff(200)
-        rl._apply_adaptive_backoff(200)
+        for _ in range(6):
+            rl._apply_adaptive_backoff(200)
 
         assert rl.current_backoff_seconds == 2.0  # can't go below the floor
         assert rl.consecutive_successes == 0
+        levels = [
+            r.levelname for r in caplog.records if "at minimum floor" in r.getMessage()
+        ]
+        assert levels == ["INFO", "DEBUG", "DEBUG"]
+        assert {
+            r.levelname
+            for r in caplog.records
+            if "Successful request after rate limiting" in r.getMessage()
+        } == {"DEBUG"}
 
     def test_backoff_normal_reduction_above_floor(self):
         """Lines 243-244: normal backoff reduction above minimum floor.
