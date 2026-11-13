@@ -142,29 +142,6 @@ async def test_main_completes_single_mode_with_post_id(main_integration_env, cap
     )
 
 
-async def test_main_completes_stash_only_mode(main_integration_env, caplog):
-    """main() runs end-to-end in Stash-only mode (no downloads).
-
-    Covers ``main()``'s ``DownloadMode.STASH_ONLY`` branch (lines 428+):
-    the branch explicitly skips the Messages/Timeline/Stories/Wall download
-    calls but still runs setup, API init, and the per-creator loop scaffolding
-    including Stash-processor hook integration.
-    """
-    env = main_integration_env
-    env.config.download_mode = DownloadMode.STASH_ONLY
-    init_logging_config(env.config)
-    env.register_empty_content()
-
-    caplog.set_level(logging.INFO)
-
-    result = await run_main_and_cleanup(env.config)
-
-    assert isinstance(result, int)
-    assert result in (EXIT_SUCCESS, SOME_USERS_FAILED), (
-        f"STASH_ONLY: expected EXIT_SUCCESS (0) or SOME_USERS_FAILED (4), got {result}"
-    )
-
-
 async def test_main_iterates_multiple_creators(main_integration_env, caplog):
     """main() processes every creator in ``user_names`` in sorted order.
 

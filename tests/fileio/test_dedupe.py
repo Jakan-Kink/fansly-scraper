@@ -391,6 +391,65 @@ async def test_get_or_create_media(entity_store, config, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_trust_filename_takes_the_hash_recorded_for_the_file(
+    entity_store, config, tmp_path
+):
+    """A variant's record takes the hash its media already holds for the file.
+
+    A video saved from a variant is named after the variant, and the download
+    saved the hash on the media it belongs to. The scan finds the variant's
+    record by the id in the name; it must copy that hash and not read the file
+    again. The file here is not a video at all, so hashing it would give no
+    hash: getting the recorded one proves the file was not hashed.
+    """
+    store = entity_store
+    account_id = snowflake_id()
+    await store.save(Account(id=account_id, username="test_user"))
+    state = DownloadStateFactory.build(creator_id=account_id, creator_name="test_user")
+    variant_id = snowflake_id()
+    name = f"2026-07-03_at_10-11_UTC_id_{variant_id}.mp4"
+    await store.save(
+        Media(
+            id=snowflake_id(),
+            accountId=account_id,
+            content_hash="hash-saved-at-download",
+            local_filename=name,
+            mimetype="video/mp4",
+            is_downloaded=True,
+        )
+    )
+    await store.save(
+        Media(
+            id=variant_id,
+            accountId=account_id,
+            content_hash=None,
+            local_filename=name,
+            mimetype="video/mp4",
+            is_downloaded=True,
+        )
+    )
+    file_path = tmp_path / name
+    file_path.write_bytes(b"not a video")
+
+    media, hash_verified = await get_or_create_media(
+        file_path=file_path,
+        media_id=variant_id,
+        mimetype="video/mp4",
+        state=state,
+        trust_filename=True,
+        config=config,
+    )
+
+    assert media.id == variant_id
+    assert media.content_hash == "hash-saved-at-download"
+    assert hash_verified is True
+    stored = await store.pool.fetchval(
+        "SELECT content_hash FROM media WHERE id = $1", variant_id
+    )
+    assert stored == "hash-saved-at-download"
+
+
+@pytest.mark.asyncio
 async def test_trust_filename_computes_missing_hash(entity_store, config, tmp_path):
     """A migrated id-named file with no hash still gets one computed under
     trust_filename, so the download-path skip check (which requires content_hash)
@@ -548,7 +607,7 @@ async def test_dedupe_init_full_pipeline(entity_store, config, tmp_path):
 
 @pytest.mark.asyncio
 async def test_dedupe_init_keeps_legacy_named_files_downloaded(
-    entity_store, config, tmp_path, valid_mp4_file
+    entity_store, config, tmp_path, valid_mp4_file, caplog
 ):
     """Files named by 0.9.9 are adopted by the scan, not downloaded again (#120).
 
@@ -560,14 +619,18 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
     its name is hashed, because a record without a hash is downloaded again.
     A legacy file whose clean name is already taken by an identical file is a
     leftover of such a second download and is removed; one that differs stays.
+    The local time is read in ``filename_timezone``, in 12-hour form too.
     """
     store = entity_store
     config.download_directory = tmp_path
     config.use_folder_suffix = False
     config.separate_timeline = True
+    config.filename_timezone = "America/New_York"
     account_id = snowflake_id()
     await store.save(Account(id=account_id, username="legacy_creator"))
-    hashed_id, plain_id, twice_id, differs_id = (snowflake_id() for _ in range(4))
+    hashed_id, plain_id, twice_id, differs_id, meridiem_id = (
+        snowflake_id() for _ in range(5)
+    )
     state = DownloadStateFactory.build(
         download_type=DownloadType.TIMELINE,
         creator_name="legacy_creator",
@@ -580,6 +643,9 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
         videos, f"2024-03-05_at_22-45_id_{hashed_id}_hash2_{legacy_hash}.mp4", video
     )
     create_test_file(videos, f"2024-03-05_at_22-45_id_{plain_id}.mp4", video)
+    create_test_file(
+        videos, f"2024-03-05_at_10-45-PM_id_{meridiem_id}_hash2_{'3' * 32}.mp4", video
+    )
     # A second download already sits beside these two legacy files.
     create_test_file(
         videos, f"2024-03-05_at_22-45_id_{twice_id}_hash2_{'1' * 32}.mp4", video
@@ -596,7 +662,7 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
 
     records = {
         media_id: await store.get(Media, media_id)
-        for media_id in (hashed_id, plain_id, twice_id, differs_id)
+        for media_id in (hashed_id, plain_id, twice_id, differs_id, meridiem_id)
     }
     on_disk = sorted(path.name for path in videos.iterdir())
     assert {mid: r.is_downloaded for mid, r in records.items()} == {
@@ -604,6 +670,7 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
         plain_id: True,
         twice_id: True,
         differs_id: True,
+        meridiem_id: True,
     }
     assert records[hashed_id].content_hash == legacy_hash
     assert records[plain_id].content_hash
@@ -614,11 +681,17 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
             f"2024-03-06_at_03-45_UTC_id_{twice_id}.mp4",
             f"2024-03-05_at_22-45_id_{differs_id}_hash2_{'2' * 32}.mp4",
             f"2024-03-06_at_03-45_UTC_id_{differs_id}.mp4",
+            f"2024-03-06_at_03-45_UTC_id_{meridiem_id}.mp4",
         ]
     )
     assert [r.local_filename for r in records.values()] == [
         f"2024-03-06_at_03-45_UTC_id_{media_id}.mp4" for media_id in records
     ]
+    # The scan says what it will read and what it did.
+    messages = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Up to 3 have no saved hash" in messages
+    assert "Downloaded records: 5 (+5)" in messages
+    assert "Hashes taken from old file names: 4" in messages
 
 
 @pytest.mark.asyncio

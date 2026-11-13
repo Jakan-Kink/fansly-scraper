@@ -87,10 +87,14 @@ from helpers.rich_progress import (
     get_progress_manager,
     get_rich_console,
 )
+from helpers.shutdown import request_stop
 from helpers.timer import Timer, timing_jitter
+from metadata import Account
 from metadata.account import process_account_data
 from metadata.database import Database
+from metadata.models import get_store
 from metadata.subscriptions import process_subscriptions_response
+from pathio import get_creator_base_path
 from textio import (
     input_enter_continue,
     json_output,
@@ -258,6 +262,8 @@ def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: AR
         print_error("Second interrupt received, forcing immediate exit!")
         sys.exit(130)  # 128 + SIGINT(2)
     _handle_interrupt.interrupted = True  # type: ignore[attr-defined]
+    # The loop waits for its worker threads before closing.
+    request_stop()
     # Raise KeyboardInterrupt to break out of blocking operations
     raise KeyboardInterrupt("User interrupted operation")
 
@@ -272,6 +278,7 @@ def _handle_terminate(
         return
     config._terminate_requested = True
     print_error("\nTermination requested")
+    request_stop()
     raise KeyboardInterrupt("Termination requested")
 
 
@@ -342,6 +349,102 @@ async def load_client_account_into_db(
     )
 
 
+async def _sync_creator_to_stash(config: FanslyConfig, state: DownloadState) -> bool:
+    """Run the Stash sync for one creator.
+
+    Args:
+        config: The program configuration
+        state: The creator's download state
+
+    Returns:
+        False when the creator's background Stash work failed.
+    """
+    # isort: off
+    # Conditional on stash_active — avoid eager-
+    # importing stash deps when integration is disabled.
+    from stash import StashProcessing  # noqa: PLC0415 # Deferred import since only used in stash context
+
+    # isort: on
+    stash_processor = StashProcessing.from_config(config, state)
+    await stash_processor.start_creator_processing()
+
+    succeeded = True
+    # Wait for background processing to complete
+    if stash_processor._background_task:
+        try:
+            await stash_processor._background_task
+        except Exception as e:
+            print_error(f"Background processing failed: {e}")
+            succeeded = False
+
+    await stash_processor.cleanup()
+    return succeeded
+
+
+async def _run_stash_only(config: FanslyConfig) -> int:
+    """Sync downloaded creators to Stash without contacting Fansly.
+
+    Creators come from the configured names, or from the accounts the database
+    marks as followed. Each is read from the database, its folder is scanned
+    for the files on disk, and the Stash sync runs on what that leaves.
+
+    Args:
+        config: The program configuration
+
+    Returns:
+        ``SOME_USERS_FAILED`` when a creator was not in the database or its
+        sync failed, otherwise ``EXIT_SUCCESS``.
+    """
+    if not config.stash_active:
+        print_warning(
+            "Stash-only mode needs a stash_context section in config.yaml; "
+            "nothing was done."
+        )
+        return EXIT_SUCCESS
+
+    accounts = {
+        account.username.lower(): account
+        for account in get_store().filter(Account)
+        if account.username
+    }
+    if config.user_names and not config.use_following:
+        names = set(config.user_names)
+    else:
+        names = {
+            account.username
+            for account in accounts.values()
+            if account.following and account.username
+        }
+
+    exit_code = EXIT_SUCCESS
+    for name in sorted(names, key=str.lower, reverse=config.reverse_order):
+        account = accounts.get(name.lower())
+        if account is None or account.username is None:
+            print_warning(
+                f"@{name} is not in the database, so stash-only has nothing to "
+                "work from. Download this creator once first."
+            )
+            exit_code = SOME_USERS_FAILED
+            continue
+        folder = get_creator_base_path(config, account.username)
+        if not await asyncio.to_thread(folder.is_dir):
+            print_info(f"@{account.username} has no folder on disk; skipping.")
+            continue
+
+        state = DownloadState(creator_name=account.username)
+        state.creator_id = account.id
+        with Timer(account.username):
+            # One creator's failure must not end the run for the rest.
+            try:
+                await dedupe_init(config, state)
+                if not await _sync_creator_to_stash(config, state):
+                    exit_code = SOME_USERS_FAILED
+            except Exception as e:
+                print_error(f"Stash-only failed for @{account.username}: {e}")
+                exit_code = SOME_USERS_FAILED
+    return exit_code
+
+
 # @profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
 async def main(config: FanslyConfig) -> int:
     """The main logic of the downloader program.
@@ -403,6 +506,9 @@ async def main(config: FanslyConfig) -> int:
     _register_db_cleanup_once(config)
     # Before any Stash entity exists: those must stay collectable.
     config._database.freeze_heap()
+
+    if config.download_mode == DownloadMode.STASH_ONLY:
+        return await _run_stash_only(config)
 
     # Set up and print API information
     await config.setup_api()
@@ -539,10 +645,7 @@ async def main(config: FanslyConfig) -> int:
                         print_info(f"Download mode is: {config.download_mode_str()}")
 
                         # Special treatment for deviating folder names later
-                        if config.download_mode not in (
-                            DownloadMode.SINGLE,
-                            DownloadMode.STASH_ONLY,
-                        ):
+                        if config.download_mode != DownloadMode.SINGLE:
                             await dedupe_init(config, state)
                             await repair_preview_folder_items(config, state)
 
@@ -552,7 +655,7 @@ async def main(config: FanslyConfig) -> int:
                         elif config.download_mode == DownloadMode.COLLECTION:
                             await download_collections(config, state)
 
-                        elif config.download_mode != DownloadMode.STASH_ONLY:
+                        else:
                             if any(
                                 [
                                     config.download_mode == DownloadMode.MESSAGES,
@@ -618,25 +721,10 @@ async def main(config: FanslyConfig) -> int:
                                 config.interactive,
                             )
 
-                        if config.stash_active:
-                            # isort: off
-                            # Conditional on stash_active — avoid eager-
-                            # importing stash deps when integration is disabled.
-                            from stash import StashProcessing  # noqa: PLC0415 # Deferred import since only used in stash context
-
-                            # isort: on
-                            stash_processor = StashProcessing.from_config(config, state)
-                            await stash_processor.start_creator_processing()
-
-                            # Wait for background processing to complete
-                            if stash_processor._background_task:
-                                try:
-                                    await stash_processor._background_task
-                                except Exception as e:
-                                    print_error(f"Background processing failed: {e}")
-                                    exit_code = SOME_USERS_FAILED
-
-                            await stash_processor.cleanup()
+                        if config.stash_active and not await _sync_creator_to_stash(
+                            config, state
+                        ):
+                            exit_code = SOME_USERS_FAILED
 
                     finally:
                         # Log creator processing time
@@ -1149,6 +1237,10 @@ if __name__ == "__main__":
         # Exit with code
         sys.exit(exit_code)
 
+    except KeyboardInterrupt:
+        # The signal landed while the loop was idle: asyncio.run cancelled
+        # _async_main, which ran its cleanup, and then re-raised.
+        sys.exit(EXIT_ABORT)
     except Exception as e:
         print_error(f"An unexpected error occurred: {e}")
         print_error(traceback.format_exc())

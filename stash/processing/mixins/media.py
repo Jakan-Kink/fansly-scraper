@@ -40,6 +40,14 @@ if TYPE_CHECKING:
 
 
 _FANSLY_POST_URL = re.compile(r"https://fansly\.com/post/\d+")
+_FILENAME_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})_at_")
+
+
+def _filename_date(name: str | None) -> str | None:
+    """The date a downloaded file's name starts with, if it has one."""
+    found = _FILENAME_DATE.match(PurePath(name).name) if name else None
+    return found.group(1) if found else None
+
 
 # Scene/Image fields that stamping reads or writes.
 _STAMP_FIELDS = (
@@ -142,7 +150,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
         self,
         file: BaseFile,
         media: Media,
-        item: Post | Message,
+        item: Post | Message | None,
         account: Account,
         studio: Studio | None = None,
         siblings: Sequence[BaseFile] = (),
@@ -168,7 +176,10 @@ class MediaProcessingMixin(StashProcessingProtocol):
         new_scene.tags = []
         new_scene.galleries = []
         self.store.add(new_scene)
-        await self._stamp_metadata(new_scene, media, item, account, studio)
+        if item is None:
+            await self._stamp_unposted(new_scene, media, account, studio)
+        else:
+            await self._stamp_metadata(new_scene, media, item, account, studio)
         return new_scene
 
     async def _process_file_first(
@@ -191,13 +202,14 @@ class MediaProcessingMixin(StashProcessingProtocol):
         temp-id) entities themselves. Returns an EMPTY list for any skip,
         unindexed, indeterminate, dry-run, or disabled path.
         """
-        if not is_set(file.path):
-            return []  # a swept file with no fetched path cannot be indexed — skip
-        leaf_name = PurePath(file.path).name
-        media_item = index.get(leaf_name)
+        leaf_name = PurePath(file.path).name if is_set(file.path) else None
+        media_item = index.get(leaf_name) if leaf_name else None
         if media_item is None:
-            return []  # a Stash file with no matching FDNG download — skip
+            # No fetched path to index by, or no matching FDNG download — skip.
+            return []
         media, owners = media_item
+        if not owners:
+            return await self._link_unposted_file(file, media, account, studio)
         item = owners[0]  # earliest owner is canonical for the entity's metadata
 
         if isinstance(file, VideoFile):
@@ -226,6 +238,87 @@ class MediaProcessingMixin(StashProcessingProtocol):
             return await self._adjudicate_image(file, media, item, account, studio)
         # GalleryFile / BasicFile, or the animated-image skip above -> ignore.
         return []
+
+    async def _link_unposted_file(
+        self,
+        file: BaseFile,
+        media: Media,
+        account: Account,
+        studio: Studio | None,
+    ) -> list[Scene | Image]:
+        """Link a file whose post is not in the database to its creator.
+
+        Stamps the scene our file is primary of, or the images whose files are
+        all ours. A video that is a secondary on another source's scene is
+        split off as it would be with a post.
+
+        Args:
+            file: The swept Stash file
+            media: The Media recorded for it
+            account: The Account being processed
+            studio: Its pre-resolved studio
+
+        Returns:
+            The Scene or Images stamped; empty when another source owns them.
+        """
+        targets: list[Scene | Image] = []
+        is_image = bool(media.mimetype and media.mimetype.startswith("image/"))
+        if isinstance(file, VideoFile) and not is_image:
+            owned = await self._owned_scene(file)
+            if owned is None:
+                return await self._adjudicate_not_owned(
+                    file, media, None, account, studio
+                )
+            targets.append(owned)
+        elif isinstance(file, ImageFile):
+            image_file = (
+                file
+                if is_set(file.images)
+                else await self.store.populate(file, ["images"])
+            )
+            images = image_file.images if is_set(image_file.images) else None
+            for found in images or []:
+                image = await self._complete_entity(found)
+                if image is not None and self._image_files_all_local(image):
+                    targets.append(image)
+        stamped: list[Scene | Image] = []
+        for target in targets:
+            if getattr(target, "organized", False):
+                continue
+            await self._stamp_unposted(target, media, account, studio)
+            stamped.append(target)
+        if stamped:
+            media.stash_id = min(int(entity.id) for entity in stamped)
+        return stamped
+
+    async def _stamp_unposted(
+        self,
+        stash_obj: Scene | Image,
+        media: Media,
+        account: Account,
+        studio: Studio | None,
+    ) -> None:
+        """Stamp what a file and its creator provide when no post is known.
+
+        Sets the media id as code and a date (the media's, else the one in the
+        file name) where those are empty, and adds the performer, the studio
+        and the preview tag.
+
+        Args:
+            stash_obj: Scene or Image to stamp
+            media: The Media recorded for the file
+            account: The Account being processed
+            studio: Its pre-resolved studio
+        """
+        if not is_set(stash_obj.code) or not stash_obj.code:
+            stash_obj.code = str(media.id)
+        day = media.createdAt.date().isoformat() if media.createdAt else None
+        day = day or _filename_date(media.local_filename)
+        if day and (not is_set(stash_obj.date) or not stash_obj.date):
+            stash_obj.date = day
+        await self._stamp_performers(stash_obj, None, account)
+        await self._stamp_studio(stash_obj, account, studio)
+        await self._stamp_tags(stash_obj, None, media)
 
     async def _adjudicate_image(
         self,
@@ -287,7 +380,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
         self,
         file: VideoFile,
         media: Media,
-        item: Post | Message,
+        item: Post | Message | None,
         account: Account,
         studio: Studio | None = None,
     ) -> list[Scene | Image]:
@@ -694,7 +787,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 stash_obj.urls.append(post_url)
 
     async def _stamp_performers(
-        self, stash_obj: Scene | Image, item: Post | Message, account: Account
+        self, stash_obj: Scene | Image, item: Post | Message | None, account: Account
     ) -> None:
         """Add the creator's performer(s) (cached) plus any mentioned ones.
 
@@ -735,7 +828,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
             stash_obj.studio = studio
 
     async def _stamp_tags(
-        self, stash_obj: Scene | Image, item: Post | Message, media: Media
+        self, stash_obj: Scene | Image, item: Post | Message | None, media: Media
     ) -> None:
         """Add hashtag tags and the preview ('Trailer') tag when applicable."""
         hashtags = getattr(item, "hashtags", None)

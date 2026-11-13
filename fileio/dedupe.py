@@ -186,6 +186,25 @@ def calculate_file_hash(
     return file_path, None, debug_info
 
 
+async def _hash_recorded_for_name(filename: str, media_id: int | None) -> str | None:
+    """The hash another record already holds for this file name.
+
+    A file saved from a variant is named after the variant, while the download
+    step saves its hash on the media the variant belongs to.
+
+    Args:
+        filename: Name of the file on disk
+        media_id: Id of the record being checked, which is left out
+
+    Returns:
+        That hash, or None when no other record names this file with one.
+    """
+    for other in await get_store().find(Media, local_filename=filename):
+        if other.id != media_id and other.content_hash:
+            return other.content_hash
+    return None
+
+
 async def get_or_create_media(
     file_path: Path,
     media_id: int | None,
@@ -308,6 +327,9 @@ async def get_or_create_media(
                 },
             )
             return media_by_id, hash_verified
+
+        if not file_hash and trust_filename:
+            file_hash = await _hash_recorded_for_name(filename, media_by_id.id)
 
         # Calculate hash if needed. Compute even when trust_filename is set:
         # an existing record with no content_hash cannot be deduplicated by the
@@ -651,6 +673,23 @@ async def dedupe_init(
                 file_batches[category].append(file_info)
             progress_mgr.update_task(categorize_task, advance=1)
 
+    hashed_ids = {m.id for m in existing_media if m.content_hash}
+    unhashed = len(file_batches["needs_hash"]) + sum(
+        1 for info in file_batches["media_id"] if int(info[1]) not in hashed_ids
+    )
+    print_info(
+        f"Checking {len(all_files)} files on disk: "
+        f"{len(file_batches['hash2'])} with a hash in the name, "
+        f"{len(file_batches['media_id'])} with a media id, "
+        f"{len(file_batches['needs_hash'])} with neither."
+        + (
+            f" Up to {unhashed} have no saved hash and are read in full now, "
+            "which can take a while."
+            if unhashed
+            else ""
+        )
+    )
+
     # Process hash2 files (files with known hashes)
     if file_batches["hash2"]:
         with progress_mgr.session():
@@ -893,16 +932,18 @@ async def dedupe_init(
         },
     )
 
-    print_info(
+    summary = (
         f"Database deduplication initialized!"
-        f"\n{17 * ' '}Added {final_downloaded - existing_downloaded} new entries to the database"
-        f"\n{17 * ' '}Processed {processed_count} files with content verification"
-        f"\n{17 * ' '}Preserved {preserved_count} trusted hash2 format entries"
+        f"\n{17 * ' '}Downloaded records: {final_downloaded} "
+        f"({final_downloaded - existing_downloaded:+d})"
+        f"\n{17 * ' '}Files matched to a record with a saved hash: {processed_count}"
     )
-
-    print_info(
-        "Files will now be tracked in the database instead of using filename hashes."
-    )
+    if file_batches["hash2"]:
+        summary += (
+            f"\n{17 * ' '}Hashes taken from old file names: {preserved_count}; "
+            "those files are now tracked in the database."
+        )
+    print_info(summary)
 
 
 async def _calculate_hash_for_file(

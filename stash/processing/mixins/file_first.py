@@ -32,11 +32,12 @@ from stash_graphql_client.types import (
     VideoFile,
 )
 
+from config.modes import DownloadMode
 from helpers.rich_progress import get_progress_manager
 from metadata import Account, Media, Message, Post
 from metadata.models import get_store
 from pathio import get_stash_path
-from textio import print_error, print_info
+from textio import print_error, print_info, print_warning
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
@@ -208,9 +209,27 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             media_with_id,
             split_pairs,
         ) = await self._prepare_file_first(account)
+        if self.config.download_mode == DownloadMode.STASH_ONLY:
+            # Stash-only scans the folder itself, so it also knows the files
+            # whose posts were never fetched.
+            self._index_unposted_media(index, account)
+        if not index:
+            print_warning(
+                f"No downloaded media is recorded for {account.username}, so there "
+                "is nothing to link in Stash. Stash sync works from the posts and "
+                "files saved by download runs; download this creator first."
+            )
         # Sweep first: on a server that returns each file's scenes/images with
         # it, the store then already holds the entities the re-verify reads.
         swept = [file async for file in self._sweep_creator_files()]
+        if index and not swept and self.state.base_path:
+            print_warning(
+                "Stash lists no files under "
+                f"{get_stash_path(self.state.base_path, self.config)}, so nothing "
+                f"can be linked for {account.username}. Check that this folder is "
+                "in a Stash library and that stash_context.mapped_path is the "
+                "path as Stash sees it."
+            )
         # Media already carrying a stash_id are re-verified by id and dropped
         # from the index, so their files are not adjudicated a second time.
         await self._fast_path_known_media(
@@ -326,6 +345,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             leaf
             for leaf, (_media, owners) in index.items()
             if leaf not in seen
+            and owners
             and isinstance(owners[0], Post)
             and owners[0].accountId != account.id
         ]
@@ -524,6 +544,10 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             if media.stash_id is not None and (media.local_path or not current_only)
         ]
         for leaf, media, owners in known:
+            if not owners:
+                # Linked to the creator by an earlier run; no post to add.
+                del index[leaf]
+                continue
             flushed_id = str(media.stash_id) if self._flushed_stash_id(media) else None
             entities = await self._process_media_fast_path(
                 media, owners[0], account, studio

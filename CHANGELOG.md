@@ -10,6 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`options.filename_timezone`.** The time zone of old file names that carry a local time; leave it unset to use this computer's time zone.
+
+### Changed
+
+- **Old file names in local time are read in this computer's time zone.** They used to be read as US Eastern time.
+
+- **Stash-only mode no longer contacts Fansly.** It needs no token, takes its creators from the metadata database (the named ones, or the followed ones when none are named) and scans each creator's folder for the files on disk.
+- **Stash-only skips a creator that is not in the database, with a warning.** Download that creator once first.
+- **Stash-only links files that have no post in the database.** They get the creator's performer and studio, the media id and the date from the file name, and join no gallery.
+- **A Stash sync that links nothing now says why.** It warns when no downloaded media is recorded for the creator, or when Stash lists no files in the creator's folder.
+
+### Fixed
+
+- **The startup scan no longer re-reads videos whose hash is already saved.** In 0.16.0 the first run hashed every video that was downloaded as a variant, which could take a long time on a large library.
+- **Ctrl+C during the startup scan or a video download exits promptly.** It used to wait for the videos being hashed or downloaded to finish.
+- **File names with a 12-hour time (`_at_10-49-PM`) are recognised.** The startup scan renames them to UTC like other old names.
+- **Ctrl+C no longer ends with a `KeyboardInterrupt` traceback.** The program exits with status 255 as documented.
+
 ## [0.16.0] - 2026-11-13
 
 ### Added

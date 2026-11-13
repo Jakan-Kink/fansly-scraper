@@ -12,6 +12,7 @@ is routed via respx:
 """
 
 import json
+import logging
 from pathlib import PurePath
 
 import httpx
@@ -20,6 +21,7 @@ import respx
 from stash_graphql_client import present
 from stash_graphql_client.types import Scene, VideoFile
 
+from config.modes import DownloadMode
 from metadata import ContentType
 from pathio import get_stash_path
 from tests.fixtures.metadata.metadata_factories import (
@@ -652,3 +654,149 @@ async def test_fast_path_current_only_leaves_earlier_media_unread(
     assert route.call_count == 1
     assert list(index) == ["old_id_2.mp4"]
     assert media_with_id == [current]
+
+
+@pytest.mark.asyncio
+async def test_run_file_first_says_why_nothing_was_linked(
+    entity_store, respx_stash_processor, caplog
+):
+    """A run that links nothing warns with the cause.
+
+    Two creators through the real flow: one with no downloaded media in the
+    database (the stash-only run on a fresh database), and one whose media is
+    recorded but whose folder Stash lists no files for (a wrong mapped path).
+    """
+    caplog.set_level(logging.WARNING)
+    processor = respx_stash_processor
+    root = get_stash_path(processor.state.base_path, processor.config)
+    never_downloaded = AccountFactory.build(
+        id=snowflake_id(), username="never_downloaded"
+    )
+    await entity_store.save(never_downloaded)
+    acct_id = snowflake_id()
+    not_in_stash = AccountFactory.build(id=acct_id, username="not_in_stash")
+    await entity_store.save(not_in_stash)
+    media = MediaFactory.build(
+        id=snowflake_id(),
+        accountId=acct_id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename="clip_id_1.mp4",
+    )
+    await entity_store.save(media)
+    await entity_store.save(
+        AccountMediaFactory.build(id=media.id, accountId=acct_id, mediaId=media.id)
+    )
+    post = PostFactory.build(id=snowflake_id(), accountId=acct_id)
+    await entity_store.save(post)
+    await entity_store.save(
+        AttachmentFactory.build(
+            id=snowflake_id(),
+            postId=post.id,
+            contentId=media.id,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+    )
+    performer = PerformerFactory(
+        id="123", name="test_user", scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory(id="200", name="test_user (Fansly)")
+
+    # One findFiles sweep per creator, both empty.
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[find_files_response(), find_files_response()]
+    )
+    try:
+        for account in (never_downloaded, not_in_stash):
+            processor._account = account
+            processor._performer = performer
+            await processor._run_file_first(account, performer, studio)
+    finally:
+        dump_graphql_calls(route.calls, "says_why_nothing_was_linked")
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert route.call_count == 2
+    assert len(warnings) == 2
+    assert "No downloaded media is recorded for never_downloaded" in warnings[0]
+    assert f"Stash lists no files under {root}" in warnings[1]
+    assert "not_in_stash" in warnings[1]
+    assert media.stash_id is None
+
+
+@pytest.mark.asyncio
+async def test_stash_only_links_a_file_with_no_post(
+    entity_store, respx_stash_processor
+):
+    """Stash-only links a file on disk to its creator when no post owns it.
+
+    The media has a recorded file name and nothing else. The first run stamps
+    the scene with the media id, the date from the file name, the performer
+    and the studio, builds no gallery, and saves the media's Stash id. The
+    second run finds that id and writes nothing.
+    """
+    processor = respx_stash_processor
+    processor.config.download_mode = DownloadMode.STASH_ONLY
+    root = get_stash_path(processor.state.base_path, processor.config).rstrip("/")
+    acct_id = snowflake_id()
+    account = AccountFactory.build(id=acct_id, username="test_user")
+    await entity_store.save(account)
+    name = "2024-03-05_at_12-30_UTC_id_77.mp4"
+    media = MediaFactory.build(
+        id=snowflake_id(),
+        accountId=acct_id,
+        mimetype="video/mp4",
+        is_downloaded=True,
+        local_filename=name,
+        createdAt=None,
+    )
+    await entity_store.save(media)
+    processor._account = account
+    processor._performer = PerformerFactory(
+        id="123", name="test_user", scenes=[], images=[], galleries=[]
+    )
+    studio = StudioFactory(id="200", name="test_user (Fansly)")
+    path = f"{root}/test_user/{name}"
+    scene = create_scene_dict(
+        id="700", title="", files=[create_video_file_dict("20", path)]
+    )
+
+    def _scenes():
+        return httpx.Response(
+            200,
+            json=create_graphql_response(
+                "findScenes", create_find_scenes_result(count=1, scenes=[scene])
+            ),
+        )
+
+    # Run 1: sweep, the owned-scene lookup (direct + nested), the batched save.
+    # Run 2: the sweep alone.
+    route = respx.post(_GRAPHQL_URL).mock(
+        side_effect=[
+            find_files_response(create_video_file_dict("20", path)),
+            _scenes(),
+            _scenes(),
+            httpx.Response(200, json={"data": {"op0": scene}}),
+            find_files_response(create_video_file_dict("20", path)),
+        ]
+    )
+    try:
+        await processor._run_file_first(account, processor._performer, studio)
+        first_run_calls = route.call_count
+        await processor._run_file_first(account, processor._performer, studio)
+    finally:
+        dump_graphql_calls(route.calls, "stash_only_links_a_file_with_no_post")
+
+    assert first_run_calls == 4
+    assert route.call_count == 5
+    saved = json.loads(route.calls[3].request.content)["variables"]["input0"]
+    assert saved["id"] == "700"
+    assert saved["code"] == str(media.id)
+    assert saved["date"] == "2024-03-05"
+    assert saved["performer_ids"] == ["123"]
+    assert saved["studio_id"] == "200"
+    assert "gallery_ids" not in saved
+    stored = await entity_store.pool.fetchval(
+        "SELECT stash_id FROM media WHERE id = $1", media.id
+    )
+    assert stored == 700

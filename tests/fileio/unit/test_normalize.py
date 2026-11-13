@@ -48,11 +48,11 @@ class TestNormalizeFilename:
         """Test normalize_filename with and without a database match.
 
         With a match, the Media row's createdAt (15:30 UTC) drives the rename.
-        Without a match, if config is provided, the function converts local
-        time (assumed EST/EDT) to UTC — which yields the same 15-30_UTC name
-        for a 10-30 EST timestamp.
+        Without a match the local time is read in ``filename_timezone``, which
+        yields the same 15-30_UTC name for 10-30 US Eastern.
         """
         store = entity_store
+        config.filename_timezone = "America/New_York"
 
         media_id = snowflake_id()
 
@@ -71,6 +71,56 @@ class TestNormalizeFilename:
         filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)
         assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
+
+    @pytest.mark.asyncio
+    async def test_local_time_names_use_the_configured_zone(self, entity_store, config):
+        """Local-time names, 24-hour or 12-hour, are read in ``filename_timezone``.
+
+        With the setting unset the computer's own time zone is used. A name the
+        database can date takes the database's time whatever its own says.
+        """
+        media_id = snowflake_id()
+        config.filename_timezone = "Asia/Tokyo"
+        converted = {
+            "2023-01-01_at_10-30": "2023-01-01_at_01-30_UTC",
+            "2023-01-01_at_10-49-PM": "2023-01-01_at_13-49_UTC",
+            "2023-01-01_at_12-05-PM": "2023-01-01_at_03-05_UTC",
+            "2023-01-01_at_12-05-AM": "2022-12-31_at_15-05_UTC",
+        }
+        results = {
+            stamp: await normalize_filename(f"{stamp}_id_{media_id}.mp4", config=config)
+            for stamp in converted
+        }
+
+        config.filename_timezone = None
+        system_zone = await normalize_filename(
+            f"2023-01-01_at_10-30_id_{media_id}.mp4", config=config
+        )
+        system_expected = (
+            datetime(2023, 1, 1, 10, 30)
+            .astimezone()
+            .astimezone(UTC)
+            .strftime("%Y-%m-%d_at_%H-%M_UTC")
+        )
+
+        acct_id = snowflake_id()
+        await entity_store.save(Account(id=acct_id, username="test_user"))
+        await entity_store.save(
+            Media(
+                id=media_id,
+                accountId=acct_id,
+                createdAt=datetime(2023, 1, 2, 3, 49, tzinfo=UTC),
+            )
+        )
+        dated = await normalize_filename(
+            f"2023-01-01_at_10-49-PM_id_{media_id}.mp4", config=config
+        )
+
+        assert results == {
+            stamp: f"{utc}_id_{media_id}.mp4" for stamp, utc in converted.items()
+        }
+        assert system_zone == f"{system_expected}_id_{media_id}.mp4"
+        assert dated == f"2023-01-02_at_03-49_UTC_id_{media_id}.mp4"
 
     @pytest.mark.asyncio
     async def test_normalize_filename_different_extensions(self, entity_store, config):

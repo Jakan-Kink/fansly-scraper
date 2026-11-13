@@ -8,6 +8,7 @@ import pytest
 
 from errors.mp4 import InvalidMP4Error
 from fileio.mp4 import MP4Box, get_boxes, hash_mp4box, hash_mp4file
+from helpers.shutdown import StopRequested, request_stop
 
 
 class TestMP4Box:
@@ -337,6 +338,21 @@ class TestHashMP4File:
         # print receives the file line, each box, and the final hash line.
         assert any(str(valid_mp4_file) in line for line in printed)
         assert any("Hash:" in line for line in printed)
+
+    def test_hashing_ends_early_once_stopped(self, valid_mp4_file):
+        """After ``request_stop`` a hash in progress raises at its next block.
+
+        Worker threads cannot be cancelled, and the event loop waits for them
+        before it closes; this is what lets a shutdown end them. The same file
+        hashes normally before the stop.
+        """
+        before = hash_mp4file(hashlib.md5(usedforsecurity=False), valid_mp4_file)
+
+        request_stop()
+
+        with pytest.raises(StopRequested, match="Stopped for shutdown"):
+            hash_mp4file(hashlib.md5(usedforsecurity=False), valid_mp4_file)
+        assert len(before) == 32
 
     def test_hash_mp4file_invalid_mp4_error(self, invalid_mp4_file):
         """Test InvalidMP4Error from a real malformed MP4 (first box not ftyp).

@@ -630,11 +630,13 @@ async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) 
     if not await validate_creator_names(config):
         raise ConfigError("Configuration error - no valid creator name specified.")
 
-    await validate_adjust_token(config)
+    # Stash-only never contacts Fansly, so it needs no credentials.
+    if config.download_mode != DownloadMode.STASH_ONLY:
+        await validate_adjust_token(config)
 
-    validate_adjust_user_agent(config)
+        validate_adjust_user_agent(config)
 
-    await validate_adjust_check_key(config)
+        await validate_adjust_check_key(config)
 
     # validate_adjust_session_id(config)
 

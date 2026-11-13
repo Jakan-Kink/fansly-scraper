@@ -52,6 +52,7 @@ from fansly_downloader_ng import (
     print_logo,
 )
 from helpers.rich_progress import get_progress_manager
+from helpers.shutdown import stop_requested
 from metadata.models import Account, get_store
 from tests.fixtures.api import dump_fansly_calls
 from tests.fixtures.utils import scaled_async_sleep
@@ -646,6 +647,8 @@ def test_handle_interrupt_first_call_sets_flag_and_raises_keyboard_interrupt(
         assert getattr(_handle_interrupt, "interrupted", False) is True, (
             "First interrupt must set the interrupted flag"
         )
+        # Worker threads are told to end, or the loop waits for them.
+        assert stop_requested()
         error_messages = [
             r.getMessage() for r in caplog.records if r.levelname == "ERROR"
         ]
@@ -685,10 +688,12 @@ def test_handle_terminate_raises_once_and_flags_config(caplog):
     with pytest.raises(KeyboardInterrupt, match="Termination requested"):
         _handle_terminate(config, signal.SIGTERM, None)
     flagged_after_first = config._terminate_requested
+    hashing_stopped = stop_requested()
     _handle_terminate(config, signal.SIGTERM, None)
 
     error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert flagged_after_first is True
+    assert hashing_stopped is True
     assert sum("Termination requested" in m for m in error_messages) == 1
 
 

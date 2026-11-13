@@ -132,6 +132,7 @@ options:
   respect_timeline_stats: true
   temp_folder: null
   proxy: null
+  filename_timezone: null
 ```
 
 ### `options` — output & UI
@@ -153,6 +154,7 @@ options:
 | `prompt_on_exit`            | `bool`        | `true`              | Wait for an Enter keypress before exiting. Set `false` for non-interactive runs                                                                                                    |
 | `temp_folder`               | `str \| None` | `null`              | Override the temp directory used during in-flight downloads. `null` uses the OS default                                                                                            |
 | `proxy` | `str \| None` | `null` | Send every Fansly connection (API, media, WebSocket, livestreams) through this proxy, for example `socks5h://user:pass@host:1080` or `http://host:8080`. Schemes: `http`, `https`, `socks5`, `socks5h`; `socks5h` also resolves host names through the proxy. `null` connects directly, and proxy environment variables (`HTTP_PROXY`, `ALL_PROXY` and the like) and system proxy settings are ignored either way. With a proxy set, HLS videos are downloaded segment by segment, which is slower. Stash and PostgreSQL connections are not proxied |
+| `filename_timezone` | `str \| None` | `null` | Time zone of file names that carry a local time instead of UTC, as versions up to 0.9.9 wrote them, for example `America/New_York`. The startup scan renames such a file to UTC using this zone when the database does not know the media yet. `null` uses this computer's time zone; set it when the files were downloaded on a computer in another zone |
 
 ### `options` — debugging
 

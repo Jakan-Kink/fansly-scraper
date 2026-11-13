@@ -24,6 +24,8 @@ from stash_graphql_client.types import (
     GalleryFile,
     Image,
     ImageFile,
+    Scene,
+    VideoFile,
 )
 from stash_graphql_client.types.unset import is_set
 
@@ -514,3 +516,116 @@ class TestProcessFileFirstImage:
         assert "960" in sink.getvalue()
         assert media.stash_id == original_stash_id
         assert media.stash_id is None
+
+
+class TestLinkUnpostedFile:
+    """``_process_file_first`` for a file no post or message owns (stash-only)."""
+
+    @pytest.mark.asyncio
+    async def test_links_only_what_is_ours_and_not_organized(
+        self, respx_stash_processor, mock_account
+    ):
+        """An image of ours is linked to the creator; the rest are left alone.
+
+        Four files with no owning post: an image looked up by path (linked,
+        dated from its file name), an organized image, a video that is a
+        secondary on another source's scene, and an animated image Stash
+        holds as a video.
+        """
+        processor = respx_stash_processor
+        root = stash_creator_root(processor)
+        studio = seed_processor_caches(processor, mock_account)
+
+        plain_path = f"{root}/test_user/2024-03-05_at_12-30_UTC_id_1.jpg"
+        plain = ImageFile(id="800", path=plain_path)
+        plain_image = create_image_dict(
+            id="900",
+            title="",
+            performers=[],
+            visual_files=[create_image_file_dict("800", plain_path)],
+        )
+        kept_path = f"{root}/test_user/2024-03-06_at_12-30_UTC_id_2.jpg"
+        kept = ImageFile(id="801", path=kept_path)
+        kept.images = [Image(id="901")]
+        kept_image = create_image_dict(
+            id="901",
+            title="Kept",
+            performers=[],
+            organized=True,
+            visual_files=[create_image_file_dict("801", kept_path)],
+        )
+        shared = VideoFile(
+            id="100", path=f"{root}/test_user/2024-03-07_at_12-30_UTC_id_3.mp4"
+        )
+        shared.scenes = [
+            Scene(id="500", files=[VideoFile(id="99", path="/other/x.mp4"), shared])
+        ]
+        animated = VideoFile(
+            id="101", path=f"{root}/test_user/2024-03-08_at_12-30_UTC_id_4.gif"
+        )
+        files = {
+            plain: "image/jpeg",
+            kept: "image/jpeg",
+            shared: "video/mp4",
+            animated: "image/gif",
+        }
+        index: dict = {}
+        media_by_file = {}
+        for file, mimetype in files.items():
+            leaf = PurePath(present(file.path)).name
+            media_by_file[file.id] = MediaFactory.build(
+                is_downloaded=True,
+                local_filename=leaf,
+                mimetype=mimetype,
+                createdAt=None,
+            )
+            index[leaf] = (media_by_file[file.id], [])
+
+        def _by_path() -> httpx.Response:
+            return httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findImages", create_find_images_result(1, [plain_image])
+                ),
+            )
+
+        # The plain image: two path lookups, then a read by id. The organized
+        # image: one read by id. The two videos need no request.
+        route = respx.post(_GRAPHQL_URL).mock(
+            side_effect=[
+                _by_path(),
+                _by_path(),
+                httpx.Response(
+                    200, json=create_graphql_response("findImage", plain_image)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findImage", kept_image)
+                ),
+            ]
+        )
+        try:
+            results = {
+                file.id: await processor._process_file_first(
+                    file, index, mock_account, studio
+                )
+                for file in files
+            }
+        finally:
+            dump_graphql_calls(route.calls, "links_unposted_files")
+
+        assert route.call_count == 4
+        assert [image.id for image in results["800"]] == ["900"]
+        linked = results["800"][0]
+        assert linked.code == str(media_by_file["800"].id)
+        assert linked.date == "2024-03-05"
+        assert [performer.id for performer in present(linked.performers)] == ["123"]
+        assert present(linked.studio).id == "200"
+        assert media_by_file["800"].stash_id == 900
+        assert results["801"] == []
+        assert results["100"] == []
+        assert results["101"] == []
+        assert [media_by_file[key].stash_id for key in ("801", "100", "101")] == [
+            None,
+            None,
+            None,
+        ]

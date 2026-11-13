@@ -17,6 +17,7 @@ class TestNormalizeFilenameIntegration:
         self, entity_store, config
     ):
         """Test normalize_filename without database match."""
+        config.filename_timezone = "America/New_York"
         media_id = snowflake_id()
         filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)

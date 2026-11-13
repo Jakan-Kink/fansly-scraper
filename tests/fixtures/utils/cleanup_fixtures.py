@@ -25,7 +25,7 @@ import metadata.subscriptions as subs_mod
 from api.rate_limiter_display import RateLimiterDisplay
 from api.websocket import FanslyWebSocket
 from config import logging as config_logging
-from helpers import rich_progress
+from helpers import rich_progress, shutdown
 
 
 @pytest.fixture(autouse=True)
@@ -154,6 +154,8 @@ def cleanup_global_config_state():
     config_logging._config = None
     config_logging._debug_enabled = False
     config_logging._trace_enabled = False
+    # The signal handlers stop worker threads for the rest of the process.
+    shutdown._stop.clear()
 
     # init_logging_config attaches a handler and level to the Stash client logger
     stash_client_logger = logging.getLogger("stash_graphql_client")

@@ -115,6 +115,7 @@ class FanslyConfig:
     separate_previews: bool = False
     repair_previews: bool | str = False
     proxy: str | None = None
+    filename_timezone: str | None = None
     separate_timeline: bool = True
     show_downloads: bool = True
     show_skipped_downloads: bool = True
@@ -628,6 +629,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     _maybe_set(base.options, "separate_previews", config.separate_previews)
     _maybe_set(base.options, "repair_previews", config.repair_previews)
     _maybe_set(base.options, "proxy", config.proxy)
+    _maybe_set(base.options, "filename_timezone", config.filename_timezone)
     _maybe_set(base.options, "separate_timeline", config.separate_timeline)
     _maybe_set(base.options, "use_duplicate_threshold", config.use_duplicate_threshold)
     _maybe_set(

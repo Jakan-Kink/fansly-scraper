@@ -969,6 +969,74 @@ class TestProcessFileFirstNotOwned:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("isolate_scene_create_input", "enable_scene_creation")
+    async def test_not_owned_true_splits_a_file_with_no_post(
+        self, respx_stash_processor, mock_account
+    ):
+        """A file no post owns is split off another source's scene the same way.
+
+        The new scene gets what the file and its creator provide (media id,
+        the date in the file name, performer, studio) and no post text.
+        """
+        processor = respx_stash_processor
+        processor.config.download_directory = Path("/dl")
+        processor.config.stash_enable_scene_split = True
+        name = "2024-03-05_at_12-30_UTC_id_42.mp4"
+        our = VideoFile(id="100", path=f"/dl/u/{name}")
+        our.scenes = [
+            Scene(id="500", files=[VideoFile(id="99", path="/other.mp4"), our])
+        ]
+        media = MediaFactory.build(
+            is_downloaded=True,
+            mimetype="video/mp4",
+            local_filename=name,
+            createdAt=None,
+        )
+        processor._account = mock_account
+        processor._performer = PerformerFactory.build(
+            id="123", name=mock_account.username
+        )
+        studio = StudioFactory.build(id="200", name=f"{mock_account.username} (Fansly)")
+        scene_data = create_scene_dict(
+            id="500",
+            title="Shared",
+            files=[
+                create_video_file_dict("99", "/other.mp4"),
+                create_video_file_dict("100", present(our.path)),
+            ],
+        )
+
+        def _scenes_by_path():
+            return httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findScenes",
+                    create_find_scenes_result(count=1, scenes=[scene_data]),
+                ),
+            )
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[_scenes_by_path(), _scenes_by_path()]
+        )
+        try:
+            result = await processor._process_file_first(
+                our, {name: (media, [])}, mock_account, studio
+            )
+        finally:
+            dump_graphql_calls(graphql_route.calls, "not_owned_splits_no_post")
+
+        assert graphql_route.call_count == 2
+        assert len(result) == 1
+        new_scene = result[0]
+        assert new_scene.is_new() is True
+        assert new_scene.code == str(media.id)
+        assert new_scene.date == "2024-03-05"
+        assert [f.id for f in new_scene.files] == ["100"]
+        assert [p.id for p in new_scene.performers] == ["123"]
+        assert present(new_scene.studio).id == "200"
+        assert not is_set(new_scene.title) or not new_scene.title
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("isolate_scene_create_input", "enable_scene_creation")
     async def test_not_owned_true_indeterminate_skips(
         self, respx_stash_processor, mock_item, mock_account
     ):

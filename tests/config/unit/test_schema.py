@@ -965,6 +965,25 @@ def test_proxy_rejects_unusable_urls(raw):
         OptionsSection(proxy=raw)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("America/New_York", "America/New_York"),
+        ("  Europe/Berlin ", "Europe/Berlin"),
+        ("   ", None),
+        (None, None),
+    ],
+)
+def test_filename_timezone_accepts_known_zones(raw, expected):
+    assert OptionsSection(filename_timezone=raw).filename_timezone == expected
+
+
+@pytest.mark.parametrize("raw", ["Mars/Olympus_Mons", "../etc/passwd"])
+def test_filename_timezone_rejects_unknown_zones(raw):
+    with pytest.raises(ValidationError, match=r"America/New_York"):
+        OptionsSection(filename_timezone=raw)
+
+
 class TestEnableSceneSplitValidator:
     """enable_scene_split accepts True/False/"dry-run"; rejects other strings."""
 

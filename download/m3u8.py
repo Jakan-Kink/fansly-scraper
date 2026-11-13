@@ -22,6 +22,7 @@ from rich.table import Column
 
 from config.fanslyconfig import FanslyConfig
 from errors import M3U8Error, MediaFilteredError
+from helpers.shutdown import raise_if_stopping, stop_requested
 from helpers.web import get_file_name_from_url, get_qs_value, split_url
 from textio import print_debug, print_error, print_info, print_warning
 
@@ -272,6 +273,7 @@ def _try_direct_download_pyav(
         # Remux all packets (codec copy — no re-encoding)
         packet_count = 0
         for packet in input_container.demux():
+            raise_if_stopping()
             if packet.dts is None:
                 continue
             if packet.stream in stream_mapping:
@@ -524,6 +526,7 @@ def _mux_segments_with_pyav(
                 # Demux and remux packets, skip corrupt ones
                 skipped_packets = 0
                 for packet in input_container.demux():
+                    raise_if_stopping()
                     if packet.dts is None or packet.is_corrupt:
                         skipped_packets += 1
                         continue
@@ -674,7 +677,7 @@ def _try_segment_download(
     def download_ts(segment_uri: str, segment_full_path: Path) -> None:
         """Download a single .ts segment."""
         nonlocal total_bytes
-        if abort_event.is_set():
+        if abort_event.is_set() or stop_requested():
             return
         segment_response = None
         try:
@@ -693,7 +696,7 @@ def _try_segment_download(
                 return
             with segment_full_path.open("wb") as ts_file:
                 for chunk in segment_response.iter_bytes(chunk_size):
-                    if abort_event.is_set():
+                    if abort_event.is_set() or stop_requested():
                         break
                     if chunk:
                         ts_file.write(chunk)
@@ -740,6 +743,7 @@ def _try_segment_download(
                 )
             )
 
+        raise_if_stopping()
         if abort_event.is_set():
             raise MediaFilteredError("file_size_max", observed=total_bytes)
 
@@ -845,6 +849,9 @@ def download_m3u8(
             if created_at:
                 os.utime(full_path, (created_at, created_at))
             return full_path
+
+        # An interrupted ffmpeg reports failure, which is not a reason to go on.
+        raise_if_stopping()
 
         # Tier 3: Manual segment download + mux
         result = _try_segment_download(

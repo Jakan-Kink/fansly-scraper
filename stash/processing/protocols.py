@@ -119,6 +119,12 @@ class StashProcessingProtocol(Protocol):
         self, items: Sequence[Post | Message]
     ) -> dict[str, tuple[Media, list[Post | Message]]]: ...
 
+    def _index_unposted_media(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+    ) -> None: ...
+
     def _sweep_creator_files(self) -> AsyncIterator[BaseFile]: ...
 
     async def _connect_stash(self) -> bool: ...
@@ -186,7 +192,7 @@ class StashProcessingProtocol(Protocol):
         self,
         file: BaseFile,
         media: Media,
-        item: Post | Message,
+        item: Post | Message | None,
         account: Account,
         studio: Studio | None = None,
         siblings: Sequence[BaseFile] = (),

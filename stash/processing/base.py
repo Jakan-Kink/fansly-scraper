@@ -36,7 +36,8 @@ from stash_graphql_client.types import (
 )
 
 from helpers.rich_progress import get_progress_manager
-from metadata import Account, Database, Message
+from metadata import Account, Database, Media, Message
+from metadata.models import get_store
 from pathio import get_stash_path, set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
     from config import FanslyConfig
     from download.core import DownloadState
-    from metadata import Media, Post
+    from metadata import Post
 
 
 _SCAN_POLL_S = 1.5
@@ -684,6 +685,27 @@ class StashProcessingBase(StashProcessingProtocol):
             # metadata; otherwise the earliest owner comes first.
             owners.sort(key=partial(self._owner_order, messages_last=media.is_preview))
         return index
+
+    def _index_unposted_media(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+        account: Account,
+    ) -> None:
+        """Add the creator's files on disk that no post or message owns.
+
+        Each is registered with no owners, so it is linked to the creator and
+        joins no gallery.
+
+        Args:
+            index: Media index keyed by filename -> (Media, owning items)
+            account: The Account being processed
+        """
+        unposted = get_store().filter(
+            Media, lambda m: m.accountId == account.id and bool(m.local_filename)
+        )
+        for media in unposted:
+            if media.local_filename:
+                index.setdefault(PurePath(media.local_filename).name, (media, []))
 
     @staticmethod
     def _owner_order(owner: Post | Message, *, messages_last: bool) -> tuple[bool, int]:

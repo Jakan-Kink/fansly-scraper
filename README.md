@@ -21,7 +21,7 @@ Originally forked from [Avnsx](https://github.com/Avnsx)'s [Fansly Downloader](h
 
 - **Bulk**: Timeline, Messages, Wall, Stories, Collection
 - **Single Posts** by post ID
-- **Stash-only**: Re-ingest existing local library into Stash without re-downloading
+- **Stash-only**: Sync content already on disk to Stash without contacting Fansly, so it needs no token. Creators and posts come from the metadata database and each creator's folder is scanned for its files; a creator that is not in the database yet is skipped with a warning
 
 ### 🛰️ Monitoring Daemon
 

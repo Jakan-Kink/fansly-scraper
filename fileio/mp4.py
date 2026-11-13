@@ -17,10 +17,12 @@ __all__ = [
 import os
 from collections.abc import Callable, Iterable
 from io import BufferedReader
+from itertools import chain, repeat
 from pathlib import Path
 from typing import Any
 
 from errors.mp4 import InvalidMP4Error
+from helpers.shutdown import raise_if_stopping
 
 
 # Size field plus type field: the least a box can occupy.
@@ -117,10 +119,9 @@ def hash_mp4box(algorithm: Any, reader: BufferedReader, box: MP4Box) -> None:
     chunks = box.size // chunk_size
     remainder = box.size - chunks * chunk_size
 
-    for _ in range(chunks):
-        algorithm.update(reader.read(chunk_size))
-
-    algorithm.update(reader.read(remainder))
+    for size in chain(repeat(chunk_size, chunks), (remainder,)):
+        raise_if_stopping()
+        algorithm.update(reader.read(size))
 
 
 def hash_mp4file(

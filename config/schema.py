@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
@@ -359,12 +360,29 @@ class OptionsSection(_BaseSection):
     temp_folder: str | None = Field(default=None, json_schema_extra=_ALWAYS)
     # Proxy for every Fansly connection, e.g. socks5h://user:pass@host:1080
     proxy: str | None = None
+    # Time zone of file names that carry a local time, e.g. America/New_York
+    filename_timezone: str | None = None
 
     @field_validator("proxy")
     @classmethod
     def _validate_proxy(cls, v: str | None) -> str | None:
         """Require a scheme both httpx and websockets can use, plus a host."""
         return proxy_url(v)
+
+    @field_validator("filename_timezone")
+    @classmethod
+    def _validate_filename_timezone(cls, v: str | None) -> str | None:
+        """Require a time zone name this computer knows; blank means unset."""
+        if v is None or not v.strip():
+            return None
+        try:
+            ZoneInfo(v.strip())
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"filename_timezone must be a time zone name such as "
+                f"America/New_York; got {v!r}"
+            ) from exc
+        return v.strip()
 
     @field_validator("download_mode", mode="before")
     @classmethod

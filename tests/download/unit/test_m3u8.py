@@ -65,6 +65,7 @@ from download.m3u8 import (
     get_m3u8_progress,
 )
 from errors import M3U8Error, MediaFilteredError
+from helpers.shutdown import StopRequested, request_stop
 from tests.fixtures.api import (
     build_variant_playlist,
     dump_fansly_calls,
@@ -473,6 +474,45 @@ class TestDownloadM3U8ThreeTierStrategy:
 
         assert result == save_path.parent / "video.mp4"
         mock_segment.assert_called_once()
+
+    def test_stop_during_ffmpeg_skips_the_segment_tier(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
+    ):
+        """An interrupted ffmpeg reports failure; the stop ends the download there."""
+        config = _make_real_config()
+        mock_pyav.return_value = False
+
+        def interrupted(*_args: object, **_kwargs: object) -> bool:
+            request_stop()
+            return False
+
+        mock_ffmpeg.side_effect = interrupted
+
+        with pytest.raises(StopRequested):
+            download_m3u8(
+                config=config,
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                save_path=tmp_path / "video.mp4",
+            )
+
+        mock_ffmpeg.assert_called_once()
+        mock_segment.assert_not_called()
+
+    def test_filtered_media_ends_the_download(
+        self, mock_pyav, mock_ffmpeg, mock_segment, tmp_path
+    ):
+        """A filter verdict from a tier is passed on, not retried in the next."""
+        mock_pyav.side_effect = MediaFilteredError("file_size_max", observed=1)
+
+        with pytest.raises(MediaFilteredError):
+            download_m3u8(
+                config=_make_real_config(),
+                m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                save_path=tmp_path / "video.mp4",
+            )
+
+        mock_ffmpeg.assert_not_called()
+        mock_segment.assert_not_called()
 
     @pytest.mark.parametrize(
         ("pyav_ok", "ffmpeg_ok", "created_at"),
@@ -1216,6 +1256,51 @@ class TestDirectDownloadPyAV:
         # Rogue packet skipped — only mapped_video packets muxed (2 of 3).
         assert output_container.mux_calls == 2
 
+    def test_stop_request_ends_the_download_at_the_next_packet(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
+        """A stop that arrives mid-download ends it before the next packet.
+
+        ``StopRequested`` is not an ``Exception``, so neither fallback handler
+        swallows it, and both containers are still closed.
+        """
+        config = _make_real_config()
+        config._api = respx_fansly_api
+        output_path = tmp_path / "video.mp4"
+        master_route = _mount_master_variant_route()
+
+        video = _FakeAVStream("video")
+        input_container = _FakeInputContainer(
+            streams=[video], packets=[_FakeAVPacket(video, dts=i) for i in range(3)]
+        )
+
+        class _StoppingOutputContainer(_FakeOutputContainer):
+            """Requests the stop while the first packet is written."""
+
+            def mux(self, packet):
+                super().mux(packet)
+                request_stop()
+
+        output_container = _StoppingOutputContainer(output_path)
+        containers = [input_container, output_container]
+        monkeypatch.setattr(av, "open", lambda *_a, **_k: containers.pop(0))
+
+        try:
+            with pytest.raises(StopRequested):
+                _try_direct_download_pyav(
+                    config=config,
+                    m3u8_url="https://example.com/video.m3u8",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(master_route.calls)
+
+        assert master_route.call_count == 1
+        assert output_container.mux_calls == 1
+        assert input_container.close_count == 1
+        assert output_container.close_count == 1
+
     def test_max_bytes_abort_closes_and_deletes_output(
         self, tmp_path, monkeypatch, respx_fansly_api
     ):
@@ -1310,6 +1395,32 @@ class TestMuxSegmentsWithPyAV:
     muxing branches, per-segment exception handling, >25% skip abort,
     and the finally-block cleanup.
     """
+
+    def test_stop_request_ends_the_mux(self, tmp_path, monkeypatch):
+        """A stop request ends the mux before its next packet and closes both files."""
+        output_path = tmp_path / "muxed.mp4"
+        segment_file = tmp_path / "seg0.ts"
+        segment_file.write_bytes(b"\x00" * 10)
+        video = _FakeAVStream("video")
+        segment_input = _MuxInputContainer(
+            streams=[video], packets=[_FakeAVPacket(video, dts=0)]
+        )
+        output_container = _FakeOutputContainer(output_path)
+        monkeypatch.setattr(
+            av,
+            "open",
+            lambda _path, mode="r", *_a, **_k: (
+                output_container if mode == "w" else segment_input
+            ),
+        )
+        request_stop()
+
+        with pytest.raises(StopRequested):
+            _mux_segments_with_pyav([segment_file], output_path)
+
+        assert output_container.mux_calls == 0
+        assert segment_input.close_count == 1
+        assert output_container.close_count == 1
 
     def test_success_muxes_packets_from_segments(self, tmp_path, monkeypatch):
         """All segments valid → output streams created, all packets muxed."""
@@ -1901,6 +2012,88 @@ class TestSegmentDownload:
         assert result == output_path
         # ffmpeg mux not called — PyAV succeeded first.
         assert ffmpeg_called["n"] == 0
+
+    def test_stop_request_ends_the_segment_download(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
+        """With a stop requested no segment is fetched and nothing is left behind."""
+        config = self._make_config_with_segments(respx_fansly_api)
+        output_path = tmp_path / "video.mp4"
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        playlist_route, segment_route = mount_m3u8_segment_routes()
+        request_stop()
+
+        try:
+            with pytest.raises(StopRequested):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=output_path,
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
+
+        assert playlist_route.call_count == 1
+        assert segment_route.call_count == 0
+        assert [p.name for p in tmp_path.iterdir() if p.suffix in {".ts", ".mp4"}] == []
+
+    def test_stop_mid_segment_ends_its_transfer(
+        self, tmp_path, monkeypatch, respx_fansly_api
+    ):
+        """A stop that arrives while a segment streams ends that transfer."""
+        config = self._make_config_with_segments(respx_fansly_api)
+        monkeypatch.setattr(
+            "download.m3u8.concurrent.futures.ThreadPoolExecutor", SyncExecutor
+        )
+        chunk = 1_048_576
+        written: list[int] = []
+
+        def body():
+            yield b"\x00" * chunk
+            written.append((tmp_path / "segment1.ts").stat().st_size)
+            request_stop()
+            yield b"\x01" * chunk
+
+        playlist_text = (
+            "#EXTM3U\n"
+            "#EXT-X-VERSION:3\n"
+            "#EXT-X-PLAYLIST-TYPE:VOD\n"
+            "#EXT-X-TARGETDURATION:10\n"
+            "#EXTINF:10.0,\n"
+            "segment1.ts\n"
+            "#EXT-X-ENDLIST\n"
+        )
+        respx.options(url__startswith="https://example.com/").mock(
+            side_effect=[httpx.Response(200)] * 3
+        )
+        segment_route = respx.get(url__startswith="https://example.com/segment").mock(
+            side_effect=[httpx.Response(200, content=body())]
+        )
+        playlist_route = respx.get(url__startswith="https://example.com/v.m3u8").mock(
+            side_effect=[httpx.Response(200, text=playlist_text)]
+        )
+
+        try:
+            with pytest.raises(StopRequested):
+                _try_segment_download(
+                    config=config,
+                    m3u8_url="https://example.com/v.m3u8?Policy=a&Key-Pair-Id=k&Signature=s",
+                    output_path=tmp_path / "video.mp4",
+                    cookies={"CloudFront-Policy": "a"},
+                )
+        finally:
+            dump_fansly_calls(playlist_route.calls)
+            dump_fansly_calls(segment_route.calls)
+
+        assert playlist_route.call_count == 1
+        assert segment_route.call_count == 1
+        # Only the first chunk reached the file before the stop.
+        assert written == [chunk]
+        assert [p.name for p in tmp_path.iterdir() if p.suffix in {".ts", ".mp4"}] == []
 
     def test_ffmpeg_mux_fallback(self, tmp_path, monkeypatch, respx_fansly_api):
         """PyAV mux fails → FFmpeg concat fallback tried."""

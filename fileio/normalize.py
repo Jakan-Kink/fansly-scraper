@@ -19,9 +19,10 @@ async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with
     Converts filenames with different timezone formats to a standard format:
     - Extracts the ID and extension
     - Handles both preview and non-preview IDs
-    - Handles both UTC and non-UTC timestamps
+    - Handles both UTC and non-UTC timestamps, 24-hour and 12-hour
     - Handles hash patterns (_hash_, _hash1_, _hash2_)
-    - If created_at is provided and ID matches, uses it to determine correct timezone offset
+    - Uses the database's createdAt when the ID matches; otherwise reads a
+      local time in ``config.filename_timezone``, or this computer's time zone
 
     Args:
         filename: The filename to normalize
@@ -59,9 +60,10 @@ async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with
             filename = filename.replace(id_part, corrected)
             id_part = corrected
 
-    # Extract timestamp
+    # Extract timestamp; 12-hour names carry -AM or -PM after the minute
     dt_match = re.match(
-        r"(\d{4}-\d{2}-\d{2})_at_(\d{2})-(\d{2})(?:_([A-Z]+))?_", filename
+        r"(\d{4}-\d{2}-\d{2})_at_(\d{2})-(\d{2})(?:-([AP]M))?(?:_([A-Z]+))?_",
+        filename,
     )
     if not dt_match:
         return filename
@@ -69,7 +71,10 @@ async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with
     date_str = dt_match.group(1)
     hour = int(dt_match.group(2))
     minute = int(dt_match.group(3))
-    tz_str = dt_match.group(4)  # Will be None if no timezone in filename
+    meridiem = dt_match.group(4)
+    if meridiem:
+        hour = hour % 12 + (12 if meridiem == "PM" else 0)
+    tz_str = dt_match.group(5)  # Will be None if no timezone in filename
 
     # If already has UTC suffix, return unchanged
     if tz_str == "UTC":
@@ -102,13 +107,17 @@ async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with
             ts_str = created_at.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"
 
-        # If we have a local time (no timezone) and config is available, try to convert to UTC
+        # A local time (no timezone in the name) is converted to UTC
         if not tz_str and config:
-            # Assume the local time is in EST (UTC-4) if no timezone is specified
-            # This is the most common case for Fansly downloads
-            local_dt = datetime.strptime(
+            naive = datetime.strptime(  # noqa: DTZ007 - the zone is attached below
                 f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M"
-            ).replace(tzinfo=ZoneInfo("America/New_York"))  # EST/EDT timezone
+            )
+            # astimezone() on a naive value reads it as this computer's time.
+            local_dt = (
+                naive.replace(tzinfo=ZoneInfo(config.filename_timezone))
+                if config.filename_timezone
+                else naive.astimezone()
+            )
             utc_dt = local_dt.astimezone(UTC)
             ts_str = utc_dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"
