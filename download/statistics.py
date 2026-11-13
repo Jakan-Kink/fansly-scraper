@@ -135,7 +135,7 @@ def print_statistics(config: FanslyConfig, state: DownloadState) -> None:
 
     elif not config.download_media_previews and state.missing_items_count() > 0:
         footer += (
-            "\n  Try setting download_media_previews to True in the config.ini file."
+            "\n  Try setting download_media_previews to true in the config.yaml file."
         )
         footer += "\n  Doing so will help if the creator has marked all his content as previews."
 

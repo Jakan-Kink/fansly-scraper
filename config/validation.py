@@ -26,7 +26,7 @@ from .fanslyconfig import FanslyConfig
 
 
 async def validate_creator_names(config: FanslyConfig) -> bool:
-    """Validates the input value for `config_username` in `config.ini`.
+    """Validates the input value for `config_username` in `config.yaml`.
 
     :param FanslyConfig config: The configuration object to validate.
 
@@ -87,7 +87,7 @@ async def validate_adjust_creator_name(
     :return: The potentially (interactively) adjusted creator name.
     :rtype: str
     """
-    # validate input value for config_username in config.ini
+    # validate input value for config_username in config.yaml
     while True:
         usern_base_text = f"Invalid targeted creator name '@{name}':"
         usern_error = False
@@ -161,10 +161,10 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
                 f"Browser token extraction is not available (plyvel-ci not installed)."
                 f"\n{20 * ' '}You have two authentication options:"
                 f"\n{20 * ' '}  1. Install browser-auth support: poetry install --with browser-auth"
-                f"\n{20 * ' '}  2. Use login credentials in config.ini:"
-                f"\n{20 * ' '}     [Targeted Creator]"
-                f"\n{20 * ' '}     username = your_fansly_username"
-                f"\n{20 * ' '}     password = your_fansly_password"
+                f"\n{20 * ' '}  2. Use login credentials in config.yaml:"
+                f"\n{20 * ' '}     my_account:"
+                f"\n{20 * ' '}       username: your_fansly_username"
+                f"\n{20 * ' '}       password: your_fansly_password"
             )
 
     # semi-automatically set up value for config_token (authorization_token) based on the users input
@@ -235,7 +235,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
                     )
                     user_confirmed = True
 
-                # based on user input; write account username & auth token to config.ini
+                # based on user input; write account username & auth token to config.yaml
                 if user_confirmed and browser_fansly_token is not None:
                     config.token = browser_fansly_token
                     config.token_from_browser_name = browser_name
@@ -243,7 +243,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
                     save_config_or_raise(config)
 
                     textio_logger.info(
-                        "Success! Authorization token applied to config.ini file.\n"
+                        "Success! Authorization token applied to config.yaml file.\n"
                     )
 
                     break  # break whole loop
@@ -265,7 +265,7 @@ async def validate_adjust_token(config: FanslyConfig) -> None:
             open_get_started_url()
 
         raise ConfigError(
-            f"Reached the end and the authorization token in config.ini file is still invalid!"
+            f"Reached the end and the authorization token in config.yaml file is still invalid!"
             f"\n{18 * ' '}Please read & apply the Manual Token Extraction guide."
         )
 
@@ -312,7 +312,7 @@ def _freeze_macos_token(user_agent: str, ua_browser: str) -> str:
 
 
 def validate_adjust_user_agent(config: FanslyConfig) -> None:
-    """Validates the input value for `user_agent` in `config.ini`.
+    """Validates the input value for `user_agent` in `config.yaml`.
 
     When the configured user-agent is missing or implausible, generate a
     real desktop user-agent with ua_generator, matched to the host OS and
@@ -324,7 +324,7 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
         return
 
     textio_logger.warning(
-        f"Browser user-agent '{config.user_agent}' in config.ini is most likely incorrect."
+        f"Browser user-agent '{config.user_agent}' in config.yaml is most likely incorrect."
     )
 
     if config.token_from_browser_name is not None:
@@ -335,8 +335,8 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
     else:
         textio_logger.info(
             f"Adjusting it with an educated guess, hardcoded for Chrome browser."
-            f"\n{19 * ' '}If you're not using Chrome you might want to replace it in the config.ini file later on."
-            f"\n{19 * ' '}More information regarding this topic is on the Fansly Downloader NG Wiki."
+            f"\n{19 * ' '}If you're not using Chrome you might want to replace it in the config.yaml file later on."
+            f"\n{19 * ' '}More information regarding this topic is in the Manual Token Extraction guide."
         )
 
     ua_platform = _HOST_OS_TO_UA_PLATFORM.get(platform.system(), "windows")
@@ -357,11 +357,11 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
 
     save_config_or_raise(config)
 
-    textio_logger.info("Success! Applied a browser user-agent to config.ini file.\n")
+    textio_logger.info("Success! Applied a browser user-agent to config.yaml file.\n")
 
 
 async def validate_adjust_check_key(config: FanslyConfig) -> None:
-    """Validates the input value for `check_key` in `config.ini`.
+    """Validates the input value for `check_key` in `config.yaml`.
 
     :param FanslyConfig config: The configuration to validate and correct.
     """
@@ -443,7 +443,7 @@ def validate_log_levels(config: FanslyConfig) -> None:
 
 
 async def validate_adjust_download_directory(config: FanslyConfig) -> None:
-    """Validates the `download_directory` and `temp_folder` values from `config.ini`
+    """Validates the `download_directory` and `temp_folder` values from `config.yaml`
     and corrects them if possible.
 
     :param FanslyConfig config: The configuration to validate and correct.
@@ -501,7 +501,7 @@ async def validate_adjust_download_directory(config: FanslyConfig) -> None:
 async def validate_adjust_download_mode(
     config: FanslyConfig, download_mode_set: bool
 ) -> None:
-    """Validates the `download_mode` value from `config.ini`
+    """Validates the `download_mode` value from `config.yaml`
     and adjusts it if desired.
 
     :param FanslyConfig config: The configuration to validate and correct.
@@ -619,7 +619,7 @@ async def validate_adjust_wall_filters(config: FanslyConfig) -> None:
 
 
 async def validate_adjust_config(config: FanslyConfig, download_mode_set: bool) -> None:
-    """Validates all input values from `config.ini`
+    """Validates all input values from `config.yaml`
     and corrects them if possible.
 
     :param FanslyConfig config: The configuration to validate and correct.

@@ -28,6 +28,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
 from types import FrameType
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +417,29 @@ def setup_test_logging():
         # NOW safe to clean up temp directory (all files are closed)
         with suppress(Exception):
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _loguru_report_and_live_logs(request, setup_test_logging):
+    """Replace pytest-loguru's fixture of this name, which errors at teardown.
+
+    Its sinks are added before ``setup_test_logging`` removes every sink, and
+    tests of the logging setup remove every sink too, so its removal by id
+    raises. This adds the same two sinks afterwards and tolerates their loss.
+    """
+    plugin = request.config.pluginmanager.getplugin("logging-plugin")
+
+    def add_sink(handler: logging.Handler) -> int:
+        def at_handler_level(record: Any) -> bool:
+            return record["level"].no >= handler.level
+
+        return logger.add(handler, level=0, format="{message}", filter=at_handler_level)
+
+    handler_ids = [add_sink(plugin.report_handler), add_sink(plugin.log_cli_handler)]
+    yield
+    for handler_id in handler_ids:
+        with suppress(ValueError):
+            logger.remove(handler_id)
 
 
 # ============================================================================

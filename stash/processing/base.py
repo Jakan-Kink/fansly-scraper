@@ -582,8 +582,9 @@ class StashProcessingBase(StashProcessingProtocol):
                 own_tasks = [
                     task
                     for task in background_tasks
-                    if (coro := task.get_coro()) is not None
-                    and coro.__qualname__.startswith(self.__class__.__module__)
+                    if getattr(task.get_coro(), "__qualname__", "").startswith(
+                        self.__class__.__module__
+                    )
                 ]
 
                 # Cancel own tasks

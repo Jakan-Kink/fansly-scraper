@@ -18,6 +18,7 @@ import gc
 import logging
 import re
 from collections.abc import Callable, Coroutine
+from types import CoroutineType
 from typing import Any
 from unittest.mock import patch
 
@@ -1640,11 +1641,13 @@ async def test_main_stash_timeout_cancel_loop_skips_done_tasks(
         _done_calls = 0
 
         def __init__(self):
-            self._coro = _coro_source.run()
+            coro = _coro_source.run()
+            assert isinstance(coro, CoroutineType)
             # Override the qualname on THIS coroutine instance so the
             # categorization check at main():549 classifies it as a stash
             # task. ``coro.__qualname__`` is writable on coroutine objects.
-            self._coro.__qualname__ = "StashProcessing.run"
+            coro.__qualname__ = "StashProcessing.run"
+            self._coro = coro
 
         def get_coro(self):
             return self._coro

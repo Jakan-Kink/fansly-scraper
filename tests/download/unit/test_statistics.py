@@ -135,7 +135,7 @@ class TestPrintStatisticsHelper:
 _PER_CREATOR_FOOTERS = (
     "Follow the creator to be able to scrape media!",
     "Subscribe to the creator if you would like to get the entire content.",
-    "Try setting download_media_previews to True in the config.ini file.",
+    "Try setting download_media_previews to true in the config.yaml file.",
 )
 
 
@@ -178,7 +178,7 @@ class TestPrintStatistics:
                     "pic_count": 10,
                     "vid_count": 5,
                 },
-                "Try setting download_media_previews to True in the config.ini file.",
+                "Try setting download_media_previews to true in the config.yaml file.",
                 id="subscribed-missing-items-preview-hint",
             ),
             pytest.param(

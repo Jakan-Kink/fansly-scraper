@@ -6,10 +6,10 @@ and cleanup logic by hitting the actual Docker Stash instance.
 
 import asyncio
 import contextlib
+from types import CoroutineType
 from unittest.mock import patch
 
 import pytest
-from stash_graphql_client import present
 
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
@@ -594,12 +594,11 @@ class TestStashProcessingBaseErrorPaths:
 
                     # Patch the tasks' coroutine __qualname__ to match the processor's module
                     processor_module = real_stash_processor.__class__.__module__
-                    present(
-                        task1.get_coro()
-                    ).__qualname__ = f"{processor_module}.task_1"
-                    present(
-                        task2.get_coro()
-                    ).__qualname__ = f"{processor_module}.task_2"
+                    for task, name in ((task1, "task_1"), (task2, "task_2")):
+                        coro = task.get_coro()
+                        if not isinstance(coro, CoroutineType):
+                            raise TypeError(f"{name} has no coroutine to rename")
+                        coro.__qualname__ = f"{processor_module}.{name}"
 
                     # Add tasks to config background_tasks
                     real_stash_processor.config._background_tasks.extend([task1, task2])

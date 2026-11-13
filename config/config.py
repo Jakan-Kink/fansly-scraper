@@ -14,8 +14,8 @@ from helpers.common import USERNAME_CHARS
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
-    """Tries to save the configuration to ``config.yaml`` (or ``config.ini``
-    for legacy setups) or raises a ``ConfigError`` otherwise.
+    """Tries to save the configuration to ``config.yaml`` or raises a
+    ``ConfigError`` otherwise.
 
     :param config: The program configuration.
     :type config: FanslyConfig

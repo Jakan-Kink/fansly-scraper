@@ -92,7 +92,7 @@ class FanslyConfig:
 
     # endregion File-Independent
 
-    # region config.ini Fields
+    # region config.yaml Fields
 
     # TargetedCreator > username
     user_names: set[str] | None = None
@@ -257,7 +257,7 @@ class FanslyConfig:
         }
     )
     logging: LoggingSection | None = None
-    # endregion config.ini
+    # endregion config.yaml
 
     # endregion Fields
 

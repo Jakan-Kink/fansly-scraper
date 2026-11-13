@@ -41,7 +41,7 @@ class DuplicateCountError(RuntimeError):
 class ConfigError(RuntimeError):
     """This error is raised when configuration data is invalid.
 
-    Invalid data may have been provided by config.ini or command-line.
+    Invalid data may have been provided by config.yaml or command-line.
     """
 
     def __init__(self, *args: object) -> None:

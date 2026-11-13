@@ -190,9 +190,9 @@ def _parse_iso_datetime(value: str) -> datetime:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Fansly Downloader NG scrapes media content from one or more Fansly creators. "
-        "Settings will be taken from config.ini or internal defaults and "
+        "Settings will be taken from config.yaml or internal defaults and "
         "can be overriden with the following parameters.\n"
-        "Using the command-line will not overwrite config.ini.",
+        "Using the command-line will not overwrite config.yaml.",
     )
 
     # region Essential Options
@@ -233,7 +233,7 @@ def parse_args() -> argparse.Namespace:
         dest="users",
         help="A list of one or more Fansly creators you want to download "
         "content from.\n"
-        "This overrides TargetedCreator > username in config.ini.",
+        "This overrides targeted_creator.usernames in config.yaml.",
         nargs="+",
     )
     parser.add_argument(
