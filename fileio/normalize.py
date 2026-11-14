@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime
+from pathlib import PurePath
 from zoneinfo import ZoneInfo
 
 from config import FanslyConfig
@@ -127,6 +128,17 @@ async def normalize_filename(  # noqa: PLR0911 - Multiple validation checks with
     else:
         # No database match, return original filename
         return filename
+
+
+# Folder beside a creator's videos holding one cover image per video-only post.
+# Its files are named after a video, so anything that reads a media id from a
+# file name has to leave this folder out.
+COVERS_DIR = "Covers"
+
+
+def cover_name(video_filename: str) -> str:
+    """Name of the cover image that belongs to a video file."""
+    return f"{PurePath(video_filename).stem}.jpeg"
 
 
 def get_id_from_filename(filename: str) -> tuple[int | None, bool]:

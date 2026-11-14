@@ -94,7 +94,7 @@ rather than duplicating them.
   workflows
   - `base.py` — `StashProcessingBase` class
   - `protocols.py` — Protocol definitions
-  - `mixins/` — account, batch, content, gallery, media, studio, tag
+  - `mixins/` — account, batch, content, cover, gallery, media, studio, tag
     operations (7 mixins)
 - `logging.py` — Stash-related logging utilities
 

@@ -194,6 +194,30 @@ def get_stash_path(local_path: Path, config: PathConfig) -> str:
     return local_str
 
 
+def get_local_path(stash_path: str, config: PathConfig) -> Path | None:
+    """Translate a path as Stash sees it back to the local filesystem.
+
+    The reverse of ``get_stash_path``.
+
+    Args:
+        stash_path: A file path in Stash's coordinate system.
+        config: The program configuration.
+
+    Returns:
+        The local path, or None when ``stash_override_dldir_w_mapped`` is set:
+        every local path then maps to the one mapped root, which cannot be
+        reversed.
+    """
+    if config.stash_mapped_path is None:
+        return Path(stash_path)
+    if config.stash_override_dldir_w_mapped:
+        return None
+    stash_prefix = str(config.stash_mapped_path)
+    if config.download_directory is not None and stash_path.startswith(stash_prefix):
+        return Path(str(config.download_directory) + stash_path[len(stash_prefix) :])
+    return Path(stash_path)
+
+
 def get_media_save_path(
     config: PathConfig,
     state: DownloadState,

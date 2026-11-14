@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import re
 import traceback
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +16,17 @@ from config import FanslyConfig
 from download.downloadstate import DownloadState
 from errors import MediaHashMismatchError
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
-from fileio.normalize import get_id_from_filename, normalize_filename
+from fileio.normalize import COVERS_DIR, get_id_from_filename, normalize_filename
 from helpers.rich_progress import get_progress_manager
 from metadata import Account, Media
+from metadata.entity_store import PostgresEntityStore
 from metadata.models import get_store
 from pathio import set_create_directory_for_download
 from textio import json_output, print_info, print_warning
+
+
+# Stores whose records the full-path migration has already been run over.
+_paths_migrated: weakref.WeakSet[PostgresEntityStore] = weakref.WeakSet()
 
 
 async def migrate_full_paths_to_filenames() -> None:
@@ -602,8 +608,11 @@ async def dedupe_init(
         },
     )
 
-    # First, migrate any full paths in the database to filenames only
-    await migrate_full_paths_to_filenames()
+    # First, migrate any full paths in the database to filenames only. It
+    # covers every creator's records, so once per store is enough.
+    if store not in _paths_migrated:
+        await migrate_full_paths_to_filenames()
+        _paths_migrated.add(store)
 
     # Create the base user path download_directory/creator_name
     set_create_directory_for_download(config, state)
@@ -651,7 +660,7 @@ async def dedupe_init(
     all_files = [
         f
         for f in await safe_rglob(state.download_path, "*")
-        if await asyncio.to_thread(f.is_file)
+        if f.parent.name != COVERS_DIR and await asyncio.to_thread(f.is_file)
     ]
     # File names on disk, kept current as the scan renames and removes files.
     names = {f.name for f in all_files}
@@ -856,6 +865,12 @@ async def dedupe_init(
             "downloaded_count": len(downloaded_list),
         },
     )
+    # (media id, preview marker) -> the file on disk carrying it
+    names_by_id = {
+        key: name
+        for name in names
+        if (key := get_id_from_filename(name))[0] is not None
+    }
 
     with progress_mgr.session():
         db_check_task = progress_mgr.add_task(
@@ -888,6 +903,26 @@ async def dedupe_init(
             needs_update = False
             if media.local_filename:
                 if media.local_filename in names:
+                    progress_mgr.update_task(db_check_task, advance=1)
+                    continue
+                # A record can name a file that belongs to another media (a
+                # hash duplicate). When that file was renamed the record
+                # follows it, or the media would be downloaded again.
+                renamed = names_by_id.get(get_id_from_filename(media.local_filename))
+                if renamed is not None:
+                    json_output(
+                        1,
+                        "dedupe_init",
+                        {
+                            "pass": call_count,
+                            "state": "file_renamed",
+                            "media_id": media.id,
+                            "filename": media.local_filename,
+                            "renamed_to": renamed,
+                        },
+                    )
+                    media.local_filename = renamed
+                    await store.save(media)
                     progress_mgr.update_task(db_check_task, advance=1)
                     continue
                 # File marked as downloaded but not found - clean up record

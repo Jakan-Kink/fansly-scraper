@@ -234,6 +234,7 @@ class FanslyConfig:
     stash_override_dldir_w_mapped: bool = False
     stash_require_stash_only_mode: bool = False
     stash_enable_scene_split: bool | Literal["dry-run"] = False
+    stash_gallery_covers: bool = True
     stash_scan_settle_s: float = 3.5
     stash_scan_stall_timeout_s: float = 1800.0
     stash_tags_batch: int = 250
@@ -571,6 +572,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
                 "override_dldir_w_mapped": config.stash_override_dldir_w_mapped,
                 "require_stash_only_mode": config.stash_require_stash_only_mode,
                 "enable_scene_split": config.stash_enable_scene_split,
+                "gallery_covers": config.stash_gallery_covers,
             }
         )
 

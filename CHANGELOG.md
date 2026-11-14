@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **`options.filename_timezone`.** The time zone of old file names that carry a local time; leave it unset to use this computer's time zone.
+- **Cover images for video-only galleries in Stash.** A post or message with only videos gets a JPEG in a `Covers` folder beside its first video, set as the gallery's cover: Fansly's own poster for a new download, the video's first frame for one already on disk. `stash_context.gallery_covers: false` turns it off.
 
 ### Changed
 
@@ -29,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **The startup scan no longer re-reads videos whose hash is already saved.** In 0.16.0 the first run hashed every video that was downloaded as a variant, which could take a long time on a large library.
 - **Ctrl+C during the startup scan or a video download exits promptly.** It used to wait for the videos being hashed or downloaded to finish.
 - **File names with a 12-hour time (`_at_10-49-PM`) are recognised.** The startup scan renames them to UTC like other old names.
+- **Media sharing a file that `options.repair_previews` renamed are no longer downloaded again.** The startup scan marked the second record of such a file as missing.
 - **`options.repair_previews` gives previews saved as `.None` their real extension.** Downloads before mid-March 2026 could save a preview with `.None` in place of `.mp4`, `.jpeg`, `.png` or `.gif`, which Stash does not pick up.- **Ctrl+C no longer ends with a `KeyboardInterrupt` traceback.** The program exits with status 255 as documented.
 
 ## [0.16.0] - 2026-11-13

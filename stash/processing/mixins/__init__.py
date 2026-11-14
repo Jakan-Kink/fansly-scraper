@@ -8,6 +8,7 @@ This package provides mixins for the StashProcessing class, enabling:
 
 from .account import AccountProcessingMixin
 from .content import ContentProcessingMixin
+from .cover import CoverProcessingMixin
 from .file_first import FileFirstProcessingMixin
 from .gallery import GalleryProcessingMixin
 from .media import MediaProcessingMixin
@@ -18,6 +19,7 @@ from .tag import TagProcessingMixin
 __all__ = [
     "AccountProcessingMixin",
     "ContentProcessingMixin",
+    "CoverProcessingMixin",
     "FileFirstProcessingMixin",
     "GalleryProcessingMixin",
     "MediaProcessingMixin",

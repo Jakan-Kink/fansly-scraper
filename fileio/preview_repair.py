@@ -18,7 +18,7 @@ from loguru import logger
 from config import FanslyConfig
 from download.downloadstate import DownloadState
 from fileio.dedupe import safe_rglob
-from fileio.normalize import get_id_from_filename, normalize_filename
+from fileio.normalize import COVERS_DIR, get_id_from_filename, normalize_filename
 from metadata import AccountMedia, AccountMediaBundle, Media
 from metadata.models import get_store
 from textio import print_info
@@ -265,7 +265,7 @@ async def repair_preview_folder_items(
         all_files = [
             f
             for f in await safe_rglob(state.download_path, "*")
-            if await asyncio.to_thread(f.is_file)
+            if f.parent.name != COVERS_DIR and await asyncio.to_thread(f.is_file)
         ]
         for file_path in all_files:
             media_id, _ = get_id_from_filename(file_path.name)

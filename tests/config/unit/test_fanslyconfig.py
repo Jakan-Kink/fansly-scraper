@@ -737,6 +737,30 @@ class TestStashEnableSceneSplitRoundTrip:
         """A bare ``FanslyConfig`` defaults ``stash_enable_scene_split`` to False."""
         assert FanslyConfig(program_version="1.0.0").stash_enable_scene_split is False
 
+    def test_gallery_covers_is_on_by_default_and_survives_both_directions(
+        self, unit_config
+    ):
+        """``gallery_covers`` defaults to on and an off setting is kept."""
+        unit_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_key",
+        }
+        default = FanslyConfig(program_version="1.0.0").stash_gallery_covers
+
+        _populate_config_from_schema(
+            unit_config,
+            ConfigSchema(stash_context=StashContextSection(gallery_covers=False)),
+        )
+        loaded = unit_config.stash_gallery_covers
+        saved = _rebuild_schema_from_config(unit_config)
+
+        assert default is True
+        assert loaded is False
+        assert saved.stash_context is not None
+        assert saved.stash_context.gallery_covers is False
+
 
 class TestStashLoadedOnlySettingsRoundTrip:
     """``scan_settle_s`` and ``batches`` reach the runtime and survive a save.

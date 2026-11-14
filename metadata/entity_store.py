@@ -267,6 +267,10 @@ class PostgresEntityStore:
         self.pool = pool
         self._cache: dict[tuple[type, int], FanslyObject] = {}
         self._type_index: dict[type, set[int]] = {}
+        # (type, field) -> value -> the ids holding it, for the fields a model
+        # lists in __indexed_fields__. A value held by one object maps to the
+        # bare id; a set is only built once a second object shares it.
+        self._field_index: dict[tuple[type, str], dict[Any, int | set[int]]] = {}
         if isinstance(default_ttl, int):
             default_ttl = timedelta(seconds=default_ttl)
         self._default_ttl: timedelta | None = default_ttl
@@ -473,14 +477,109 @@ class PostgresEntityStore:
         return _TYPE_REGISTRY.get(type_name)
 
     def cache_instance(self, obj: FanslyObject) -> None:
-        """Add to local identity map (maintains _type_index + timestamp)."""
+        """Add to local identity map (maintains the indexes + timestamp)."""
         if obj.id is not None:
             cls = type(obj)
             key = (cls, obj.id)
             with self._cache_lock:
+                replaced = self._cache.get(key)
+                if replaced is not None:
+                    self._unindex_fields(replaced, obj.id)
                 self._cache[key] = obj
                 self._type_index.setdefault(cls, set()).add(obj.id)
                 self._cache_timestamps[key] = time.monotonic()
+                for field in cls.__indexed_fields__:
+                    self._index_value(cls, field, getattr(obj, field, None), obj.id)
+
+    # ── Field indexes ────────────────────────────────────────────────
+    # Callers hold _cache_lock.
+
+    def _index_value(
+        self, model_type: type, field: str, value: Any, entity_id: int
+    ) -> None:
+        """Record that ``entity_id`` holds ``value`` in ``field``."""
+        buckets = self._field_index.setdefault((model_type, field), {})
+        held = buckets.get(value)
+        if held is None:
+            buckets[value] = entity_id
+        elif isinstance(held, set):
+            held.add(entity_id)
+        else:
+            buckets[value] = {held, entity_id}
+
+    def _unindex_value(
+        self, model_type: type, field: str, value: Any, entity_id: int
+    ) -> None:
+        """Forget that ``entity_id`` holds ``value`` in ``field``."""
+        buckets = self._field_index.get((model_type, field), {})
+        held = buckets.get(value)
+        if isinstance(held, set):
+            held.discard(entity_id)
+            if not held:
+                del buckets[value]
+        elif held == entity_id:
+            del buckets[value]
+
+    def _unindex_fields(self, obj: FanslyObject, entity_id: int) -> None:
+        """Drop ``obj`` from every field index of its type."""
+        cls = type(obj)
+        for field in cls.__indexed_fields__:
+            self._unindex_value(cls, field, getattr(obj, field, None), entity_id)
+
+    def reindex_field(self, obj: FanslyObject, field: str, old_value: Any) -> None:
+        """Move a cached object to its new value in one field's index.
+
+        Args:
+            obj: The object whose field was just assigned
+            field: Name of the indexed field
+            old_value: What the field held before the assignment
+        """
+        if obj.id is None:
+            return
+        cls = type(obj)
+        with self._cache_lock:
+            if self._cache.get((cls, obj.id)) is not obj:
+                return
+            self._unindex_value(cls, field, old_value, obj.id)
+            self._index_value(cls, field, getattr(obj, field, None), obj.id)
+
+    def _candidate_ids(
+        self, model_type: type, parsed: list[tuple[str, str, Any]]
+    ) -> set[int] | tuple[int, ...]:
+        """The ids a cache search has to check for these filters.
+
+        An equality filter on an indexed field narrows the search to the ids
+        holding that value; the smallest such group is used. Every candidate
+        is still checked against all the filters by the caller.
+
+        Args:
+            model_type: The fully loaded type being searched
+            parsed: Filters as (field, lookup, value)
+
+        Returns:
+            Ids to check: an index group, or every cached id of the type.
+        """
+        indexed: frozenset[str] = getattr(model_type, "__indexed_fields__", frozenset())
+        best: set[int] | tuple[int, ...] | None = None
+        for field, lookup, value in parsed:
+            if lookup != "exact" or field not in indexed:
+                continue
+            try:
+                held = self._field_index.get((model_type, field), {}).get(value)
+            except TypeError:
+                continue  # unhashable filter value
+            group: set[int] | tuple[int, ...]
+            if held is None:
+                group = ()
+            elif isinstance(held, set):
+                group = held
+            else:
+                group = (held,)
+            if best is None or len(group) < len(best):
+                best = group
+        if best is None:
+            return self._type_index.get(model_type, set())
+        return best
 
     def _autolink_relationships(self, obj: FanslyObject) -> None:
         """Resolve singular ``belongs_to`` relationships from the identity map.
@@ -602,7 +701,7 @@ class PostgresEntityStore:
         results: list[T]
         with self._cache_lock:
             if model_type in self._fully_loaded:
-                ids = self._type_index.get(model_type, set())
+                ids = self._candidate_ids(model_type, parsed)
                 results = [
                     obj
                     for eid in ids
@@ -650,7 +749,7 @@ class PostgresEntityStore:
 
         with self._cache_lock:
             if model_type in self._fully_loaded:
-                ids = self._type_index.get(model_type, set())
+                ids = self._candidate_ids(model_type, parsed)
                 if sort_spec:
                     matches = [
                         obj
@@ -693,7 +792,7 @@ class PostgresEntityStore:
 
         with self._cache_lock:
             if model_type in self._fully_loaded:
-                ids = self._type_index.get(model_type, set())
+                ids = self._candidate_ids(model_type, parsed)
                 return sum(
                     1
                     for eid in ids
@@ -730,7 +829,7 @@ class PostgresEntityStore:
         matched: list[T] | None = None
         with self._cache_lock:
             if model_type in self._fully_loaded:
-                ids = self._type_index.get(model_type, set())
+                ids = self._candidate_ids(model_type, parsed)
                 matched = [
                     obj
                     for eid in ids
@@ -1649,7 +1748,9 @@ class PostgresEntityStore:
     def invalidate(self, model_type: type, entity_id: int) -> None:
         with self._cache_lock:
             key = (model_type, entity_id)
-            self._cache.pop(key, None)
+            evicted = self._cache.pop(key, None)
+            if evicted is not None:
+                self._unindex_fields(evicted, entity_id)
             self._cache_timestamps.pop(key, None)
             ids = self._type_index.get(model_type)
             if ids is not None:
@@ -1664,12 +1765,15 @@ class PostgresEntityStore:
                     key = (model_type, eid)
                     self._cache.pop(key, None)
                     self._cache_timestamps.pop(key, None)
+            for index_key in [k for k in self._field_index if k[0] is model_type]:
+                del self._field_index[index_key]
             self._fully_loaded.discard(model_type)
 
     def invalidate_all(self) -> None:
         with self._cache_lock:
             self._cache.clear()
             self._type_index.clear()
+            self._field_index.clear()
             self._cache_timestamps.clear()
             self._fully_loaded.clear()
 

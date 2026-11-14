@@ -142,6 +142,8 @@ class StashProcessingBase(StashProcessingProtocol):
         self._tags_by_name: dict[str, Tag] = {}
         # True once the galleries the current items could have are in the store
         self._galleries_preloaded = False
+        # item id -> the cover image its gallery gets once the flush added it
+        self._covers: dict[int, Image] = {}
 
     @property
     def store(self) -> StashEntityStore:
@@ -686,7 +688,7 @@ class StashProcessingBase(StashProcessingProtocol):
             owners.sort(key=partial(self._owner_order, messages_last=media.is_preview))
         return index
 
-    def _index_unposted_media(
+    async def _index_unposted_media(
         self,
         index: dict[str, tuple[Media, list[Post | Message]]],
         account: Account,
@@ -700,10 +702,7 @@ class StashProcessingBase(StashProcessingProtocol):
             index: Media index keyed by filename -> (Media, owning items)
             account: The Account being processed
         """
-        unposted = get_store().filter(
-            Media, lambda m: m.accountId == account.id and bool(m.local_filename)
-        )
-        for media in unposted:
+        for media in await get_store().find(Media, accountId=account.id):
             if media.local_filename:
                 index.setdefault(PurePath(media.local_filename).name, (media, []))
 

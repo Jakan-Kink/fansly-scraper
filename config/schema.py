@@ -781,6 +781,8 @@ class StashContextSection(_BaseSection):
     override_dldir_w_mapped: bool = False
     require_stash_only_mode: bool = False
     enable_scene_split: bool | Literal["dry-run"] = False
+    # Give a video-only post's gallery a cover image (a JPEG beside the video)
+    gallery_covers: bool = True
     # Stash's index commit can lag the job-FINISHED signal by a few hundred
     # ms; reading File/Scene/Image back without a settle window races.
     scan_settle_s: float = Field(default=3.5, ge=0.0, le=30.0)

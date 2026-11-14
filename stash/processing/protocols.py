@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import logging
     from collections.abc import AsyncIterator, Sequence
     from datetime import datetime
+    from pathlib import Path
     from typing import Any
 
     from stash_graphql_client import ServerCapabilities, StashContext
@@ -95,6 +96,7 @@ class StashProcessingProtocol(Protocol):
     _performer_matches: dict[tuple[str, str], list[Performer] | None]
     _tags_by_name: dict[str, Tag]
     _galleries_preloaded: bool
+    _covers: dict[int, Image]
 
     # --- Base class properties ---
 
@@ -119,7 +121,7 @@ class StashProcessingProtocol(Protocol):
         self, items: Sequence[Post | Message]
     ) -> dict[str, tuple[Media, list[Post | Message]]]: ...
 
-    def _index_unposted_media(
+    async def _index_unposted_media(
         self,
         index: dict[str, tuple[Media, list[Post | Message]]],
         account: Account,
@@ -179,6 +181,8 @@ class StashProcessingProtocol(Protocol):
     ) -> None: ...
 
     async def _process_hashtags_to_tags(self, hashtags: list[Any]) -> list[Tag]: ...
+
+    async def _get_or_create_tag(self, name: str) -> Tag: ...
 
     async def _add_preview_tag(self, file: Scene | Image) -> None: ...
 
@@ -252,6 +256,42 @@ class StashProcessingProtocol(Protocol):
         item: Post | Message,
         account: Account,
         studio: Studio | None = None,
+    ) -> None: ...
+
+    async def _complete_entity[EntityT: Scene | Image](
+        self, entity: EntityT
+    ) -> EntityT | None: ...
+
+    async def _stamp_unposted(
+        self,
+        stash_obj: Scene | Image,
+        media: Media,
+        account: Account,
+        studio: Studio | None,
+    ) -> None: ...
+
+    # --- CoverProcessingMixin methods ---
+
+    def _covers_wanted(
+        self,
+        index: dict[str, tuple[Media, list[Post | Message]]],
+    ) -> dict[str, tuple[Media, dict[int, Post | Message]]]: ...
+
+    def _local_video_paths(self, files: list[BaseFile]) -> dict[str, Path]: ...
+
+    async def _ensure_covers(
+        self,
+        wanted: dict[str, tuple[Media, dict[int, Post | Message]]],
+        locations: dict[str, Path],
+    ) -> list[Path]: ...
+
+    async def _link_covers(
+        self,
+        files: list[BaseFile],
+        wanted: dict[str, tuple[Media, dict[int, Post | Message]]],
+        account: Account,
+        studio: Studio | None,
+        item_entities: dict[int, tuple[Post | Message, list[Scene | Image]]],
     ) -> None: ...
 
     # --- GalleryProcessingMixin methods ---

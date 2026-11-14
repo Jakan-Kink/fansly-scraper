@@ -13,6 +13,7 @@ from pathio import (
     ask_correct_dir,
     get_creator_base_path,
     get_creator_metadata_path,
+    get_local_path,
     get_media_save_path,
     get_stash_path,
     set_create_directory_for_download,
@@ -445,3 +446,43 @@ class TestGetStashPath:
             stash_mapped_path=stash_mapped_path,
         )
         assert get_stash_path(local, config) == expected
+
+    @pytest.mark.parametrize(
+        ("download_directory", "stash_mapped_path", "override", "stash", "expected"),
+        [
+            (
+                Path("/dl"),
+                None,
+                False,
+                "/dl/alice/Videos/a.mp4",
+                "/dl/alice/Videos/a.mp4",
+            ),
+            (Path("/dl"), Path("/data"), False, "/data/alice/a.mp4", "/dl/alice/a.mp4"),
+            (Path("/dl"), Path("/data"), False, "/else/a.mp4", "/else/a.mp4"),
+            (None, Path("/data"), False, "/data/alice/a.mp4", "/data/alice/a.mp4"),
+            (Path("/dl"), Path("/data"), True, "/data/a.mp4", None),
+        ],
+        ids=[
+            "no_mapping_is_the_same_path",
+            "mapping_is_reversed",
+            "outside_the_mapped_root_is_unchanged",
+            "no_download_directory_is_unchanged",
+            "override_cannot_be_reversed",
+        ],
+    )
+    def test_get_local_path(
+        self,
+        download_directory: Path | None,
+        stash_mapped_path: Path | None,
+        override: bool,
+        stash: str,
+        expected: str | None,
+    ) -> None:
+        """get_local_path reverses get_stash_path where that is possible."""
+        config = FakePathConfig(
+            download_directory=download_directory,
+            stash_mapped_path=stash_mapped_path,
+            stash_override_dldir_w_mapped=override,
+        )
+        local = get_local_path(stash, config)
+        assert (str(local) if local is not None else None) == expected

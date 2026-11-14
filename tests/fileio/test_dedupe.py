@@ -5,6 +5,7 @@ Only external calls (like hash calculation) are mocked using patch.
 """
 
 import io
+import logging
 import re
 from pathlib import Path
 from unittest.mock import patch
@@ -29,7 +30,7 @@ from fileio.dedupe import (
     migrate_full_paths_to_filenames,
     safe_rglob,
 )
-from fileio.normalize import normalize_filename
+from fileio.normalize import COVERS_DIR, cover_name, normalize_filename
 from metadata import Account, Media
 from metadata.media import _should_skip_media
 from tests.fixtures.download import DownloadStateFactory
@@ -693,6 +694,142 @@ async def test_dedupe_init_keeps_legacy_named_files_downloaded(
     assert "Up to 3 have no saved hash" in messages
     assert "Downloaded records: 5 (+5)" in messages
     assert "Hashes taken from old file names: 4" in messages
+
+
+@pytest.mark.asyncio
+async def test_dedupe_init_migrates_full_paths_once_per_store(
+    entity_store, config, tmp_path, caplog
+):
+    """The full-path migration covers every creator, so one scan per run does it."""
+    caplog.set_level(logging.INFO)
+    config.download_directory = tmp_path
+    config.use_folder_suffix = False
+    states = []
+    for name in ("first_creator", "second_creator"):
+        account_id = snowflake_id()
+        await entity_store.save(Account(id=account_id, username=name))
+        (tmp_path / name).mkdir()
+        states.append(
+            DownloadStateFactory.build(
+                download_type=DownloadType.TIMELINE,
+                creator_name=name,
+                creator_id=account_id,
+            )
+        )
+    with_path = Media(
+        id=snowflake_id(),
+        accountId=states[1].creator_id,
+        mimetype="image/jpeg",
+        local_filename="/old/place/photo.jpg",
+    )
+    await entity_store.save(with_path)
+
+    for state in states:
+        await dedupe_init(config, state)
+
+    started = [
+        r
+        for r in caplog.records
+        if "Starting migration of full paths" in r.getMessage()
+    ]
+    assert len(started) == 1
+    assert with_path.local_filename == "photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_dedupe_init_follows_a_renamed_shared_file(
+    entity_store, config, tmp_path
+):
+    """A record sharing another media's file follows that file's new name.
+
+    A post's media that is a hash duplicate of its preview is recorded under
+    the preview's file. When that file is renamed (its time corrected from the
+    database), the preview's own record is repointed but the duplicate's still
+    carries the old name. The scan must repoint it, not mark it missing, or
+    the media is downloaded again. A record whose file is really gone is still
+    marked missing.
+    """
+    store = entity_store
+    config.download_directory = tmp_path
+    config.use_folder_suffix = False
+    account_id = snowflake_id()
+    await store.save(Account(id=account_id, username="creator"))
+    state = DownloadStateFactory.build(
+        download_type=DownloadType.TIMELINE,
+        creator_name="creator",
+        creator_id=account_id,
+    )
+    preview_id, duplicate_id, gone_id = (snowflake_id() for _ in range(3))
+    new_name = f"2024-10-28_at_15-00_UTC_preview_id_{preview_id}.jpg"
+    old_name = f"2024-10-28_at_15-01_UTC_preview_id_{preview_id}.jpg"
+    create_test_file(
+        tmp_path / "creator" / "Timeline" / "Pictures" / "Previews", new_name, b"x"
+    )
+    for media_id, name in (
+        (preview_id, new_name),
+        (duplicate_id, old_name),
+        (gone_id, f"2024-01-01_at_00-00_UTC_id_{gone_id}.jpg"),
+    ):
+        await store.save(
+            Media(
+                id=media_id,
+                accountId=account_id,
+                mimetype="image/jpeg",
+                local_filename=name,
+                content_hash="shared-hash",
+                is_downloaded=True,
+            )
+        )
+
+    await dedupe_init(config, state)
+
+    duplicate = await store.get(Media, duplicate_id)
+    gone = await store.get(Media, gone_id)
+    assert (duplicate.local_filename, duplicate.is_downloaded) == (new_name, True)
+    assert duplicate.content_hash == "shared-hash"
+    assert (gone.local_filename, gone.is_downloaded) == (None, False)
+
+
+@pytest.mark.asyncio
+async def test_dedupe_init_leaves_cover_images_alone(entity_store, config, tmp_path):
+    """A cover is named after its video and must not be taken for the video.
+
+    Read as a media file, the cover would match the video's record by the id
+    in its name and turn that record into an image.
+    """
+    store = entity_store
+    config.download_directory = tmp_path
+    config.use_folder_suffix = False
+    account_id = snowflake_id()
+    await store.save(Account(id=account_id, username="creator"))
+    state = DownloadStateFactory.build(
+        download_type=DownloadType.TIMELINE,
+        creator_name="creator",
+        creator_id=account_id,
+    )
+    video_id = snowflake_id()
+    video_name = f"2024-01-01_at_00-00_UTC_id_{video_id}.mp4"
+    videos = tmp_path / "creator" / "Timeline" / "Videos"
+    create_test_file(videos, video_name, b"video")
+    cover = create_test_file(videos / COVERS_DIR, cover_name(video_name), b"cover")
+    await store.save(
+        Media(
+            id=video_id,
+            accountId=account_id,
+            mimetype="video/mp4",
+            local_filename=video_name,
+            content_hash="video-hash",
+            is_downloaded=True,
+        )
+    )
+
+    await dedupe_init(config, state)
+
+    video = await store.get(Media, video_id)
+    assert (video.mimetype, video.local_filename) == ("video/mp4", video_name)
+    assert (video.is_downloaded, video.content_hash) == (True, "video-hash")
+    assert cover.exists()
+    assert await store.count(Media, accountId=account_id) == 1
 
 
 @pytest.mark.asyncio

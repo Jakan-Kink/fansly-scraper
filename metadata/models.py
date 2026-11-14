@@ -460,6 +460,9 @@ class FanslyObject(BaseModel):
     __table_name__: ClassVar[str] = ""
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {}
     __tracked_fields__: ClassVar[set[str]] = set()
+    # Scalar fields the store keeps a lookup index for, so an equality filter
+    # on one does not read every cached object of the type.
+    __indexed_fields__: ClassVar[frozenset[str]] = frozenset()
     __fk_to_rel__: ClassVar[dict[str, tuple[str, RelationshipMetadata]]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -802,12 +805,17 @@ class FanslyObject(BaseModel):
         cache miss (not None) so a future ``to_db_dict`` call doesn't see
         ``rel=None`` and clobber the just-set FK column.
         """
+        indexed = name in self.__indexed_fields__
+        old_value = self.__dict__.get(name) if indexed else None
         super().__setattr__(name, value)
+        if indexed and self._store is not None:
+            self._store.reindex_field(self, name, old_value)
 
         # Path 1: relationship field → sync FK scalar + inverse
         if name in self.__relationships__:
             meta = self.__relationships__[name]
             if meta.fk_column and not meta.is_list:
+                old_fk = self.__dict__.get(meta.fk_column)
                 if isinstance(value, FanslyObject):
                     # Sync FK: media.account = acct → media.accountId = acct.id
                     object.__setattr__(self, meta.fk_column, value.id)
@@ -815,6 +823,8 @@ class FanslyObject(BaseModel):
                     # Explicit clear → null the FK column
                     object.__setattr__(self, meta.fk_column, None)
                 # UNSET → leave FK column alone (don't know yet)
+                if meta.fk_column in self.__indexed_fields__ and self._store:
+                    self._store.reindex_field(self, meta.fk_column, old_fk)
             self._sync_inverse_relationship(name, value)
 
         # Path 2: FK scalar → auto-resolve relationship from cache
@@ -1334,6 +1344,9 @@ class Media(FanslyObject):
     """A media item (image, video) with its metadata and variants."""
 
     __table_name__: ClassVar[str] = "media"
+    __indexed_fields__: ClassVar[frozenset[str]] = frozenset(
+        {"accountId", "content_hash", "local_filename"}
+    )
     __tracked_fields__: ClassVar[set[str]] = {
         "accountId",
         "meta_info",

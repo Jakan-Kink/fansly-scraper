@@ -170,6 +170,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
         self._performer = None
         self._studio = None
         self._galleries_preloaded = False
+        self._covers = {}
         # invalidate_type is exact-match on __type_name__ (no subtype cascade),
         # so each concrete BaseFile subtype the sweep may have cached is listed.
         for entity_type in (
@@ -218,7 +219,8 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             media_with_id,
             split_pairs,
         ) = await self._prepare_file_first(account)
-        self._index_unposted_media(index, account)
+        wanted = self._covers_wanted(index)
+        await self._index_unposted_media(index, account)
         if not index:
             print_warning(
                 f"No downloaded media is recorded for {account.username}, so there "
@@ -236,6 +238,13 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 "in a Stash library and that stash_context.mapped_path is the "
                 "path as Stash sees it."
             )
+        # Stash has to scan a new cover before it can be linked.
+        new_covers = await self._ensure_covers(wanted, self._local_video_paths(swept))
+        if new_covers:
+            await self.scan_creator_folder(
+                paths=[get_stash_path(cover, self.config) for cover in new_covers]
+            )
+            swept += await self._find_files_by_basename([c.name for c in new_covers])
         # Media already carrying a stash_id are re-verified by id and dropped
         # from the index, so their files are not adjudicated a second time.
         await self._fast_path_known_media(
@@ -246,6 +255,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             await self._safe_adjudicate(
                 file, index, account, studio, item_entities, media_with_id, split_pairs
             )
+        await self._link_covers(swept, wanted, account, studio, item_entities)
         await self._compose_and_flush(
             account, performer, studio, item_entities, media_with_id, split_pairs
         )
@@ -276,6 +286,8 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             media_with_id,
             split_pairs,
         ) = await self._prepare_file_first(account)
+        wanted = self._covers_wanted(index)
+        new_covers = await self._ensure_covers(wanted, {})
         # Scan exactly the just-downloaded files. local_path is set this run for
         # freshly-downloaded media; absent for prior-cycle media already scanned.
         scan_paths = sorted(
@@ -284,6 +296,7 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 for media, _owners in index.values()
                 if media.local_path
             }
+            | {get_stash_path(cover, self.config) for cover in new_covers}
         )
         if scan_paths:
             await self.scan_creator_folder(paths=scan_paths)
@@ -317,6 +330,14 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
                 item_entities,
                 media_with_id,
                 split_pairs,
+            )
+        if new_covers:
+            await self._link_covers(
+                await self._find_files_by_basename([c.name for c in new_covers]),
+                wanted,
+                account,
+                studio,
+                item_entities,
             )
         await self._compose_and_flush(
             account, performer, studio, item_entities, media_with_id, split_pairs
@@ -619,6 +640,15 @@ class FileFirstProcessingMixin(StashProcessingProtocol):
             # Updates owned scenes/images and links galleries (links ride
             # save_all via gallery side-mutations).
             await self.store.save_all()
+            # Stash takes a cover only from an image the gallery already
+            # holds, so it is set after the flush added the image.
+            covers, self._covers = self._covers, {}
+            for item_id, cover in covers.items():
+                gallery_id = item_entities[item_id][0].stash_id
+                if gallery_id is not None:
+                    await self.context.client.set_gallery_cover(
+                        str(gallery_id), cover.id
+                    )
 
             # Persist affected Media rows to the FDNG metadata DB (NOT the Stash
             # store). Dedupe by object identity so each Media is saved once.

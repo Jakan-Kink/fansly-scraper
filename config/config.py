@@ -326,6 +326,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
             schema.stash_context.require_stash_only_mode
         )
         config.stash_enable_scene_split = schema.stash_context.enable_scene_split
+        config.stash_gallery_covers = schema.stash_context.gallery_covers
         config.stash_scan_settle_s = schema.stash_context.scan_settle_s
         config.stash_scan_stall_timeout_s = schema.stash_context.scan_stall_timeout_s
         config.stash_tags_batch = schema.stash_context.batches.tags

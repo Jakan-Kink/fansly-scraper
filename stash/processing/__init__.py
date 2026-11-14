@@ -13,6 +13,7 @@ from .base import StashProcessingBase
 from .mixins import (
     AccountProcessingMixin,
     ContentProcessingMixin,
+    CoverProcessingMixin,
     FileFirstProcessingMixin,
     GalleryProcessingMixin,
     MediaProcessingMixin,
@@ -34,6 +35,7 @@ class StashProcessing(
     MediaProcessingMixin,
     ContentProcessingMixin,
     TagProcessingMixin,
+    CoverProcessingMixin,
     FileFirstProcessingMixin,
 ):
     """Process metadata into Stash.

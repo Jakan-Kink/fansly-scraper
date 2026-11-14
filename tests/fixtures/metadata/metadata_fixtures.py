@@ -458,6 +458,9 @@ def store_with_account():
         def invalidate(self, cls, eid):
             self._cache.pop((cls, eid), None)
 
+        def reindex_field(self, obj, field, old_value):
+            """This double keeps no field indexes."""
+
     store = FakeStore()
     # The sole deliberate type:ignore in tests/fixtures. FakeStore is a no-DB-pool
     # in-memory cache double for sync-path tests, so it cannot be a real
