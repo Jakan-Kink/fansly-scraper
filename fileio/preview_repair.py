@@ -10,6 +10,7 @@ Gated by the ``repair_previews`` flag; a sibling pass to ``dedupe_init``.
 
 import asyncio
 import filecmp
+import mimetypes
 import re
 from pathlib import Path
 
@@ -25,6 +26,9 @@ from textio import print_info
 
 
 _TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}_at_\d{2}-\d{2}(?:_[A-Z]+)?_")
+
+# How far apart in size two saves of one video may be, as a share of the larger.
+_SAME_VIDEO_SIZE_GAP = 0.01
 
 _NO_EXTENSION = ".None"
 # Extensions as the downloader takes them from Fansly's file URLs.
@@ -92,6 +96,24 @@ async def _files_identical(a: Path, b: Path) -> bool:
     return await asyncio.to_thread(filecmp.cmp, a, b, shallow=False)
 
 
+async def _same_video(a: Path, b: Path) -> bool:
+    """True iff two files named for one media are two saves of the same video.
+
+    A video downloaded twice is packaged slightly differently each time, so
+    the bytes differ while the size barely does. Both are videos and their
+    sizes are within 1% of each other; a larger gap could be a cut-off
+    download and is not treated as a duplicate.
+    """
+    if not all(
+        (mimetypes.guess_type(path.name)[0] or "").startswith("video/")
+        for path in (a, b)
+    ):
+        return False
+    size_a = (await asyncio.to_thread(a.stat)).st_size
+    size_b = (await asyncio.to_thread(b.stat)).st_size
+    return abs(size_a - size_b) <= max(size_a, size_b) * _SAME_VIDEO_SIZE_GAP
+
+
 async def _safe_move(
     source: Path,
     target: Path,
@@ -101,21 +123,21 @@ async def _safe_move(
 ) -> Path | None:
     """Rename/move ``source`` to ``target`` and update Media.local_filename.
 
-    Collision rule: if ``target`` already exists, compare byte content -
-    identical -> unlink the duplicate ``source`` (return None); different ->
-    skip and warn (return None, never clobber). On a clean move, update
-    ``Media.local_filename`` to the new basename and return the new path.
-    ``sharers`` are the other records naming ``source``; they are repointed
-    with it.
+    Collision rule: if ``target`` already exists, the duplicate ``source`` is
+    unlinked when the two are byte-identical or the same video (return None);
+    anything else is skipped with a warning (return None, never clobber). On
+    a clean move, update ``Media.local_filename`` to the new basename and
+    return the new path. ``sharers`` are the other records naming ``source``;
+    they are repointed with it.
     """
     if target == source:
         return None  # idempotent: already canonical
 
     if await asyncio.to_thread(target.exists):
-        if await _files_identical(source, target):
-            # Byte-identical duplicate: the source content now lives only at
-            # target, so repoint the record at the survivor — not the file we
-            # just deleted — or the DB strands a Media on a nonexistent path.
+        if await _files_identical(source, target) or await _same_video(source, target):
+            # A duplicate: the content now lives only at target, so repoint
+            # the record at the survivor — not the file we just deleted — or
+            # the DB strands a Media on a nonexistent path.
             await asyncio.to_thread(source.unlink)
             await _repoint_media(media_id, target.name, sharers)
         else:
@@ -197,7 +219,8 @@ async def _drop_message_copies(
     """Delete a preview's Messages copy when Timeline holds the same file.
 
     A preview used in a post and in a message is downloaded under both; the
-    Timeline copy is the one kept. Copies that differ in content both stay.
+    Timeline copy is the one kept. Copies that are neither byte-identical nor
+    two saves of the same video both stay.
 
     Args:
         previews: Preview media id -> the files found for it
@@ -210,7 +233,10 @@ async def _drop_message_copies(
             by_area.setdefault(path.relative_to(root).parts[0], []).append(path)
         timeline = by_area.get("Timeline", [])
         for copy in by_area.get("Messages", []) if timeline else []:
-            if not await _files_identical(copy, timeline[0]):
+            if not (
+                await _files_identical(copy, timeline[0])
+                or await _same_video(copy, timeline[0])
+            ):
                 logger.warning(
                     f"preview_repair: {copy} and {timeline[0]} differ in "
                     f"content; keeping both (media_id={media_id})"
@@ -299,7 +325,15 @@ async def repair_preview_folder_items(
             final: Path | None = file_path
             if target != file_path:
                 if dry_run:
-                    print_info(f"[dry-run] {file_path} -> {target}")
+                    duplicate = await asyncio.to_thread(target.exists) and (
+                        await _files_identical(file_path, target)
+                        or await _same_video(file_path, target)
+                    )
+                    print_info(
+                        f"[dry-run] delete {file_path} (same as {target})"
+                        if duplicate
+                        else f"[dry-run] {file_path} -> {target}"
+                    )
                 else:
                     moved = await _safe_move(
                         file_path,

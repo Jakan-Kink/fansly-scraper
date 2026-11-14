@@ -210,6 +210,42 @@ class TestPreviewRepairDb:
         assert src.exists()  # different data - never clobbered
         assert target.exists()
 
+    @pytest.mark.parametrize(
+        ("source_size", "removed"),
+        [(1005, True), (500, False)],
+        ids=["same_video_saved_twice", "sizes_too_far_apart"],
+    )
+    async def test_safe_move_removes_a_second_save_of_the_same_video(
+        self, source_size, removed, reset_class_store, tmp_path
+    ):
+        """Two saves of one video differ in bytes but barely in size.
+
+        The wrongly named one is removed and its record repointed. A copy
+        whose size is far from the other's could be cut off, so both stay.
+        """
+        store = reset_class_store
+        acct_id = snowflake_id()
+        mid = snowflake_id()
+        await store.save(AccountFactory.build(id=acct_id))
+        await store.save(
+            MediaFactory.build(
+                id=mid, accountId=acct_id, local_filename=f"wrong_id_{mid}.mp4"
+            )
+        )
+        src = tmp_path / "Videos" / f"wrong_id_{mid}.mp4"
+        target = tmp_path / "Videos" / f"right_id_{mid}.mp4"
+        src.parent.mkdir(parents=True)
+        src.write_bytes(b"A" * source_size)
+        target.write_bytes(b"B" * 1000)
+
+        moved = await _safe_move(src, target, media_id=mid)
+
+        refreshed = await store.get(Media, mid)
+        assert moved is None
+        assert target.read_bytes() == b"B" * 1000
+        assert src.exists() is not removed
+        assert refreshed.local_filename == (target.name if removed else src.name)
+
 
 def test_classify_preview_by_id_set():
     assert _classify("x_id_11.jpg", preview_ids={11}) is True

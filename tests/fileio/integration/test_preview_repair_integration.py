@@ -352,3 +352,75 @@ async def test_repair_gives_extensionless_previews_their_extension(
         media_id: (await store.get(Media, media_id)).local_filename
         for media_id in (preview, duplicate, odd_preview)
     } == {preview: expected, duplicate: expected, odd_preview: odd_name}
+
+
+@pytest.mark.parametrize("mode", [True, "dry-run"], ids=["repair", "dry-run"])
+@pytest.mark.asyncio
+async def test_repair_removes_a_second_save_of_the_same_video(
+    entity_store, config, tmp_path, mode, caplog
+):
+    """A video saved twice keeps only the copy named as the database says.
+
+    Two saves of one video differ in bytes but barely in size. That holds for
+    a video under two times in its name, and for a preview saved under both
+    Timeline and Messages. Dry-run only says what it would delete.
+    """
+    caplog.set_level(logging.INFO)
+    store = entity_store
+    acct_id = snowflake_id()
+    video, preview, parent = (snowflake_id() for _ in range(3))
+    await store.save(AccountFactory.build(id=acct_id, username="creator"))
+    root = tmp_path / "creator"
+    videos = root / "Timeline" / "Videos"
+    wrong = videos / f"2025-02-23_at_17-08_UTC_id_{video}.mp4"
+    right = videos / f"2025-02-23_at_16-59_UTC_id_{video}.mp4"
+    preview_name = f"2026-01-02_at_03-04_UTC_preview_id_{preview}.mp4"
+    kept_preview = videos / "Previews" / preview_name
+    message_copy = root / "Messages" / "Videos" / "Previews" / preview_name
+    await store.save(
+        MediaFactory.build(
+            id=video,
+            accountId=acct_id,
+            mimetype="video/mp4",
+            createdAt=datetime(2025, 2, 23, 16, 59, tzinfo=UTC),
+            local_filename=wrong.name,
+            is_downloaded=True,
+        )
+    )
+    await store.save(
+        MediaFactory.build(
+            id=preview, accountId=acct_id, mimetype="video/mp4", createdAt=_NAMED_AT
+        )
+    )
+    await store.save(MediaFactory.build(id=parent, accountId=acct_id))
+    await store.save(
+        AccountMediaFactory.build(
+            id=parent, accountId=acct_id, mediaId=parent, previewId=preview
+        )
+    )
+    for path, content in (
+        (wrong, b"A" * 1000),
+        (right, b"B" * 1002),
+        (kept_preview, b"C" * 1000),
+        (message_copy, b"D" * 1003),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    config.separate_previews = True
+    config.repair_previews = mode
+    state = DownloadStateFactory.build(creator_id=acct_id, download_path=root)
+
+    await repair_preview_folder_items(config, state)
+
+    left = sorted(p for p in root.rglob("*") if p.is_file())
+    messages = [r.getMessage() for r in caplog.records]
+    recorded = (await store.get(Media, video)).local_filename
+    if mode == "dry-run":
+        assert left == sorted([wrong, right, kept_preview, message_copy])
+        assert recorded == wrong.name
+        assert any(f"[dry-run] delete {wrong}" in m for m in messages)
+        assert any(f"[dry-run] delete {message_copy}" in m for m in messages)
+    else:
+        assert left == sorted([right, kept_preview])
+        assert recorded == right.name
+        assert right.read_bytes() == b"B" * 1002
