@@ -186,23 +186,25 @@ def calculate_file_hash(
     return file_path, None, debug_info
 
 
-async def _hash_recorded_for_name(filename: str, media_id: int | None) -> str | None:
-    """The hash another record already holds for this file name.
+def _recorded_hashes(records: list[Media]) -> dict[str, str]:
+    """Index the hashes records already hold, by file name.
 
     A file saved from a variant is named after the variant, while the download
-    step saves its hash on the media the variant belongs to.
+    step saves its hash on the media the variant belongs to. Built once per
+    scan: looking a name up in the store reads every cached Media on the event
+    loop, which is too slow to do per file.
 
     Args:
-        filename: Name of the file on disk
-        media_id: Id of the record being checked, which is left out
+        records: The creator's downloaded Media
 
     Returns:
-        That hash, or None when no other record names this file with one.
+        File name -> content hash of a record naming it.
     """
-    for other in await get_store().find(Media, local_filename=filename):
-        if other.id != media_id and other.content_hash:
-            return other.content_hash
-    return None
+    by_name: dict[str, str] = {}
+    for media in records:
+        if media.local_filename and media.content_hash:
+            by_name.setdefault(media.local_filename, media.content_hash)
+    return by_name
 
 
 async def get_or_create_media(
@@ -213,12 +215,14 @@ async def get_or_create_media(
     file_hash: str | None = None,
     trust_filename: bool = False,
     config: FanslyConfig | None = None,
+    recorded_hashes: dict[str, str] | None = None,
 ) -> tuple[Media, bool]:
     """Get or create a media record with optimized database access.
 
     Strategy:
     1. Look up media by ID and/or hash
-    2. Calculate hash only if needed
+    2. Calculate hash only if needed, taking one already recorded for the
+       file name from ``recorded_hashes`` first
     3. One save at the end
     """
     store = get_store()
@@ -328,8 +332,9 @@ async def get_or_create_media(
             )
             return media_by_id, hash_verified
 
-        if not file_hash and trust_filename:
-            file_hash = await _hash_recorded_for_name(filename, media_by_id.id)
+        # This record has no hash, so a hash under its name is another record's.
+        if not file_hash and trust_filename and recorded_hashes:
+            file_hash = recorded_hashes.get(filename)
 
         # Calculate hash if needed. Compute even when trust_filename is set:
         # an existing record with no content_hash cannot be deduplicated by the
@@ -632,6 +637,7 @@ async def dedupe_init(
     )
     existing_downloaded = len(existing_media)
     print_info(f"Existing downloaded records: {existing_downloaded}")
+    recorded_hashes = _recorded_hashes(existing_media)
 
     # Initialize patterns and counters
     processed_count = 0
@@ -709,6 +715,7 @@ async def dedupe_init(
                     file_hash=hash2_value,
                     trust_filename=True,
                     config=config,
+                    recorded_hashes=recorded_hashes,
                 )
                 await _take_recorded_name(file_path, media, names)
                 if hash_verified:
@@ -742,6 +749,7 @@ async def dedupe_init(
                             state=state,
                             trust_filename=True,
                             config=config,
+                            recorded_hashes=recorded_hashes,
                         )
                         return result
                     finally:

@@ -272,17 +272,24 @@ class TestBuildMediaIndex:
         assert "leaf collision" in output
         assert str(second.id) in output
 
+    @pytest.mark.parametrize(
+        "shared",
+        [{"download_id": 7_000_000_000_000_001}, {"content_hash": "same-hash"}],
+        ids=["same_download_target", "hash_duplicate"],
+    )
     @pytest.mark.asyncio
     async def test_leaf_collision_same_download_target_unions_owners(
-        self, entity_store, respx_stash_processor
+        self, shared, entity_store, respx_stash_processor
     ):
         """Distinct media resolving to the SAME downloaded file union owners.
 
         When two media share a download target (same ``download_id``) they
-        render to the same leaf — they are one physical file. Dropping all but
-        the first would strip the dropped owners' gallery joins. The index must
-        keep the first media canonical but carry BOTH owning posts, and must NOT
-        warn (this is same-file dedup, not an ambiguous basename clash).
+        render to the same leaf — they are one physical file. So are a media
+        and its hash duplicate, whose record takes the first one's file name.
+        Dropping all but the first would strip the dropped owners' gallery
+        joins. The index must keep the first media canonical but carry BOTH
+        owning posts, and must NOT warn (this is same-file dedup, not an
+        ambiguous basename clash).
         """
         acct_id = snowflake_id()
         account = AccountFactory.build(id=acct_id, username="test_user")
@@ -299,7 +306,7 @@ class TestBuildMediaIndex:
                 accountId=acct_id,
                 mimetype="video/mp4",
                 is_downloaded=True,
-                download_id=target_id,  # same target -> same file -> same leaf
+                **shared,
                 local_filename=f"/dl/test_user/{leaf_name}",
             )
             await entity_store.save(m)

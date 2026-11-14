@@ -291,3 +291,64 @@ async def test_repair_noop_when_no_persisted_previews(entity_store, config, tmp_
 
     assert bug.exists()  # untouched — no previews to repair
     assert not (tmp_path / "Previews").exists()
+
+
+@pytest.mark.parametrize("mode", [True, "dry-run"], ids=["repair", "dry-run"])
+@pytest.mark.asyncio
+async def test_repair_gives_extensionless_previews_their_extension(
+    mode, entity_store, config, tmp_path
+):
+    """A preview saved as ``.None`` gets the extension its media type calls for.
+
+    The post's own media is a hash duplicate of the preview, so its record
+    names the same file and follows the rename. A preview whose type has no
+    known extension keeps its name.
+    """
+    store = entity_store
+    acct_id = snowflake_id()
+    preview, duplicate, odd_preview, odd_parent = (snowflake_id() for _ in range(4))
+    stamp = "2026-01-02_at_03-04_UTC"
+    old_name = f"{stamp}_preview_id_{preview}.None"
+    odd_name = f"{stamp}_preview_id_{odd_preview}.None"
+    await store.save(AccountFactory.build(id=acct_id, username="creator"))
+    for media_id, mimetype, name in (
+        (preview, "video/mp4", old_name),
+        (duplicate, "video/mp4", old_name),
+        (odd_preview, "application/octet-stream", odd_name),
+        (odd_parent, "video/mp4", None),
+    ):
+        await store.save(
+            MediaFactory.build(
+                id=media_id,
+                accountId=acct_id,
+                mimetype=mimetype,
+                createdAt=_NAMED_AT,
+                local_filename=name,
+                is_downloaded=True,
+            )
+        )
+    for parent, shown in ((duplicate, preview), (odd_parent, odd_preview)):
+        await store.save(
+            AccountMediaFactory.build(
+                id=parent, accountId=acct_id, mediaId=parent, previewId=shown
+            )
+        )
+    previews = tmp_path / "creator" / "Timeline" / "Videos" / "Previews"
+    previews.mkdir(parents=True)
+    (previews / old_name).write_text("video")
+    (previews / odd_name).write_text("unknown")
+    config.separate_previews = True
+    config.repair_previews = mode
+    state = DownloadStateFactory.build(
+        creator_id=acct_id, download_path=tmp_path / "creator"
+    )
+
+    await repair_preview_folder_items(config, state)
+
+    new_name = f"{stamp}_preview_id_{preview}.mp4"
+    expected = old_name if mode == "dry-run" else new_name
+    assert sorted(p.name for p in previews.iterdir()) == sorted([expected, odd_name])
+    assert {
+        media_id: (await store.get(Media, media_id)).local_filename
+        for media_id in (preview, duplicate, odd_preview)
+    } == {preview: expected, duplicate: expected, odd_preview: odd_name}

@@ -26,6 +26,15 @@ from textio import print_info
 
 _TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}_at_\d{2}-\d{2}(?:_[A-Z]+)?_")
 
+_NO_EXTENSION = ".None"
+# Extensions as the downloader takes them from Fansly's file URLs.
+_EXTENSION_BY_MIMETYPE = {
+    "image/jpeg": "jpeg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "video/mp4": "mp4",
+}
+
 
 async def build_preview_id_set(account_id: int) -> set[int]:
     """Return the set of Media ids that are persisted previews for a creator.
@@ -83,13 +92,21 @@ async def _files_identical(a: Path, b: Path) -> bool:
     return await asyncio.to_thread(filecmp.cmp, a, b, shallow=False)
 
 
-async def _safe_move(source: Path, target: Path, *, media_id: int) -> Path | None:
+async def _safe_move(
+    source: Path,
+    target: Path,
+    *,
+    media_id: int,
+    sharers: list[Media] | None = None,
+) -> Path | None:
     """Rename/move ``source`` to ``target`` and update Media.local_filename.
 
     Collision rule: if ``target`` already exists, compare byte content -
     identical -> unlink the duplicate ``source`` (return None); different ->
     skip and warn (return None, never clobber). On a clean move, update
     ``Media.local_filename`` to the new basename and return the new path.
+    ``sharers`` are the other records naming ``source``; they are repointed
+    with it.
     """
     if target == source:
         return None  # idempotent: already canonical
@@ -100,7 +117,7 @@ async def _safe_move(source: Path, target: Path, *, media_id: int) -> Path | Non
             # target, so repoint the record at the survivor — not the file we
             # just deleted — or the DB strands a Media on a nonexistent path.
             await asyncio.to_thread(source.unlink)
-            await _repoint_media(media_id, target.name)
+            await _repoint_media(media_id, target.name, sharers)
         else:
             logger.warning(
                 f"preview_repair: target exists with different content, "
@@ -111,15 +128,23 @@ async def _safe_move(source: Path, target: Path, *, media_id: int) -> Path | Non
     await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
     await asyncio.to_thread(source.rename, target)
 
-    await _repoint_media(media_id, target.name)
+    await _repoint_media(media_id, target.name, sharers)
     return target
 
 
-async def _repoint_media(media_id: int, new_basename: str) -> None:
+async def _repoint_media(
+    media_id: int, new_basename: str, sharers: list[Media] | None = None
+) -> None:
     """Point a Media's ``local_filename`` at ``new_basename`` and persist it.
 
     No-op (with a debug note) when the id has no Media record, so a file
     operation without a matching DB row doesn't pass silently.
+
+    Args:
+        media_id: Id of the media the file is named after
+        new_basename: The file's name after the move
+        sharers: Other records that named the same file (hash duplicates);
+            they follow the file too
     """
     store = get_store()
     media = await store.get(Media, media_id)
@@ -128,9 +153,13 @@ async def _repoint_media(media_id: int, new_basename: str) -> None:
             f"preview_repair: no Media for id={media_id}; "
             f"local_filename not updated to {new_basename!r}"
         )
-        return
-    media.local_filename = new_basename
-    await store.save(media)
+    else:
+        media.local_filename = new_basename
+        await store.save(media)
+    for sharer in sharers or []:
+        if sharer.id != media_id:
+            sharer.local_filename = new_basename
+            await store.save(sharer)
 
 
 def _name_from_database(name: str, media: Media | None) -> str:
@@ -145,6 +174,21 @@ def _name_from_database(name: str, media: Media | None) -> str:
         return name
     stamp = media.createdAt.strftime("%Y-%m-%d_at_%H-%M_UTC")
     return _TIMESTAMP_PREFIX.sub(f"{stamp}_", name, count=1)
+
+
+def _real_extension(name: str, media: Media | None) -> str:
+    """Replace a ``.None`` extension with the one the media's type calls for.
+
+    Downloads up to March 2026 saved some previews with no extension known,
+    which wrote the literal ``.None``. Unchanged when the name ends in anything
+    else or the media's type is not one of the known ones.
+    """
+    if not name.endswith(_NO_EXTENSION) or media is None:
+        return name
+    extension = _EXTENSION_BY_MIMETYPE.get(media.mimetype or "")
+    if extension is None:
+        return name
+    return f"{name.removesuffix(_NO_EXTENSION)}.{extension}"
 
 
 async def _drop_message_copies(
@@ -185,7 +229,8 @@ async def repair_preview_folder_items(
 
     Walks the creator folder and gives each media file the name the database
     says it should have: the ``preview_id_`` marker and ``Previews/`` folder
-    for persisted previews, and the database's UTC timestamp. A file that
+    for persisted previews, the database's UTC timestamp, and a real extension
+    in place of ``.None``. A file that
     lands on an identical existing one is removed as a duplicate, and a
     preview held under both Timeline and Messages keeps only the Timeline
     copy. ``Media.local_filename`` follows each rename. Honors the three-state
@@ -209,6 +254,13 @@ async def repair_preview_folder_items(
     renamed_paths: list[str] = []
     # Where each preview ended up, for the Timeline/Messages duplicate check.
     previews: dict[int, list[Path]] = {}
+    # A hash duplicate's record names another media's file; it follows a rename.
+    by_name: dict[str, list[Media]] = {}
+    for record in await get_store().find(
+        Media, accountId=state.creator_id, is_downloaded=True
+    ):
+        if record.local_filename:
+            by_name.setdefault(record.local_filename, []).append(record)
     try:
         all_files = [
             f
@@ -225,9 +277,12 @@ async def repair_preview_folder_items(
                 # Only the database can say what a file should be called;
                 # without it a name in local time would be guessed at.
                 continue
-            canonical_name = _name_from_database(
-                await normalize_filename(
-                    file_path.name, config=config, preview_ids=preview_ids
+            canonical_name = _real_extension(
+                _name_from_database(
+                    await normalize_filename(
+                        file_path.name, config=config, preview_ids=preview_ids
+                    ),
+                    media,
                 ),
                 media,
             )
@@ -246,7 +301,12 @@ async def repair_preview_folder_items(
                 if dry_run:
                     print_info(f"[dry-run] {file_path} -> {target}")
                 else:
-                    moved = await _safe_move(file_path, target, media_id=media_id)
+                    moved = await _safe_move(
+                        file_path,
+                        target,
+                        media_id=media_id,
+                        sharers=by_name.get(file_path.name),
+                    )
                     if moved is not None:
                         renamed_paths.append(str(moved))
                     # A source that no longer exists was a duplicate of target.

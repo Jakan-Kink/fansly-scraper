@@ -400,12 +400,19 @@ async def test_trust_filename_takes_the_hash_recorded_for_the_file(
     saved the hash on the media it belongs to. The scan finds the variant's
     record by the id in the name; it must copy that hash and not read the file
     again. The file here is not a video at all, so hashing it would give no
-    hash: getting the recorded one proves the file was not hashed.
+    hash: getting the recorded one proves the file was not hashed. The whole
+    scan runs, so the hash comes from its per-creator index of recorded names.
     """
     store = entity_store
+    config.download_directory = tmp_path
+    config.use_folder_suffix = False
     account_id = snowflake_id()
     await store.save(Account(id=account_id, username="test_user"))
-    state = DownloadStateFactory.build(creator_id=account_id, creator_name="test_user")
+    state = DownloadStateFactory.build(
+        download_type=DownloadType.TIMELINE,
+        creator_id=account_id,
+        creator_name="test_user",
+    )
     variant_id = snowflake_id()
     name = f"2026-07-03_at_10-11_UTC_id_{variant_id}.mp4"
     await store.save(
@@ -428,21 +435,15 @@ async def test_trust_filename_takes_the_hash_recorded_for_the_file(
             is_downloaded=True,
         )
     )
-    file_path = tmp_path / name
-    file_path.write_bytes(b"not a video")
-
-    media, hash_verified = await get_or_create_media(
-        file_path=file_path,
-        media_id=variant_id,
-        mimetype="video/mp4",
-        state=state,
-        trust_filename=True,
-        config=config,
+    create_test_file(
+        tmp_path / "test_user" / "Timeline" / "Videos", name, b"not a video"
     )
 
-    assert media.id == variant_id
+    await dedupe_init(config, state)
+
+    media = await store.get(Media, variant_id)
     assert media.content_hash == "hash-saved-at-download"
-    assert hash_verified is True
+    assert media.is_downloaded is True
     stored = await store.pool.fetchval(
         "SELECT content_hash FROM media WHERE id = $1", variant_id
     )

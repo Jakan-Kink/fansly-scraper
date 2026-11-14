@@ -722,8 +722,9 @@ class StashProcessingBase(StashProcessingProtocol):
 
         First writer for a leaf wins the Media. A later item is appended as an
         additional owner when it resolves to the same file — the same Media
-        object, or a distinct media with the same download target. A later media
-        with a DIFFERENT target is a collision (kept out, logged).
+        object, a distinct media with the same download target, or a hash
+        duplicate recorded under the first media's file name. Any other media
+        with that leaf is a collision (kept out, logged).
         """
         if media.local_filename is None:
             # Caller (_build_media_index) only registers media with a filename.
@@ -739,9 +740,17 @@ class StashProcessingBase(StashProcessingProtocol):
         # leaf is built from `download_id or id`, so a same-leaf clash with a
         # matching target IS one physical file). Only a different target is a
         # genuine ambiguous collision.
-        same_file = existing_media is media or (
-            existing_media.download_id or existing_media.id
-        ) == (media.download_id or media.id)
+        # A hash duplicate's record names the first media's file: same hash,
+        # same name, one physical file.
+        same_file = (
+            existing_media is media
+            or (existing_media.download_id or existing_media.id)
+            == (media.download_id or media.id)
+            or (
+                bool(media.content_hash)
+                and existing_media.content_hash == media.content_hash
+            )
+        )
         if not same_file:
             logger.warning(
                 f"Media-index leaf collision on {leaf!r}: media "
