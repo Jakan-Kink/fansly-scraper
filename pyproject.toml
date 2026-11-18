@@ -78,7 +78,7 @@ optional = true
 
 [tool.poetry.group.dev.dependencies]
 memory-profiler = ">=0.61.0"
-pylint = ">=3.3.3"
+pylint = ">=4.1.4"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
